@@ -1,0 +1,8 @@
+---
+title: "readMe"
+output: pdf_document
+date: "2026-01-20"
+---
+# Project description
+# Folder structure
+
