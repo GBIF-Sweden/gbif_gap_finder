@@ -1,0 +1,20 @@
+paths:
+  # Project folders (for reference; code uses these names as defaults)
+  data_raw: "data_raw"
+  data_proc: "data_proc"
+  output: "output"
+  logs: "logs"
+
+  # Raw dataset folders (YOUR actual names)
+  gbif_cube_dir: "data_raw/gbif_occurrence_cubes"
+  grid_10km_dir: "data_raw/eea_grid_10km"
+  grid_50km_dir: "data_raw/eea_grid_50km"
+  redlist_se_dir: "data_raw/red_list_se"
+  redlist_iucn_dir: "data_raw/red_list_iucn"
+  dyntaxa_dir: "data_raw/dyntaxa"
+
+files:
+  # Set these when you know the exact filenames (keeps workflow updateable)
+  redlist_se: null
+  redlist_iucn: null
+  dyntaxa: null
