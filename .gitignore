@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+.output
+.logs
+.data_raw/**
+.literature/**
