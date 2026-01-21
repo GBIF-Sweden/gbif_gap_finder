@@ -1,11 +1,11 @@
 paths:
-  # Project folders (for reference; code uses these names as defaults)
+  # Project folders
   data_raw: "data_raw"
   data_proc: "data_proc"
   output: "output"
   logs: "logs"
 
-  # Raw dataset folders (YOUR actual names)
+  # Raw dataset folders
   gbif_cube_dir: "data_raw/gbif_occurrence_cubes"
   grid_10km_dir: "data_raw/eea_grid_10km"
   grid_50km_dir: "data_raw/eea_grid_50km"
@@ -14,7 +14,33 @@ paths:
   dyntaxa_dir: "data_raw/dyntaxa"
 
 files:
-  # Set these when you know the exact filenames (keeps workflow updateable)
-  redlist_se: null
-  redlist_iucn: null
-  dyntaxa: null
+  # EEA grids
+  grids:
+    grid10km: "se_10km.shp"
+    grid50km: "EEA_50km_grid_v2024.gpkg"
+  # GBIF occurrence cube
+  cube_files:
+    grid10km:
+      occurrence: "species_occurrences_10km.csv"
+      observation: "species_observation_10km.csv"
+      humanObservation: "species_humanObservation_10km.csv"
+      machineObservation: "species_machineObservation_10km.csv"
+      materialSample: "species_materialSample_10km.csv"
+      materialCitation: "species_materialCitation_10km.csv"
+      preservedSpecimen: "species_preservedSpecimen_10km.csv"
+      livingSpecimen: "species_livingSpecimen_10km.csv"
+      fossilSpecimen: "species_fossilSpecimen_10km.csv"
+    grid50km:
+      occurrence: "species_occurrences_50km.csv"
+      observation: "species_observation_50km.csv"
+      humanObservation: "species_humanObservation_50km.csv"
+      machineObservation: "species_machineObservation_50km.csv"
+      materialSample: "species_materialSample_50km.csv"
+      materialCitation: "species_materialCitation_50km.csv"
+      preservedSpecimen: "species_preservedSpecimen_50km.csv"
+      livingSpecimen: "species_livingSpecimen_50km.csv"
+      fossilSpecimen: "species_fossilSpecimen_50km.csv"
+  # Swedish Red List (your two files A + B)
+  redlist_se:
+    redlist_se_distr: "distribution.txt"
+    redlist_se_taxon: "taxon.txt"

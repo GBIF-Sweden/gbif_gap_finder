@@ -8,8 +8,6 @@ if (!requireNamespace("here", quietly = TRUE)) {
   install.packages("here")
 }
 
-source(here::here("R", "packages.R"))
-
 # It DOES NOT auto-install packages (use install_missing_packages() explicitly).
 
 # ---- 0) Load dependency helper FIRST (requires 'here' to already be installed) ----

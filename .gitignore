@@ -2,8 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
-
 .output
 .logs
 .data_raw/**
+.data_proc/**
 .literature/**
