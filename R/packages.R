@@ -17,9 +17,8 @@ required_packages <- c(
   # Visualization
   "ggplot2", "scales", "patchwork", "leaflet",
   
-  
   # Workflow / pipeline
-  "targets", "tarchetypes",
+  "targets", "tarchetypes", "fst",
   
   # Diagrams
   "DiagrammeR",
