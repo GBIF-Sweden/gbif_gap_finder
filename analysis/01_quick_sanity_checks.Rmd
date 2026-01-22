@@ -38,11 +38,13 @@ totals %>%
   print(n = 50)
 ```
 
+### total occurrences by basisOfRecord
 ```{r}
-ggplot(totals, aes(x = basisOfRecord, y = total_occurrences)) +
+ggplot(totals, aes(x = basisOfRecord, y = total_occurrences, fill = basisOfRecord)) +
   geom_col() +
-  coord_flip() +
+  #coord_flip() +
   facet_wrap(~ grid, scales = "free_x") +
+  scale_fill_viridis_d() +
   labs(
     title = "Total occurrences by basisOfRecord (per grid)",
     x = "basisOfRecord",
@@ -52,16 +54,17 @@ ggplot(totals, aes(x = basisOfRecord, y = total_occurrences)) +
 ```
 
 
- 
+### total occurrences by basisOfRecord without humanObservation
 ```{r}
 
 totals_noHumObs <- totals %>%
   filter(basisOfRecord != "humanObservation")
 
-ggplot(totals_noHumObs, aes(x = basisOfRecord, y = total_occurrences)) +
+ggplot(totals_noHumObs, aes(x = basisOfRecord, y = total_occurrences, fill = basisOfRecord)) +
   geom_col() +
-  coord_flip() +
+  #coord_flip() +
   facet_wrap(~ grid, scales = "free_x") +
+  scale_fill_viridis_d(option = "B") +
   labs(
     title = "Total occurrences by basisOfRecord (per grid)",
     x = "basisOfRecord",

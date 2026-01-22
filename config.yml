@@ -44,3 +44,23 @@ files:
   redlist_se:
     redlist_se_distr: "distribution.txt"
     redlist_se_taxon: "taxon.txt"
+    
+derived:
+  dir: "derived"
+
+  # Outputs (analysis-ready summaries)
+  outputs:
+    cell_summary_10km: "cell_summary_10km.csv"
+    cell_summary_50km: "cell_summary_50km.csv"
+
+    time_summary_10km: "time_summary_10km.csv"
+    time_summary_50km: "time_summary_50km.csv"
+
+    species_summary_10km: "species_summary_10km.csv"
+    species_summary_50km: "species_summary_50km.csv"
+
+    cube_key_summary: "cube_key_summary.csv"
+
+    grid_lookup_10km: "grid_lookup_10km.csv"
+    grid_lookup_50km: "grid_lookup_50km.csv"
+
