@@ -231,6 +231,23 @@ A lightweight notebook for manual inspection (tables + plots) is available here:
 - analysis/01_quick_sanity_checks.Rmd
 
 It is intended for quick checks (totals, trends, seasonal bias) before proceeding to formal gap metric definitions.
+
+### Phase 3: Gap metric definitions
+
+```r
+source("scripts/07_define_spatial_gaps.R")
+source("scripts/08_define_temporal_gaps.R")
+source("scripts/09_define_taxonomic_gaps.R")
+```
+Outputs are written to:
+
+- data_proc/gaps/
+
+Gap metrics are defined in:
+
+- `docs/metrics.md`
+
+
 ---
 
 ## Analyses
