@@ -24,6 +24,7 @@ p_derived <- file.path(p_data_proc, "derived")
 library(dplyr)
 library(ggplot2)
 library(readr)
+library(viridis)
 ```
 
 ## 1) Cube totals by basisOfRecord
@@ -138,7 +139,31 @@ ggplot(time10_month, aes(x = month, y = occurrences)) +
   labs(x = "Month", y = "Occurrences", title = "Occurrences per year (10km, all)")
 ```
 
+### 3.3 Heatmap
 
+```{r}
+time10_heat <- time10 %>%
+  group_by(year, month) %>%
+  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+
+ggplot(time10_heat, aes(x = month, y = year, fill = occurrences)) +
+  geom_tile() +
+  scale_fill_viridis() +
+  scale_x_continuous(breaks = 1:12) +
+  labs(x = "Month", y = "Year", title = "Sampling intensity by year and month")
+
+
+time10_heat_last50yrs <- time10 %>%
+  filter(year > 1974) %>%
+  group_by(year, month) %>%
+  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+
+ggplot(time10_heat_last50yrs, aes(x = month, y = year, fill = occurrences)) +
+  geom_tile() +
+  scale_fill_viridis() +
+  scale_x_continuous(breaks = 1:12) +
+  labs(x = "Month", y = "Year", title = "Sampling intensity by year and month")
+```
 ---
 
 ## 4) Taxonomic sanity: top species
