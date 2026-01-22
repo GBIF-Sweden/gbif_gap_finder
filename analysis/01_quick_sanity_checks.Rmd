@@ -25,6 +25,30 @@ library(dplyr)
 library(ggplot2)
 library(readr)
 library(viridis)
+library(stringr)
+library(tidyr)
+library(sf)
+
+```
+
+## 0) Check Phase 2 derived files exist
+
+```{r}
+derived_files <- c(
+  "family_time_summary_10km.csv",
+  "order_time_summary_10km.csv",
+  "family_time_summary_50km.csv",
+  "order_time_summary_50km.csv",
+  "species_time_summary_topN_10km.csv",
+  "species_time_summary_topN_50km.csv"
+)
+
+exists_tbl <- tibble::tibble(
+  file = derived_files,
+  exists = file.exists(file.path(p_derived, derived_files))
+)
+
+exists_tbl
 ```
 
 ## 1) Cube totals by basisOfRecord
@@ -169,7 +193,194 @@ ggplot(time10_heat_last50yrs, aes(x = month, y = year, fill = occurrences)) +
 ```
 ---
 
-## 4) Taxonomic sanity: top species
+## 4) Family & Order time summaries (10km) ----
+
+```{r}
+fam10_path <- file.path(p_derived, "family_time_summary_10km.csv")
+ord10_path <- file.path(p_derived, "order_time_summary_10km.csv")
+
+if (file.exists(fam10_path)) {
+  fam10 <- readr::read_csv(fam10_path, show_col_types = FALSE) %>%
+    filter(basisofrecord == "all") %>%
+    mutate(
+      yearmonth_chr = str_trim(as.character(yearmonth)),
+      year = as.integer(substr(yearmonth_chr, 1, 4)),
+      month = as.integer(substr(yearmonth_chr, 6, 7))
+    )
+
+  # Top families overall
+  fam10_top <- fam10 %>%
+    group_by(family) %>%
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(occurrences)) %>%
+    slice_head(n = 20)
+
+  fam10_top
+
+  # Seasonality of top 10 families (month profile)
+  fam10_season <- fam10 %>%
+    semi_join(fam10_top %>% slice_head(n = 10), by = "family") %>%
+    group_by(family, month) %>%
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+
+  ggplot(fam10_season, aes(x = month, y = occurrences, group = family, color = family)) +
+    geom_line() +
+    scale_x_continuous(breaks = 1:12) +
+    scale_color_viridis_d() +
+    labs(
+      title = "Seasonality (top 10 families, 10km, all basisOfRecord)",
+      x = "Month", y = "Occurrences"
+    )
+} else {
+  message("Missing: ", fam10_path)
+}
+
+if (file.exists(ord10_path)) {
+  ord10 <- readr::read_csv(ord10_path, show_col_types = FALSE) %>%
+    filter(basisofrecord == "all") %>%
+    mutate(
+      yearmonth_chr = str_trim(as.character(yearmonth)),
+      year = as.integer(substr(yearmonth_chr, 1, 4)),
+      month = as.integer(substr(yearmonth_chr, 6, 7))
+    )
+
+  # Top orders overall
+  ord10_top <- ord10 %>%
+    group_by(order) %>%
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(occurrences)) %>%
+    slice_head(n = 20)
+
+  ord10_top
+
+  # Year trend of top 8 orders
+  ord10_year <- ord10 %>%
+    semi_join(ord10_top %>% slice_head(n = 8), by = "order") %>%
+    group_by(order, year) %>%
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+
+  ggplot(ord10_year, aes(x = year, y = occurrences, group = order, color = order)) +
+    geom_line() +
+    scale_color_viridis_d() +
+    labs(
+      title = "Yearly trend (top 8 orders, 10km, all basisOfRecord)",
+      x = "Year", y = "Occurrences"
+    )
+} else {
+  message("Missing: ", ord10_path)
+}
+```
+
+## 5) Species × time (Top N) quick look (10km) ----
+
+```{r}
+sp10t_path <- file.path(p_derived, "species_time_summary_topN_10km.csv")
+
+if (file.exists(sp10t_path)) {
+  sp10t <- readr::read_csv(sp10t_path, show_col_types = FALSE) %>%
+    filter(basisofrecord == "all") %>%
+    mutate(
+      yearmonth_chr = str_trim(as.character(yearmonth)),
+      year = as.integer(substr(yearmonth_chr, 1, 4)),
+      month = as.integer(substr(yearmonth_chr, 6, 7))
+    )
+
+  # Top 20 species overall (within the Top-N set)
+  sp10t_top <- sp10t %>%
+    group_by(specieskey, species) %>%
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(occurrences)) %>%
+    slice_head(n = 20)
+
+  sp10t_top
+
+  # Plot time series for top 6 species (monthly)
+  sp10t_top6 <- sp10t_top %>% slice_head(n = 6)
+
+  sp10t_plot <- sp10t %>%
+    semi_join(sp10t_top6, by = c("specieskey", "species")) %>%
+    mutate(ym = as.Date(paste0(yearmonth_chr, "-01")))
+
+  ggplot(sp10t_plot, aes(x = ym, y = occurrences, group = species)) +
+    geom_line() +
+    labs(
+      title = "Monthly time series (top 6 species within Top-N, 10km)",
+      x = "Month", y = "Occurrences"
+    )
+} else {
+  message("Missing (optional): ", sp10t_path)
+}
+```
+
+
+## 6 Map check (10km): join cell_summary to grid polygons ----
+
+```{r}
+grid10_path <- file.path(p_data_proc, "grids_10km.gpkg")
+cell10_path <- file.path(p_derived, "cell_summary_10km.csv")
+
+stopifnot(file.exists(grid10_path), file.exists(cell10_path))
+
+g10 <- sf::st_read(grid10_path, quiet = TRUE)
+
+cell10_all <- readr::read_csv(cell10_path, show_col_types = FALSE) %>%
+  dplyr::filter(basisofrecord == "all") %>%
+  dplyr::select(eeacellcode, occurrences)
+
+# Auto-detect likely cell-code field in the grid file
+guess_code_field <- function(nms) {
+  n <- tolower(nms)
+  # prefer EEA code fields
+  cand <- nms[grepl("eea", n) & grepl("code", n)]
+  if (length(cand) > 0) return(cand[1])
+  # then cellcode-ish fields
+  cand <- nms[grepl("cell", n) & grepl("code", n)]
+  if (length(cand) > 0) return(cand[1])
+  # fallback: any grid/cell/code column
+  cand <- nms[grepl("eea|cell|code|grid", n)]
+  if (length(cand) > 0) return(cand[1])
+  NA_character_
+}
+
+code_field <- guess_code_field(names(g10))
+if (is.na(code_field)) {
+  stop("Could not identify cell code field in grids_10km.gpkg. Columns are:\n",
+       paste(names(g10), collapse = ", "))
+}
+
+# Make a join key called eeacellcode
+g10$eeacellcode <- as.character(g10[[code_field]])
+
+# Join and compute log intensity
+g10_join <- g10 %>%
+  dplyr::left_join(cell10_all, by = "eeacellcode") %>%
+  dplyr::mutate(
+    occurrences = dplyr::coalesce(occurrences, 0),
+    log_occ = log10(occurrences + 1)
+  )
+
+# Quick join diagnostics
+diag <- g10_join %>%
+  sf::st_drop_geometry() %>%
+  dplyr::summarise(
+    n_cells = dplyr::n(),
+    n_matched_nonzero = sum(occurrences > 0),
+    n_zero = sum(occurrences == 0),
+    pct_matched_nonzero = round(100 * n_matched_nonzero / n_cells, 2)
+  )
+diag
+
+# Map (can be a bit heavy for 10km; still fine as a check)
+ggplot(g10_join) +
+  geom_sf(aes(fill = log_occ), linewidth = 0) +
+  labs(
+    title = "Map check: 10km grid joined with cube cell coverage (log10(occ+1))",
+    subtitle = paste0("Cell code field in grid: ", code_field),
+    fill = "log10(occ+1)"
+  )
+```
+
+## 6) Taxonomic sanity: top species
 
 ```{r}
 sp10 <- read_csv(file.path(p_derived, "species_summary_10km.csv"), show_col_types = FALSE) %>%
