@@ -75,3 +75,22 @@ derived:
     # OPTIONAL: species × time summary (top N species only)
     species_time_summary_topN_10km: "species_time_summary_topN_10km.csv"
     species_time_summary_topN_50km: "species_time_summary_topN_50km.csv"
+    
+gaps:
+  dir: "gaps"
+  outputs:
+    spatial_gaps_10km: "spatial_gaps_10km.csv"
+    spatial_gaps_50km: "spatial_gaps_50km.csv"
+    spatial_thresholds: "spatial_thresholds_by_basis.csv"
+
+    temporal_overview_month_10km: "temporal_overview_month_10km.csv"
+    temporal_overview_year_10km: "temporal_overview_year_10km.csv"
+    temporal_overview_month_50km: "temporal_overview_month_50km.csv"
+    temporal_overview_year_50km: "temporal_overview_year_50km.csv"
+    cell_recency_10km: "cell_recency_10km.csv"
+    cell_recency_50km: "cell_recency_50km.csv"
+
+    taxonomic_match_table: "taxonomic_match_table.csv"
+    missing_taxa: "missing_taxa.csv"
+    missing_threatened_taxa: "missing_threatened_taxa.csv"
+    taxonomic_gap_summary: "taxonomic_gap_summary.csv"
