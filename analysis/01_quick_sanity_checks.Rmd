@@ -1,0 +1,154 @@
+---
+title: "Quick sanity checks after scripts 1-6"
+output: html_document
+date: "`r format(Sys.Date())`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,     # show code
+  eval = TRUE,     # execute code
+  error = TRUE,    # show errors (and keep knitting)
+  warning = TRUE,  # show warnings
+  message = TRUE,   # show messages (e.g., package startup)
+  collapse = TRUE,  # show code + output together
+  comment = "#>"    # prefix output like reprex
+)
+
+source(here::here("scripts", "00_setup.R"))
+
+data_proc_rel <- cfg_get("paths.data_proc", "data_proc")
+p_data_proc <- here::here(data_proc_rel)
+p_derived <- file.path(p_data_proc, "derived")
+
+library(dplyr)
+library(ggplot2)
+library(readr)
+```
+
+## 1) Cube totals by basisOfRecord
+
+```{r}
+totals <- read_csv(file.path(p_data_proc, "cube_totals_by_basisOfRecord.csv"), show_col_types = FALSE)
+
+totals
+totals %>%
+  arrange(desc(total_occurrences)) %>%
+  print(n = 50)
+```
+
+```{r}
+ggplot(totals, aes(x = basisOfRecord, y = total_occurrences)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ grid, scales = "free_x") +
+  labs(
+    title = "Total occurrences by basisOfRecord (per grid)",
+    x = "basisOfRecord",
+    y = "Total occurrences"
+  )
+
+```
+
+
+ 
+```{r}
+
+totals_noHumObs <- totals %>%
+  filter(basisOfRecord != "humanObservation")
+
+ggplot(totals_noHumObs, aes(x = basisOfRecord, y = total_occurrences)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ grid, scales = "free_x") +
+  labs(
+    title = "Total occurrences by basisOfRecord (per grid)",
+    x = "basisOfRecord",
+    y = "Total occurrences" )
+
+```
+
+---
+
+## 2) Spatial sanity: top cells
+
+```{r}
+cell10 <- read_csv(file.path(p_derived, "cell_summary_10km.csv"), show_col_types = FALSE)
+cell50 <- read_csv(file.path(p_derived, "cell_summary_50km.csv"), show_col_types = FALSE)
+
+cell10 %>% 
+  filter(basisofrecord == "all") %>% 
+  arrange(desc(occurrences)) %>% 
+  head(20)
+```
+
+```{r}
+cell50 %>% 
+  filter(basisofrecord == "all") %>% 
+  arrange(desc(occurrences)) %>% 
+  head(20)
+```
+
+---
+
+## 3) Temporal sanity: time trend
+
+This section assumes that `yearmonth` is encoded as `YYYYMM` (e.g., `202312`).
+If your format is different, adjust the parsing.
+
+```{r}
+time10 <- read_csv(file.path(p_derived, "time_summary_10km.csv"), show_col_types = FALSE) %>%
+  filter(basisofrecord == "all")
+
+time10 <- time10 %>%
+  mutate(
+    yearmonth_chr = stringr::str_trim(as.character(yearmonth)),
+    year = as.integer(substr(yearmonth_chr, 1, 4)),
+    month = as.integer(substr(yearmonth_chr, 6, 7)),
+    ym = as.Date(paste0(yearmonth_chr, "-01"))
+  )
+
+
+ggplot(time10, aes(x = ym, y = occurrences)) +
+  geom_line() +
+  labs(x = "Year-Month", y = "Occurrences")
+
+```
+### 3.1 Plot by Year
+
+```{r}
+time10_year <- time10 %>%
+  group_by(year) %>%
+  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+
+ggplot(time10_year, aes(x = year, y = occurrences)) +
+  geom_line() +
+  labs(x = "Year", y = "Occurrences", title = "Occurrences per year (10km, all)")
+```
+### 3.2 Plot by Month
+
+```{r}
+time10_month <- time10 %>%
+  group_by(month) %>%
+  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+
+ggplot(time10_month, aes(x = month, y = occurrences)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:12, limits = c(1, 12)) +
+  labs(x = "Month", y = "Occurrences", title = "Occurrences per year (10km, all)")
+```
+
+
+---
+
+## 4) Taxonomic sanity: top species
+
+```{r}
+sp10 <- read_csv(file.path(p_derived, "species_summary_10km.csv"), show_col_types = FALSE) %>%
+  filter(basisofrecord == "all") %>%
+  arrange(desc(occurrences))
+
+sp10 %>%
+  select(specieskey, species, occurrences) %>%
+  head(30)
+```
