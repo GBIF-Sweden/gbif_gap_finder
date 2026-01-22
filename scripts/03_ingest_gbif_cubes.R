@@ -75,22 +75,30 @@ standardize_names_dt <- function(dt) {
 file_size_bytes <- function(path) as.numeric(file.info(path)$size)
 
 read_cube_minimal <- function(path) {
-  # Minimal columns for plotting/QA; fallback to occurrences-only if needed
-  tryCatch(
-    data.table::fread(
-      path,
-      select = c("occurrences", "yearmonth", "eeacellcode"),
-      showProgress = FALSE,
-      encoding = "UTF-8"
-    ),
-    error = function(e) data.table::fread(
-      path,
-      select = "occurrences",
-      showProgress = FALSE,
-      encoding = "UTF-8"
-    )
+  
+  # read only header to get exact column names
+  header <- names(data.table::fread(path, nrows = 0, encoding = "UTF-8"))
+  
+  # match yearmonth / eeacellcode case-insensitively
+  header_l <- tolower(header)
+  
+  col_occ <- header[header_l == "occurrences"][1]
+  col_ym  <- header[header_l == "yearmonth"][1]
+  col_cell <- header[header_l == "eeacellcode"][1]
+  
+  if (is.na(col_occ)) stop("Could not find 'occurrences' column in: ", path)
+  
+  cols <- c(col_occ, col_ym, col_cell)
+  cols <- cols[!is.na(cols)]
+  
+  data.table::fread(
+    path,
+    select = cols,
+    showProgress = FALSE,
+    encoding = "UTF-8"
   )
 }
+
 
 read_cube_full <- function(path) {
   data.table::fread(path, showProgress = TRUE, encoding = "UTF-8")
@@ -140,8 +148,10 @@ for (grid_name in names(cube_map)) {
     mini <- standardize_names_dt(mini)
     
     total_occ <- if ("occurrences" %in% names(mini)) safe_sum(mini$occurrences) else NA_real_
+    # IMPORTANT: yearmonth may be character or numeric; do NOT use is.finite()
     min_ym <- if ("yearmonth" %in% names(mini)) suppressWarnings(min(mini$yearmonth, na.rm = TRUE)) else NA
     max_ym <- if ("yearmonth" %in% names(mini)) suppressWarnings(max(mini$yearmonth, na.rm = TRUE)) else NA
+    
     
     totals_rows[[length(totals_rows) + 1]] <- data.frame(
       grid = grid_name,
@@ -149,8 +159,8 @@ for (grid_name in names(cube_map)) {
       source_file = fname,
       file_size_gb = round(size_gb, 3),
       total_occurrences = total_occ,
-      min_yearmonth = if (is.finite(min_ym)) as.character(min_ym) else NA_character_,
-      max_yearmonth = if (is.finite(max_ym)) as.character(max_ym) else NA_character_,
+      min_yearmonth = if (!is.na(min_ym)) as.character(min_ym) else NA_character_,
+      max_yearmonth = if (!is.na(max_ym)) as.character(max_ym) else NA_character_,
       stringsAsFactors = FALSE
     )
     

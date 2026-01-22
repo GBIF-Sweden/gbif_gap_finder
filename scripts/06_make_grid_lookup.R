@@ -1,5 +1,5 @@
 # scripts/06_make_grid_lookup.R
-# Phase 2: Prepare lookup tables to join grid polygons to cube eeacellcode.
+# Prepare lookup tables to join grid polygons to cube eeacellcode.
 #
 # Outputs to data_proc/derived/:
 #   - grid_lookup_10km.csv

@@ -1,5 +1,5 @@
 # scripts/05_make_derived_summaries.R
-# Phase 2: Create analysis-ready derived datasets from processed cube files (.fst)
+# Create analysis-ready derived datasets from processed cube files (.fst)
 #
 # Inputs:
 #   - data_proc/cubes/*.fst  (created by scripts/03_ingest_gbif_cubes.R)
@@ -219,4 +219,4 @@ key_out <- file.path(p_derived, "cube_key_summary.csv")
 data.table::fwrite(key_df, key_out)
 log_msg("Wrote: ", key_out, " (rows=", nrow(key_df), ")")
 
-log_msg("Phase 2 derived datasets created successfully.")
+log_msg("Derived datasets created successfully.")
