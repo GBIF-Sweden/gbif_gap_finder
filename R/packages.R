@@ -15,7 +15,7 @@ required_packages <- c(
   "sf", "terra", "exactextractr", "units",
   
   # Visualization
-  "ggplot2", "scales", "patchwork", "leaflet",
+  "ggplot2", "viridis", "scales", "patchwork", "leaflet",
   
   # Workflow / pipeline
   "targets", "tarchetypes", "fst",
