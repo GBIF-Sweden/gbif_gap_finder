@@ -13,7 +13,8 @@ The analysis is based on **GBIF Occurrence Cube data** and reference datasets in
 ## Project status
 
 ✅ Project setup + reproducible structure  
-⏳ Data ingestion / standardization  
+✅ Data ingestion / standardization  
+✅ Phase 1 validation  
 ⏳ Spatial / temporal / taxonomic gap analyses  
 ⏳ Reporting + figures  
 
@@ -40,9 +41,9 @@ gbif_sweden_data_gaps/
 
 ---
 
-## Data sources (raw data)
+## Data sources (raw inputs)
 
-Raw datasets are stored in `data-raw/` and should **not be edited manually**.
+Raw datasets are stored in `data_raw/` and must **not be edited manually**.
 
 **Main inputs:**
 - **GBIF Occurrence Cube** (downloaded last week; GBIF-mediated data for Sweden)
@@ -50,9 +51,9 @@ Raw datasets are stored in `data-raw/` and should **not be edited manually**.
 - **Sweden Species Red List** (current downloaded version; expected to be updated)
 - **Dyntaxa taxonomy reference** (to be downloaded)
 
-All raw datasets and download metadata (source, download date, license, filenames, notes) are documented in:
+All source metadata (download links, DOIs, filenames, notes) are documented here:
 
-- `data_raw/data_sources.Rmd`
+- `data_raw/data_sources.md`
 
 > Note: Raw data may not be committed to Git if files are large and/or redistribution is restricted.
 
@@ -60,15 +61,15 @@ All raw datasets and download metadata (source, download date, license, filename
 
 ## Reproducibility
 
-This project is designed to be as reproducible as possible using:
+This project is designed to be reproducible using:
 
 - **Git + GitHub** for version control
 - **renv** for locked R package versions
-- **usethis** for a clean, standard project structure
+- **config.yml** for version-controlled dataset paths + filenames
 
 ### Restore the R environment
 
-After cloning the repository, restore package versions using:
+After cloning the repository, restore package versions with:
 
 ```r
 renv::restore()
@@ -82,16 +83,17 @@ This installs the package versions specified in `renv.lock`.
 
 Dataset file names and locations are managed via:
 
-- `config.yml`
+config.yml
 
-This makes it easy to replace reference datasets (especially the **Red List** and **Dyntaxa**) without changing analysis code.
+This makes it easy to replace reference datasets (especially updated versions of the Swedish Red List export) without changing scripts.
 
-When a new Red List version becomes available:
-1. Download and place it in `data-raw/red_list/`
-2. Update the Red List filename (or path) entry in `config.yml`
-3. Re-run the ingestion script (see below)
+When a dataset updates:
 
-The same approach will be used for updated Dyntaxa exports.
+- Download and place it in the relevant data_raw/... folder
+
+- Update the filename(s) in config.yml
+
+- Re-run the relevant ingestion script(s)
 
 ---
 
@@ -99,48 +101,75 @@ The same approach will be used for updated Dyntaxa exports.
 
 All scripts should be run from the project root directory.
 
-### 1) Setup checks (packages, folders, configuration)
-
+0) Setup checks (packages, folders, configuration)
 ```r
 source("scripts/00_setup.R")
 ```
-
-### 2) Ingest + standardize EEA grids (10 km / 50 km)
-
+1) Ingest + standardize EEA grids (10 km / 50 km)
 ```r
 source("scripts/01_ingest_grids.R")
 ```
+Outputs written to data_proc/:
 
-### 3) Ingest + standardize Sweden Red List
+- grids_10km.gpkg
 
+- grids_50km.gpkg
+
+- Note: the EEA 50km grid source contains MULTISURFACE geometry and is converted to polygon geometry during ingestion.
+
+2) Ingest + standardize Swedish Red List / taxonomy export
 ```r
-source("scripts/02_ingest_redlist.R")
+source("scripts/02_ingest_redlist_taxonomy.R")
 ```
+Outputs written to data_proc/:
 
-### 4) Ingest + validate GBIF Occurrence Cube
+- redlist_se_distribution_current.rds
 
+- redlist_se_taxon_current.rds
+
+- taxa_reference_current.rds
+
+3) Ingest GBIF Occurrence Cube files
 ```r
-source("scripts/03_ingest_gbif_cube.R")
+source("scripts/03_ingest_gbif_cubes.R")
 ```
+Outputs written to data_proc/:
 
-### 5) (Once available) Ingest + standardize Dyntaxa
+- cubes/ (one processed file per cube input)
 
+- cube_manifest.csv
+
+- cube_totals_by_basisOfRecord.csv
+
+Large cube files can be ingested in a lightweight mode (totals computed without full ingestion), depending on script settings.
+
+4) Phase 1 validation (QA checks)
 ```r
-source("scripts/04_ingest_dyntaxa.R")
+source("scripts/04_validate_inputs.R")
 ```
+Outputs written to logs/:
+
+- validation_report_*.md
+
 
 ---
 
 ## Derived data (generated)
 
-Scripts write standardized, analysis-ready datasets to `data/` (file formats may vary depending on input formats):
+All standardized and derived datasets are written to data_proc/.
 
-- `data/grids_10km.gpkg`
-- `data/grids_50km.gpkg`
-- `data/grids_50km.gpkg`
-- `data/red_list_current.rds`
-- `data/dyntaxa_current.rds` *(once available)*
-- Occurrence Cube derived summaries (defined during ingestion)
+Current expected outputs include:
+
+- processed grid layers (*.gpkg)
+
+- taxonomic reference (taxa_reference_current.rds)
+
+- processed cube files in data_proc/cubes/ (.fst or .rds, depending on configuration)
+
+- cube manifest and totals tables (*.csv)
+
+- validation reports (logs/validation_report_*.md)
+
 
 ---
 
