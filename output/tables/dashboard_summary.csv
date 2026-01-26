@@ -1,0 +1,2 @@
+cells_10km_total,cells_10km_with_data,cells_10km_pct_coverage,cells_50km_total,cells_50km_with_data,cells_50km_pct_coverage,year_min,year_max,year_range,median_staleness_months_10km,pct_stale_5y_10km,taxa_in_reference,taxa_in_gbif,taxa_pct_coverage,n_priority_taxa,analysis_date
+7693,7693,100,332,332,100,1646,2025,380,4,23.5,11240,5936,52.8,4758,2026-01-26

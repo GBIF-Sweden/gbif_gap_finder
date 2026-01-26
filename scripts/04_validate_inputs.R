@@ -1,284 +1,426 @@
 # scripts/04_validate_inputs.R
-# Phase 1 Validation: quick QA of processed grids, cube outputs, and taxa reference.
-# Writes a markdown QA report to logs/.
+# ==============================================================================
+# Phase 1 Validation: Quality Assurance Checks
+# ==============================================================================
+# This script:
+# - Validates processed grid layers
+# - Checks GBIF cube ingestion outputs
+# - Verifies taxa reference completeness
+# - Writes a comprehensive markdown QA report to logs/
 
-source("scripts/00_setup.R")
+library(here)
+library(sf)
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(glue)
+library(cli)
 
-# ---- Paths (uses your YAML: paths.data_proc + paths.logs) ---------------------
-data_proc_rel <- cfg_get("paths.data_proc", "data_proc")
-logs_rel      <- cfg_get("paths.logs", "logs")
+source(here("scripts", "00_setup.R"))
 
-p_data_proc <- here::here(data_proc_rel)
-p_logs      <- here::here(logs_rel)
-dir.create(p_logs, showWarnings = FALSE, recursive = TRUE)
+# Configuration -----------------------------------------------------------
+timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+report_path <- here(p_logs, glue("validation_report_{timestamp}.md"))
 
-ts <- format(Sys.time(), "%Y%m%d_%H%M%S")
-report_path <- file.path(p_logs, paste0("validation_report_", ts, ".md"))
+# Helper functions --------------------------------------------------------
 
-# ---- Helpers -----------------------------------------------------------------
-md <- character()
-add <- function(...) md <<- c(md, paste0(...))
-hr  <- function() add("\n---\n")
-h1  <- function(x) add("\n# ", x, "\n")
-h2  <- function(x) add("\n## ", x, "\n")
-ok  <- function(x) add("- ✅ ", x)
-warn<- function(x) add("- ⚠️ ", x)
-bad <- function(x) add("- ❌ ", x)
-
-exists_file <- function(path) file.exists(path) && !dir.exists(path)
-exists_dir  <- function(path) dir.exists(path)
-
-safe_read_rds <- function(path) {
-  if (!exists_file(path)) stop("Missing file: ", path)
-  readRDS(path)
+#' Check if file exists (not directory)
+file_exists_safe <- function(path) {
+  file.exists(path) && !dir.exists(path)
 }
 
-# Identify likely cell code field in grid
-guess_cellcode_field <- function(nms) {
-  nms_l <- tolower(nms)
-  candidates <- nms[grepl("eea|cell|code|grid", nms_l)]
-  if (length(candidates) == 0) return(NA_character_)
-  # Prefer explicit matches
-  pref <- candidates[grepl("eea", tolower(candidates)) & grepl("code", tolower(candidates))]
-  if (length(pref) > 0) return(pref[1])
+#' Read RDS file safely with error handling
+#' @param path File path
+#' @return Object from RDS or NULL
+read_rds_safe <- function(path) {
+  if (!file_exists_safe(path)) {
+    cli_abort("File not found: {.path {path}}")
+  }
+  
+  tryCatch(
+    readRDS(path),
+    error = function(e) {
+      cli_abort("Failed to read RDS: {e$message}")
+    }
+  )
+}
+
+#' Guess cell code field name in grid data
+#' @param field_names Character vector of column names
+#' @return Best guess for cell code field or NA
+guess_cellcode_field <- function(field_names) {
+  names_lower <- str_to_lower(field_names)
+  
+  # Find candidates with relevant keywords
+  candidates <- field_names[
+    str_detect(names_lower, "eea|cell|code|grid")
+  ]
+  
+  if (length(candidates) == 0) {
+    return(NA_character_)
+  }
+  
+  # Prefer fields with both "eea" and "code"
+  preferred <- candidates[
+    str_detect(str_to_lower(candidates), "eea") &
+      str_detect(str_to_lower(candidates), "code")
+  ]
+  
+  if (length(preferred) > 0) {
+    return(preferred[1])
+  }
+  
   candidates[1]
 }
 
-# Read a small sample from fst or rds cube output
+#' Read sample from cube file (fst or rds)
+#' @param path Path to cube file
+#' @param n Number of rows to sample
+#' @return Data frame sample
 read_cube_sample <- function(path, n = 5000) {
-  if (!exists_file(path)) stop("Processed cube missing: ", path)
-  ext <- tools::file_ext(path)
-  
-  if (ext == "fst") {
-    if (!requireNamespace("fst", quietly = TRUE)) stop("Package fst not available.")
-    # fst supports reading slices; first n rows
-    return(fst::read_fst(path, from = 1, to = n))
+  if (!file_exists_safe(path)) {
+    cli_abort("Cube file not found: {.path {path}}")
   }
   
-  if (ext == "rds") {
-    dt <- readRDS(path)
-    if (inherits(dt, "data.table") || inherits(dt, "data.frame")) {
-      return(as.data.frame(utils::head(dt, n)))
+  file_ext <- tools::file_ext(path)
+  
+  if (file_ext == "fst") {
+    if (!requireNamespace("fst", quietly = TRUE)) {
+      cli_abort("Package {.pkg fst} required to read .fst files")
     }
-    stop("Unknown object in RDS: ", path)
+    return(fst::read_fst(path, from = 1, to = min(n, fst::metadata_fst(path)$nrOfRows)))
   }
   
-  stop("Unknown processed cube file extension: ", ext)
+  if (file_ext == "rds") {
+    data <- readRDS(path)
+    if (inherits(data, c("data.table", "data.frame"))) {
+      return(as.data.frame(head(data, n)))
+    }
+    cli_abort("Unknown RDS object type")
+  }
+  
+  cli_abort("Unknown file extension: {file_ext}")
 }
 
-# ---- Start report -------------------------------------------------------------
-h1("Phase 1 Validation Report")
-add("\nRun time: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n")
-add("\nProject root: `", here::here(), "`\n")
-add("\nProcessed data folder: `", p_data_proc, "`\n")
-add("\nConfig file: `", here::here("config.yml"), "`\n")
+# Markdown report builder -------------------------------------------------
+# Simple builder pattern for markdown output
 
-# ==============================================================================
-# 1) Grids
-# ==============================================================================
-h2("1) Grid layers (10km & 50km)")
+md_lines <- character()
 
-grid10_proc <- if (exists("out_grid_10km_gpkg")) out_grid_10km_gpkg else here::here(p_data_proc, "grids_10km.gpkg")
-grid50_proc <- if (exists("out_grid_50km_gpkg")) out_grid_50km_gpkg else here::here(p_data_proc, "grids_50km.gpkg")
-
-if (!exists_file(grid10_proc)) bad(paste0("10km processed grid missing: `", grid10_proc, "`")) else ok(paste0("10km processed grid found: `", grid10_proc, "`"))
-if (!exists_file(grid50_proc)) bad(paste0("50km processed grid missing: `", grid50_proc, "`")) else ok(paste0("50km processed grid found: `", grid50_proc, "`"))
-
-# Only proceed if present
-if (exists_file(grid10_proc) && exists_file(grid50_proc)) {
-  g10 <- sf::st_read(grid10_proc, quiet = TRUE)
-  g50 <- sf::st_read(grid50_proc, quiet = TRUE)
-  
-  # CRS check
-  epsg10 <- sf::st_crs(g10)$epsg
-  epsg50 <- sf::st_crs(g50)$epsg
-  add("\n- 10km CRS EPSG: `", epsg10, "`\n")
-  add("- 50km CRS EPSG: `", epsg50, "`\n")
-  if (!is.na(epsg10) && epsg10 == CRS_SWEREF99TM) ok("10km CRS is SWEREF99 TM (EPSG:3006)") else warn("10km CRS is not EPSG:3006 (check transformation)")
-  if (!is.na(epsg50) && epsg50 == CRS_SWEREF99TM) ok("50km CRS is SWEREF99 TM (EPSG:3006)") else warn("50km CRS is not EPSG:3006 (check transformation)")
-  
-  # Geometry types + validity
-  gt10 <- unique(sf::st_geometry_type(g10))
-  gt50 <- unique(sf::st_geometry_type(g50))
-  add("\n- 10km geometry types: `", paste(gt10, collapse = ", "), "`\n")
-  add("- 50km geometry types: `", paste(gt50, collapse = ", "), "`\n")
-  
-  # Validity quick check (sample to avoid heavy)
-  inv10 <- sum(!sf::st_is_valid(g10))
-  inv50 <- sum(!sf::st_is_valid(g50))
-  add("\n- 10km invalid geometries: `", inv10, "`\n")
-  add("- 50km invalid geometries: `", inv50, "`\n")
-  if (inv10 == 0) ok("10km geometries valid") else warn("10km has invalid geometries (may still work, but consider fixing)")
-  if (inv50 == 0) ok("50km geometries valid") else warn("50km has invalid geometries (may still work, but consider fixing)")
-  
-  # Row counts
-  add("\n- 10km cells (rows): `", nrow(g10), "`\n")
-  add("- 50km cells (rows): `", nrow(g50), "`\n")
-  
-  # Try to find cell code field
-  f10 <- guess_cellcode_field(names(g10))
-  f50 <- guess_cellcode_field(names(g50))
-  add("\n- 10km likely cell code field: `", f10, "`\n")
-  add("- 50km likely cell code field: `", f50, "`\n")
-  
-  if (!is.na(f10)) {
-    u10 <- length(unique(g10[[f10]]))
-    if (u10 == nrow(g10)) ok("10km cell code field appears unique") else warn("10km cell code field not unique (check identifier)")
-  } else {
-    warn("Could not guess 10km cell code field (we'll need to identify it for joining to cube eeacellcode)")
-  }
-  
-  if (!is.na(f50)) {
-    u50 <- length(unique(g50[[f50]]))
-    if (u50 == nrow(g50)) ok("50km cell code field appears unique") else warn("50km cell code field not unique (check identifier)")
-  } else {
-    warn("Could not guess 50km cell code field (we'll need to identify it for joining to cube eeacellcode)")
-  }
+md_add <- function(...) {
+  md_lines <<- c(md_lines, paste0(..., collapse = ""))
 }
 
-hr()
+md_h1 <- function(text) md_add("\n# ", text, "\n")
+md_h2 <- function(text) md_add("\n## ", text, "\n")
+md_h3 <- function(text) md_add("\n### ", text, "\n")
+md_hr <- function() md_add("\n---\n")
 
-# ==============================================================================
-# 2) Cube ingestion outputs
-# ==============================================================================
-h2("2) Occurrence Cube outputs")
+md_check <- function(text, status = c("ok", "warn", "fail")) {
+  icon <- switch(
+    match.arg(status),
+    ok = "✅",
+    warn = "⚠️",
+    fail = "❌"
+  )
+  md_add("- ", icon, " ", text, "\n")
+}
 
-manifest_path <- file.path(p_data_proc, "cube_manifest.csv")
-totals_path   <- file.path(p_data_proc, "cube_totals_by_basisOfRecord.csv")
+md_code_block <- function(text, lang = "text") {
+  md_add("\n```", lang, "\n", text, "\n```\n")
+}
 
-if (!exists_file(manifest_path)) bad(paste0("Cube manifest missing: `", manifest_path, "`")) else ok(paste0("Cube manifest found: `", manifest_path, "`"))
-if (!exists_file(totals_path))   bad(paste0("Cube totals missing: `", totals_path, "`"))   else ok(paste0("Cube totals found: `", totals_path, "`"))
+# Start validation report -------------------------------------------------
+cli_h1("Phase 1 Validation")
 
-if (exists_file(manifest_path)) {
-  man <- readr::read_csv(manifest_path, show_col_types = FALSE)
-  add("\n- Manifest rows: `", nrow(man), "`\n")
-  add("- Full ingests: `", sum(man$full_ingest %in% TRUE), "`\n")
-  add("- Skipped full ingests: `", sum(man$full_ingest %in% FALSE), "`\n")
-  
-  # Check processed files exist where expected
-  if ("processed_file" %in% names(man)) {
-    expected <- man$processed_file[man$full_ingest %in% TRUE]
-    missing  <- expected[!is.na(expected) & !file.exists(expected)]
-    if (length(missing) == 0) ok("All processed cube files exist for full_ingest==TRUE") else bad(paste0("Missing processed cube outputs: ", paste(missing, collapse = ", ")))
+md_h1("Phase 1 Validation Report")
+md_add("\n**Run time:** ", timestamp(), "\n")
+md_add("**Project root:** `", here(), "`\n")
+md_add("**Processed data:** `", p_data_proc, "`\n")
+md_add("**Config file:** `", here("config.yml"), "`\n")
+
+# Section 1: Grid Layers --------------------------------------------------
+cli_h2("Validating Grid Layers")
+md_hr()
+md_h2("1) Grid Layers (10km & 50km)")
+
+grid_checks <- tibble::tribble(
+  ~resolution, ~path, ~var_name,
+  "10km", out_grid_10km_gpkg, "g10",
+  "50km", out_grid_50km_gpkg, "g50"
+)
+
+grid_results <- grid_checks |>
+  mutate(
+    exists = map_lgl(path, file_exists_safe),
+    grid_data = map(path, ~{
+      if (file_exists_safe(.x)) st_read(.x, quiet = TRUE) else NULL
+    })
+  )
+
+# Report existence
+walk2(grid_results$resolution, grid_results$exists, ~{
+  if (.y) {
+    md_check(glue("{(.x)} grid file found"), "ok")
+    cli_alert_success("{(.x)} grid found")
   } else {
-    warn("Manifest has no 'processed_file' column to verify outputs")
+    md_check(glue("{(.x)} grid file MISSING"), "fail")
+    cli_alert_danger("{(.x)} grid MISSING")
   }
-  
-  # Sample a few processed cubes to check schema
-  sample_rows <- man[man$full_ingest %in% TRUE & !is.na(man$processed_file), , drop = FALSE]
-  if (nrow(sample_rows) > 0) {
-    k <- min(3, nrow(sample_rows))
-    sample_rows <- sample_rows[seq_len(k), ]
+})
+
+# Detailed validation for existing grids
+grid_results |>
+  filter(exists) |>
+  pwalk(function(resolution, path, grid_data, ...) {
     
-    add("\n### 2.1 Column checks (sample of processed cubes)\n")
-    for (i in seq_len(nrow(sample_rows))) {
-      pf <- sample_rows$processed_file[i]
-      g  <- sample_rows$grid[i]
-      bor<- sample_rows$basisOfRecord[i]
-      
-      add("\n- Sample: `", basename(pf), "` (grid=", g, ", basisOfRecord=", bor, ")\n")
-      
-      samp <- tryCatch(read_cube_sample(pf, n = 2000), error = function(e) e)
-      if (inherits(samp, "error")) {
-        warn(paste0("Could not read sample: ", samp$message))
-        next
-      }
-      
-      cn <- tolower(names(samp))
-      required <- c("specieskey", "eeacellcode", "yearmonth", "occurrences")
-      missing_cols <- required[!required %in% cn]
-      if (length(missing_cols) == 0) ok("Required cube columns present: specieskey, eeacellcode, yearmonth, occurrences")
-      else warn(paste0("Missing some expected cube columns: ", paste(missing_cols, collapse = ", ")))
-      
-      # basic sanity of occurrences
-      if ("occurrences" %in% cn) {
-        occ <- as.numeric(samp[[names(samp)[cn == "occurrences"][1]]])
-        if (all(is.finite(occ), na.rm = TRUE)) ok("occurrences column parses as numeric") else warn("occurrences has non-numeric values (check parsing)")
-        if (min(occ, na.rm = TRUE) >= 0) ok("occurrences min >= 0") else warn("occurrences has negative values (unexpected)")
-      }
-      
-      rm(samp)
-      invisible(gc())
+    md_add("\n#### ", resolution, " grid details\n")
+    
+    # CRS check
+    epsg <- st_crs(grid_data)$epsg
+    md_add("- EPSG: `", epsg, "`\n")
+    
+    if (!is.na(epsg) && epsg == CRS_SWEREF99TM) {
+      md_check("CRS is SWEREF99 TM (EPSG:3006)", "ok")
+      cli_alert_success("{resolution}: CRS correct")
+    } else {
+      md_check("CRS is NOT EPSG:3006", "warn")
+      cli_alert_warning("{resolution}: CRS issue")
     }
+    
+    # Geometry check
+    geom_types <- unique(st_geometry_type(grid_data))
+    md_add("- Geometry types: `", paste(geom_types, collapse = ", "), "`\n")
+    
+    # Validity check
+    invalid_count <- sum(!st_is_valid(grid_data))
+    md_add("- Invalid geometries: `", invalid_count, "`\n")
+    
+    if (invalid_count == 0) {
+      md_check("All geometries valid", "ok")
+      cli_alert_success("{resolution}: Geometries valid")
+    } else {
+      md_check(glue("{invalid_count} invalid geometries"), "warn")
+      cli_alert_warning("{resolution}: {invalid_count} invalid")
+    }
+    
+    # Cell count
+    n_cells <- nrow(grid_data)
+    md_add("- Total cells: `", scales::comma(n_cells), "`\n")
+    cli_alert_info("{resolution}: {scales::comma(n_cells)} cells")
+    
+    # Cell code field
+    cell_field <- guess_cellcode_field(names(grid_data))
+    md_add("- Cell code field: `", cell_field, "`\n")
+    
+    if (!is.na(cell_field)) {
+      n_unique <- length(unique(grid_data[[cell_field]]))
+      if (n_unique == n_cells) {
+        md_check("Cell codes are unique", "ok")
+      } else {
+        md_check("Cell codes NOT unique - check identifier", "warn")
+      }
+    } else {
+      md_check("Could not identify cell code field", "warn")
+    }
+  })
+
+# Section 2: GBIF Cube Outputs --------------------------------------------
+cli_h2("Validating GBIF Cube Outputs")
+md_hr()
+md_h2("2) GBIF Occurrence Cube Outputs")
+
+manifest_path <- here(p_data_proc, "cube_manifest.csv")
+totals_path <- here(p_data_proc, "cube_totals_by_basisOfRecord.csv")
+
+# Check manifest
+if (file_exists_safe(manifest_path)) {
+  md_check("Cube manifest found", "ok")
+  cli_alert_success("Manifest found")
+  
+  manifest <- read_csv(manifest_path, show_col_types = FALSE)
+  
+  md_add("- Manifest entries: `", nrow(manifest), "`\n")
+  md_add("- Full ingests: `", sum(manifest$full_ingest), "`\n")
+  md_add("- Skipped ingests: `", sum(!manifest$full_ingest), "`\n")
+  
+  # Check processed files exist
+  if ("processed_file" %in% names(manifest)) {
+    expected_files <- manifest |>
+      filter(full_ingest, !is.na(processed_file)) |>
+      pull(processed_file)
+    
+    missing_files <- expected_files[!file.exists(expected_files)]
+    
+    if (length(missing_files) == 0) {
+      md_check("All expected cube files exist", "ok")
+      cli_alert_success("All cube files present")
+    } else {
+      md_check(glue("{length(missing_files)} cube files MISSING"), "fail")
+      cli_alert_danger("{length(missing_files)} files missing")
+    }
+  }
+  
+  # Sample cube files for schema check
+  md_h3("2.1 Column Checks (Sample Cubes)")
+  
+  sample_cubes <- manifest |>
+    filter(full_ingest, !is.na(processed_file)) |>
+    slice_head(n = 3)
+  
+  if (nrow(sample_cubes) > 0) {
+    walk(seq_len(nrow(sample_cubes)), ~{
+      cube_info <- sample_cubes[.x, ]
+      
+      md_add("\n**Sample:** `", basename(cube_info$processed_file), "`\n")
+      md_add("- Grid: ", cube_info$grid, "\n")
+      md_add("- Basis: ", cube_info$basisOfRecord, "\n")
+      
+      sample_data <- tryCatch(
+        read_cube_sample(cube_info$processed_file, n = 2000),
+        error = function(e) {
+          md_check(glue("Read failed: {e$message}"), "fail")
+          return(NULL)
+        }
+      )
+      
+      if (!is.null(sample_data)) {
+        col_names_lower <- str_to_lower(names(sample_data))
+        
+        required_cols <- c("specieskey", "eeacellcode", "yearmonth", "occurrences")
+        missing_cols <- setdiff(required_cols, col_names_lower)
+        
+        if (length(missing_cols) == 0) {
+          md_check("All required columns present", "ok")
+        } else {
+          md_check(glue("Missing: {paste(missing_cols, collapse = ', ')}"), "warn")
+        }
+        
+        # Check occurrences column
+        if ("occurrences" %in% col_names_lower) {
+          occ_col <- names(sample_data)[col_names_lower == "occurrences"][1]
+          occ_values <- as.numeric(sample_data[[occ_col]])
+          
+          if (all(is.finite(occ_values), na.rm = TRUE)) {
+            md_check("Occurrences column is numeric", "ok")
+          }
+          
+          if (min(occ_values, na.rm = TRUE) >= 0) {
+            md_check("Occurrences ≥ 0", "ok")
+          } else {
+            md_check("NEGATIVE occurrences detected", "fail")
+          }
+        }
+      }
+    })
   } else {
-    warn("No fully ingested cubes available to sample (all were skipped as large?)")
+    md_check("No fully ingested cubes to sample", "warn")
   }
+  
+} else {
+  md_check("Cube manifest MISSING", "fail")
+  cli_alert_danger("Manifest missing")
 }
 
-if (exists_file(totals_path)) {
-  tots <- readr::read_csv(totals_path, show_col_types = FALSE)
-  add("\n### 2.2 Totals quick view\n")
-  add("\n- Totals rows: `", nrow(tots), "`\n")
-  if (all(c("grid", "basisOfRecord", "total_occurrences") %in% names(tots))) {
-    # show top 5 by total occurrences
-    top5 <- tots |>
-      dplyr::arrange(dplyr::desc(total_occurrences)) |>
-      dplyr::slice_head(n = 5)
-    add("\nTop 5 (grid, basisOfRecord, total_occurrences):\n\n")
-    add("```text\n")
-    add(paste(capture.output(print(top5[, c("grid","basisOfRecord","total_occurrences")])), collapse = "\n"))
-    add("\n```\n")
+# Check totals file
+if (file_exists_safe(totals_path)) {
+  md_h3("2.2 Totals Summary")
+  md_check("Cube totals file found", "ok")
+  
+  totals <- read_csv(totals_path, show_col_types = FALSE)
+  
+  md_add("- Total entries: `", nrow(totals), "`\n")
+  
+  if (all(c("grid", "basisOfRecord", "total_occurrences") %in% names(totals))) {
+    top_5 <- totals |>
+      arrange(desc(total_occurrences)) |>
+      slice_head(n = 5) |>
+      select(grid, basisOfRecord, total_occurrences)
+    
+    md_add("\n**Top 5 by occurrence count:**\n")
+    md_code_block(capture.output(print(top_5, row.names = FALSE)))
   }
+} else {
+  md_check("Cube totals MISSING", "fail")
 }
 
-hr()
+# Section 3: Taxa Reference -----------------------------------------------
+cli_h2("Validating Taxa Reference")
+md_hr()
+md_h2("3) Taxa Reference (Red List / Taxonomy)")
 
-# ==============================================================================
-# 3) Taxa reference outputs
-# ==============================================================================
-h2("3) Taxa reference (Red List / taxonomy)")
+taxa_ref_path <- here(p_data_proc, "taxa_reference_current.rds")
 
-taxa_ref_path <- file.path(p_data_proc, "taxa_reference_current.rds")
-dist_path     <- file.path(p_data_proc, "redlist_se_distribution_current.rds")
-taxon_path    <- file.path(p_data_proc, "redlist_se_taxon_current.rds")
-
-if (!exists_file(taxa_ref_path)) bad(paste0("taxa_reference_current.rds missing: `", taxa_ref_path, "`")) else ok(paste0("Taxa reference found: `", taxa_ref_path, "`"))
-if (!exists_file(dist_path))     warn(paste0("Distribution RDS not found (optional): `", dist_path, "`")) else ok("Distribution RDS present")
-if (!exists_file(taxon_path))    warn(paste0("Taxon RDS not found (optional): `", taxon_path, "`")) else ok("Taxon RDS present")
-
-if (exists_file(taxa_ref_path)) {
-  tr <- safe_read_rds(taxa_ref_path)
+if (file_exists_safe(taxa_ref_path)) {
+  md_check("Taxa reference found", "ok")
+  cli_alert_success("Taxa reference found")
   
-  add("\n- Taxa reference rows: `", nrow(tr), "`\n")
-  add("- Taxa reference cols: `", ncol(tr), "`\n")
+  taxa_ref <- read_rds_safe(taxa_ref_path)
   
-  # Column presence (DwC-ish)
-  # Note: your script may have standardized names to lowercase; check both variants.
-  cols <- names(tr)
-  cols_l <- tolower(cols)
+  md_add("- Rows: `", scales::comma(nrow(taxa_ref)), "`\n")
+  md_add("- Columns: `", ncol(taxa_ref), "`\n")
   
-  need_any <- function(options) any(tolower(options) %in% cols_l)
+  # Check DwC columns
+  col_names <- names(taxa_ref)
+  col_names_lower <- str_to_lower(col_names)
   
-  if (need_any(c("taxonID", "taxonid"))) ok("taxonID present") else warn("taxonID not found (check ingestion mapping)")
-  if (need_any(c("scientificName", "scientificname"))) ok("scientificName present") else warn("scientificName not found")
-  if (need_any(c("taxonRank", "taxonrank"))) ok("taxonRank present") else warn("taxonRank not found")
-  if (need_any(c("acceptedNameUsageID", "acceptednameusageid"))) ok("acceptedNameUsageID present") else warn("acceptedNameUsageID not found")
-  if (need_any(c("threatStatus", "threatstatus"))) ok("threatStatus present") else warn("threatStatus not found")
+  dwc_checks <- tribble(
+    ~field, ~variants,
+    "taxonID", c("taxonid", "taxonID"),
+    "scientificName", c("scientificname", "scientificName"),
+    "taxonRank", c("taxonrank", "taxonRank"),
+    "acceptedNameUsageID", c("acceptednameusageid", "acceptedNameUsageID"),
+    "threatStatus", c("threatstatus", "threatStatus")
+  )
   
-  # Duplicate key checks
+  md_add("\n#### Column Checks\n")
+  
+  walk2(dwc_checks$field, dwc_checks$variants, ~{
+    if (any(str_to_lower(.y) %in% col_names_lower)) {
+      md_check(glue("{(.x)} present"), "ok")
+    } else {
+      md_check(glue("{(.x)} MISSING"), "warn")
+    }
+  })
+  
+  # Check for duplicates in key field
   key_candidates <- c("taxonid", "taxonID", "id")
-  key <- key_candidates[tolower(key_candidates) %in% cols_l][1]
-  if (!is.na(key)) {
-    kname <- cols[match(tolower(key), cols_l)]
-    dup_n <- sum(duplicated(tr[[kname]]))
-    add("\n- Duplicate count for key `", kname, "`: `", dup_n, "`\n")
-    if (dup_n == 0) ok(paste0("No duplicates in key: ", kname)) else warn(paste0("Duplicates present in key: ", kname, " (may be fine depending on structure)"))
-  } else {
-    warn("No obvious key column found to check duplicates (id/taxonID)")
+  key_field <- intersect(str_to_lower(key_candidates), col_names_lower)[1]
+  
+  if (!is.na(key_field)) {
+    actual_key <- col_names[col_names_lower == key_field][1]
+    n_duplicates <- sum(duplicated(taxa_ref[[actual_key]]))
+    
+    md_add("\n- Key field: `", actual_key, "`\n")
+    md_add("- Duplicates: `", n_duplicates, "`\n")
+    
+    if (n_duplicates == 0) {
+      md_check("No duplicate keys", "ok")
+    } else {
+      md_check(glue("{n_duplicates} duplicate keys"), "warn")
+    }
   }
   
-  # Missingness of threatStatus (indicator of successful join between taxon and distribution)
-  th <- NULL
-  if ("threatStatus" %in% cols) th <- tr$threatStatus
-  if ("threatstatus" %in% cols) th <- tr$threatstatus
-  if (!is.null(th)) {
-    na_rate <- mean(is.na(th))
-    add("\n- threatStatus NA rate: `", round(na_rate, 3), "`\n")
-    if (na_rate < 0.95) ok("threatStatus attached for a meaningful share of rows") else warn("threatStatus mostly NA (join key may not match between taxon and distribution)")
+  # Check threatStatus coverage
+  if ("threatStatus" %in% col_names) {
+    threat_na_rate <- mean(is.na(taxa_ref$threatStatus))
+    md_add("- threatStatus NA rate: `", round(threat_na_rate, 3), "`\n")
+    
+    if (threat_na_rate < 0.95) {
+      md_check("threatStatus has meaningful coverage", "ok")
+    } else {
+      md_check("threatStatus mostly NA - check join", "warn")
+    }
   }
+  
+} else {
+  md_check("Taxa reference MISSING", "fail")
+  cli_alert_danger("Taxa reference missing")
 }
 
-# ---- Write report -------------------------------------------------------------
-writeLines(md, report_path)
-message("Validation report written to: ", report_path)
+# Write report ------------------------------------------------------------
+writeLines(md_lines, report_path)
 
+cli_alert_success("Validation report written: {.path {report_path}}")
+cli_alert_info("Review report for any warnings or failures")

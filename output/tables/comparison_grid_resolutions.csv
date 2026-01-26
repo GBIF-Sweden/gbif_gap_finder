@@ -1,0 +1,3 @@
+grid_resolution,n_cells_total,n_cells_with_data,pct_coverage,total_occurrences,mean_occ_per_cell
+10km,7693,7693,100,134239874,17449.6
+50km,332,332,100,134238009,404331.4

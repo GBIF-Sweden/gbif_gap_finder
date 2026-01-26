@@ -1,83 +1,162 @@
 # scripts/01_ingest_grids.R
-# Read EEA grids (10km + 50km) from config.yml, standardize CRS, write to data_proc/.
+# ==============================================================================
+# EEA Grid Ingestion & Standardization
+# ==============================================================================
+# This script:
+# - Reads EEA grid shapefiles (10km and 50km resolution)
+# - Standardizes CRS to SWEREF99 TM
+# - Handles complex geometry types (MULTISURFACE -> MULTIPOLYGON)
+# - Validates and repairs geometries
+# - Writes processed grids to data_proc/
 
-source("scripts/00_setup.R")
+library(here)
+library(sf)
+library(dplyr)
+library(purrr)
+library(cli)
+library(glue)
 
-# --- Inputs from config.yml ---------------------------------------------------
-grid10_dir  <- cfg_get("paths.grid_10km_dir")
-grid50_dir  <- cfg_get("paths.grid_50km_dir")
-grid10_file <- cfg_get("files.grids.grid10km")
-grid50_file <- cfg_get("files.grids.grid50km")
+source(here("scripts", "00_setup.R"))
 
-stopifnot(!is.null(grid10_dir), !is.null(grid50_dir),
-          !is.null(grid10_file), !is.null(grid50_file))
+# Configuration -----------------------------------------------------------
+grid_configs <- list(
+  grid10km = list(
+    dir = cfg_get("paths.grid_10km_dir"),
+    file = cfg_get("files.grids.grid10km"),
+    output = out_grid_10km_gpkg
+  ),
+  grid50km = list(
+    dir = cfg_get("paths.grid_50km_dir"),
+    file = cfg_get("files.grids.grid50km"),
+    output = out_grid_50km_gpkg
+  )
+)
 
-f_grid10 <- here::here(grid10_dir, grid10_file)
-f_grid50 <- here::here(grid50_dir, grid50_file)
+# Validate configuration --------------------------------------------------
+purrr::walk(grid_configs, ~{
+  if (is.null(.x$dir) || is.null(.x$file)) {
+    cli_abort("Missing grid configuration in config.yml")
+  }
+})
 
-# --- Helpers ------------------------------------------------------------------
-read_sf_safe <- function(path) {
-  if (!file.exists(path)) stop("File not found: ", path)
-  sf::st_read(path, quiet = TRUE)
-}
+# Helper functions --------------------------------------------------------
 
-standardize_grid <- function(x, target_crs = CRS_SWEREF99TM) {
-  
-  if (is.na(sf::st_crs(x))) stop("Input grid has no CRS set.")
-  
-  # Transform first
-  x <- sf::st_transform(x, target_crs)
-  
-  old_s2 <- sf::sf_use_s2()
-  sf::sf_use_s2(FALSE)
-  
-  gt <- unique(sf::st_geometry_type(x))
-  log_msg("Geometry types before: ", paste(gt, collapse = ", "))
-  
-  # --- Handle MULTISURFACE safely --------------------------------------------
-  if (any(gt == "MULTISURFACE")) {
-    # Step 1: MULTISURFACE -> GEOMETRYCOLLECTION
-    x <- sf::st_cast(x, "GEOMETRYCOLLECTION", warn = FALSE)
-    
-    # Step 2: extract polygon parts only
-    x <- sf::st_collection_extract(x, "POLYGON", warn = FALSE)
-    
-    # Step 3: ensure consistent polygon type
-    x <- sf::st_cast(x, "MULTIPOLYGON", warn = FALSE)
-  } else {
-    # For normal POLYGON/MULTIPOLYGON grids (like your 10km)
-    x <- sf::st_cast(x, "MULTIPOLYGON", warn = FALSE)
+#' Read spatial file with error handling
+#' @param path Full path to spatial file
+#' @return sf object
+read_grid_safe <- function(path) {
+  if (!file.exists(path)) {
+    cli_abort("Grid file not found: {.path {path}}")
   }
   
-  # Fix validity (GEOS)
-  x <- tryCatch(
-    sf::st_make_valid(x),
-    error = function(e) sf::st_buffer(x, 0)
+  cli_alert_info("Reading: {.path {path}}")
+  
+  tryCatch(
+    st_read(path, quiet = TRUE),
+    error = function(e) {
+      cli_abort("Failed to read grid file: {e$message}")
+    }
   )
-  
-  sf::sf_use_s2(old_s2)
-  
-  gt2 <- unique(sf::st_geometry_type(x))
-  log_msg("Geometry types after: ", paste(gt2, collapse = ", "))
-  
-  x
 }
 
+#' Standardize grid CRS and geometry type
+#' @param grid sf object with grid geometries
+#' @param target_crs Target CRS (default: SWEREF99 TM)
+#' @return Standardized sf object
+standardize_grid <- function(grid, target_crs = CRS_SWEREF99TM) {
+  
+  # Validate input CRS
+  if (is.na(st_crs(grid))) {
+    cli_abort("Input grid has no CRS defined")
+  }
+  
+  cli_alert_info("Original CRS: {st_crs(grid)$input}")
+  
+  # Transform to target CRS
+  grid <- st_transform(grid, target_crs)
+  cli_alert_success("Transformed to: {st_crs(grid)$input}")
+  
+  # Temporarily disable s2 for planar operations
+  old_s2 <- sf_use_s2()
+  sf_use_s2(FALSE)
+  on.exit(sf_use_s2(old_s2))
+  
+  # Check geometry types
+  geom_types <- unique(st_geometry_type(grid))
+  cli_alert_info("Geometry types: {paste(geom_types, collapse = ', ')}")
+  
+  # Handle MULTISURFACE (common in EEA 50km grid)
+  if (any(geom_types == "MULTISURFACE")) {
+    cli_alert_info("Converting MULTISURFACE geometries...")
+    
+    grid <- grid |>
+      st_cast("GEOMETRYCOLLECTION", warn = FALSE) |>
+      st_collection_extract("POLYGON", warn = FALSE) |>
+      st_cast("MULTIPOLYGON", warn = FALSE)
+  } else {
+    # Standardize to MULTIPOLYGON
+    grid <- st_cast(grid, "MULTIPOLYGON", warn = FALSE)
+  }
+  
+  # Validate and repair geometries
+  invalid_count <- sum(!st_is_valid(grid))
+  
+  if (invalid_count > 0) {
+    cli_alert_warning("Found {invalid_count} invalid geometries - repairing...")
+    
+    grid <- tryCatch(
+      st_make_valid(grid),
+      error = function(e) {
+        cli_alert_warning("st_make_valid failed, using buffer(0) method")
+        st_buffer(grid, 0)
+      }
+    )
+  }
+  
+  # Verify final geometry types
+  final_types <- unique(st_geometry_type(grid))
+  cli_alert_success("Final geometry types: {paste(final_types, collapse = ', ')}")
+  
+  grid
+}
 
+# Process grids -----------------------------------------------------------
+cli_h2("Processing EEA Grids")
 
-# --- Read ---------------------------------------------------------------------
-log_msg("Reading 10km grid: ", f_grid10)
-g10 <- read_sf_safe(f_grid10) |> standardize_grid()
+grids_processed <- purrr::map(grid_configs, ~{
+  # Construct file path
+  grid_path <- here(.x$dir, .x$file)
+  
+  # Read and standardize
+  grid <- read_grid_safe(grid_path) |>
+    standardize_grid()
+  
+  # Write output
+  cli_alert_info("Writing to: {.path {(.x$output)}}")
+  st_write(
+    grid, 
+    .x$output, 
+    delete_dsn = TRUE, 
+    quiet = TRUE
+  )
+  
+  cli_alert_success(
+    "Processed {nrow(grid)} grid cells ({ncol(grid)} attributes)"
+  )
+  
+  grid
+})
 
-log_msg("Reading 50km grid: ", f_grid50)
-g50 <- read_sf_safe(f_grid50) |> standardize_grid()
+# Summary -----------------------------------------------------------------
+cli_h2("Ingestion Summary")
 
-# --- Write --------------------------------------------------------------------
-log_msg("Writing processed 10km grid -> ", out_grid_10km_gpkg)
-sf::st_write(g10, out_grid_10km_gpkg, delete_dsn = TRUE, quiet = TRUE)
+summary_table <- tibble::tibble(
+  grid = names(grid_configs),
+  n_cells = purrr::map_int(grids_processed, nrow),
+  n_attributes = purrr::map_int(grids_processed, ncol),
+  output_file = purrr::map_chr(grid_configs, "output")
+)
 
-log_msg("Writing processed 50km grid -> ", out_grid_50km_gpkg)
-sf::st_write(g50, out_grid_50km_gpkg, delete_dsn = TRUE, quiet = TRUE)
+print(summary_table)
 
-log_msg("Done: grids ingested.")
-
+cli_alert_success("Grid ingestion complete!")

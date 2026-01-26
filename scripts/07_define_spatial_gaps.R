@@ -1,207 +1,369 @@
 # scripts/07_define_spatial_gaps.R
-# Phase 3: Spatial gap metrics (per EEA cell)
+# ==============================================================================
+# Spatial Gap Analysis - Comprehensive
+# ==============================================================================
+# This script creates detailed spatial gap metrics across multiple dimensions:
+# - Per grid cell (10km, 50km)
+# - Per basis of record
+# - Per taxonomic rank (if available)
+# - Combined metrics
 #
-# Inputs (Phase 2):
-#   - data_proc/derived/cell_summary_10km.csv
-#   - data_proc/derived/cell_summary_50km.csv
-#
-# Additional inputs (to build "all cells" universe):
-#   - data_proc/grids_10km.gpkg
-#   - data_proc/grids_50km.gpkg
-#
-# Outputs (Phase 3):
-#   - data_proc/gaps/spatial_gaps_10km.csv
-#   - data_proc/gaps/spatial_gaps_50km.csv
-#   - data_proc/gaps/spatial_thresholds_by_basis.csv
+# Outputs include:
+# - Cell-level gaps (zero coverage, low coverage)
+# - Basis-specific summaries
+# - Aggregate summaries
+# - Threshold definitions
 
-source("scripts/00_setup.R")
+library(here)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(purrr)
+library(stringr)
+library(data.table)
+library(sf)
+library(glue)
+library(cli)
 
-# ---- Dependencies -------------------------------------------------------------
-pkgs <- c("data.table", "readr", "dplyr", "stringr", "sf")
-for (p in pkgs) if (!requireNamespace(p, quietly = TRUE)) stop("Missing package: ", p)
+source(here("scripts", "00_setup.R"))
 
-# ---- Paths -------------------------------------------------------------------
-data_proc_rel <- cfg_get("paths.data_proc", "data_proc")
-p_data_proc <- here::here(data_proc_rel)
+# Configuration -----------------------------------------------------------
+p_derived <- here(p_data_proc, "derived")
+p_gaps <- here(p_data_proc, "gaps")
 
-p_derived <- file.path(p_data_proc, cfg_get("derived.dir", "derived"))
-p_gaps <- file.path(p_data_proc, "gaps")
 dir.create(p_gaps, showWarnings = FALSE, recursive = TRUE)
 
-# ---- Parameters --------------------------------------------------------------
-# Quantile thresholds computed among cells with occurrences > 0 (per grid + basisofrecord)
-Q_LOW <- c(0.05, 0.10)  # currently used as q05/q10
+# Quantile thresholds for "low coverage" definition
+# Computed among cells with occurrences > 0
+QUANTILE_THRESHOLDS <- c(0.05, 0.10, 0.25)
 
-# ---- Helpers -----------------------------------------------------------------
+# Helper functions --------------------------------------------------------
 
-read_cell_summary <- function(fname) {
-  path <- file.path(p_derived, fname)
-  if (!file.exists(path)) stop("Missing derived file: ", path)
-  dt <- data.table::fread(path)
-  # expected: grid, basisofrecord, eeacellcode, occurrences
-  need <- c("grid", "basisofrecord", "eeacellcode", "occurrences")
-  miss <- setdiff(need, names(dt))
-  if (length(miss)) stop("Missing columns in ", fname, ": ", paste(miss, collapse = ", "))
+#' Read cell summary safely
+read_cell_summary <- function(filename) {
+  path <- here(p_derived, filename)
+  
+  if (!file.exists(path)) {
+    cli_abort("Cell summary not found: {.path {path}}")
+  }
+  
+  dt <- fread(path)
+  
+  required_cols <- c("grid", "basisofrecord", "eeacellcode", "occurrences")
+  missing_cols <- setdiff(required_cols, names(dt))
+  
+  if (length(missing_cols) > 0) {
+    cli_abort(c(
+      "Missing required columns in {.path {filename}}",
+      "x" = "Missing: {paste(missing_cols, collapse = ', ')}"
+    ))
+  }
+  
   dt
 }
 
-# Guess the cell-code field in a grid gpkg
-guess_code_field <- function(nms) {
-  n <- tolower(nms)
-  cand <- nms[grepl("eea", n) & grepl("code", n)]
-  if (length(cand) > 0) return(cand[1])
-  cand <- nms[grepl("cell", n) & grepl("code", n)]
-  if (length(cand) > 0) return(cand[1])
-  cand <- nms[grepl("eea|cell|code|grid", n)]
-  if (length(cand) > 0) return(cand[1])
+#' Guess EEA cell code field in grid
+guess_cellcode_field <- function(field_names) {
+  names_lower <- str_to_lower(field_names)
+  
+  # Priority 1: eea + code
+  candidates <- field_names[
+    str_detect(names_lower, "eea") & str_detect(names_lower, "code")
+  ]
+  if (length(candidates) > 0) return(candidates[1])
+  
+  # Priority 2: cell + code
+  candidates <- field_names[
+    str_detect(names_lower, "cell") & str_detect(names_lower, "code")
+  ]
+  if (length(candidates) > 0) return(candidates[1])
+  
+  # Priority 3: any relevant keyword
+  candidates <- field_names[
+    str_detect(names_lower, "eea|cell|code|grid")
+  ]
+  if (length(candidates) > 0) return(candidates[1])
+  
   NA_character_
 }
 
-# Read all cell codes from a gpkg (single layer assumed)
-get_all_cell_codes_from_gpkg <- function(gpkg_path) {
-  stopifnot(file.exists(gpkg_path))
-  g <- sf::st_read(gpkg_path, quiet = TRUE)
-  code_field <- guess_code_field(names(g))
-  if (is.na(code_field)) stop("Could not detect EEA cell code field in: ", gpkg_path)
-  unique(as.character(g[[code_field]]))
-}
-
-# --- Build Sweden-domain 50km cell codes using the 10km Sweden grid as mask ----
-get_sweden_codes_50km <- function(p_data_proc, grid50_file = "grids_50km.gpkg", grid10_file = "grids_10km.gpkg") {
-  grid50_path <- file.path(p_data_proc, grid50_file)
-  grid10_path <- file.path(p_data_proc, grid10_file)
-  
-  stopifnot(file.exists(grid50_path), file.exists(grid10_path))
-  
-  g50 <- sf::st_read(grid50_path, quiet = TRUE)
-  g10 <- sf::st_read(grid10_path, quiet = TRUE)
-  
-  code_field_50 <- guess_code_field(names(g50))
-  if (is.na(code_field_50)) stop("Could not detect EEA cell code field in grids_50km.gpkg")
-  
-  # Ensure same CRS
-  if (sf::st_crs(g50) != sf::st_crs(g10)) {
-    g10 <- sf::st_transform(g10, sf::st_crs(g50))
+#' Get all cell codes from grid file
+get_all_cellcodes <- function(grid_path) {
+  if (!file.exists(grid_path)) {
+    cli_abort("Grid file not found: {.path {grid_path}}")
   }
   
-  # Sweden mask = union of Sweden 10km grid
-  sw_mask <- sf::st_union(sf::st_geometry(g10))
+  grid <- st_read(grid_path, quiet = TRUE)
+  code_field <- guess_cellcode_field(names(grid))
   
-  # Keep only 50km cells that intersect Sweden mask
-  hits <- sf::st_intersects(sf::st_geometry(g50), sw_mask, sparse = FALSE)[, 1]
-  codes <- as.character(g50[[code_field_50]][hits])
+  if (is.na(code_field)) {
+    cli_abort(c(
+      "Could not identify cell code field",
+      "i" = "Available fields: {paste(names(grid), collapse = ', ')}"
+    ))
+  }
   
-  unique(codes)
+  unique(as.character(grid[[code_field]]))
 }
 
-# Build a "cell universe" table (grid x eeacellcode) for completing missing zeros
-make_cell_universe <- function(dt, cell_codes) {
-  data.table::setDT(dt)
-  grids <- unique(dt$grid)
-  # If dt has multiple grid labels, replicate cell_codes across them
-  u <- data.table::CJ(grid = grids, eeacellcode = unique(cell_codes))
-  u
+#' Filter 50km grid to Sweden domain using 10km mask
+get_sweden_cellcodes_50km <- function() {
+  grid50_path <- here(p_data_proc, "grids_50km.gpkg")
+  grid10_path <- here(p_data_proc, "grids_10km.gpkg")
+  
+  grid50 <- st_read(grid50_path, quiet = TRUE)
+  grid10 <- st_read(grid10_path, quiet = TRUE)
+  
+  code_field <- guess_cellcode_field(names(grid50))
+  
+  # Ensure same CRS
+  if (st_crs(grid50) != st_crs(grid10)) {
+    grid10 <- st_transform(grid10, st_crs(grid50))
+  }
+  
+  # Sweden mask
+  sweden_mask <- st_union(st_geometry(grid10))
+  
+  # Intersect
+  intersects <- st_intersects(st_geometry(grid50), sweden_mask, sparse = FALSE)[, 1]
+  
+  unique(as.character(grid50[[code_field]][intersects]))
 }
 
-# Core computation: complete grid x cell x BOR, compute BOR gaps + overall gaps + thresholds
-compute_spatial_gaps <- function(dt, cell_universe, q_low = Q_LOW) {
-  data.table::setDT(dt)
-  data.table::setDT(cell_universe)
+#' Create complete cell universe (grid × cell × basis)
+make_cell_universe <- function(cell_data, all_cellcodes) {
+  setDT(cell_data)
   
-  # Ensure correct types
-  dt[, occurrences := as.numeric(occurrences)]
-  dt[is.na(occurrences), occurrences := 0]
+  grids <- unique(cell_data$grid)
+  basis_levels <- unique(cell_data$basisofrecord)
   
-  # BOR levels present in this dataset
-  bor_levels <- sort(unique(dt$basisofrecord))
+  # Create all combinations
+  universe <- CJ(
+    grid = grids,
+    eeacellcode = all_cellcodes,
+    basisofrecord = basis_levels
+  )
   
-  # Complete: (grid x eeacellcode) x basisofrecord
-  full <- cell_universe[
-    , .(basisofrecord = bor_levels), by = .(grid, eeacellcode)
-  ]
+  universe
+}
+
+#' Compute comprehensive spatial gaps
+compute_spatial_gaps <- function(cell_data, cell_universe, quantiles = QUANTILE_THRESHOLDS) {
+  setDT(cell_data)
+  setDT(cell_universe)
   
-  # Join observed data; missing combos => 0
-  full <- dt[full, on = .(grid, eeacellcode, basisofrecord)]
-  full[is.na(occurrences), occurrences := 0]
+  # Ensure numeric occurrences
+  cell_data[, occurrences := as.numeric(occurrences)]
+  cell_data[is.na(occurrences), occurrences := 0]
   
-  # BOR-specific zero coverage
-  full[, gap_zero := (occurrences == 0)]
+  # Complete the data: left join universe with observed data
+  complete_data <- cell_universe[cell_data, on = .(grid, eeacellcode, basisofrecord)]
+  complete_data[is.na(occurrences), occurrences := 0]
   
-  # ---- Overall (cell-level) definitions across BORs --------------------------
-  # any_occ: at least one BOR has occurrences > 0
-  # all_zero: all BORs are zero
-  # missing_some_bor: at least one BOR is zero AND at least one BOR is non-zero
-  cell_overall <- full[, .(
-    cell_any_occ = any(occurrences > 0),
-    cell_all_zero = all(occurrences == 0),
-    cell_missing_some_bor = any(occurrences == 0) & any(occurrences > 0)
-  ), by = .(grid, eeacellcode)]
+  # Gap definitions per cell × basis
+  complete_data[, gap_zero := (occurrences == 0)]
+  complete_data[, has_data := (occurrences > 0)]
   
-  full <- merge(full, cell_overall, by = c("grid", "eeacellcode"), all.x = TRUE)
-  
-  # ---- Quantile thresholds among non-zero cells, per grid + basisofrecord ----
-  thresh <- full[occurrences > 0,
-                 .(
-                   q05 = stats::quantile(occurrences, probs = 0.05, na.rm = TRUE, names = FALSE, type = 7),
-                   q10 = stats::quantile(occurrences, probs = 0.10, na.rm = TRUE, names = FALSE, type = 7),
-                   n_nonzero = .N
-                 ),
-                 by = .(grid, basisofrecord)
-  ]
+  # Compute quantile thresholds per grid × basis (among non-zero cells)
+  thresholds <- complete_data[occurrences > 0, {
+    quants <- quantile(occurrences, probs = quantiles, na.rm = TRUE, names = FALSE)
+    names(quants) <- paste0("q", str_pad(as.integer(quantiles * 100), 2, pad = "0"))
+    as.list(c(
+      quants,
+      list(
+        n_nonzero = .N,
+        mean_nonzero = mean(occurrences),
+        median_nonzero = median(occurrences),
+        max_occurrences = max(occurrences)
+      )
+    ))
+  }, by = .(grid, basisofrecord)]
   
   # Join thresholds back
-  out <- merge(full, thresh, by = c("grid", "basisofrecord"), all.x = TRUE)
+  result <- merge(
+    complete_data,
+    thresholds,
+    by = c("grid", "basisofrecord"),
+    all.x = TRUE
+  )
   
-  # Low-coverage gaps (relative, only among non-zero)
-  out[, gap_low_q05 := (occurrences > 0 & !is.na(q05) & occurrences <= q05)]
-  out[, gap_low_q10 := (occurrences > 0 & !is.na(q10) & occurrences <= q10)]
+  # Define low-coverage gaps (for each quantile)
+  for (q in quantiles) {
+    q_col <- paste0("q", str_pad(as.integer(q * 100), 2, pad = "0"))
+    gap_col <- paste0("gap_low_", q_col)
+    
+    result[, (gap_col) := (occurrences > 0 & !is.na(get(q_col)) & occurrences <= get(q_col))]
+  }
   
-  # Mapping helper
-  out[, log_occ := log10(occurrences + 1)]
+  # Cell-level aggregates (across all basis of record)
+  cell_aggregates <- result[, .(
+    total_occurrences_cell = sum(occurrences),
+    n_basis_with_data = sum(has_data),
+    n_basis_zero = sum(gap_zero),
+    cell_has_any_data = any(has_data),
+    cell_all_zero = all(gap_zero)
+  ), by = .(grid, eeacellcode)]
   
-  list(out = out, thresholds = thresh)
+  # Join back
+  result <- merge(result, cell_aggregates, by = c("grid", "eeacellcode"), all.x = TRUE)
+  
+  # Add mapping helper
+  result[, log_occ := log10(occurrences + 1)]
+  
+  list(
+    gaps = result,
+    thresholds = thresholds
+  )
 }
 
-# ---- Run ---------------------------------------------------------------------
-cell10_name <- cfg_get("derived.outputs.cell_summary_10km", "cell_summary_10km.csv")
-cell50_name <- cfg_get("derived.outputs.cell_summary_50km", "cell_summary_50km.csv")
+# Load data ---------------------------------------------------------------
+cli_h2("Loading Cell Summaries")
 
-cell10 <- read_cell_summary(cell10_name)
-cell50 <- read_cell_summary(cell50_name)  # <-- FIX: you were missing this
+cell10 <- read_cell_summary("cell_summary_10km.csv")
+cell50 <- read_cell_summary("cell_summary_50km.csv")
 
-# Build cell universes from grids
-grid10_path <- file.path(p_data_proc, "grids_10km.gpkg")
-grid50_path <- file.path(p_data_proc, "grids_50km.gpkg")
+cli_alert_success("Loaded 10km: {scales::comma(nrow(cell10))} rows")
+cli_alert_success("Loaded 50km: {scales::comma(nrow(cell50))} rows")
 
-codes10 <- get_all_cell_codes_from_gpkg(grid10_path)
-u10 <- make_cell_universe(cell10, codes10)
+# Build cell universes ----------------------------------------------------
+cli_h2("Building Cell Universes")
 
-# Filter 50km universe to Sweden-domain BEFORE completing
-sweden_codes_50 <- get_sweden_codes_50km(p_data_proc)
-u50 <- make_cell_universe(cell50, sweden_codes_50)
+grid10_path <- here(p_data_proc, "grids_10km.gpkg")
+grid50_path <- here(p_data_proc, "grids_50km.gpkg")
 
-# Also filter the observed 50km summaries to Sweden-domain cells (keeps things consistent)
-cell50 <- data.table::as.data.table(cell50)
-cell50 <- cell50[eeacellcode %in% sweden_codes_50]
+cli_alert_info("Getting all 10km cell codes...")
+codes10 <- get_all_cellcodes(grid10_path)
+cli_alert_success("{scales::comma(length(codes10))} cells in 10km grid")
 
-res10 <- compute_spatial_gaps(cell10, cell_universe = u10)
-res50 <- compute_spatial_gaps(cell50, cell_universe = u50)
+cli_alert_info("Getting Sweden-domain 50km cell codes...")
+codes50_sweden <- get_sweden_cellcodes_50km()
+cli_alert_success("{scales::comma(length(codes50_sweden))} cells in 50km grid (Sweden)")
 
-out10 <- file.path(p_gaps, "spatial_gaps_10km.csv")
-out50 <- file.path(p_gaps, "spatial_gaps_50km.csv")
-thr_out <- file.path(p_gaps, "spatial_thresholds_by_basis.csv")
+# Filter 50km data to Sweden domain
+cell50 <- as.data.table(cell50)
+cell50 <- cell50[eeacellcode %in% codes50_sweden]
+cli_alert_info("Filtered 50km data to Sweden: {scales::comma(nrow(cell50))} rows")
 
-data.table::fwrite(res10$out, out10)
-data.table::fwrite(res50$out, out50)
+# Create universes
+universe10 <- make_cell_universe(cell10, codes10)
+universe50 <- make_cell_universe(cell50, codes50_sweden)
 
-# Add a grid_size label so thresholds from 10km and 50km are distinguishable if grid labels overlap
-thr10 <- data.table::copy(res10$thresholds)[, grid_size := "10km"]
-thr50 <- data.table::copy(res50$thresholds)[, grid_size := "50km"]
+cli_alert_success("Universe 10km: {scales::comma(nrow(universe10))} combinations")
+cli_alert_success("Universe 50km: {scales::comma(nrow(universe50))} combinations")
 
-thr_all <- data.table::rbindlist(list(thr10, thr50), use.names = TRUE, fill = TRUE)
-data.table::fwrite(thr_all, thr_out)
+# Compute gaps ------------------------------------------------------------
+cli_h2("Computing Spatial Gaps")
 
-log_msg("Wrote: ", out10)
-log_msg("Wrote: ", out50)
-log_msg("Wrote: ", thr_out)
-log_msg("Phase 3 (spatial) complete.")
+cli_alert_info("Processing 10km grid...")
+gaps10 <- compute_spatial_gaps(cell10, universe10)
+
+cli_alert_info("Processing 50km grid...")
+gaps50 <- compute_spatial_gaps(cell50, universe50)
+
+cli_alert_success("Gap analysis complete")
+
+# Create additional summaries ---------------------------------------------
+cli_h2("Creating Additional Summaries")
+
+create_basis_summary <- function(gaps_data) {
+  gaps_data[, .(
+    n_cells_total = .N,
+    n_cells_zero = sum(gap_zero),
+    n_cells_with_data = sum(has_data),
+    pct_zero = round(100 * mean(gap_zero), 2),
+    pct_with_data = round(100 * mean(has_data), 2),
+    total_occurrences = sum(occurrences),
+    mean_occurrences = round(mean(occurrences[occurrences > 0]), 2),
+    median_occurrences = median(occurrences[occurrences > 0])
+  ), by = .(grid, basisofrecord)]
+}
+
+create_grid_summary <- function(gaps_data) {
+  gaps_data[basisofrecord == "all", .(
+    n_cells_total = .N,
+    n_cells_with_data = sum(has_data),
+    n_cells_zero = sum(gap_zero),
+    pct_coverage = round(100 * mean(has_data), 2),
+    total_occurrences = sum(occurrences),
+    mean_per_cell = round(mean(occurrences), 2),
+    median_per_cell = median(occurrences)
+  ), by = grid]
+}
+
+# Summaries for 10km
+basis_summary_10 <- create_basis_summary(gaps10$gaps)
+grid_summary_10 <- create_grid_summary(gaps10$gaps)
+
+# Summaries for 50km  
+basis_summary_50 <- create_basis_summary(gaps50$gaps)
+grid_summary_50 <- create_grid_summary(gaps50$gaps)
+
+# Combined summaries
+basis_summary_all <- rbindlist(list(basis_summary_10, basis_summary_50))
+grid_summary_all <- rbindlist(list(grid_summary_10, grid_summary_50))
+
+# Write outputs -----------------------------------------------------------
+cli_h2("Writing Outputs")
+
+# Main gap files (cell-level detail)
+fwrite(gaps10$gaps, here(p_gaps, "spatial_gaps_10km.csv"))
+cli_alert_success("spatial_gaps_10km.csv")
+
+fwrite(gaps50$gaps, here(p_gaps, "spatial_gaps_50km.csv"))
+cli_alert_success("spatial_gaps_50km.csv")
+
+# Thresholds
+thresholds_all <- rbindlist(list(
+  gaps10$thresholds[, grid_size := "10km"],
+  gaps50$thresholds[, grid_size := "50km"]
+))
+
+fwrite(thresholds_all, here(p_gaps, "spatial_thresholds_by_basis.csv"))
+cli_alert_success("spatial_thresholds_by_basis.csv")
+
+# Summary tables
+fwrite(basis_summary_all, here(p_gaps, "spatial_summary_by_basis.csv"))
+cli_alert_success("spatial_summary_by_basis.csv")
+
+fwrite(grid_summary_all, here(p_gaps, "spatial_summary_by_grid.csv"))
+cli_alert_success("spatial_summary_by_grid.csv")
+
+# Zero-coverage cells only (for mapping priorities)
+zero_cells_10 <- gaps10$gaps[gap_zero == TRUE & basisofrecord == "all", 
+                               .(grid, eeacellcode, basisofrecord)]
+zero_cells_50 <- gaps50$gaps[gap_zero == TRUE & basisofrecord == "all",
+                               .(grid, eeacellcode, basisofrecord)]
+
+zero_cells_all <- rbindlist(list(zero_cells_10, zero_cells_50))
+fwrite(zero_cells_all, here(p_gaps, "spatial_zero_coverage_cells.csv"))
+cli_alert_success("spatial_zero_coverage_cells.csv")
+
+# Low-coverage cells (for targeted sampling)
+low_cells_10 <- gaps10$gaps[gap_low_q10 == TRUE & basisofrecord == "all",
+                              .(grid, eeacellcode, occurrences, q10)]
+low_cells_50 <- gaps50$gaps[gap_low_q10 == TRUE & basisofrecord == "all",
+                              .(grid, eeacellcode, occurrences, q10)]
+
+low_cells_all <- rbindlist(list(low_cells_10, low_cells_50))
+fwrite(low_cells_all, here(p_gaps, "spatial_low_coverage_cells_q10.csv"))
+cli_alert_success("spatial_low_coverage_cells_q10.csv")
+
+# Summary statistics ------------------------------------------------------
+cli_h2("Summary Statistics")
+
+summary_table <- tibble::tribble(
+  ~metric, ~value_10km, ~value_50km,
+  "Total cells analyzed", scales::comma(nrow(gaps10$gaps[basisofrecord == "all"])),
+  scales::comma(nrow(gaps50$gaps[basisofrecord == "all"])),
+  "Cells with data", scales::comma(sum(gaps10$gaps[basisofrecord == "all"]$has_data)),
+  scales::comma(sum(gaps50$gaps[basisofrecord == "all"]$has_data)),
+  "Coverage %", paste0(round(100 * mean(gaps10$gaps[basisofrecord == "all"]$has_data), 1), "%"),
+  paste0(round(100 * mean(gaps50$gaps[basisofrecord == "all"]$has_data), 1), "%"),
+  "Basis of record types", as.character(length(unique(gaps10$gaps$basisofrecord))),
+  as.character(length(unique(gaps50$gaps$basisofrecord)))
+)
+
+print(summary_table)
+
+cli_alert_success("Spatial gap analysis complete!")
+cli_alert_info("Output location: {.path {p_gaps}}")
