@@ -1,58 +1,98 @@
 # scripts/00_setup.R
-# Run this first. It checks packages, loads config/paths, and writes a session log.
+# ==============================================================================
+# Project Setup & Environment Initialization
+# ==============================================================================
+# This script:
+# - Ensures required packages are available
+# - Loads project configuration and global constants
+# - Creates necessary directory structure
+# - Records session info for reproducibility
 
-# scripts/00_setup.R
-
-# ---- Bootstrap: make sure 'here' exists --------------------------------------
+# Bootstrap: ensure 'here' package is available ---------------------------
 if (!requireNamespace("here", quietly = TRUE)) {
   install.packages("here")
 }
 
-# It DOES NOT auto-install packages (use install_missing_packages() explicitly).
+library(here)
+library(purrr)
+library(glue)
+library(cli)
 
-# ---- 0) Load dependency helper FIRST (requires 'here' to already be installed) ----
-# If 'here' is missing on a new machine, run: install.packages("here")
-source(here::here("R", "packages.R"))
+# Load package management functions --------------------------------------
+source(here("R", "packages.R"))
 
-# ---- 1) Check packages --------------------------------------------------------
-missing <- check_packages()
+# Check for missing packages ----------------------------------------------
+missing_pkgs <- check_packages()
 
-if (length(missing) > 0) {
-  message("\nTo install missing packages (one-time), run:\n",
-          "install_missing_packages()\n\n",
-          "Then record dependencies with:\n",
-          "renv::snapshot()")
+if (length(missing_pkgs) > 0) {
+  cli::cli_alert_warning(
+    "Missing packages detected: {.pkg {missing_pkgs}}"
+  )
+  cli::cli_alert_info(
+    "To install, run: {.code install_missing_packages()}"
+  )
+  cli::cli_alert_info(
+    "Then lock dependencies: {.code renv::snapshot()}"
+  )
 }
 
-# ---- 2) Load globals/config/paths --------------------------------------------
-source(here::here("R", "globals.R"))
+# Load project globals and configuration ----------------------------------
+source(here("R", "globals.R"))
 
-# ---- 3) Print expected raw data locations ------------------------------------
-log_msg("Raw data folders (from config.yml or defaults):")
-log_msg("  GBIF cube:     ", raw_gbif_cube_dir)
-log_msg("  EEA grid 10km: ", raw_grid_10km_dir)
-log_msg("  EEA grid 50km: ", raw_grid_50km_dir)
-log_msg("  Red List SE:   ", raw_redlist_se_dir)
-log_msg("  Red List IUCN: ", raw_redlist_iucn_dir)
-log_msg("  Dyntaxa:       ", raw_dyntaxa_dir)
+# Display configured data paths -------------------------------------------
+cli::cli_h2("Configured Raw Data Locations")
+cli::cli_dl(c(
+  "GBIF cube" = raw_gbif_cube_dir,
+  "EEA grid 10km" = raw_grid_10km_dir,
+  "EEA grid 50km" = raw_grid_50km_dir,
+  "Red List SE" = raw_redlist_se_dir,
+  "Red List IUCN" = raw_redlist_iucn_dir,
+  "Dyntaxa" = raw_dyntaxa_dir
+))
 
-# ---- 4) Record session info (for reproducibility) ----------------------------
-session_file <- file.path(p_logs, paste0("session_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt"))
-writeLines(c(
-  paste0("Run time: ", timestamp()),
-  paste0("R version: ", R.version.string),
+# Ensure required directories exist ---------------------------------------
+required_dirs <- c(
+  p_logs,
+  p_data_proc,
+  p_output
+)
+
+purrr::walk(required_dirs, ~{
+  if (!dir.exists(.x)) {
+    dir.create(.x, recursive = TRUE, showWarnings = FALSE)
+    cli::cli_alert_success("Created directory: {.path {(.x)}}")
+  }
+})
+
+# Record session info for reproducibility ---------------------------------
+session_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+session_file <- here(p_logs, glue::glue("session_{session_timestamp}.txt"))
+
+session_info <- c(
+  glue::glue("Run time: {Sys.time()}"),
+  glue::glue("R version: {R.version.string}"),
   "",
-  "Session info:",
+  "=" |> rep(80) |> paste(collapse = ""),
+  "Session Info:",
+  "=" |> rep(80) |> paste(collapse = ""),
+  "",
   capture.output(sessionInfo())
-), session_file)
+)
 
-log_msg("Wrote session log: ", session_file)
+writeLines(session_info, session_file)
+cli::cli_alert_success("Session log written: {.path {session_file}}")
 
-# ---- 5) renv note -------------------------------------------------------------
-if (!file.exists(here::here("renv.lock"))) {
-  log_msg("NOTE: renv.lock not found. If this is a new project, run renv::init().")
+# Check renv status -------------------------------------------------------
+renv_lock <- here("renv.lock")
+
+if (!file.exists(renv_lock)) {
+  cli::cli_alert_warning(
+    "renv.lock not found. Initialize with {.code renv::init()}"
+  )
 } else {
-  log_msg("renv.lock present. Use renv::restore() on a fresh machine.")
+  cli::cli_alert_info(
+    "renv.lock present. Use {.code renv::restore()} to sync packages"
+  )
 }
 
-log_msg("Setup complete.")
+cli::cli_alert_success("Setup complete!")

@@ -1,0 +1,561 @@
+---
+title: "GBIF Sweden Biodiversity Data Gaps"
+subtitle: "Comprehensive Assessment and Priorities for Action"
+author: "GBIF Sweden"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    theme: cosmo
+    code_folding: hide
+    fig_width: 14
+    fig_height: 9
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 14,
+  fig.height = 9,
+  dpi = 300
+)
+
+library(here)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(ggplot2)
+library(forcats)
+library(scales)
+library(viridis)
+library(patchwork)
+library(sf)
+library(knitr)
+library(data.table)
+library(gt)
+
+# Professional theme
+theme_report <- theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0),
+    plot.subtitle = element_text(size = 14, color = "grey40"),
+    plot.caption = element_text(size = 11, color = "grey50", hjust = 1),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 13, face = "bold")
+  )
+
+theme_set(theme_report)
+
+# Paths
+p_gaps <- here("data_proc", "gaps")
+p_tables <- here("output", "tables")
+p_integrated <- here("output", "tables", "integrated")
+p_data_proc <- here("data_proc")
+
+# Color palettes
+pal_threat <- c("CR" = "#D32F2F", "EN" = "#FF6F00", "VU" = "#F57C00", 
+                "NT" = "#FBC02D", "LC" = "#8BC34A")
+pal_coverage <- c("Zero" = "#D32F2F", "Very Low (1-10)" = "#FF9800",
+                  "Low (11-100)" = "#FDD835", "Medium (101-1k)" = "#66BB6A",
+                  "High (>1k)" = "#1976D2")
+```
+
+# Executive Summary
+
+This report presents a comprehensive assessment of biodiversity data gaps in GBIF Sweden's occurrence database, analyzing spatial, temporal, and taxonomic dimensions to inform strategic priorities for data collection and mobilization.
+
+```{r dashboard-summary}
+dashboard <- read_csv(here(p_tables, "dashboard_summary.csv"), show_col_types = FALSE)
+
+# Create executive summary table
+exec_summary <- tibble(
+  `Dimension` = c("Spatial Coverage (10km)", "Spatial Coverage (50km)", 
+                  "Temporal Coverage", "Data Recency", "Taxonomic Coverage", 
+                  "Threatened Species Coverage"),
+  `Current Status` = c(
+    paste0(comma(dashboard$cells_10km_with_data), " / ", comma(dashboard$cells_10km_total), 
+           " cells (", dashboard$cells_10km_pct_coverage, "%)"),
+    paste0(comma(dashboard$cells_50km_with_data), " / ", comma(dashboard$cells_50km_total), 
+           " cells (", dashboard$cells_50km_pct_coverage, "%)"),
+    paste0(dashboard$year_range, " years (", dashboard$year_min, "–", dashboard$year_max, ")"),
+    paste0(dashboard$median_staleness_months_10km, " months median staleness; ",
+           dashboard$pct_stale_5y_10km, "% of cells >5 years stale"),
+    paste0(comma(dashboard$taxa_in_gbif), " / ", comma(dashboard$taxa_in_reference),
+           " taxa (", dashboard$taxa_pct_coverage, "%)"),
+    paste0(comma(dashboard$n_priority_taxa), " priority taxa requiring attention")
+  ),
+  `Assessment` = c(
+    ifelse(dashboard$cells_10km_pct_coverage >= 90, "✅ Excellent", 
+           ifelse(dashboard$cells_10km_pct_coverage >= 75, "✅ Good", "⚠️ Fair")),
+    ifelse(dashboard$cells_50km_pct_coverage >= 90, "✅ Excellent", 
+           ifelse(dashboard$cells_50km_pct_coverage >= 75, "✅ Good", "⚠️ Fair")),
+    "✅ Good",
+    ifelse(dashboard$median_staleness_months_10km <= 12, "✅ Recent",
+           ifelse(dashboard$median_staleness_months_10km <= 36, "⚠️ Fair", "❌ Needs Improvement")),
+    ifelse(dashboard$taxa_pct_coverage >= 75, "✅ Good",
+           ifelse(dashboard$taxa_pct_coverage >= 50, "⚠️ Fair", "❌ Needs Improvement")),
+    ifelse(dashboard$n_priority_taxa < 1000, "✅ Good", "⚠️ Attention Needed")
+  )
+)
+
+exec_summary %>%
+  gt() %>%
+  tab_header(
+    title = md("**GBIF Sweden Data Gap Assessment**"),
+    subtitle = "Key Metrics Summary"
+  ) %>%
+  cols_label(
+    Dimension = md("**Dimension**"),
+    `Current Status` = md("**Current Status**"),
+    Assessment = md("**Assessment**")
+  ) %>%
+  tab_options(
+    table.font.size = 13,
+    heading.title.font.size = 18,
+    heading.subtitle.font.size = 14
+  )
+```
+
+---
+
+# 1. Spatial Coverage Analysis
+
+## 1.1 Overall Coverage
+
+```{r spatial-overview-fig, fig.height=6}
+comp_grids <- read_csv(here(p_tables, "comparison_grid_resolutions.csv"), show_col_types = FALSE)
+
+p1 <- comp_grids %>%
+  ggplot(aes(x = grid_resolution, y = pct_coverage, fill = grid_resolution)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = paste0(round(pct_coverage, 1), "%")),
+            vjust = -0.5, size = 7, fontface = "bold") +
+  scale_fill_manual(values = c("10km" = "#1976D2", "50km" = "#388E3C")) +
+  ylim(0, 110) +
+  labs(title = "Spatial Coverage", y = "Coverage (%)", x = NULL) +
+  theme(legend.position = "none")
+
+p2 <- comp_grids %>%
+  select(grid_resolution, n_cells_total, n_cells_with_data) %>%
+  pivot_longer(cols = c(n_cells_total, n_cells_with_data), names_to = "type", values_to = "count") %>%
+  mutate(type = recode(type, n_cells_total = "Total", n_cells_with_data = "With Data")) %>%
+  ggplot(aes(x = grid_resolution, y = count, fill = type)) +
+  geom_col(position = "dodge", width = 0.6) +
+  geom_text(aes(label = comma(count)), position = position_dodge(width = 0.6),
+            vjust = -0.5, size = 5.5) +
+  scale_fill_manual(values = c("Total" = "grey70", "With Data" = "#1976D2")) +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Cell Counts", y = "Number of Cells", x = NULL, fill = NULL) +
+  theme(legend.position = "bottom")
+
+p1 + p2 +
+  plot_annotation(
+    title = "Spatial Coverage Summary",
+    subtitle = "Grid cell coverage across Sweden",
+    theme = theme(plot.title = element_text(size = 20, face = "bold"))
+  )
+```
+
+```{r spatial-table}
+comp_grids %>%
+  mutate(across(where(is.numeric), ~comma(round(., 1)))) %>%
+  gt() %>%
+  tab_header(title = "Spatial Coverage Metrics by Grid Resolution") %>%
+  cols_label(
+    grid_resolution = "Grid Resolution",
+    n_cells_total = "Total Cells",
+    n_cells_with_data = "Cells with Data",
+    pct_coverage = "Coverage %",
+    total_occurrences = "Total Occurrences",
+    mean_occ_per_cell = "Mean Occ/Cell"
+  )
+```
+
+## 1.2 Geographic Distribution Map
+
+```{r spatial-map, fig.height=12, fig.width=14}
+# Load grid and data
+grid_10km <- st_read(here(p_data_proc, "grids_10km.gpkg"), quiet = TRUE)
+spatial_gaps <- fread(here(p_gaps, "spatial_gaps_10km.csv"))
+
+# Find cellcode field
+cellcode_candidates <- names(grid_10km)[grepl("cellcode|eeacell", tolower(names(grid_10km)))]
+cellcode_field <- if(length(cellcode_candidates) > 0) cellcode_candidates[1] else names(grid_10km)[grepl("code", tolower(names(grid_10km)))][1]
+
+# Join data
+grid_10km <- grid_10km %>%
+  mutate(eeacellcode = as.character(.data[[cellcode_field]]))
+
+gaps_all <- spatial_gaps %>%
+  filter(basisofrecord == "all") %>%
+  select(eeacellcode, occurrences, gap_zero)
+
+grid_map <- grid_10km %>%
+  left_join(gaps_all, by = "eeacellcode") %>%
+  mutate(
+    coverage = case_when(
+      is.na(occurrences) | gap_zero ~ "Zero",
+      occurrences <= 10 ~ "Very Low (1-10)",
+      occurrences <= 100 ~ "Low (11-100)",
+      occurrences <= 1000 ~ "Medium (101-1k)",
+      TRUE ~ "High (>1k)"
+    ),
+    coverage = factor(coverage, levels = names(pal_coverage))
+  )
+
+ggplot(grid_map) +
+  geom_sf(aes(fill = coverage), color = "white", linewidth = 0.05) +
+  scale_fill_manual(values = pal_coverage, na.value = "grey90", drop = FALSE) +
+  labs(
+    title = "Geographic Distribution of Occurrence Data",
+    subtitle = "Sweden 10km Grid - Occurrence density by cell",
+    fill = "Coverage Category",
+    caption = "Data: GBIF Sweden occurrence cubes"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    legend.key.height = unit(1.2, "cm"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 14, face = "bold"),
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5, margin = margin(b = 5)),
+    plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40", margin = margin(b = 10)),
+    plot.caption = element_text(size = 11, hjust = 1, color = "grey50")
+  )
+```
+
+---
+
+# 2. Temporal Coverage Analysis
+
+## 2.1 Long-term Trends
+
+```{r temporal-trends, fig.height=7}
+temporal_year <- read_csv(here(p_tables, "overview_temporal_year.csv"), show_col_types = FALSE)
+
+temporal_year %>%
+  filter(year >= 1900) %>%
+  ggplot(aes(x = year, y = total_occurrences, color = grid, group = grid)) +
+  geom_line(linewidth = 1.5, alpha = 0.8) +
+  geom_point(size = 2.5, alpha = 0.6) +
+  scale_y_continuous(labels = comma, trans = "log10") +
+  scale_color_manual(values = c("grid10km" = "#1976D2", "grid50km" = "#388E3C"),
+                     labels = c("10km Grid", "50km Grid")) +
+  labs(
+    title = "Temporal Coverage: Annual Occurrence Trends",
+    subtitle = "Log-scale visualization showing data accumulation over time (1900–present)",
+    x = "Year",
+    y = "Total Occurrences (log scale)",
+    color = "Grid Resolution",
+    caption = "Note: Recent decades show exponential growth in observations"
+  )
+```
+
+## 2.2 Seasonal Patterns
+
+```{r seasonal, fig.height=6}
+temporal_month <- read_csv(here(p_tables, "overview_temporal_month.csv"), show_col_types = FALSE)
+
+temporal_month %>%
+  ggplot(aes(x = month, y = total_occurrences, fill = grid)) +
+  geom_col(position = "dodge", width = 0.7) +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  scale_y_continuous(labels = comma) +
+  scale_fill_manual(values = c("grid10km" = "#1976D2", "grid50km" = "#388E3C"),
+                    labels = c("10km Grid", "50km Grid")) +
+  labs(
+    title = "Seasonal Sampling Bias",
+    subtitle = "Total occurrences by month (aggregated across all years)",
+    x = "Month",
+    y = "Total Occurrences",
+    fill = "Grid Resolution",
+    caption = "Clear summer bias evident in both grid resolutions"
+  )
+```
+
+## 2.3 Data Recency
+
+```{r recency-viz, fig.height=7}
+recency_overview <- read_csv(here(p_tables, "overview_temporal_recency_rates.csv"), show_col_types = FALSE)
+
+# Focus on 10km, all basis types
+recency_10km <- recency_overview %>%
+  filter(grid == "grid10km") %>%
+  arrange(desc(pct_stale_5y))
+
+recency_10km %>%
+  ggplot(aes(x = fct_reorder(basisofrecord, pct_stale_5y), y = pct_stale_5y)) +
+  geom_col(aes(fill = pct_stale_5y)) +
+  geom_text(aes(label = paste0(round(pct_stale_5y, 1), "%")),
+            hjust = -0.2, size = 5) +
+  coord_flip() +
+  scale_fill_gradient(low = "#FDD835", high = "#D32F2F") +
+  labs(
+    title = "Data Staleness by Evidence Type",
+    subtitle = "Percentage of cells not sampled in the last 5 years (10km grid)",
+    x = "Basis of Record",
+    y = "Percentage of Stale Cells (%)",
+    caption = "Lower values indicate more recent data"
+  ) +
+  theme(legend.position = "none")
+```
+
+---
+
+# 3. Taxonomic Coverage Analysis
+
+## 3.1 Coverage by Rank
+
+```{r taxonomic-rank-viz, fig.height=7}
+tax_summary <- read_csv(here(p_tables, "overview_taxonomic_summary.csv"), show_col_types = FALSE)
+
+tax_plot <- tax_summary %>%
+  filter(!is.na(taxonRank), n_ref_total >= 10) %>%
+  mutate(
+    status = case_when(
+      pct_coverage >= 75 ~ "Good (≥75%)",
+      pct_coverage >= 50 ~ "Fair (50-75%)",
+      TRUE ~ "Poor (<50%)"
+    )
+  ) %>%
+  arrange(desc(n_ref_total)) %>%
+  slice_head(n = 15)
+
+ggplot(tax_plot, aes(x = fct_reorder(taxonRank, pct_coverage))) +
+  geom_col(aes(y = 100), fill = "grey90", width = 0.7) +
+  geom_col(aes(y = pct_coverage, fill = status), width = 0.7) +
+  geom_text(aes(y = pct_coverage, label = paste0(round(pct_coverage, 1), "%")),
+            hjust = -0.2, size = 5, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Good (≥75%)" = "#4CAF50", "Fair (50-75%)" = "#FDD835",
+                                "Poor (<50%)" = "#D32F2F")) +
+  labs(
+    title = "Taxonomic Coverage by Rank",
+    subtitle = "Percentage of reference taxa found in GBIF occurrences (top 15 ranks by count)",
+    x = "Taxonomic Rank",
+    y = "Coverage (%)",
+    fill = "Status",
+    caption = "Reference: Swedish Red List taxonomy"
+  ) +
+  ylim(0, 110)
+```
+
+## 3.2 Threatened Species Summary
+
+```{r threatened-summary}
+# Load priority taxa
+priority_taxa <- fread(here(p_integrated, "priority_undersampled_taxa.csv"))
+
+# Summary by threat status
+threat_summary <- priority_taxa %>%
+  filter(!is.na(threatStatus), threatStatus %in% c("CR", "EN", "VU", "NT")) %>%
+  count(threatStatus, name = "n_priority") %>%
+  arrange(match(threatStatus, c("CR", "EN", "VU", "NT")))
+
+# Get total threatened from taxonomic coverage
+tax_threat <- read_csv(here(p_gaps, "taxonomic_coverage_by_threat.csv"), show_col_types = FALSE) %>%
+  filter(threatStatus %in% c("CR", "EN", "VU", "NT"))
+
+# Combine
+threat_display <- tax_threat %>%
+  left_join(threat_summary, by = "threatStatus") %>%
+  mutate(
+    n_priority = replace_na(n_priority, 0),
+    pct_priority = round(100 * n_priority / n_ref_total, 1)
+  ) %>%
+  select(threatStatus, n_ref_total, n_in_gbif, pct_coverage, n_priority, pct_priority)
+
+threat_display %>%
+  gt() %>%
+  tab_header(
+    title = "Threatened Species Coverage and Priorities",
+    subtitle = "IUCN Red List categories"
+  ) %>%
+  cols_label(
+    threatStatus = "Status",
+    n_ref_total = "In Reference",
+    n_in_gbif = "In GBIF",
+    pct_coverage = "Coverage %",
+    n_priority = "Priority Taxa",
+    pct_priority = "Priority %"
+  ) %>%
+  data_color(
+    columns = threatStatus,
+    colors = scales::col_factor(palette = pal_threat, domain = c("CR", "EN", "VU", "NT"))
+  ) %>%
+  tab_footnote(
+    footnote = "Priority taxa are those either missing from GBIF or poorly sampled",
+    locations = cells_column_labels(columns = n_priority)
+  )
+```
+
+---
+
+# 4. Priority Recommendations
+
+## 4.1 Geographic Priorities
+
+```{r priority-cells-summary}
+priority_zero <- fread(here(p_integrated, "priority_zero_coverage_cells.csv"))
+priority_stale <- fread(here(p_integrated, "priority_stale_cells.csv"))
+
+cat("### Zero Coverage Cells\n\n")
+if (nrow(priority_zero) > 0) {
+  cat("**", comma(nrow(priority_zero)), "cells** have zero occurrences across all evidence types.\n\n")
+  cat("**Recommendation:** Target these cells for systematic biodiversity surveys.\n\n")
+} else {
+  cat("**Excellent!** No cells with zero coverage detected.\n\n")
+}
+
+cat("### Stale Data Cells\n\n")
+cat("**", comma(nrow(priority_stale)), "cells** have not been sampled in 5+ years.\n\n")
+cat("**Median staleness:**", round(median(priority_stale$staleness_months / 12), 1), "years\n\n")
+cat("**Recommendation:** Re-survey these areas to update biodiversity status, prioritizing cells with longest gaps.\n\n")
+```
+
+```{r priority-map, fig.height=10, fig.width=14}
+# Map priority cells
+grid_10km_clean <- grid_10km %>%
+  select(eeacellcode, geometry = geom)
+
+# Combine priorities
+priority_list <- list()
+
+if (nrow(priority_zero) > 0) {
+  priority_list[[1]] <- priority_zero %>% 
+    select(eeacellcode) %>%
+    mutate(priority_type = "Zero Coverage", priority_level = 3)
+}
+
+if (nrow(priority_stale) > 0) {
+  priority_list[[2]] <- priority_stale %>% 
+    arrange(desc(staleness_months)) %>% 
+    slice_head(n = 500) %>%
+    select(eeacellcode) %>%
+    mutate(priority_type = "Very Stale (>5 years)", priority_level = 2)
+}
+
+if (length(priority_list) > 0) {
+  priority_combined <- bind_rows(priority_list) %>%
+    group_by(eeacellcode) %>%
+    slice_max(priority_level, n = 1, with_ties = FALSE) %>%
+    ungroup()
+} else {
+  priority_combined <- tibble(eeacellcode = character(), 
+                               priority_type = character(), 
+                               priority_level = integer())
+}
+
+grid_priority <- grid_10km_clean %>%
+  left_join(priority_combined, by = "eeacellcode") %>%
+  mutate(priority_type = replace_na(priority_type, "No Priority"))
+
+ggplot(grid_priority) +
+  geom_sf(aes(fill = priority_type), color = "white", linewidth = 0.05) +
+  scale_fill_manual(
+    values = c("Zero Coverage" = "#D32F2F", "Very Stale (>5 years)" = "#FF9800", 
+               "No Priority" = "grey85"),
+    breaks = c("Zero Coverage", "Very Stale (>5 years)", "No Priority")
+  ) +
+  labs(
+    title = "Priority Cells for Targeted Sampling",
+    subtitle = "Geographic distribution of data gaps requiring attention",
+    fill = "Priority Type"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.key.height = unit(0.8, "cm"),
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5, margin = margin(b = 5)),
+    plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40", margin = margin(b = 10))
+  )
+```
+
+## 4.2 Taxonomic Priorities
+
+```{r priority-taxa-report}
+cat("### Priority Taxa Requiring Attention\n\n")
+cat("**", comma(nrow(priority_taxa)), "threatened taxa** require monitoring attention:\n\n")
+
+# Count by category
+priority_summary <- priority_taxa %>%
+  filter(!is.na(threatStatus)) %>%
+  count(threatStatus) %>%
+  arrange(match(threatStatus, c("CR", "EN", "VU", "NT")))
+
+for (i in 1:nrow(priority_summary)) {
+  cat("- **", priority_summary$threatStatus[i], ":**", 
+      comma(priority_summary$n[i]), "taxa\n")
+}
+
+cat("\n**Recommendation:** Develop species-specific monitoring programs for red-listed taxa, prioritizing CR and EN species.\n\n")
+
+# Top priority table
+priority_taxa %>%
+  filter(threatStatus %in% c("CR", "EN")) %>%
+  arrange(threatStatus, scientificName) %>%
+  select(scientificName, threatStatus, taxonRank, family) %>%
+  slice_head(n = 20) %>%
+  gt() %>%
+  tab_header(title = "Highest Priority Taxa (CR & EN - Top 20)") %>%
+  cols_label(
+    scientificName = "Scientific Name",
+    threatStatus = "Status",
+    taxonRank = "Rank",
+    family = "Family"
+  ) %>%
+  data_color(
+    columns = threatStatus,
+    colors = scales::col_factor(palette = pal_threat, domain = c("CR", "EN"))
+  )
+```
+
+---
+
+# 5. Data Citations
+
+This analysis is based on the following GBIF occurrence downloads:
+
+**GBIF Occurrence Cubes - Sweden**
+
+- 10km grid (all basis types): https://doi.org/10.15468/dl.wzv3uc
+- 50km grid (all basis types): https://doi.org/10.15468/dl.qyp3uw
+
+**Basis-specific downloads:**
+
+- Human Observation: https://doi.org/10.15468/dl.bmj5a8 (10km), https://doi.org/10.15468/dl.93twra (50km)
+- Preserved Specimen: https://doi.org/10.15468/dl.nnxm3s (10km), https://doi.org/10.15468/dl.y3bn72 (50km)
+- Machine Observation: https://doi.org/10.15468/dl.3pfc7j (10km), https://doi.org/10.15468/dl.b7gkpy (50km)
+
+**Taxonomic Reference:**
+
+SLU Artdatabanken (2024). The Swedish Red List 2020. Version 1.8. https://doi.org/10.15468/jhwkpq
+
+**Spatial Reference:**
+
+EEA Reference Grids (10km and 50km) - INSPIRE geographical grid systems
+
+---
+
+# 6. Methods Summary
+
+This analysis employed a multi-dimensional gap analysis framework examining:
+
+1. **Spatial Gaps:** Coverage analysis of EEA reference grid cells (10km and 50km resolutions)
+2. **Temporal Gaps:** Historical trends, seasonal patterns, and data recency assessment
+3. **Taxonomic Gaps:** Comparison of GBIF occurrences against Swedish Red List reference taxonomy
+4. **Evidence Quality:** Analysis across different basis of record types
+
+**Software:** R 4.x with packages: sf, dplyr, ggplot2, data.table, gt  
+**Analysis Scripts:** 01–10 (ingestion, validation, gap analysis, overview)  
+**Analysis Date:** `r dashboard$analysis_date`
+
+---
+
+**For questions or more information, please contact GBIF Sweden.**

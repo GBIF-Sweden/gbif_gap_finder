@@ -1,282 +1,583 @@
-# Gap metrics definition (Phase 3)
+# Gap Metrics Definition (Phase 3)
 
 This document defines the **gap metrics** used in this project to quantify data coverage and identify gaps in **GBIF-mediated biodiversity occurrence data for Sweden**, based on GBIF Occurrence Cube summaries and reference datasets.
 
 All metrics are designed to be:
-- **reproducible** (derived from tracked inputs + scripts)
-- **comparable** between 10 km and 50 km grids
-- **interpretable** for reporting and decision-making
+- **Reproducible** (derived from tracked inputs + scripts)
+- **Comparable** between 10 km and 50 km grids
+- **Interpretable** for reporting and decision-making
+- **Parameterized** (thresholds defined in `config.yml`)
 
 ---
 
-## 1) Data sources used for metrics
+## 1) Data Sources Used for Metrics
 
 ### 1.1 GBIF Occurrence Cube (Sweden)
+
 The main input is GBIF Occurrence Cube data, split by `basisOfRecord` and aggregated into EEA grid cells.
 
-Core cube variables used:
+**Core cube variables used:**
 - `eeacellcode` (grid cell identifier)
 - `yearmonth` (monthly time step, format: `YYYY-MM`)
 - `specieskey` and `species` (GBIF backbone key + label)
+- `family`, `order` (higher taxonomy when available)
 - `occurrences` (count of occurrence records in that group)
 
-Coverage is analysed separately for two spatial reference grids:
-- **10 km grid**
-- **50 km grid**
+**Coverage is analyzed separately for two spatial reference grids:**
+- **10 km grid** (7,693 cells covering Sweden)
+- **50 km grid** (332 cells, Sweden-domain filtered)
 
-### 1.2 EEA grids (10km / 50km)
+### 1.2 EEA Grids (10km / 50km)
+
 EEA grids are used as the spatial reference for mapping and cell-based gap detection.
 
-### 1.3 Swedish Red List taxonomy export
-The Swedish reference taxonomy and associated metadata is used as the local reference for taxonomic gap assessments.
+- **10km:** se_10km shapefile
+- **50km:** EEA_50km_grid_v2024.gpkg (filtered to Sweden extent using 10km mask)
 
-Core variables used:
+### 1.3 Swedish Red List Taxonomy Export
+
+The Swedish reference taxonomy (SLU Artdatabanken 2024, version 1.8) and associated metadata is used as the local reference for taxonomic gap assessments.
+
+**Core variables used:**
 - `taxonID`
 - `scientificName`
 - `taxonRank`
 - `acceptedNameUsageID`
-- `threatStatus`
+- `threatStatus` (IUCN categories: CR, EN, VU, NT, LC, DD, etc.)
+- `establishmentMeans`
+
+**Total reference taxa:** 11,240
 
 ---
 
-## 2) General definitions
+## 2) General Definitions
 
 ### 2.1 Coverage
-In this project, “coverage” means **the presence of GBIF-mediated occurrence records** in a spatial/temporal/taxonomic unit.
 
-- Coverage does **not** imply ecological completeness.
-- Coverage reflects **data availability and sampling**, and includes biases.
+In this project, "coverage" means **the presence of GBIF-mediated occurrence records** in a spatial/temporal/taxonomic unit.
+
+- Coverage does **not** imply ecological completeness
+- Coverage reflects **data availability and sampling** and includes biases
+- Zero coverage indicates **absence of records**, not necessarily absence of species
 
 ### 2.2 basisOfRecord
-Cubes are split into separate files representing different `basisOfRecord` categories (e.g., `humanObservation`, `preservedSpecimen`, etc.).
 
-Analyses are performed:
-- for each `basisOfRecord` separately
-- and for an `"all"` rollup (sum across basisOfRecord categories)
+Cubes are split into separate files representing different `basisOfRecord` categories.
 
-This allows detection of **sampling bias by record type**.
+**Available categories:**
+- `humanObservation`
+- `machineObservation`
+- `preservedSpecimen`
+- `livingSpecimen`
+- `fossilSpecimen`
+- `materialSample`
+- `materialCitation`
+- `observation`
+- `occurrence` (aggregate file)
+
+**Analyses are performed:**
+- For each `basisOfRecord` separately
+- For an `"all"` rollup (sum across basisOfRecord categories)
+
+This allows detection of **sampling bias by record type** and identifies taxa/areas only covered by specific evidence types.
 
 ---
 
-## 3) Spatial gap metrics
+## 3) Spatial Gap Metrics (Script 07)
 
 Spatial gaps are assessed at the level of EEA grid cells (`eeacellcode`).
 
-All spatial metrics can be computed for:
-- 10 km grid
-- 50 km grid
+All spatial metrics are computed for:
+- 10 km grid and 50 km grid
+- Each `basisOfRecord` and `"all"` combined
 
-And for:
-- each `basisOfRecord`
-- `"all"` combined
+### 3.1 Zero Coverage Gaps (Absolute Gaps)
 
-### 3.1 Spatial “zero coverage” gaps (true gaps)
 **Definition:**  
-A grid cell is a *spatial gap* if:
+A grid cell has zero coverage if:
 
-- `occurrences == 0`
+```
+occurrences == 0
+```
 
 This represents complete absence of GBIF-mediated occurrence records in that cell for the selected data subset.
 
-**Output field example:**
-- `gap_zero = TRUE/FALSE`
+**Implementation:**
+- **Column:** `gap_zero` (TRUE/FALSE)
+- **Output files:** 
+  - `spatial_gaps_10km.csv`
+  - `spatial_gaps_50km.csv`
+  - `spatial_zero_coverage_cells.csv` (priority cells for sampling)
 
----
+**Cell-level aggregates:**
+- `cell_has_any_data`: At least one basis has data
+- `cell_all_zero`: All basis types are zero
+- `n_basis_zero`: Number of basis types with zero coverage
 
-### 3.2 Spatial “low coverage” gaps (relative gaps)
-Zero-only gaps can miss areas that are technically covered but **poorly sampled**.  
-Therefore, low-coverage gaps are also defined using thresholds.
+**Current results:** 0 cells with zero coverage (100% spatial coverage achieved)
 
-#### 3.2.1 Quantile-based low-coverage gaps (recommended)
+### 3.2 Low Coverage Gaps (Relative Gaps)
+
+Zero-only gaps miss areas that are technically covered but **poorly sampled**. Low-coverage gaps are defined using quantile thresholds.
+
+#### 3.2.1 Quantile-based Low-Coverage Gaps
+
 **Definition:**  
-Among all grid cells with `occurrences > 0`, define a quantile threshold *q* (e.g., 0.05 or 0.10).  
+Among all grid cells with `occurrences > 0`, define quantile thresholds.  
 A cell is classified as low-coverage if:
 
-- `occurrences > 0` AND `occurrences <= quantile(occurrences, q)`
+```
+occurrences > 0 AND occurrences <= quantile(occurrences, q)
+```
 
-Typical values:
-- q = 0.05 (lowest 5%)
-- q = 0.10 (lowest 10%)
+**Implemented quantiles (configurable in config.yml):**
+- `q = 0.05` (lowest 5% of non-zero cells)
+- `q = 0.10` (lowest 10% of non-zero cells)
+- `q = 0.25` (lowest 25% of non-zero cells)
 
-**Output fields example:**
-- `gap_low_q05 = TRUE/FALSE`
-- `gap_low_q10 = TRUE/FALSE`
+**Columns:**
+- `gap_low_q05` (TRUE/FALSE)
+- `gap_low_q10` (TRUE/FALSE)
+- `gap_low_q25` (TRUE/FALSE)
 
-#### 3.2.2 Fixed-threshold low-coverage gaps
-A fixed threshold may be used for interoperability, for example:
+**Thresholds output:**
+- `spatial_thresholds_by_basis.csv` contains computed quantile values per grid × basis
+- Columns: `q05`, `q10`, `q25`, `n_nonzero`, `mean_nonzero`, `median_nonzero`, `max_occurrences`
 
-- `occurrences < 10`
-- `occurrences < 100`
+**Priority cells output:**
+- `spatial_low_coverage_cells_q10.csv` lists cells in bottom 10% for targeted sampling
 
-This definition is less comparable across datasets and therefore optional.
+### 3.3 Spatial Summaries
+
+**By basis of record:**
+- `spatial_summary_by_basis.csv`
+- Columns: `n_cells_total`, `n_cells_zero`, `n_cells_with_data`, `pct_zero`, `pct_with_data`, `total_occurrences`, `mean_occurrences`, `median_occurrences`
+
+**By grid (overall):**
+- `spatial_summary_by_grid.csv`
+- Aggregates across all basis types for grid-level overview
+
+### 3.4 Additional Fields for Mapping
+
+- `log_occ = log10(occurrences + 1)` (for continuous mapping)
+- `total_occurrences_cell` (sum across all basis types)
+- `n_basis_with_data` (diversity of evidence types)
 
 ---
 
-### 3.3 Spatial intensity (non-gap metric)
-For mapping and visualization, an intensity layer may also be computed:
-
-- `log_occ = log10(occurrences + 1)`
-
-This is not a gap definition, but a useful complement.
-
----
-
-## 4) Temporal gap metrics
+## 4) Temporal Gap Metrics (Script 08)
 
 Temporal gaps are assessed at monthly resolution (`yearmonth`, format `YYYY-MM`).
 
-All temporal metrics can be computed:
-- for each grid size (10km / 50km)
-- for each `basisOfRecord` and for `"all"`
+All temporal metrics are computed for:
+- Each grid size (10km / 50km)
+- Each `basisOfRecord` and `"all"`
 
-### 4.1 No-data months
+### 4.1 National-Level Temporal Trends
+
+**Annual trends:**
+- `temporal_overview_year_10km.csv` (total occurrences per year)
+- `temporal_year_by_basis_10km.csv` (year × basis cross-tab)
+- **Year range:** 1646–2025 (380 years)
+
+**Monthly patterns (seasonal bias):**
+- `temporal_overview_month_10km.csv` (total occurrences per month, all years)
+- `temporal_month_by_basis_10km.csv` (month × basis cross-tab)
+- Reveals strong summer sampling bias
+
+**Year × month heatmap data:**
+- `temporal_year_month_10km.csv` (for temporal heatmap visualizations)
+
+**Decadal summaries:**
+- `temporal_decade_summary_10km.csv` (aggregated by decade)
+
+### 4.2 Temporal Completeness
+
+**Year completeness:**
+- `temporal_year_completeness_10km.csv`
+- **Columns:** `year`, `n_months_observed`, `complete_year` (TRUE if all 12 months sampled)
+- Identifies years with incomplete seasonal coverage
+
+**Month completeness:**
+- `temporal_month_completeness_10km.csv`
+- **Columns:** `month`, `n_years_observed`, `total_occurrences`
+- Shows how many years each month has been sampled
+
+**Quarter completeness:**
+- Computed but not separately output
+- Used to identify seasonal coverage gaps
+
+### 4.3 Temporal Gaps (Missing Data)
+
+**Gap years:**
+- `temporal_gap_years_detail.csv` (year × basis combinations with zero data)
+- `temporal_gap_years_summary.csv` (summary by grid × basis)
+- Identifies years in the data range with zero observations
+
+### 4.4 Data Recency and Staleness
+
+#### 4.4.1 Cell-Level Recency
+
 **Definition:**  
-A month is a temporal gap if:
+For each cell × basis combination, compute:
 
-- `occurrences == 0`
+```
+last_ym = max(yearmonth where occurrences > 0)
+first_ym = min(yearmonth where occurrences > 0)
+staleness_months = months between last_ym and current date
+```
 
-This can be summarized at national level (all Sweden), or stratified by grid cells and taxa.
+**Output files:**
+- `cell_recency_10km.csv`
+- `cell_recency_50km.csv`
 
----
+**Columns:**
+- `last_ym` (date of last observation)
+- `first_ym` (date of first observation)
+- `staleness_months` (months since last observation)
+- `observation_span_months` (temporal span of observations)
+- `n_observations` (number of temporal records)
+- `n_unique_months` (distinct months sampled)
+- `total_occurrences` (sum of all occurrences)
+- `sampling_frequency` (observations / span)
 
-### 4.2 Recency / staleness
-Temporal gaps are often best captured through “how recently” data was recorded.
+#### 4.4.2 Staleness Thresholds
 
-#### 4.2.1 Last observation month per unit
+**Configurable parameters (config.yml):**
+- `stale_months_12 = 12` (1 year threshold)
+- `stale_months_60 = 60` (5 year threshold)
+
+**Gap flags:**
+- `gap_stale_12m` (TRUE if not sampled in 12+ months)
+- `gap_stale_5y` (TRUE if not sampled in 5+ years)
+
+**Current results:**
+- 23.5% of cells not sampled in 5+ years
+- Median staleness: 4 months
+
+**Priority output:**
+- `priority_stale_cells.csv` (cells not sampled in 5+ years)
+
+### 4.5 Sampling Frequency
+
 **Definition:**  
-For a given unit (cell, species, etc.) the last observation month is:
+How often is each cell sampled relative to its observation span?
 
-- `last_yearmonth = max(yearmonth where occurrences > 0)`
+```
+sampling_frequency = n_observations / observation_span_months
+```
 
-#### 4.2.2 Staleness time window
+**Output:**
+- `temporal_sampling_frequency_summary.csv`
+- Aggregated by grid × basis
+
+### 4.6 Taxonomic × Temporal Integration
+
+**Family trends over time:**
+- `temporal_year_by_family_10km.csv` (if family data available)
+- **Columns:** `year`, `n_families`, `total_occurrences`
+- Tracks taxonomic richness changes over time
+
+---
+
+## 5) Taxonomic Gap Metrics (Script 09)
+
+Taxonomic gaps compare GBIF-mediated taxonomic coverage to Swedish reference taxonomy.
+
+### 5.1 Reference Taxa
+
+**Source:** Swedish Red List taxonomy export (SLU Artdatabanken 2024)
+- **Total taxa:** 11,240
+- Includes: `taxonID`, `scientificName`, `taxonRank`, `threatStatus`, higher taxonomy
+
+### 5.2 Taxa Detected in GBIF Cube
+
+Taxa detected in cubes:
+- Unique `specieskey` (GBIF backbone identifier)
+- Corresponding `species` (name string)
+- **Taxa in GBIF:** 5,936
+- **Coverage:** 52.8%
+
+### 5.3 Matching Strategy
+
+**Method:** Scientific name string matching
+
+**Process:**
+1. Standardize both name strings (lowercase, trim, remove authorship)
+2. Extract binomial (Genus species) for species-level names
+3. Match `scientificName` (reference) to `species` (cube)
+
+**Implementation:**
+- Conservative binomial extraction
+- Handles spelling variations
+- Inspectable matching table
+
+**Outputs:**
+- `taxonomic_match_table.csv` (full matching details)
+- `taxonomic_match_summary.csv` (per-taxon summary)
+
+**Columns in match_summary:**
+- `matched_any` (found in any grid)
+- `matched_grid10` (found in 10km grid)
+- `matched_grid50` (found in 50km grid)
+- `n_grids` (number of grids where found)
+
+### 5.4 Missing Taxa (Taxonomic Gaps)
+
 **Definition:**  
-A unit is considered “stale” if the last observation month is older than a threshold window.
+A reference taxon is missing from GBIF if:
 
-Example thresholds:
-- no records in the last **12 months**
-- no records in the last **5 years**
+```
+taxon in Swedish reference AND no match found in cube taxa set
+```
 
-This produces a highly interpretable map of:
-- recently sampled areas
-- not-recently sampled areas
+**Outputs:**
+- `taxonomic_missing_taxa.csv` (5,304 missing taxa)
+- `taxonomic_missing_threatened.csv` (subset: threatened taxa missing)
 
----
+### 5.5 Coverage Analysis
 
-### 4.3 Seasonal bias (context metric)
-Seasonal bias is not necessarily defined as a “gap”, but it is a key interpretive metric.
+#### 5.5.1 By Taxonomic Rank
 
-**Definition:**
-- Split `yearmonth` into:
-  - `year`
-  - `month`
-- Compare total occurrences across months (1–12)
+**Output:** `taxonomic_coverage_by_rank.csv`
 
-Outputs:
-- occurrences per month (seasonality profile)
-- year × month heatmap (sampling intensity across years and seasons)
+**Columns:**
+- `n_ref_total` (taxa in reference)
+- `n_in_gbif` (taxa in GBIF)
+- `pct_coverage` (coverage %)
+- `n_grid10`, `n_grid50` (found in each grid)
+- `pct_grid10`, `pct_grid50`
 
----
+#### 5.5.2 By Threat Status
 
-## 5) Taxonomic gap metrics
+**Output:** `taxonomic_coverage_by_threat.csv`
 
-Taxonomic gaps compare GBIF-mediated taxonomic coverage to a Swedish reference taxonomy.
+**Categories:** CR, EN, VU, NT, LC, DD, NA
 
-### 5.1 Reference taxa
-Reference taxa are defined as taxa listed in the Swedish taxonomy export, with associated metadata (including threat status where available).
+**Shows:** Coverage rates for threatened vs. non-threatened taxa
 
-### 5.2 Taxa detected in GBIF cube
-Taxa detected in the cube are defined as:
-- unique `specieskey` (GBIF backbone identifier)
-- with corresponding label `species` (name string)
+#### 5.5.3 By Basis of Record
 
-### 5.3 Matching strategy (taxon mapping)
-The Swedish taxonomy export uses `taxonID` identifiers which are different from GBIF `specieskey`.  
-Therefore, taxonomic gap calculations depend on a matching strategy.
+**Output:** `taxonomic_coverage_by_basis.csv`
 
-#### 5.3.1 Match strategy A: scientific name string matching (initial / fast)
-**Definition:**
-- Standardize both name strings:
-  - lowercase
-  - trim whitespace
-  - optionally remove authorship text
-- Match `scientificName` (reference) to `species` (cube)
+**Shows:** Which evidence types cover which taxa
+- Species count per basis
+- Identifies taxa only in specific evidence types
 
-This provides an initial estimate of taxonomic gaps.
+### 5.6 Spatial Coverage per Taxon
 
-**Limitations:**
-- sensitive to synonyms and spelling differences
-- may under/overestimate gaps if names do not align exactly
+**Purpose:** Understand geographic distribution of taxa
 
-#### 5.3.2 Match strategy B: GBIF backbone matching (recommended upgrade)
-A more robust mapping can be produced by resolving Swedish names to GBIF backbone keys using GBIF name matching.
+**Outputs:**
+- `taxonomic_spatial_coverage.csv` (all matched taxa)
+- `taxonomic_threatened_spatial_coverage.csv` (threatened species specifically)
 
-Potential tools:
-- `rgbif::name_backbone()`
-- bulk name matching via GBIF API
+**Columns:**
+- `n_cells_10km` (number of 10km cells where recorded)
+- `n_cells_50km` (number of 50km cells)
+- `total_occ_10km`, `total_occ_50km`
+- `poorly_sampled_spatial` (flag if <5 cells)
+- `poorly_sampled_abundance` (flag if <10 occurrences)
 
-This improves taxonomic gap results but may introduce ambiguous matches requiring inspection.
+**Parameters (config.yml):**
+- `min_cells = 5` (minimum for adequate coverage)
+- `min_occurrences = 10` (minimum for abundance)
 
----
+### 5.7 Higher Taxonomy Gaps
 
-### 5.4 Taxonomic “missing taxa” (gap definition)
-**Definition:**  
-A reference taxon is considered missing from GBIF-mediated data if:
+**Family-level gaps:**
+- `taxonomic_gaps_by_family.csv`
+- Shows which families have poorest coverage
 
-- it exists in the Swedish reference taxonomy  
-AND
-- no match is found in the cube taxa set (using the chosen matching strategy)
+**Order-level gaps:**
+- `taxonomic_gaps_by_order.csv`
 
-Outputs include:
-- lists of missing taxa (`taxonID`, `scientificName`, `taxonRank`, `threatStatus`)
-- summary counts by taxonomic rank (family/order/class, etc.)
+**Columns:**
+- `n_taxa` (total taxa in this group)
+- `n_in_gbif`, `pct_coverage`
+- `n_threatened`, `n_threatened_in_gbif`
 
----
+### 5.8 Priority Taxa
 
-### 5.5 Threat-status weighted taxonomic gaps (recommended reporting)
-To contextualize missing taxa, taxonomic gaps should be summarized by threat categories.
+**Output:** `taxonomic_priority_taxa.csv` (4,758 taxa)
 
-Example groupings:
-- Threatened: `CR`, `EN`, `VU`
-- Near threatened: `NT`
-- Data deficient: `DD`
-- Least concern: `LC`
+**Includes:**
+1. **Threatened taxa not in GBIF**
+   - Priority: "Threatened - Not in GBIF"
+   
+2. **Threatened taxa poorly sampled**
+   - Priority: "Threatened - Poorly Sampled"
+   - Criteria: <5 cells OR <10 occurrences
 
-Primary outputs:
-- number and proportion of missing taxa by threat category
-- list of missing threatened taxa
+**Columns:**
+- `taxonID`, `scientificName`, `taxonRank`, `threatStatus`
+- `family`, `order`, `establishmentMeans`
+- `n_cells_10km`, `total_occ_10km` (if available)
+- `priority` (reason for prioritization)
 
 ---
 
-## 6) Parameters to be set (recommended)
+## 6) Integrated Overview Metrics (Script 10)
 
-The following parameters should be set centrally (not hardcoded across scripts), so results can be easily reproduced with alternative definitions:
+Script 10 creates multi-dimensional cross-tabs and priority lists.
 
-### Spatial low-coverage quantile threshold
-- Default: `q = 0.05` (lowest 5% of non-zero cells)
-- Optional alternative: `q = 0.10`
+### 6.1 Dashboard Summary
 
-### Temporal recency window
-- Default: “no records in last 5 years”
-- Optional: “no records in last 12 months”
+**Output:** `dashboard_summary.csv` (single row)
 
-### Taxonomic matching strategy
-- Default: scientific name string matching (initial)
-- Upgrade: GBIF backbone resolution
+**Columns:**
+- Spatial: `cells_10km_total`, `cells_10km_with_data`, `cells_10km_pct_coverage`
+- Spatial: `cells_50km_total`, `cells_50km_with_data`, `cells_50km_pct_coverage`
+- Temporal: `year_min`, `year_max`, `year_range`
+- Recency: `median_staleness_months_10km`, `pct_stale_5y_10km`
+- Taxonomic: `taxa_in_reference`, `taxa_in_gbif`, `taxa_pct_coverage`
+- Priorities: `n_priority_taxa`
+- Metadata: `analysis_date`
+
+### 6.2 Multi-Dimensional Cross-Tabs
+
+**Space × Time × Basis:**
+- `space_time_basis_10km.csv`
+- Tracks spatial coverage evolution over time by evidence type
+- **Columns:** `year`, `basisofrecord`, `n_cells_sampled`, `total_occurrences`, `n_months`
+
+**Space × Taxonomy × Basis:**
+- `space_taxonomy_simple_10km.csv` (species richness by basis)
+- `space_taxonomy_basis_10km.csv` (by taxonomic rank)
+
+**Time × Taxonomy × Basis:**
+- `time_taxonomy_basis_10km.csv`
+- **Columns:** `year`, `basisofrecord`, `n_families`, `total_occurrences`
+
+### 6.3 Comparison Tables
+
+**Grid resolutions:**
+- `comparison_grid_resolutions.csv`
+- Direct comparison of 10km vs 50km metrics
+
+**Basis types:**
+- `comparison_basis_types.csv`
+- Ranks evidence types by coverage and occurrences
+
+**Taxonomic ranks:**
+- `comparison_taxon_ranks.csv`
+- Compares coverage by rank
+
+### 6.4 Priority Lists for Action
+
+**Zero coverage cells:**
+- `priority_zero_coverage_cells.csv`
+- Cells with NO data across all basis types
+- **Current count:** 0 (excellent coverage)
+
+**Stale cells:**
+- `priority_stale_cells.csv`
+- Cells not sampled in 5+ years
+- Includes staleness duration and reason
+- Top priority for re-surveying
+
+**Undersampled taxa:**
+- `priority_undersampled_taxa.csv`
+- Threatened species needing monitoring
+- Combines "not in GBIF" + "poorly sampled"
+- **Current count:** 4,758 taxa
 
 ---
 
-## 7) Outputs expected from Phase 3 (planned)
+## 7) Parameters Summary
 
-Phase 3 will write gap metrics and intermediate results to:
+All thresholds are configured in `config.yml` for easy adjustment:
 
-- `data_proc/gaps/`
+### Spatial Parameters
 
-Planned outputs include:
-- `spatial_gaps_10km.csv`
-- `spatial_gaps_50km.csv`
-- `temporal_gaps_summary.csv`
-- `taxonomic_gap_summary.csv`
-- `missing_taxa.csv`
-- `missing_threatened_taxa.csv`
+```yaml
+spatial:
+  quantile_thresholds: [0.05, 0.10, 0.25]
+```
 
-All outputs will be generated from Phase 2 derived datasets.
+### Temporal Parameters
+
+```yaml
+temporal:
+  stale_months_12: 12
+  stale_months_60: 60
+```
+
+### Taxonomic Parameters
+
+```yaml
+taxonomic:
+  min_occurrences: 10
+  min_cells: 5
+```
+
+---
+
+## 8) Output File Summary
+
+**Phase 3 generates 60+ gap analysis files:**
+
+- **Spatial gaps:** 7 files
+- **Temporal gaps:** 21 files
+- **Taxonomic gaps:** 14 files
+- **Integrated overview:** 18 files
+
+**All outputs documented in `config.yml` under `gaps.outputs` and `overview.outputs`**
+
+---
+
+## 9) Interpretation Guidelines
+
+### Gap Severity Classification
+
+**Spatial:**
+- **Critical:** Zero coverage cells (immediate priority)
+- **High:** Bottom 5% quantile (undersampled)
+- **Medium:** Bottom 10% quantile
+- **Monitor:** Bottom 25% quantile
+
+**Temporal:**
+- **Critical:** >5 years since last sample
+- **High:** >1 year since last sample
+- **Monitor:** Seasonal gaps, incomplete years
+
+**Taxonomic:**
+- **Critical:** Threatened taxa (CR, EN, VU) not in GBIF
+- **High:** Threatened taxa poorly sampled
+- **Medium:** Missing taxa (any rank)
+- **Monitor:** Taxa only in one basis type (fragile)
+
+### Using Gap Metrics for Decision-Making
+
+1. **Prioritize field surveys:** Use `priority_zero_coverage_cells.csv` and `priority_stale_cells.csv`
+2. **Targeted species monitoring:** Use `priority_undersampled_taxa.csv` filtered by threat status
+3. **Data mobilization:** Identify basis types with low coverage to target data holders
+4. **Seasonal planning:** Use temporal completeness to plan surveys in undersampled months
+5. **Taxonomic focus:** Use coverage by rank/family to focus taxonomic expertise
+
+---
+
+## 10) Quality Notes
+
+**Strengths of current approach:**
+- Reproducible and well-documented
+- Parameterized (easy to update)
+- Multi-dimensional (spatial × temporal × taxonomic)
+- Action-oriented (priority lists)
+
+**Known limitations:**
+- Name matching is conservative (may underestimate coverage if synonyms differ)
+- Does not account for observation effort/accessibility bias
+- Zero coverage may reflect lack of suitable habitat, not sampling gap
+- Threatened species lists may be outdated
+
+**Future enhancements:**
+- GBIF backbone matching for improved taxonomic resolution
+- Integration with habitat suitability models
+- Observation effort normalization
+- Dynamic threshold adjustment based on habitat type
+
+---
+
+**Last updated:** 2026-01-26  
+**Scripts:** 07_define_spatial_gaps.R, 08_define_temporal_gaps.R, 09_define_taxonomic_gaps.R, 10_make_gap_overview.R
