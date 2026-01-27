@@ -1,4 +1,4 @@
-# scripts/09_define_taxonomic_gaps.R
+# scripts/10_define_taxonomic_gaps.R
 # ==============================================================================
 # Taxonomic Gap Analysis - Comprehensive
 # ==============================================================================
@@ -74,7 +74,7 @@ read_species_summary <- function(filename) {
 # Load data ---------------------------------------------------------------
 cli_h2("Loading Data")
 
-# Species summaries from cubes
+# Species summaries from cubes 
 sp10 <- read_species_summary("species_summary_10km.csv")
 sp50 <- read_species_summary("species_summary_50km.csv")
 
@@ -238,6 +238,7 @@ if (file.exists(cell10_path) && file.exists(cell50_path)) {
   cell50 <- fread(cell50_path)
   
   # Get species × cell from full species summaries (not just "all")
+  # different to sp10/sp50!
   sp10_full <- fread(here(p_derived, "species_summary_10km.csv"))
   sp50_full <- fread(here(p_derived, "species_summary_50km.csv"))
   

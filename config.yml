@@ -65,13 +65,13 @@ derived:
     grid_lookup_10km: "grid_lookup_10km.csv"
     grid_lookup_50km: "grid_lookup_50km.csv"
 
-    # Taxonomic rank × time summaries
+    # Taxonomic rank x time summaries
     family_time_summary_10km: "family_time_summary_10km.csv"
     family_time_summary_50km: "family_time_summary_50km.csv"
     order_time_summary_10km: "order_time_summary_10km.csv"
     order_time_summary_50km: "order_time_summary_50km.csv"
 
-    # OPTIONAL: species × time summary (top N species only)
+    # OPTIONAL: species x time summary (top N species only)
     species_time_summary_topN_10km: "species_time_summary_topN_10km.csv"
     species_time_summary_topN_50km: "species_time_summary_topN_50km.csv"
 

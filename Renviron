@@ -1,0 +1,17 @@
+# .Renviron - Environment variables for GBIF Sweden Gap Analysis
+# ==============================================================================
+# This file stores sensitive credentials that should NOT be committed to git.
+# 
+# IMPORTANT: Add this file to .gitignore!
+#
+# Usage:
+#   1. Replace the placeholder values below with your actual GBIF credentials
+#   2. Restart R (or run readRenviron(".Renviron")) for changes to take effect
+#   3. Access in R with: Sys.getenv("GBIF_USER")
+#
+# Create a GBIF account at: https://www.gbif.org/user/profile
+
+# GBIF API credentials
+GBIF_USER=your_username_here
+GBIF_EMAIL=your_email_here
+GBIF_PWD=your_password_here

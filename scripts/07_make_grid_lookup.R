@@ -1,4 +1,4 @@
-# scripts/06_make_grid_lookup.R
+# scripts/07_make_grid_lookup.R
 # ==============================================================================
 # Create Grid Lookup Tables
 # ==============================================================================
@@ -51,43 +51,6 @@ purrr::walk(grid_files, ~{
   cli_alert_success("{(.x$label)} grid file present")
 })
 
-# Helper functions --------------------------------------------------------
-
-#' Guess which field contains the EEA cell code
-#' @param field_names Character vector of column names
-#' @return Field name or NA
-guess_cellcode_field <- function(field_names) {
-  names_lower <- str_to_lower(field_names)
-  
-  # Priority 1: Fields with both "eea" and "code"
-  candidates <- field_names[
-    str_detect(names_lower, "eea") & str_detect(names_lower, "code")
-  ]
-  
-  if (length(candidates) > 0) {
-    return(candidates[1])
-  }
-  
-  # Priority 2: Fields with "cell" and "code"
-  candidates <- field_names[
-    str_detect(names_lower, "cell") & str_detect(names_lower, "code")
-  ]
-  
-  if (length(candidates) > 0) {
-    return(candidates[1])
-  }
-  
-  # Priority 3: Any field with relevant keywords
-  candidates <- field_names[
-    str_detect(names_lower, "eea|cell|code|grid")
-  ]
-  
-  if (length(candidates) > 0) {
-    return(candidates[1])
-  }
-  
-  NA_character_
-}
 
 #' Create lookup table for a grid
 #' @param grid sf object with grid geometries
