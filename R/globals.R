@@ -149,6 +149,54 @@ log_msg <- function(...) {
   cli_alert_info(paste0(..., collapse = ""))
 }
 
+# Grid helper functions ----------------------------------------------------
+
+# Guess which field contains the EEA cell code
+# 
+# Examines column names to identify the most likely EEA cell code field.
+# Uses a priority system: (1) fields with both "eea" and "code", 
+# (2) fields with "cell" and "code", (3) any field with relevant keywords.
+# 
+# @param field_names Character vector of column names from a grid dataset
+# @return Character: the best-matching field name, or NA_character_ if none found
+# @examples
+# guess_cellcode_field(c("FID", "CELLCODE", "Shape_Area"))
+# # Returns: "CELLCODE"
+# guess_cellcode_field(c("id", "eea_cell_code", "geometry"))
+# # Returns: "eea_cell_code"
+guess_cellcode_field <- function(field_names) {
+  names_lower <- stringr::str_to_lower(field_names)
+  
+  
+  # Priority 1: Fields with both "eea" and "code" (most specific)
+  candidates <- field_names[
+    stringr::str_detect(names_lower, "eea") & 
+      stringr::str_detect(names_lower, "code")
+  ]
+  if (length(candidates) > 0) {
+    return(candidates[1])
+  }
+  
+  # Priority 2: Fields with "cell" and "code"
+  candidates <- field_names[
+    stringr::str_detect(names_lower, "cell") & 
+      stringr::str_detect(names_lower, "code")
+  ]
+  if (length(candidates) > 0) {
+    return(candidates[1])
+  }
+  
+  # Priority 3: Any field with relevant keywords
+  candidates <- field_names[
+    stringr::str_detect(names_lower, "eea|cell|code|grid")
+  ]
+  if (length(candidates) > 0) {
+    return(candidates[1])
+  }
+  
+  NA_character_
+}
+
 # Directory validation (non-blocking) -------------------------------------
 # Check for expected raw data directories and notify if missing
 # This does not stop execution, just informs the user

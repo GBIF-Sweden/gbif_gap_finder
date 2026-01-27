@@ -1,4 +1,4 @@
-# scripts/07_define_spatial_gaps.R
+# scripts/08_define_spatial_gaps.R
 # ==============================================================================
 # Spatial Gap Analysis - Comprehensive
 # ==============================================================================
@@ -62,30 +62,6 @@ read_cell_summary <- function(filename) {
   dt
 }
 
-#' Guess EEA cell code field in grid
-guess_cellcode_field <- function(field_names) {
-  names_lower <- str_to_lower(field_names)
-  
-  # Priority 1: eea + code
-  candidates <- field_names[
-    str_detect(names_lower, "eea") & str_detect(names_lower, "code")
-  ]
-  if (length(candidates) > 0) return(candidates[1])
-  
-  # Priority 2: cell + code
-  candidates <- field_names[
-    str_detect(names_lower, "cell") & str_detect(names_lower, "code")
-  ]
-  if (length(candidates) > 0) return(candidates[1])
-  
-  # Priority 3: any relevant keyword
-  candidates <- field_names[
-    str_detect(names_lower, "eea|cell|code|grid")
-  ]
-  if (length(candidates) > 0) return(candidates[1])
-  
-  NA_character_
-}
 
 #' Get all cell codes from grid file
 get_all_cellcodes <- function(grid_path) {

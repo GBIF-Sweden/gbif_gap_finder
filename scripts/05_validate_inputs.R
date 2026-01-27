@@ -1,4 +1,4 @@
-# scripts/04_validate_inputs.R
+# scripts/05_validate_inputs.R
 # ==============================================================================
 # Phase 1 Validation: Quality Assurance Checks
 # ==============================================================================
@@ -46,33 +46,6 @@ read_rds_safe <- function(path) {
   )
 }
 
-#' Guess cell code field name in grid data
-#' @param field_names Character vector of column names
-#' @return Best guess for cell code field or NA
-guess_cellcode_field <- function(field_names) {
-  names_lower <- str_to_lower(field_names)
-  
-  # Find candidates with relevant keywords
-  candidates <- field_names[
-    str_detect(names_lower, "eea|cell|code|grid")
-  ]
-  
-  if (length(candidates) == 0) {
-    return(NA_character_)
-  }
-  
-  # Prefer fields with both "eea" and "code"
-  preferred <- candidates[
-    str_detect(str_to_lower(candidates), "eea") &
-      str_detect(str_to_lower(candidates), "code")
-  ]
-  
-  if (length(preferred) > 0) {
-    return(preferred[1])
-  }
-  
-  candidates[1]
-}
 
 #' Read sample from cube file (fst or rds)
 #' @param path Path to cube file

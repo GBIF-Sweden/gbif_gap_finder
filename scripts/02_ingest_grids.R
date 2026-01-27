@@ -1,4 +1,4 @@
-# scripts/01_ingest_grids.R
+# scripts/02_ingest_grids.R
 # ==============================================================================
 # EEA Grid Ingestion & Standardization
 # ==============================================================================
@@ -18,21 +18,36 @@ library(glue)
 
 source(here("scripts", "00_setup.R"))
 
-# Configuration -----------------------------------------------------------
+# Configuration (from config.yml) ------------------------------------------
+
+# Directories
+dir_grid_10km <- here(cfg_get("paths.grid_10km_dir", "data_raw/eea_grid_10km"))
+dir_grid_50km <- here(cfg_get("paths.grid_50km_dir", "data_raw/eea_grid_50km"))
+dir_data_proc <- here(cfg_get("paths.data_proc", "data_proc"))
+
+# File names (just the filename, not full path)
+file_grid_10km <- cfg_get("files.grids.grid10km", "se_10km.shp")
+file_grid_50km <- cfg_get("files.grids.grid50km", "EEA_50km_grid_v2024.gpkg")
+
+# Build grid configuration list
 grid_configs <- list(
   grid10km = list(
-    dir = cfg_get("paths.grid_10km_dir"),
-    file = cfg_get("files.grids.grid10km"),
-    output = out_grid_10km_gpkg
+    dir    = dir_grid_10km,
+    file   = file_grid_10km,
+    output = file.path(dir_data_proc, "grids_10km.gpkg")
   ),
   grid50km = list(
-    dir = cfg_get("paths.grid_50km_dir"),
-    file = cfg_get("files.grids.grid50km"),
-    output = out_grid_50km_gpkg
+    dir    = dir_grid_50km,
+    file   = file_grid_50km,
+    output = file.path(dir_data_proc, "grids_50km.gpkg")
   )
 )
 
+# CRS for Sweden (EPSG code, not a path!)
+target_crs <- cfg_get("parameters.crs", CRS_SWEREF99TM)
+
 # Validate configuration --------------------------------------------------
+
 purrr::walk(grid_configs, ~{
   if (is.null(.x$dir) || is.null(.x$file)) {
     cli_abort("Missing grid configuration in config.yml")
@@ -61,9 +76,9 @@ read_grid_safe <- function(path) {
 
 #' Standardize grid CRS and geometry type
 #' @param grid sf object with grid geometries
-#' @param target_crs Target CRS (default: SWEREF99 TM)
+#' @param crs Target CRS (default: SWEREF99 TM)
 #' @return Standardized sf object
-standardize_grid <- function(grid, target_crs = CRS_SWEREF99TM) {
+standardize_grid <- function(grid, crs = target_crs) {
   
   # Validate input CRS
   if (is.na(st_crs(grid))) {
@@ -73,7 +88,7 @@ standardize_grid <- function(grid, target_crs = CRS_SWEREF99TM) {
   cli_alert_info("Original CRS: {st_crs(grid)$input}")
   
   # Transform to target CRS
-  grid <- st_transform(grid, target_crs)
+  grid <- st_transform(grid, crs)
   cli_alert_success("Transformed to: {st_crs(grid)$input}")
   
   # Temporarily disable s2 for planar operations
@@ -121,11 +136,12 @@ standardize_grid <- function(grid, target_crs = CRS_SWEREF99TM) {
 }
 
 # Process grids -----------------------------------------------------------
+
 cli_h2("Processing EEA Grids")
 
 grids_processed <- purrr::map(grid_configs, ~{
-  # Construct file path
-  grid_path <- here(.x$dir, .x$file)
+  # Construct file path (dir is already full path, file is just filename)
+  grid_path <- file.path(.x$dir, .x$file)
   
   # Read and standardize
   grid <- read_grid_safe(grid_path) |>
@@ -134,9 +150,9 @@ grids_processed <- purrr::map(grid_configs, ~{
   # Write output
   cli_alert_info("Writing to: {.path {(.x$output)}}")
   st_write(
-    grid, 
-    .x$output, 
-    delete_dsn = TRUE, 
+    grid,
+    .x$output,
+    delete_dsn = TRUE,
     quiet = TRUE
   )
   
@@ -148,6 +164,7 @@ grids_processed <- purrr::map(grid_configs, ~{
 })
 
 # Summary -----------------------------------------------------------------
+
 cli_h2("Ingestion Summary")
 
 summary_table <- tibble::tibble(

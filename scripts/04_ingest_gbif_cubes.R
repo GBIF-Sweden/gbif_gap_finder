@@ -1,4 +1,4 @@
-# scripts/03_ingest_gbif_cubes.R
+# scripts/04_ingest_gbif_cubes.R
 # ==============================================================================
 # GBIF Occurrence Cube Ingestion
 # ==============================================================================
@@ -24,7 +24,7 @@ library(glue)
 
 source(here("scripts", "00_setup.R"))
 
-# Configuration -----------------------------------------------------------
+# Configuration (from config.yml) ------------------------------------------
 
 # Output format: "fst" (fast I/O) or "rds" (base R compatible)
 OUTPUT_FORMAT <- "fst"
@@ -44,10 +44,14 @@ if (OUTPUT_FORMAT == "fst" && !requireNamespace("fst", quietly = TRUE)) {
   )
 }
 
-# Get cube configuration from YAML ----------------------------------------
-cube_dir <- here(cfg_get("paths.gbif_cube_dir"))
-cube_map <- cfg_get("files.cube_files")
+# Paths from config.yml ----------------------------------------------------
+
+# Directories (these get wrapped in here() to make full paths)
+cube_dir      <- here(cfg_get("paths.gbif_cube_dir", "data_raw/gbif_occurrence_cubes"))
 data_proc_dir <- here(cfg_get("paths.data_proc", "data_proc"))
+
+# Cube file mapping from config.yml (nested list of filenames)
+cube_map <- cfg_get("files.cube_files")
 
 # Validate configuration
 if (is.null(cube_map) || length(cube_map) == 0) {
@@ -64,11 +68,11 @@ if (!dir.exists(cube_dir)) {
 }
 
 # Create output directories -----------------------------------------------
-out_cube_dir <- here(data_proc_dir, "cubes")
+out_cube_dir <- file.path(data_proc_dir, "cubes")
 dir.create(out_cube_dir, showWarnings = FALSE, recursive = TRUE)
 
-manifest_path <- here(data_proc_dir, "cube_manifest.csv")
-totals_path <- here(data_proc_dir, "cube_totals_by_basisOfRecord.csv")
+manifest_path <- file.path(data_proc_dir, "cube_manifest.csv")
+totals_path   <- file.path(data_proc_dir, "cube_totals_by_basisOfRecord.csv")
 
 # Helper functions --------------------------------------------------------
 
@@ -167,7 +171,9 @@ for (grid_name in names(cube_map)) {
   
   for (basis_name in names(basis_list)) {
     filename <- basis_list[[basis_name]]
-    filepath <- here(cube_dir, filename)
+    
+    # Construct full path: cube_dir is already full path, filename is just the name
+    filepath <- file.path(cube_dir, filename)
     
     # Validate file exists
     if (!file.exists(filepath)) {
@@ -247,8 +253,8 @@ for (grid_name in names(cube_map)) {
       n_cols <- ncol(dt)
       
       # Write processed cube
-      base_path <- here(
-        out_cube_dir, 
+      base_path <- file.path(
+        out_cube_dir,
         glue("cube_{grid_name}_{basis_name}")
       )
       

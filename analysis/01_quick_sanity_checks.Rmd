@@ -6,7 +6,7 @@ output:
     toc: true
     toc_float: true
     code_folding: hide
-    theme: flatly
+    theme: cosmo
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 ---
 
@@ -84,7 +84,9 @@ core_files <- tribble(
 core_files |>
   select(file, status) |>
   kable(caption = "Core Processed Files")
+
 ```
+
 
 ## Derived summary files
 

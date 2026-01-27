@@ -1,4 +1,4 @@
-# scripts/02_ingest_redlist_taxonomy.R
+# scripts/03_ingest_redlist_taxonomy.R
 # ==============================================================================
 # Swedish Red List & Taxonomy Ingestion
 # ==============================================================================
@@ -19,16 +19,27 @@ library(glue)
 
 source(here("scripts", "00_setup.R"))
 
-# Configuration -----------------------------------------------------------
+# Configuration (from config.yml) ------------------------------------------
+
+# Directories
+dir_redlist_se <- here(cfg_get("paths.redlist_se_dir", "data_raw/red_list_se"))
+dir_data_proc  <- here(cfg_get("paths.data_proc", "data_proc"))
+
+# Input file names (just filenames, not full paths)
+file_distribution <- cfg_get("files.redlist_se.redlist_se_distr", "distribution.txt")
+file_taxon        <- cfg_get("files.redlist_se.redlist_se_taxon", "taxon.txt")
+
+# Build full input paths
 input_files <- list(
-  distribution = here(raw_redlist_se_dir, "distribution.txt"),
-  taxon = here(raw_redlist_se_dir, "taxon.txt")
+  distribution = file.path(dir_redlist_se, file_distribution),
+  taxon        = file.path(dir_redlist_se, file_taxon)
 )
 
+# Output files
 output_files <- list(
-  distribution = here("data_proc", "redlist_se_distribution_current.rds"),
-  taxon = here("data_proc", "redlist_se_taxon_current.rds"),
-  taxa_reference = here("data_proc", "taxa_reference_current.rds")
+  distribution   = file.path(dir_data_proc, "redlist_se_distribution_current.rds"),
+  taxon          = file.path(dir_data_proc, "redlist_se_taxon_current.rds"),
+  taxa_reference = file.path(dir_data_proc, "taxa_reference_current.rds")
 )
 
 # Darwin Core term mappings -----------------------------------------------
@@ -92,7 +103,7 @@ read_table_safe <- function(path) {
   }
   
   delim <- detect_delimiter(path)
-  cli_alert_info("Reading with delimiter: {ifelse(delim == '\t', 'TAB', delim)}")
+  cli_alert_info("Reading with delimiter: {ifelse(delim == '\\t', 'TAB', delim)}")
   
   read_delim(
     path,
@@ -239,11 +250,11 @@ validation_checks <- list(
 
 purrr::iwalk(validation_checks, ~{
   if (is.na(.x)) {
-    cli_alert_info("{(.y)}: NA (not applicable)")
+    cli_alert_info("{.y}: NA (not applicable)")
   } else if (.x) {
-    cli_alert_success("{(.y)}")
+    cli_alert_success("{.y}")
   } else {
-    cli_alert_warning("{(.y)}: FAILED")
+    cli_alert_warning("{.y}: FAILED")
   }
 })
 

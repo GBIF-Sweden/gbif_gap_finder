@@ -9,7 +9,7 @@ output:
     toc_float: true
     toc_depth: 3
     code_folding: show
-    theme: flatly
+    theme: cosmo
     fig_width: 12
     fig_height: 8
 ---

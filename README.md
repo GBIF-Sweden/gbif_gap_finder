@@ -132,8 +132,13 @@ All scripts should be run from the project root directory.
 
 ### Phase 0: Setup
 
+# Phase 0: Setup & Download
+source("scripts/00_setup.R")
+
+
 ```r
 source("scripts/00_setup.R")
+# source("scripts/01_download_raw_data.R")
 ```
 
 Checks packages, folders, and configuration.
@@ -143,7 +148,7 @@ Checks packages, folders, and configuration.
 **1) Ingest + standardize EEA grids (10 km / 50 km)**
 
 ```r
-source("scripts/01_ingest_grids.R")
+source("scripts/02_ingest_grids.R")
 ```
 
 **Outputs** (written to `data_proc/`):
@@ -155,7 +160,7 @@ source("scripts/01_ingest_grids.R")
 **2) Ingest + standardize Swedish Red List taxonomy**
 
 ```r
-source("scripts/02_ingest_redlist_taxonomy.R")
+source("scripts/03_ingest_redlist_taxonomy.R")
 ```
 
 **Outputs** (written to `data_proc/`):
@@ -166,7 +171,7 @@ source("scripts/02_ingest_redlist_taxonomy.R")
 **3) Ingest GBIF Occurrence Cube files**
 
 ```r
-source("scripts/03_ingest_gbif_cubes.R")
+source("scripts/04_ingest_gbif_cubes.R")
 ```
 
 **Outputs** (written to `data_proc/`):
@@ -177,7 +182,7 @@ source("scripts/03_ingest_gbif_cubes.R")
 **4) Phase 1 validation (QA checks)**
 
 ```r
-source("scripts/04_validate_inputs.R")
+source("scripts/05_validate_inputs.R")
 ```
 
 **Outputs** (written to `logs/`):
@@ -190,7 +195,7 @@ source("scripts/04_validate_inputs.R")
 **5) Create analysis-ready derived datasets**
 
 ```r
-source("scripts/05_make_derived_summaries.R")
+source("scripts/06_make_derived_summaries.R")
 ```
 
 **Outputs** (written to `data_proc/derived/`):
@@ -217,7 +222,7 @@ source("scripts/05_make_derived_summaries.R")
 **6) Create grid lookup tables**
 
 ```r
-source("scripts/06_make_grid_lookup.R")
+source("scripts/07_make_grid_lookup.R")
 ```
 
 **Outputs** (written to `data_proc/derived/`):
@@ -231,7 +236,7 @@ source("scripts/06_make_grid_lookup.R")
 **7) Spatial gap analysis**
 
 ```r
-source("scripts/07_define_spatial_gaps.R")
+source("scripts/08_define_spatial_gaps.R")
 ```
 
 **Outputs** (written to `data_proc/gaps/`, 7 files):
@@ -247,7 +252,7 @@ source("scripts/07_define_spatial_gaps.R")
 **8) Temporal gap analysis**
 
 ```r
-source("scripts/08_define_temporal_gaps.R")
+source("scripts/09_define_temporal_gaps.R")
 ```
 
 **Outputs** (written to `data_proc/gaps/`, 21 files):
@@ -282,7 +287,7 @@ source("scripts/08_define_temporal_gaps.R")
 **9) Taxonomic gap analysis**
 
 ```r
-source("scripts/09_define_taxonomic_gaps.R")
+source("scripts/10_define_taxonomic_gaps.R")
 ```
 
 **Outputs** (written to `data_proc/gaps/`, 14 files):
@@ -317,7 +322,7 @@ source("scripts/09_define_taxonomic_gaps.R")
 **10) Create integrated overview tables**
 
 ```r
-source("scripts/10_make_gap_overview.R")
+source("scripts/11_make_gap_overview.R")
 ```
 
 **Outputs** (written to `output/tables/` and `output/tables/integrated/`):
