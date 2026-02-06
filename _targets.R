@@ -14,6 +14,14 @@
 # To run from scratch:
 #   tar_destroy()     # Clear all cached targets
 #   tar_make()        # Rebuild everything
+#
+# Pipeline Phases:
+#   1. Ingestion     - Download and process raw data (scripts 01-04)
+#   2. Validation    - Check data integrity (script 05)
+#   3. Summaries     - Create analysis-ready tables (scripts 06a, 06b)
+#   4. Gap Analysis  - Identify gaps (scripts 07-09)
+#   5. Integration   - Combined overview (script 10)
+#   6. Reports       - Generate HTML reports (Rmd files)
 
 library(targets)
 library(tarchetypes)
@@ -23,7 +31,7 @@ source("scripts/00_setup.R")
 
 # Set target options
 tar_option_set(
- packages = c(
+  packages = c(
     "here", "dplyr", "tidyr", "readr", "stringr", "purrr", "glue",
     "sf", "data.table", "fst", "cli", "lubridate", "tibble", "yaml"
   ),
@@ -35,12 +43,12 @@ tar_option_set(
 
 list(
   
- # =========================================================================
- # PHASE 1: DATA INGESTION
- # =========================================================================
- 
- # 1.1 Ingest EEA grids ----------------------------------------------------
- tar_target(
+  # =========================================================================
+  # PHASE 1: DATA INGESTION
+  # =========================================================================
+  
+  # 1.1 Ingest EEA grids ----------------------------------------------------
+  tar_target(
     grid_10km,
     {
       dir_grid <- here(cfg_get("paths.grid_10km_dir", "data_raw/eea_grid_10km"))
@@ -48,7 +56,7 @@ list(
       path <- file.path(dir_grid, file_grid)
       
       grid <- sf::st_read(path, quiet = TRUE) |>
-        sf::st_transform(CRS_SWEREF99TM)
+        sf::st_transform(CRS_PROJECT)  # EPSG:3035
       
       # Handle geometry types
       sf::sf_use_s2(FALSE)
@@ -73,9 +81,7 @@ list(
       sf::st_write(grid, out_path, delete_dsn = TRUE, quiet = TRUE)
       
       grid
-    },
-    format = "file",
-    pattern = NULL
+    }
   ),
   
   tar_target(
@@ -86,7 +92,7 @@ list(
       path <- file.path(dir_grid, file_grid)
       
       grid <- sf::st_read(path, quiet = TRUE) |>
-        sf::st_transform(CRS_SWEREF99TM)
+        sf::st_transform(CRS_PROJECT)  # EPSG:3035
       
       # Handle geometry types
       sf::sf_use_s2(FALSE)
@@ -111,50 +117,20 @@ list(
       sf::st_write(grid, out_path, delete_dsn = TRUE, quiet = TRUE)
       
       grid
-    },
-    format = "file",
-    pattern = NULL
+    }
   ),
   
-  # 1.2 Ingest Swedish Red List taxonomy -----------------------------------
+  # 1.2 Ingest taxonomy (Dyntaxa + Red List) --------------------------------
   tar_target(
     taxa_reference,
     {
-      dir_redlist <- here(cfg_get("paths.redlist_se_dir", "data_raw/red_list_se"))
-      file_taxon <- cfg_get("files.redlist_se.redlist_se_taxon", "taxon.txt")
-      file_distr <- cfg_get("files.redlist_se.redlist_se_distr", "distribution.txt")
+      # Source the taxonomy ingestion script
+      source(here("scripts", "03_ingest_taxonomy.R"), local = TRUE)
       
-      # Read taxon file
-      taxon <- readr::read_delim(
-        file.path(dir_redlist, file_taxon),
-        delim = "\t",
-        show_col_types = FALSE
-      )
-      
-      # Read distribution file
-      distribution <- readr::read_delim(
-        file.path(dir_redlist, file_distr),
-        delim = "\t",
-        show_col_types = FALSE
-      )
-      
-      # Standardize column names (basic DwC mapping)
-      names(taxon) <- tolower(names(taxon))
-      names(distribution) <- tolower(names(distribution))
-      
-      # Join on id
-      if ("id" %in% names(taxon) && "id" %in% names(distribution)) {
-        taxa_ref <- dplyr::left_join(taxon, distribution, by = "id", suffix = c("", "_dist"))
-      } else {
-        taxa_ref <- taxon
-      }
-      
-      # Save to disk
-      out_path <- here(cfg_get("paths.data_proc", "data_proc"), "taxa_reference_current.rds")
-      saveRDS(taxa_ref, out_path, compress = "xz")
-      
-      taxa_ref
-    }
+      # Return the saved file path
+      here("data_proc", "dyntaxa_current.rds")
+    },
+    format = "file"
   ),
   
   # 1.3 Ingest GBIF occurrence cubes ---------------------------------------
@@ -235,7 +211,7 @@ list(
       checks <- list(
         grid_10km_exists = file.exists(here("data_proc", "grids_10km.gpkg")),
         grid_50km_exists = file.exists(here("data_proc", "grids_50km.gpkg")),
-        taxa_ref_exists = file.exists(here("data_proc", "taxa_reference_current.rds")),
+        taxa_ref_exists = file.exists(here("data_proc", "dyntaxa_current.rds")),
         cube_manifest_exists = file.exists(here("data_proc", "cube_manifest.csv"))
       )
       
@@ -252,34 +228,71 @@ list(
   ),
   
   # =========================================================================
-  # PHASE 3: DERIVED SUMMARIES
+  # PHASE 3: DERIVED SUMMARIES (Split into 06a and 06b)
   # =========================================================================
   
+  # 3.1 Core summaries (fast, ~10-30 min) -----------------------------------
   tar_target(
-    derived_summaries,
+    core_summaries,
     {
-      # Source the derived summaries script
-      source(here("scripts", "06_make_derived_summaries.R"), local = TRUE)
+      # Source the core summaries script
+      source(here("scripts", "06a_make_core_summaries.R"), local = TRUE)
       
       # Return list of created files
       derived_dir <- here("data_proc", "derived")
-      list.files(derived_dir, pattern = "\\.csv$", full.names = TRUE)
+      core_files <- list.files(derived_dir, pattern = "^(cell|time|order|family|cube).*\\.csv$", 
+                               full.names = TRUE)
+      
+      list(
+        files = core_files,
+        n_files = length(core_files),
+        completed_at = Sys.time()
+      )
     },
     cue = tar_cue(depend = TRUE)
   ),
   
+  # 3.2 Species-level summaries (slower, ~30-60 min with fast mode) ---------
   tar_target(
-    grid_lookups,
+    species_summaries,
     {
-      # Source the grid lookup script
-      source(here("scripts", "07_make_grid_lookup.R"), local = TRUE)
+      # Source the species summaries script
+      source(here("scripts", "06b_make_species_summaries_highmem.R"), local = TRUE)
+      
+      # Return list of created directories and files
+      derived_dir <- here("data_proc", "derived")
+      by_order_dir <- file.path(derived_dir, "by_order")
+      by_family_dir <- file.path(derived_dir, "by_family")
+      
+      order_files <- if (dir.exists(by_order_dir)) {
+        list.files(by_order_dir, pattern = "\\.csv$", recursive = TRUE, full.names = TRUE)
+      } else character(0)
+      
+      family_files <- if (dir.exists(by_family_dir)) {
+        list.files(by_family_dir, pattern = "\\.csv$", recursive = TRUE, full.names = TRUE)
+      } else character(0)
       
       list(
-        lookup_10km = here("data_proc", "derived", "grid_lookup_10km.csv"),
-        lookup_50km = here("data_proc", "derived", "grid_lookup_50km.csv")
+        by_order_files = order_files,
+        by_family_files = family_files,
+        n_order_files = length(order_files),
+        n_family_files = length(family_files),
+        completed_at = Sys.time()
       )
     },
     cue = tar_cue(depend = TRUE)
+  ),
+  
+  # Combined summaries target for downstream dependencies
+  tar_target(
+    derived_summaries,
+    {
+      list(
+        core = core_summaries,
+        species = species_summaries,
+        all_complete = TRUE
+      )
+    }
   ),
   
   # =========================================================================
@@ -289,7 +302,7 @@ list(
   tar_target(
     spatial_gaps,
     {
-      source(here("scripts", "08_define_spatial_gaps.R"), local = TRUE)
+      source(here("scripts", "07_spatial_gaps.R"), local = TRUE)
       
       gaps_dir <- here("data_proc", "gaps")
       list.files(gaps_dir, pattern = "^spatial_.*\\.csv$", full.names = TRUE)
@@ -300,7 +313,7 @@ list(
   tar_target(
     temporal_gaps,
     {
-      source(here("scripts", "09_define_temporal_gaps.R"), local = TRUE)
+      source(here("scripts", "08_temporal_gaps.R"), local = TRUE)
       
       gaps_dir <- here("data_proc", "gaps")
       list.files(gaps_dir, pattern = "^temporal_.*\\.csv$|^cell_recency.*\\.csv$", full.names = TRUE)
@@ -311,7 +324,7 @@ list(
   tar_target(
     taxonomic_gaps,
     {
-      source(here("scripts", "10_define_taxonomic_gaps.R"), local = TRUE)
+      source(here("scripts", "09_taxonomic_gaps.R"), local = TRUE)
       
       gaps_dir <- here("data_proc", "gaps")
       list.files(gaps_dir, pattern = "^taxonomic_.*\\.csv$", full.names = TRUE)
@@ -326,7 +339,7 @@ list(
   tar_target(
     gap_overview,
     {
-      source(here("scripts", "11_make_gap_overview.R"), local = TRUE)
+      source(here("scripts", "10_integrated_overview.R"), local = TRUE)
       
       tables_dir <- here("output", "tables")
       list(
@@ -338,28 +351,47 @@ list(
   ),
   
   # =========================================================================
-  # PHASE 6: REPORTS (Optional)
+  # PHASE 6: REPORTS (Optional - run manually with tar_make(names = ...))
   # =========================================================================
   
+  # 01 - Data validation / sanity checks
   tar_render(
     report_sanity_checks,
-    path = here("analysis", "01_quick_sanity_checks.Rmd"),
+    path = here("analysis", "01_sanity_checks.Rmd"),
     output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")  # Only run manually with tar_make(report_sanity_checks)
+    cue = tar_cue(mode = "never")
   ),
   
+  # 02 - Spatial gap analysis
   tar_render(
-    report_gap_analysis,
-    path = here("analysis", "02_gap_analysis.Rmd"),
+    report_spatial_gaps,
+    path = here("analysis", "02_spatial_gaps.Rmd"),
     output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")  # Only run manually
+    cue = tar_cue(mode = "never")
   ),
   
+  # 03 - Temporal gap analysis
   tar_render(
-    report_final,
-    path = here("analysis", "03_final_report.Rmd"),
+    report_temporal_gaps,
+    path = here("analysis", "03_temporal_gaps.Rmd"),
     output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")  # Only run manually
+    cue = tar_cue(mode = "never")
+  ),
+  
+  # 04 - Taxonomic gap analysis
+  tar_render(
+    report_taxonomic_gaps,
+    path = here("analysis", "04_taxonomic_gaps.Rmd"),
+    output_dir = here("analysis"),
+    cue = tar_cue(mode = "never")
+  ),
+  
+  # 05 - Integrated final report
+  tar_render(
+    report_integrated,
+    path = here("analysis", "05_integrated_report.Rmd"),
+    output_dir = here("analysis"),
+    cue = tar_cue(mode = "never")
   ),
   
   # =========================================================================
@@ -372,7 +404,8 @@ list(
       list(
         completed_at = Sys.time(),
         validation = validation_complete,
-        n_derived_files = length(derived_summaries),
+        core_summaries = core_summaries,
+        species_summaries = species_summaries,
         n_spatial_gap_files = length(spatial_gaps),
         n_temporal_gap_files = length(temporal_gaps),
         n_taxonomic_gap_files = length(taxonomic_gaps),

@@ -154,11 +154,11 @@ grid_results |>
     epsg <- st_crs(grid_data)$epsg
     md_add("- EPSG: `", epsg, "`\n")
     
-    if (!is.na(epsg) && epsg == CRS_SWEREF99TM) {
-      md_check("CRS is SWEREF99 TM (EPSG:3006)", "ok")
+    if (!is.na(epsg) && epsg == CRS_ETRS89_LAEA) {
+      md_check("CRS is ETRS89-LAEA (EPSG:3035)", "ok")
       cli_alert_success("{resolution}: CRS correct")
     } else {
-      md_check("CRS is NOT EPSG:3006", "warn")
+      md_check("CRS is NOT ETRS89-LAEA (EPSG:3035)", "warn")
       cli_alert_warning("{resolution}: CRS issue")
     }
     
@@ -344,7 +344,8 @@ if (file_exists_safe(taxa_ref_path)) {
     "scientificName", c("scientificname", "scientificName"),
     "taxonRank", c("taxonrank", "taxonRank"),
     "acceptedNameUsageID", c("acceptednameusageid", "acceptedNameUsageID"),
-    "threatStatus", c("threatstatus", "threatStatus")
+    "threatStatus_dyntaxa", c("threatstatus_dyntaxa", "threatStatus_dyntaxa"),
+    "threatStatus_redlist", c("threatstatus_redlist", "threatStatus_redlist")
   )
   
   md_add("\n#### Column Checks\n")
@@ -376,8 +377,19 @@ if (file_exists_safe(taxa_ref_path)) {
   }
   
   # Check threatStatus coverage
-  if ("threatStatus" %in% col_names) {
-    threat_na_rate <- mean(is.na(taxa_ref$threatStatus))
+  # Check both threat status columns
+  for (threat_col in c("threatStatus_dyntaxa", "threatStatus_redlist")) {
+    if (threat_col %in% col_names) {
+      threat_na_rate <- mean(is.na(taxa_ref[[threat_col]]))
+      md_add("- ", threat_col, " NA rate: `", round(threat_na_rate, 3), "`\n")
+      
+      if (threat_na_rate < 0.95) {
+        md_check(glue("{threat_col} has meaningful coverage"), "ok")
+      } else {
+        md_check(glue("{threat_col} mostly NA"), "warn")
+      }
+    }
+  }
     md_add("- threatStatus NA rate: `", round(threat_na_rate, 3), "`\n")
     
     if (threat_na_rate < 0.95) {
@@ -385,9 +397,7 @@ if (file_exists_safe(taxa_ref_path)) {
     } else {
       md_check("threatStatus mostly NA - check join", "warn")
     }
-  }
-  
-} else {
+  } else {
   md_check("Taxa reference MISSING", "fail")
   cli_alert_danger("Taxa reference missing")
 }

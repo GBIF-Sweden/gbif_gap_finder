@@ -5,10 +5,10 @@
 # This file defines:
 # - Project directory paths
 # - Configuration loading utilities
-# - Standard CRS for Sweden
+# - Standard CRS (EPSG:3035 for EEA grids)
 # - Global options and settings
 #
-# Designed to be sourced early (e.g., from scripts/00_setup.R)
+# Sourced by scripts/00_setup.R
 
 library(here)
 library(cli)
@@ -28,6 +28,18 @@ p_data_proc <- here("data_proc")
 p_output    <- here("output")
 p_docs      <- here("docs")
 p_logs      <- here("logs")
+
+# Derived data paths (from scripts 06a/06b)
+p_derived   <- here("data_proc", "derived")
+p_by_order  <- here("data_proc", "derived", "by_order")
+p_by_family <- here("data_proc", "derived", "by_family")
+
+# Gap analysis paths (from scripts 07-09)
+p_gaps      <- here("data_proc", "gaps")
+
+# Output paths (from script 10)
+p_tables    <- here("output", "tables")
+p_integrated <- here("output", "tables", "integrated")
 
 # Configuration loading ---------------------------------------------------
 
@@ -77,8 +89,12 @@ cfg_get <- function(name, default = NULL) {
 }
 
 # Coordinate Reference System (CRS) ---------------------------------------
-# Standard CRS for Sweden: SWEREF99 TM (EPSG:3006)
-CRS_SWEREF99TM <- 3006
+# Standard CRS for EEA grids: ETRS89-LAEA Europe (EPSG:3035)
+CRS_PROJECT <- 3035
+CRS_LAEA    <- 3035
+
+# Legacy alias for backwards compatibility
+CRS_SWEREF99TM <- 3006  # Swedish national CRS (not used for EEA grids)
 
 # Configure sf package defaults
 if (requireNamespace("sf", quietly = TRUE)) {
@@ -151,22 +167,21 @@ log_msg <- function(...) {
 
 # Grid helper functions ----------------------------------------------------
 
-# Guess which field contains the EEA cell code
-# 
-# Examines column names to identify the most likely EEA cell code field.
-# Uses a priority system: (1) fields with both "eea" and "code", 
-# (2) fields with "cell" and "code", (3) any field with relevant keywords.
-# 
-# @param field_names Character vector of column names from a grid dataset
-# @return Character: the best-matching field name, or NA_character_ if none found
-# @examples
-# guess_cellcode_field(c("FID", "CELLCODE", "Shape_Area"))
-# # Returns: "CELLCODE"
-# guess_cellcode_field(c("id", "eea_cell_code", "geometry"))
-# # Returns: "eea_cell_code"
+#' Guess which field contains the EEA cell code
+#' 
+#' Examines column names to identify the most likely EEA cell code field.
+#' Uses a priority system: (1) fields with both "eea" and "code", 
+#' (2) fields with "cell" and "code", (3) any field with relevant keywords.
+#' 
+#' @param field_names Character vector of column names from a grid dataset
+#' @return Character: the best-matching field name, or NA_character_ if none found
+#' @examples
+#' guess_cellcode_field(c("FID", "CELLCODE", "Shape_Area"))
+#' # Returns: "CELLCODE"
+#' guess_cellcode_field(c("id", "eea_cell_code", "geometry"))
+#' # Returns: "eea_cell_code"
 guess_cellcode_field <- function(field_names) {
   names_lower <- stringr::str_to_lower(field_names)
-  
   
   # Priority 1: Fields with both "eea" and "code" (most specific)
   candidates <- field_names[
@@ -197,6 +212,24 @@ guess_cellcode_field <- function(field_names) {
   NA_character_
 }
 
+#' Standardize EEA cell code column name
+#'
+#' Renames the detected cell code column to 'eeacellcode' for consistency.
+#' 
+#' @param dt A data.table or data.frame with a cell code column
+#' @return The same object with standardized column name
+standardize_cellcode <- function(dt) {
+  current_name <- guess_cellcode_field(names(dt))
+  if (!is.na(current_name) && current_name != "eeacellcode") {
+    if (inherits(dt, "data.table")) {
+      data.table::setnames(dt, current_name, "eeacellcode")
+    } else {
+      names(dt)[names(dt) == current_name] <- "eeacellcode"
+    }
+  }
+  dt
+}
+
 # Directory validation (non-blocking) -------------------------------------
 # Check for expected raw data directories and notify if missing
 # This does not stop execution, just informs the user
@@ -218,3 +251,13 @@ suppressMessages({
   check_raw_dir(raw_redlist_iucn_dir, "IUCN Red List")
   check_raw_dir(raw_dyntaxa_dir, "Dyntaxa")
 })
+
+# Create derived directories if they don't exist --------------------------
+ensure_dirs <- function() {
+  dirs <- c(p_derived, p_by_order, p_by_family, p_gaps, p_tables, p_integrated)
+  for (d in dirs) {
+    if (!dir.exists(d)) {
+      dir.create(d, recursive = TRUE, showWarnings = FALSE)
+    }
+  }
+}

@@ -58,12 +58,17 @@ cat("
 ║                                                                              ║
 ║  Phase-specific runs:                                                        ║
 ║                                                                              ║
-║    run_phase_1()        Ingestion (grids, taxonomy, cubes)
+║    run_phase_1()        Ingestion (grids, taxonomy, cubes)                   ║
 ║    run_phase_2()        Validation                                           ║
 ║    run_phase_3()        Derived summaries                                    ║
 ║    run_phase_4()        Gap analysis (spatial, temporal, taxonomic)          ║
 ║    run_phase_5()        Integrated overview                                  ║
+║    run_shiny_prep()     Prepare data for Shiny app                           ║
 ║    run_reports()        Render all RMarkdown reports                         ║
+║                                                                              ║
+║  Shiny app:                                                                  ║
+║                                                                              ║
+║    launch_app()         Launch the Shiny dashboard                           ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ")
@@ -97,9 +102,39 @@ run_phase_5 <- function() {
   tar_make(names = gap_overview)
 }
 
+#' Prepare data for Shiny app
+run_shiny_prep <- function() {
+  tar_make(names = shiny_data)
+}
+
 #' Run all reports
 run_reports <- function() {
-  tar_make(names = c(report_sanity_checks, report_gap_analysis, report_final))
+  tar_make(names = c(
+    report_sanity_checks,
+    report_spatial_gaps,
+    report_temporal_gaps,
+    report_taxonomic_gaps,
+    report_integrated
+  ))
+}
+
+#' Launch the Shiny app
+launch_app <- function() {
+  # Check if shiny data exists
+  shiny_data_path <- here("data_proc", "shiny_data.rds")
+  
+  if (!file.exists(shiny_data_path)) {
+    cat("⚠️  Shiny data not found. Preparing data first...\n")
+    run_shiny_prep()
+  }
+  
+ # Copy shiny data to app folder
+  app_data_dir <- here("shiny_app", "data")
+  dir.create(app_data_dir, showWarnings = FALSE, recursive = TRUE)
+  file.copy(shiny_data_path, file.path(app_data_dir, "shiny_data.rds"), overwrite = TRUE)
+  
+  cat("🚀 Launching Shiny app...\n")
+  shiny::runApp(here("shiny_app"))
 }
 
 #' Run everything (full pipeline + reports)

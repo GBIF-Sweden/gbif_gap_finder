@@ -46,39 +46,72 @@ files:
   redlist_se:
     redlist_se_distr: "distribution.txt"
     redlist_se_taxon: "taxon.txt"
+    
+  # Swedish Taxonomy (distribution + taxonomy files)
+  dyntaxa:
+    dyntaxa_distr: "SpeciesDistribution.csv"
+    dyntaxa_taxon: "Taxon.csv"
 
 derived:
   dir: "derived"
 
-  # Phase 2 outputs (analysis-ready summaries from scripts 05-06)
-  outputs:
-    # Core summaries (per cell, time, species)
+  # ============================================================================
+  # Phase 2 outputs: Analysis-ready summaries from scripts 06a and 06b
+  # ============================================================================
+  
+  # --- Script 06a: Core summaries (fast, single-pass) ---
+  core:
+    # Cell-level summaries (aggregated across all species)
     cell_summary_10km: "cell_summary_10km.csv"
     cell_summary_50km: "cell_summary_50km.csv"
+    
+    # Time-level summaries (aggregated across all species)
     time_summary_10km: "time_summary_10km.csv"
     time_summary_50km: "time_summary_50km.csv"
-    species_summary_10km: "species_summary_10km.csv"
-    species_summary_50km: "species_summary_50km.csv"
+    
+    # Cell x Time summaries (yearmonth resolution)
+    cell_time_summary_10km: "cell_time_summary_10km.csv"
+    cell_time_summary_50km: "cell_time_summary_50km.csv"
+    
+    # Order-level summaries
+    order_cell_summary_10km: "order_cell_summary_10km.csv"
+    order_cell_summary_50km: "order_cell_summary_50km.csv"
+    order_time_summary_10km: "order_time_summary_10km.csv"
+    order_time_summary_50km: "order_time_summary_50km.csv"
+    
+    # Family-level summaries
+    family_time_summary_10km: "family_time_summary_10km.csv"
+    family_time_summary_50km: "family_time_summary_50km.csv"
+    
+    # Cube metadata
     cube_key_summary: "cube_key_summary.csv"
     
     # Grid lookup tables
     grid_lookup_10km: "grid_lookup_10km.csv"
     grid_lookup_50km: "grid_lookup_50km.csv"
 
-    # Taxonomic rank x time summaries
-    family_time_summary_10km: "family_time_summary_10km.csv"
-    family_time_summary_50km: "family_time_summary_50km.csv"
-    order_time_summary_10km: "order_time_summary_10km.csv"
-    order_time_summary_50km: "order_time_summary_50km.csv"
-
-    # OPTIONAL: species x time summary (top N species only)
-    species_time_summary_topN_10km: "species_time_summary_topN_10km.csv"
-    species_time_summary_topN_50km: "species_time_summary_topN_50km.csv"
+  # --- Script 06b: Species-level summaries (with bias correction) ---
+  # Small orders (<500K rows): output to by_order/
+  # Large orders (>=500K rows): split by family, output to by_family/
+  species:
+    # Directory structure
+    by_order_dir: "by_order"
+    by_family_dir: "by_family"
+    
+    # Summary types (created for each order or order/family)
+    # Files named: {type}_{Order}_{grid}.csv or {type}_{Order}_{Family}_{grid}.csv
+    types:
+      - species_summary      # Species-level totals with bias correction
+      - species_cell         # Species x cell with bias correction
+      - species_time         # Species x yearmonth with bias correction
+      - species_cell_time    # Species x cell x yearmonth (optional, large)
 
 gaps:
   dir: "gaps"
   
-  # Phase 3 outputs (gap analysis from scripts 07-09)
+  # ============================================================================
+  # Phase 3 outputs: Gap analysis from scripts 07-09
+  # ============================================================================
   outputs:
     # Spatial gaps (script 07)
     spatial_gaps_10km: "spatial_gaps_10km.csv"
@@ -132,7 +165,9 @@ gaps:
 overview:
   dir: "output/tables"
   
-  # Phase 4 outputs (integrated overview from script 10)
+  # ============================================================================
+  # Phase 4 outputs: Integrated overview from script 10
+  # ============================================================================
   outputs:
     # Standard overview tables
     dashboard_summary: "dashboard_summary.csv"
@@ -159,9 +194,13 @@ overview:
     priority_stale_cells: "integrated/priority_stale_cells.csv"
 
 parameters:
+
+  # Coordinate Reference System
+  crs: 3035  # ETRS89-LAEA Europe (EEA standard)
+  
   # Spatial gap parameters
   spatial:
-    quantile_thresholds: [0.05, 0.10, 0.25]  # Low-coverage quantiles
+    quantile_thresholds: [0.05, 0.10, 0.25]  # low-quantile parameters
     
   # Temporal gap parameters
   temporal:
@@ -172,3 +211,9 @@ parameters:
   taxonomic:
     min_occurrences: 10   # Poorly sampled threshold
     min_cells: 5          # Minimum cells for adequate coverage
+
+  # Script 06b performance parameters
+  processing:
+    large_order_threshold: 500000  # Orders with more rows split by family
+    low_memory_mode: false         # Set true for <16GB RAM systems
+    make_species_cell_time: true   # Set false to skip largest output (~50% faster)

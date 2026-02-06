@@ -1,0 +1,589 @@
+---
+title: "Temporal Gap Analysis"
+subtitle: "GBIF Sweden Data Gap Analysis - Temporal Patterns & Data Recency"
+author: "GBIF Sweden"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+    fig_width: 12
+    fig_height: 8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+ echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 12,
+  fig.height = 8,
+  dpi = 300
+)
+
+library(here)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(ggplot2)
+library(forcats)
+library(scales)
+library(viridis)
+library(patchwork)
+library(sf)
+library(knitr)
+library(data.table)
+library(glue)
+library(lubridate)
+
+# Theme
+theme_set(
+  theme_minimal(base_size = 13) +
+    theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      plot.subtitle = element_text(size = 12, color = "grey40"),
+      legend.position = "bottom",
+      panel.grid.minor = element_blank()
+    )
+)
+
+# Paths
+p_gaps <- here("data_proc", "gaps")
+p_tables <- here("output", "tables")
+p_data_proc <- here("data_proc")
+p_derived <- here("data_proc", "derived")
+p_integrated <- here("output", "tables", "integrated")
+
+# Current year for calculations
+current_year <- year(Sys.Date())
+```
+
+# Overview
+
+This report analyzes **temporal gaps** in GBIF Sweden's biodiversity occurrence data, examining historical trends, seasonal patterns, data recency, and how data mobilization has changed over time for different taxonomic groups.
+
+**Key questions addressed:**
+
+- What are the long-term trends in biodiversity data collection?
+- Are there seasonal biases in sampling?
+- How recent is the data in different geographic areas?
+- How has data mobilization changed for different taxonomic orders over 5-year periods?
+
+---
+
+# 1. Historical Trends
+
+## 1.1 Annual Occurrence Trends
+
+```{r load-temporal}
+# Load time summaries
+time10 <- read_csv(here(p_derived, "time_summary_10km.csv"), show_col_types = FALSE) |>
+  filter(basisofrecord == "all") |>
+  mutate(
+    yearmonth_chr = str_trim(as.character(yearmonth)),
+    year = as.integer(str_sub(yearmonth_chr, 1, 4)),
+    month = as.integer(str_sub(yearmonth_chr, 6, 7))
+  )
+
+# Annual summary
+annual <- time10 |>
+  group_by(year) |>
+  summarise(
+    occurrences = sum(occurrences, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  filter(year >= 1900, year <= current_year)
+```
+
+```{r annual-trend, fig.height=6}
+ggplot(annual, aes(x = year, y = occurrences)) +
+  geom_area(fill = viridis(1, option = "viridis", begin = 0.4), alpha = 0.3) +
+  geom_line(color = viridis(1, option = "viridis", begin = 0.4), linewidth = 1) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Historical Trend in Occurrence Records",
+    subtitle = "Annual totals across all evidence types",
+    x = "Year",
+    y = "Total Occurrences"
+  )
+```
+
+## 1.2 Recent Decades (1970-Present)
+
+```{r recent-trend, fig.height=6}
+annual |>
+  filter(year >= 1970) |>
+  ggplot(aes(x = year, y = occurrences)) +
+  geom_col(fill = viridis(1, option = "mako", begin = 0.3), alpha = 0.8) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Recent Occurrence Trends (1970-Present)",
+    subtitle = "Annual occurrence records",
+    x = "Year",
+    y = "Total Occurrences"
+  )
+```
+
+## 1.3 Year-over-Year Change
+
+```{r yoy-change, fig.height=6}
+annual |>
+  filter(year >= 1990) |>
+  mutate(
+    prev_year = lag(occurrences),
+    pct_change = 100 * (occurrences - prev_year) / prev_year,
+    direction = ifelse(pct_change >= 0, "Increase", "Decrease")
+  ) |>
+  filter(!is.na(pct_change)) |>
+  ggplot(aes(x = year, y = pct_change, fill = direction)) +
+  geom_col() +
+  scale_fill_viridis_d(option = "turbo", begin = 0.2, end = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  labs(
+    title = "Year-over-Year Change in Data Collection",
+    subtitle = "Percentage change from previous year (1990-present)",
+    x = "Year",
+    y = "% Change",
+    fill = NULL
+  )
+```
+
+---
+
+# 2. Seasonal Patterns
+
+## 2.1 Monthly Distribution
+
+```{r monthly-pattern, fig.height=5}
+monthly <- time10 |>
+  group_by(month) |>
+  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+
+ggplot(monthly, aes(x = factor(month), y = occurrences, fill = occurrences)) +
+  geom_col() +
+  scale_fill_viridis_c(option = "plasma", labels = comma) +
+  scale_x_discrete(labels = month.abb) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Seasonal Sampling Pattern",
+    subtitle = "Total occurrences by month (all years combined)",
+    x = "Month",
+    y = "Total Occurrences",
+    fill = "Occurrences"
+  ) +
+  theme(legend.position = "none")
+```
+
+## 2.2 Year × Month Heatmap
+
+```{r heatmap, fig.height=10}
+time10 |>
+  filter(year >= 1950, year <= current_year) |>
+  group_by(year, month) |>
+  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+  ggplot(aes(x = factor(month), y = year, fill = log10(occurrences + 1))) +
+  geom_tile() +
+  scale_fill_viridis(option = "inferno", name = "log10(occ+1)") +
+  scale_x_discrete(labels = month.abb) +
+  labs(
+    title = "Sampling Intensity Over Time",
+    subtitle = "Year × Month heatmap (1950-present)",
+    x = "Month",
+    y = "Year"
+  )
+```
+
+## 2.3 Seasonal Bias by Decade
+
+```{r seasonal-decade, fig.height=7}
+time10 |>
+  filter(year >= 1970) |>
+  mutate(decade = paste0(floor(year / 10) * 10, "s")) |>
+  group_by(decade, month) |>
+  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+  group_by(decade) |>
+  mutate(pct = 100 * occurrences / sum(occurrences)) |>
+  ungroup() |>
+  ggplot(aes(x = factor(month), y = pct, fill = decade)) +
+  geom_col(position = "dodge") +
+  scale_fill_viridis_d(option = "viridis") +
+  scale_x_discrete(labels = month.abb) +
+  labs(
+    title = "Seasonal Distribution by Decade",
+    subtitle = "Has seasonal sampling bias changed over time?",
+    x = "Month",
+    y = "% of Decade's Total",
+    fill = "Decade"
+  )
+```
+
+---
+
+# 3. Data Recency
+
+## 3.1 Staleness by Basis of Record
+
+```{r recency-overview}
+if (file.exists(here(p_tables, "overview_temporal_recency_rates.csv"))) {
+  recency <- read_csv(here(p_tables, "overview_temporal_recency_rates.csv"), show_col_types = FALSE)
+  
+  recency_10km <- recency |>
+    filter(grid == "grid10km") |>
+    arrange(pct_stale_5y)
+  
+  # Select only columns that exist
+  display_cols <- intersect(
+    c("basisofrecord", "median_staleness_months", "pct_stale_5y"),
+    names(recency_10km)
+  )
+  
+  recency_10km |>
+    select(all_of(display_cols)) |>
+    kable(caption = "Data Staleness by Evidence Type (10km Grid)", digits = 1)
+}
+```
+
+```{r recency-plot, fig.height=6}
+if (exists("recency_10km")) {
+  recency_10km |>
+    filter(basisofrecord != "all") |>
+    ggplot(aes(x = fct_reorder(basisofrecord, pct_stale_5y), 
+               y = pct_stale_5y, fill = pct_stale_5y)) +
+    geom_col() +
+    geom_text(aes(label = paste0(round(pct_stale_5y, 1), "%")), 
+              hjust = -0.1, size = 4) +
+    coord_flip() +
+    scale_fill_viridis_c(option = "rocket", direction = -1, begin = 0.2, end = 0.9) +
+    labs(
+      title = "Data Staleness by Evidence Type",
+      subtitle = "Percentage of cells not sampled in 5+ years",
+      x = NULL,
+      y = "Stale Cells (%)",
+      caption = "Lower values indicate more recent data"
+    ) +
+    theme(legend.position = "none")
+}
+```
+
+## 3.2 Geographic Distribution of Staleness
+
+```{r stale-map, fig.height=12, fig.width=10}
+if (file.exists(here(p_gaps, "temporal_cell_recency_10km.csv"))) {
+  cell_recency <- fread(here(p_gaps, "temporal_cell_recency_10km.csv"))
+  
+  # Load grid
+  grid_10km <- st_read(here(p_data_proc, "grids_10km.gpkg"), quiet = TRUE)
+  
+  # Find cellcode field
+  cellcode_candidates <- names(grid_10km)[grepl("cellcode|eeacell", tolower(names(grid_10km)))]
+  cellcode_field <- if(length(cellcode_candidates) > 0) cellcode_candidates[1] else names(grid_10km)[grepl("code", tolower(names(grid_10km)))][1]
+  
+  grid_10km <- grid_10km |>
+    mutate(eeacellcode = as.character(.data[[cellcode_field]]))
+  
+  # Filter for "all" basis and join
+  recency_all <- cell_recency |>
+    filter(basisofrecord == "all") |>
+    select(eeacellcode, staleness_months, last_ym)
+  
+  grid_stale <- grid_10km |>
+    left_join(recency_all, by = "eeacellcode") |>
+    mutate(
+      staleness_years = staleness_months / 12,
+      staleness_cat = case_when(
+        is.na(staleness_years) ~ "No Data",
+        staleness_years <= 1 ~ "< 1 year",
+        staleness_years <= 3 ~ "1-3 years",
+        staleness_years <= 5 ~ "3-5 years",
+        staleness_years <= 10 ~ "5-10 years",
+        TRUE ~ "> 10 years"
+      ),
+      staleness_cat = factor(staleness_cat, levels = c(
+        "< 1 year", "1-3 years", "3-5 years", "5-10 years", "> 10 years", "No Data"
+      ))
+    )
+  
+  ggplot(grid_stale) +
+    geom_sf(aes(fill = staleness_cat), color = "white", linewidth = 0.02) +
+    scale_fill_viridis_d(option = "turbo", direction = -1, na.value = "grey80") +
+    labs(
+      title = "Geographic Distribution of Data Recency",
+      subtitle = "Time since last occurrence record per cell",
+      fill = "Time Since\nLast Record"
+    ) +
+    theme_void() +
+    theme(
+      legend.position = "right",
+      legend.key.height = unit(0.8, "cm"),
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40")
+    )
+}
+```
+
+---
+
+# 4. Data Mobilization by Taxonomic Order (5-Year Periods)
+
+This section examines how data mobilization has changed over time for different taxonomic orders, using 5-year time bins.
+
+```{r load-order-data}
+# Check for order-level time summary
+order_path <- here(p_derived, "order_time_summary_10km.csv")
+
+if (file.exists(order_path)) {
+  order_time <- fread(order_path) |>
+    filter(basisofrecord == "all") |>
+    mutate(
+      yearmonth_chr = str_trim(as.character(yearmonth)),
+      year = as.integer(str_sub(yearmonth_chr, 1, 4))
+    ) |>
+    filter(year >= 1970, year <= current_year, !is.na(order), order != "")
+  
+  # Create 5-year bins
+  order_5yr <- order_time |>
+    mutate(
+      period_start = floor(year / 5) * 5,
+      period = paste0(period_start, "-", period_start + 4)
+    ) |>
+    group_by(order, period, period_start) |>
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+  
+  # Get top 12 orders by total occurrences
+  top_orders <- order_time |>
+    group_by(order) |>
+    summarise(total = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    arrange(desc(total)) |>
+    slice_head(n = 12) |>
+    pull(order)
+  
+  order_5yr_top <- order_5yr |>
+    filter(order %in% top_orders)
+  
+  has_order_data <- TRUE
+} else {
+  cat("Order-level time summary not found. Please ensure script 06 generates order_time_summary_10km.csv\n")
+  has_order_data <- FALSE
+}
+```
+
+## 4.1 Data Mobilization Trends by Order (Top 12)
+
+```{r order-5yr-histogram, fig.height=10, fig.width=14}
+if (has_order_data) {
+  ggplot(order_5yr_top, aes(x = period, y = occurrences, fill = order)) +
+    geom_col() +
+    facet_wrap(~order, scales = "free_y", ncol = 3) +
+    scale_fill_viridis_d(option = "turbo") +
+    scale_y_continuous(labels = comma) +
+    labs(
+      title = "Data Mobilization by Taxonomic Order (5-Year Periods)",
+      subtitle = "Top 12 orders by total occurrence count",
+      x = "5-Year Period",
+      y = "Occurrences",
+      caption = "Each panel shows a different taxonomic order"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      legend.position = "none",
+      strip.text = element_text(face = "bold", size = 10)
+    )
+}
+```
+
+## 4.2 Comparative Mobilization Trends
+
+```{r order-comparison, fig.height=8}
+if (has_order_data) {
+  # Normalize to show relative change
+  order_5yr_norm <- order_5yr_top |>
+    group_by(order) |>
+    mutate(
+      max_occ = max(occurrences),
+      pct_of_max = 100 * occurrences / max_occ
+    ) |>
+    ungroup()
+  
+  ggplot(order_5yr_norm, aes(x = period_start, y = pct_of_max, color = order, group = order)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 2) +
+    scale_color_viridis_d(option = "turbo") +
+    labs(
+      title = "Relative Data Mobilization Trends by Order",
+      subtitle = "Normalized to each order's peak period (= 100%)",
+      x = "Period Start Year",
+      y = "% of Peak",
+      color = "Order"
+    ) +
+    theme(legend.position = "right")
+}
+```
+
+## 4.3 Change in Mobilization: Recent vs Historical
+
+```{r order-change, fig.height=7}
+if (has_order_data) {
+  # Compare last 10 years vs previous 10 years
+  recent_cutoff <- current_year - 10
+  historical_cutoff <- current_year - 20
+  
+  order_change <- order_time |>
+    filter(order %in% top_orders) |>
+    mutate(
+      era = case_when(
+        year >= recent_cutoff ~ "Recent (last 10 years)",
+        year >= historical_cutoff ~ "Historical (10-20 years ago)",
+        TRUE ~ NA_character_
+      )
+    ) |>
+    filter(!is.na(era)) |>
+    group_by(order, era) |>
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occurrences) |>
+    mutate(
+      pct_change = 100 * (`Recent (last 10 years)` - `Historical (10-20 years ago)`) / 
+                   `Historical (10-20 years ago)`,
+      direction = ifelse(pct_change >= 0, "Increased", "Decreased")
+    ) |>
+    arrange(desc(pct_change))
+  
+  ggplot(order_change, aes(x = fct_reorder(order, pct_change), y = pct_change, fill = direction)) +
+    geom_col() +
+    geom_text(aes(label = paste0(round(pct_change, 0), "%")),
+              hjust = ifelse(order_change$pct_change >= 0, -0.1, 1.1), size = 3.5) +
+    coord_flip() +
+    scale_fill_viridis_d(option = "mako", begin = 0.3, end = 0.7) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+    labs(
+      title = "Change in Data Mobilization by Order",
+      subtitle = paste0("Comparing ", recent_cutoff, "-", current_year, 
+                       " vs ", historical_cutoff, "-", recent_cutoff - 1),
+      x = NULL,
+      y = "% Change in Occurrences",
+      fill = NULL
+    ) +
+    theme(legend.position = "bottom")
+}
+```
+
+## 4.4 5-Year Mobilization Summary Table
+
+```{r order-table}
+if (has_order_data) {
+  # Create summary table
+  order_summary <- order_5yr_top |>
+    pivot_wider(
+      id_cols = order,
+      names_from = period,
+      values_from = occurrences,
+      values_fill = 0
+    )
+  
+  # Add total column
+  order_summary <- order_summary |>
+    mutate(Total = rowSums(across(where(is.numeric)))) |>
+    arrange(desc(Total))
+  
+  order_summary |>
+    mutate(across(where(is.numeric), comma)) |>
+    kable(caption = "Occurrences by Order and 5-Year Period")
+}
+```
+
+---
+
+# 5. Stale Cells Analysis
+
+## 5.1 Distribution of Staleness
+
+```{r stale-distribution, fig.height=5}
+if (file.exists(here(p_integrated, "priority_stale_cells.csv"))) {
+  priority_stale <- fread(here(p_integrated, "priority_stale_cells.csv"))
+  
+  cat("**", comma(nrow(priority_stale)), "cells** have not been sampled in 5+ years.\n\n")
+  
+  ggplot(priority_stale, aes(x = staleness_months / 12)) +
+    geom_histogram(bins = 40, fill = viridis(1, option = "rocket", begin = 0.3), 
+                   color = "white", alpha = 0.8) +
+    labs(
+      title = "Distribution of Data Staleness",
+      subtitle = paste0("Median: ", round(median(priority_stale$staleness_months) / 12, 1), " years"),
+      x = "Years Since Last Sample",
+      y = "Number of Cells"
+    )
+} else {
+  cat("Priority stale cells file not found.\n")
+}
+```
+
+## 5.2 Most Stale Cells
+
+```{r most-stale}
+if (exists("priority_stale")) {
+  priority_stale |>
+    arrange(desc(staleness_months)) |>
+    mutate(years_stale = round(staleness_months / 12, 1)) |>
+    select(grid, eeacellcode, last_ym, years_stale, total_occurrences) |>
+    slice_head(n = 20) |>
+    kable(caption = "Top 20 Most Stale Cells")
+}
+```
+
+---
+
+# 6. Key Findings
+
+```{r summary}
+cat("## Temporal Gap Summary\n\n")
+
+# Year range
+cat("**Time Range:**\n")
+cat("- Data spans:", min(annual$year), "-", max(annual$year), "\n")
+cat("- Peak year:", annual$year[which.max(annual$occurrences)], 
+    "(", comma(max(annual$occurrences)), " occurrences)\n\n")
+
+# Seasonal patterns
+peak_month <- monthly$month[which.max(monthly$occurrences)]
+cat("**Seasonal Patterns:**\n")
+cat("- Peak month:", month.name[peak_month], "\n")
+cat("- Summer (Jun-Aug) accounts for:", 
+    round(100 * sum(monthly$occurrences[monthly$month %in% 6:8]) / sum(monthly$occurrences), 1),
+    "% of records\n\n")
+
+# Recency
+if (exists("recency_10km")) {
+  all_recency <- recency_10km |> filter(basisofrecord == "all")
+  cat("**Data Recency:**\n")
+  cat("- Median staleness:", round(all_recency$median_staleness_months, 1), "months\n")
+  cat("- Cells stale >5 years:", round(all_recency$pct_stale_5y, 1), "%\n\n")
+}
+
+# Order mobilization
+if (has_order_data) {
+  cat("**Mobilization Trends by Order:**\n")
+  increasing <- order_change |> filter(pct_change > 0) |> nrow()
+  decreasing <- order_change |> filter(pct_change < 0) |> nrow()
+  cat("- Orders with increased mobilization:", increasing, "\n")
+  cat("- Orders with decreased mobilization:", decreasing, "\n")
+  top_increase <- order_change |> slice_head(n = 1)
+  cat("- Largest increase:", top_increase$order, "(+", round(top_increase$pct_change, 0), "%)\n\n")
+}
+
+cat("**Recommendations:**\n")
+cat("1. Re-survey cells with >5 years since last observation\n")
+cat("2. Address seasonal sampling bias with winter surveys\n")
+cat("3. Maintain momentum for orders showing increased mobilization\n")
+cat("4. Investigate causes for orders showing decreased mobilization\n")
+```
+
+---
+
+# Session Info
+
+```{r session}
+sessionInfo()
+```

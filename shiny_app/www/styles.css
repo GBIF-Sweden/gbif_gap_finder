@@ -1,0 +1,108 @@
+/* shiny_app/www/styles.css */
+/* Custom styles for GBIF Sweden Gap Analysis Dashboard */
+
+/* General improvements */
+.content-wrapper {
+  background-color: #f4f6f9;
+}
+
+.box {
+  border-radius: 5px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+}
+
+.info-box {
+  border-radius: 5px;
+}
+
+.small-box {
+  border-radius: 5px;
+}
+
+/* Value boxes */
+.small-box .icon {
+  font-size: 70px;
+}
+
+/* Sidebar improvements */
+.sidebar-menu > li > a {
+  border-radius: 0;
+  padding: 12px 15px;
+}
+
+.sidebar-menu > li.active > a {
+  border-left: 3px solid #3c8dbc;
+}
+
+/* Tab content padding */
+.nav-tabs-custom > .tab-content {
+  padding: 15px;
+}
+
+/* DataTables styling */
+.dataTables_wrapper {
+  font-size: 13px;
+}
+
+.dataTables_filter input {
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  padding: 5px 10px;
+}
+
+/* Plotly improvements */
+.plotly .modebar {
+  top: 5px !important;
+  right: 5px !important;
+}
+
+/* Leaflet map */
+.leaflet-container {
+  border-radius: 5px;
+}
+
+/* Filters section */
+.sidebar .shiny-input-container {
+  padding: 0 15px;
+}
+
+/* Info text in sidebar */
+.sidebar hr {
+  border-top: 1px solid rgba(255,255,255,0.1);
+  margin: 15px 0;
+}
+
+/* Box headers */
+.box-header {
+  border-bottom: 1px solid #f4f4f4;
+}
+
+.box-header .box-title {
+  font-weight: 600;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .small-box .icon {
+    font-size: 50px;
+  }
+}
+
+/* Loading spinner */
+.shiny-busy {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 1000;
+}
+
+/* Table hover effects */
+.table-hover tbody tr:hover {
+  background-color: #f5f5f5;
+}
+
+/* Custom viridis-inspired accents */
+.bg-viridis-1 { background-color: #440154 !important; }
+.bg-viridis-2 { background-color: #31688e !important; }
+.bg-viridis-3 { background-color: #35b779 !important; }
+.bg-viridis-4 { background-color: #fde725 !important; }

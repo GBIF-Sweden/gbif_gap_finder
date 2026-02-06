@@ -43,8 +43,8 @@ grid_configs <- list(
   )
 )
 
-# CRS for Sweden (EPSG code, not a path!)
-target_crs <- cfg_get("parameters.crs", CRS_SWEREF99TM)
+# CRS for Europe (EPSG code, not a path!)
+target_crs <- cfg_get("parameters.crs", CRS_ETRS89_LAEA)
 
 # Validate configuration --------------------------------------------------
 
@@ -87,9 +87,14 @@ standardize_grid <- function(grid, crs = target_crs) {
   
   cli_alert_info("Original CRS: {st_crs(grid)$input}")
   
-  # Transform to target CRS
-  grid <- st_transform(grid, crs)
-  cli_alert_success("Transformed to: {st_crs(grid)$input}")
+  # Transform to target CRS (ETRS89-LAEA / EPSG:3035 for EEA grids)
+  if (st_crs(grid)$epsg == crs) {
+    cli_alert_success("Already in target CRS: EPSG:{crs}")
+  } else {
+    grid <- st_transform(grid, crs)
+    st_crs(grid) <- crs  # Force official EPSG definition
+    cli_alert_success("Transformed to: EPSG:{crs}")
+  }
   
   # Temporarily disable s2 for planar operations
   old_s2 <- sf_use_s2()
