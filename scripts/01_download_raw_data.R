@@ -5,7 +5,8 @@
 # This script downloads all external datasets needed for the gap analysis:
 # 1. EEA reference grids (10km and 50km)
 # 2. Swedish Red List taxonomy (via GBIF)
-# 3. GBIF Occurrence Cubes (filtered for Sweden, split by basisOfRecord)
+# 3. Dyntaxa Swedish Taxonomy Database (via GBIF) - PRIMARY BACKBONE
+# 4. GBIF Occurrence Cubes (filtered for Sweden, split by basisOfRecord)
 #
 # Run this script:
 # - On initial setup (after 00_setup.R)
@@ -31,7 +32,6 @@ library(rgbif)
 
 source(here("scripts", "00_setup.R"))
 
-
 # GBIF credentials ---------------------------------------------------------
 # Set these in your .Renviron file or run interactively before downloading:
 #   GBIF_USER=your_username
@@ -56,12 +56,13 @@ dir_data_raw   <- here(cfg_get("paths.data_raw", "data_raw"))
 dir_grids_10km <- here(cfg_get("paths.grid_10km_dir", "data_raw/eea_grid_10km"))
 dir_grids_50km <- here(cfg_get("paths.grid_50km_dir", "data_raw/eea_grid_50km"))
 dir_redlist    <- here(cfg_get("paths.redlist_se_dir", "data_raw/red_list_se"))
+dir_dyntaxa    <- here(cfg_get("paths.dyntaxa_dir", "data_raw/dyntaxa"))
 dir_cubes      <- here(cfg_get("paths.gbif_cube_dir", "data_raw/gbif_occurrence_cubes"))
 dir_logs       <- here(cfg_get("paths.logs", "logs"))
 
 
 # Create directories
-for (d in c(dir_grids_10km, dir_grids_50km, dir_redlist, dir_cubes)) {
+for (d in c(dir_grids_10km, dir_grids_50km, dir_redlist, dir_dyntaxa, dir_cubes)) {
   dir.create(d, showWarnings = FALSE, recursive = TRUE)
 }
 
@@ -157,10 +158,10 @@ if (interactive() && tolower(readline()) == "y") {
 }
 
 # =========================================================================
-# 2. SWEDISH RED LIST TAXONOMY (via GBIF)
+# 2. SWEDISH RED LIST TAXONOMY (via GBIF) - OPTIONAL REFERENCE
 # =========================================================================
 
-cli_h1("Downloading Swedish Red List Taxonomy")
+cli_h1("Downloading Swedish Red List Taxonomy (optional reference)")
 
 # Dataset key for Swedish Red List
 # SLU Artdatabanken (2024). The Swedish Red List 2020. Version 1.8
@@ -189,19 +190,18 @@ if (!is.null(dataset_info)) {
 }
 
 # Download DwC-A (Darwin Core Archive)
-dwca_url <- paste0("https://api.gbif.org/v1/occurrence/download/dataset/", redlist_dataset_key)
-dwca_zip <- here(dir_redlist, "swedish_redlist_dwca.zip")
+redlist_dwca_zip <- here(dir_redlist, "swedish_redlist_dwca.zip")
 
 cli_alert_info("Attempting to download Darwin Core Archive...")
 
-# Alternative: Direct dataset export URL
-export_url <- paste0("https://ipt.gbif.se/archive.do?r=swedish-red-list&v=1.8")
+# Direct dataset export URL
+redlist_export_url <- "https://ipt.gbif.se/archive.do?r=swedish-red-list&v=1.8"
 
-download_success <- download_file_safely(export_url, dwca_zip)
+download_success <- download_file_safely(redlist_export_url, redlist_dwca_zip)
 
-if (download_success && file.exists(dwca_zip)) {
+if (download_success && file.exists(redlist_dwca_zip)) {
   # Extract the archive
-  unzip_safely(dwca_zip, dir_redlist)
+  unzip_safely(redlist_dwca_zip, dir_redlist)
   
   # The archive typically contains:
   # - taxon.txt (taxonomy)
@@ -229,8 +229,86 @@ if (download_success && file.exists(dwca_zip)) {
   cli_alert_info("3. Extract to: {.path {dir_redlist}}")
 }
 
+
 # =========================================================================
-# 3. GBIF OCCURRENCE CUBES (Sweden, by basisOfRecord)
+# 3. DYNTAXA SWEDISH TAXONOMY DATABASE (via GBIF) - PRIMARY BACKBONE
+# =========================================================================
+
+cli_h1("Downloading Dyntaxa - Swedish Taxonomy Database (PRIMARY BACKBONE)")
+
+# Dataset reference for all Swedish taxa
+# SLU Artdatabanken (2026). Dyntaxa - Svensk taxonomisk databas. Version 1.2
+# https://doi.org/10.15468/j43wfc
+dyntaxa_dataset_key <- "de8934f4-a136-481c-a87a-b0b202b80a31"
+
+cli_alert_info("Dataset: Dyntaxa - Swedish Taxonomic Database (SLU Artdatabanken)")
+cli_alert_info("DOI: https://doi.org/10.15468/j43wfc")
+cli_alert_info("GBIF Dataset Key: {dyntaxa_dataset_key}")
+cli_alert_info("This is the PRIMARY taxonomic backbone for the gap analysis")
+
+# Download using GBIF API
+cli_h2("Downloading via GBIF Checklist Download")
+
+# Get dataset metadata
+dyntaxa_info <- tryCatch({
+  rgbif::datasets(uuid = dyntaxa_dataset_key)
+}, error = function(e) {
+  cli_alert_danger("Could not retrieve dataset metadata: {e$message}")
+  NULL
+})
+
+if (!is.null(dyntaxa_info)) {
+  cli_alert_success("Dataset found: {dyntaxa_info$data$title}")
+  cli_alert_info("Version: {dyntaxa_info$data$version}")
+  cli_alert_info("Published: {dyntaxa_info$data$pubDate}")
+}
+
+# Download DwC-A (Darwin Core Archive)
+dyntaxa_dwca_zip <- here(dir_dyntaxa, "dyntaxa_dwca.zip")
+
+cli_alert_info("Attempting to download Darwin Core Archive...")
+
+# Direct dataset export URL for Dyntaxa
+dyntaxa_export_url <- "https://ipt.gbif.se/archive.do?r=dyntaxa&v=1.2"
+
+download_success <- download_file_safely(dyntaxa_export_url, dyntaxa_dwca_zip)
+
+if (download_success && file.exists(dyntaxa_dwca_zip)) {
+  # Extract the archive
+  unzip_safely(dyntaxa_dwca_zip, dir_dyntaxa)
+  
+  # The archive typically contains:
+  # - Taxon.csv (taxonomy)
+  # - SpeciesDistribution.csv (distribution & threat status)
+  # - VernacularName.csv (common names)
+  # - Reference.csv
+  # - meta.xml (metadata)
+  # - eml.xml
+  
+  cli_alert_success("Dyntaxa - Swedish taxonomy database downloaded and extracted")
+  
+  # Verify expected files
+  expected_files <- c("Taxon.csv", "SpeciesDistribution.csv")
+  found_files <- list.files(dir_dyntaxa, pattern = "\\.csv$")
+  
+  for (f in expected_files) {
+    if (f %in% found_files) {
+      cli_alert_success("Found: {f}")
+    } else {
+      cli_alert_warning("Missing expected file: {f}")
+    }
+  }
+  
+} else {
+  cli_alert_warning("Automated download failed. Manual download instructions:")
+  cli_alert_info("1. Visit: https://www.gbif.org/dataset/de8934f4-a136-481c-a87a-b0b202b80a31")
+  cli_alert_info("2. Click 'Download' and select 'Darwin Core Archive'")
+  cli_alert_info("3. Extract to: {.path {dir_dyntaxa}}")
+}
+
+
+# =========================================================================
+# 4. GBIF OCCURRENCE CUBES (Sweden, by basisOfRecord)
 # =========================================================================
 
 cli_h1("Downloading GBIF Occurrence Cubes")
@@ -364,6 +442,13 @@ metadata <- list(
     doi = "https://doi.org/10.15468/jhwkpq"
   ),
   
+  dyntaxa = list(
+    dir = dir_dyntaxa,
+    files = list.files(dir_dyntaxa),
+    dataset_key = dyntaxa_dataset_key,
+    doi = "https://doi.org/10.15468/j43wfc"
+  ),
+  
   gbif_cubes = list(
     dir = dir_cubes,
     files = list.files(dir_cubes, pattern = "\\.csv$")
@@ -384,6 +469,7 @@ summary_df <- tibble::tribble(
   "EEA 10km Grid", dir_grids_10km, length(list.files(dir_grids_10km)),
   "EEA 50km Grid", dir_grids_50km, length(list.files(dir_grids_50km)),
   "Swedish Red List", dir_redlist, length(list.files(dir_redlist)),
+  "Dyntaxa", dir_dyntaxa, length(list.files(dir_dyntaxa)),
   "GBIF Cubes", dir_cubes, length(list.files(dir_cubes, pattern = "\\.csv$"))
 )
 
@@ -406,7 +492,9 @@ critical_files <- list(
   "EEA 10km shapefile" = file.path(dir_grids_10km, "se_10km.shp"),
   "EEA 50km geopackage" = file.path(dir_grids_50km, "EEA_50km_grid_v2024.gpkg"),
   "Red List taxonomy" = file.path(dir_redlist, "taxon.txt"),
-  "Red List distribution" = file.path(dir_redlist, "distribution.txt")
+  "Red List distribution" = file.path(dir_redlist, "distribution.txt"),
+  "Dyntaxa taxonomy" = file.path(dir_dyntaxa, "Taxon.csv"),
+  "Dyntaxa distribution" = file.path(dir_dyntaxa, "SpeciesDistribution.csv")
 )
 
 all_ok <- TRUE

@@ -1,0 +1,601 @@
+---
+title: "Taxonomic Gap Analysis"
+subtitle: "GBIF Sweden Data Gap Analysis - Species Coverage & Mobilization"
+author: "GBIF Sweden"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+    fig_width: 12
+    fig_height: 8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 12,
+  fig.height = 8,
+  dpi = 300
+)
+
+library(here)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(ggplot2)
+library(forcats)
+library(scales)
+library(viridis)
+library(patchwork)
+library(sf)
+library(knitr)
+library(data.table)
+library(glue)
+library(lubridate)
+
+# Theme
+theme_set(
+  theme_minimal(base_size = 13) +
+    theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      plot.subtitle = element_text(size = 12, color = "grey40"),
+      legend.position = "bottom",
+      panel.grid.minor = element_blank()
+    )
+)
+
+# Paths
+p_gaps <- here("data_proc", "gaps")
+p_tables <- here("output", "tables")
+p_data_proc <- here("data_proc")
+p_derived <- here("data_proc", "derived")
+p_integrated <- here("output", "tables", "integrated")
+
+# Current year
+current_year <- year(Sys.Date())
+
+# Threat status order and colors
+threat_levels <- c("CR", "EN", "VU", "NT", "LC", "DD", "NE", NA)
+threat_colors <- c("CR" = "#D32F2F", "EN" = "#E64A19", "VU" = "#F57C00", 
+                   "NT" = "#FBC02D", "LC" = "#8BC34A", "DD" = "#78909C", 
+                   "NE" = "#B0BEC5")
+```
+
+# Overview
+
+This report analyzes **taxonomic gaps** in GBIF Sweden's biodiversity occurrence data, comparing GBIF coverage against the Swedish Red List reference taxonomy and examining how data mobilization has changed for different taxonomic groups.
+
+**Key questions addressed:**
+
+- What proportion of Sweden's known species are represented in GBIF?
+- Which taxonomic groups have the best/worst coverage?
+- How well are threatened species represented?
+- How has data mobilization changed for different taxonomic orders over time?
+- Which species should be prioritized for data collection?
+
+---
+
+# 1. Overall Taxonomic Coverage
+
+## 1.1 Coverage Summary
+
+```{r load-taxonomic}
+# Load taxonomic summary
+if (file.exists(here(p_tables, "overview_taxonomic_summary.csv"))) {
+  tax_summary <- read_csv(here(p_tables, "overview_taxonomic_summary.csv"), show_col_types = FALSE)
+} else if (file.exists(here(p_gaps, "taxonomic_coverage_by_rank.csv"))) {
+  tax_summary <- read_csv(here(p_gaps, "taxonomic_coverage_by_rank.csv"), show_col_types = FALSE)
+}
+
+# Load dashboard for overall stats
+if (file.exists(here(p_tables, "dashboard_summary.csv"))) {
+  dashboard <- read_csv(here(p_tables, "dashboard_summary.csv"), show_col_types = FALSE)
+  
+  cat("**Overall Taxonomic Coverage:**\n\n")
+  cat("- Taxa in reference:", comma(dashboard$taxa_in_reference), "\n")
+  cat("- Taxa in GBIF:", comma(dashboard$taxa_in_gbif), "\n")
+  cat("- Coverage:", dashboard$taxa_pct_coverage, "%\n")
+  cat("- Priority taxa:", comma(dashboard$n_priority_taxa), "\n\n")
+}
+```
+
+## 1.2 Coverage by Taxonomic Rank
+
+```{r coverage-by-rank, fig.height=7}
+if (exists("tax_summary")) {
+  tax_by_rank <- tax_summary |>
+    filter(!is.na(taxonRank), n_ref_total >= 10) |>
+    arrange(desc(n_ref_total)) |>
+    slice_head(n = 15)
+  
+  tax_by_rank |>
+    select(taxonRank, n_ref_total, n_in_gbif, pct_coverage) |>
+    kable(caption = "Taxonomic Coverage by Rank (Top 15)", digits = 1)
+  
+  ggplot(tax_by_rank, aes(x = fct_reorder(taxonRank, pct_coverage), 
+                           y = pct_coverage, fill = pct_coverage)) +
+    geom_col() +
+    geom_text(aes(label = paste0(round(pct_coverage, 1), "%")), 
+              hjust = -0.1, size = 4) +
+    coord_flip() +
+    scale_fill_viridis_c(option = "viridis", begin = 0.2, end = 0.9) +
+    labs(
+      title = "GBIF Coverage by Taxonomic Rank",
+      subtitle = "Percentage of reference taxa found in GBIF occurrences",
+      x = NULL,
+      y = "Coverage (%)"
+    ) +
+    theme(legend.position = "none") +
+    ylim(0, 110)
+}
+```
+
+---
+
+# 2. Threatened Species Coverage
+
+## 2.1 Coverage by Threat Status
+
+```{r threat-coverage}
+if (file.exists(here(p_gaps, "taxonomic_coverage_by_threat.csv"))) {
+  threat_coverage <- read_csv(here(p_gaps, "taxonomic_coverage_by_threat.csv"), show_col_types = FALSE)
+  
+  threat_display <- threat_coverage |>
+    filter(threatStatus %in% c("CR", "EN", "VU", "NT", "LC")) |>
+    mutate(threatStatus = factor(threatStatus, levels = c("CR", "EN", "VU", "NT", "LC")))
+  
+  threat_display |>
+    select(threatStatus, n_ref_total, n_in_gbif, pct_coverage) |>
+    kable(caption = "Coverage by IUCN Threat Status", digits = 1)
+}
+```
+
+```{r threat-plot, fig.height=6}
+if (exists("threat_display")) {
+  p1 <- ggplot(threat_display, aes(x = threatStatus, y = n_ref_total, fill = threatStatus)) +
+    geom_col() +
+    geom_text(aes(label = comma(n_ref_total)), vjust = -0.3, size = 4) +
+    scale_fill_manual(values = threat_colors) +
+    labs(title = "Taxa in Reference", y = "Count", x = NULL) +
+    theme(legend.position = "none")
+  
+  p2 <- ggplot(threat_display, aes(x = threatStatus, y = pct_coverage, fill = threatStatus)) +
+    geom_col() +
+    geom_text(aes(label = paste0(round(pct_coverage, 1), "%")), vjust = -0.3, size = 4) +
+    scale_fill_manual(values = threat_colors) +
+    labs(title = "GBIF Coverage", y = "Coverage (%)", x = NULL) +
+    theme(legend.position = "none") +
+    ylim(0, 110)
+  
+  p1 + p2 +
+    plot_annotation(
+      title = "Threatened Species in GBIF Sweden",
+      subtitle = "Reference count and coverage by IUCN Red List category"
+    )
+}
+```
+
+## 2.2 Missing Threatened Taxa
+
+```{r missing-threatened}
+if (file.exists(here(p_gaps, "taxonomic_missing_taxa.csv"))) {
+  missing_taxa <- fread(here(p_gaps, "taxonomic_missing_taxa.csv"))
+  
+  missing_threatened <- missing_taxa |>
+    filter(threatStatus %in% c("CR", "EN", "VU", "NT")) |>
+    mutate(threatStatus = factor(threatStatus, levels = c("CR", "EN", "VU", "NT")))
+  
+  cat("**Missing Threatened Taxa:**\n\n")
+  cat("- Critically Endangered (CR):", sum(missing_threatened$threatStatus == "CR"), "\n")
+  cat("- Endangered (EN):", sum(missing_threatened$threatStatus == "EN"), "\n")
+  cat("- Vulnerable (VU):", sum(missing_threatened$threatStatus == "VU"), "\n")
+  cat("- Near Threatened (NT):", sum(missing_threatened$threatStatus == "NT"), "\n\n")
+  
+  # Show sample of missing CR/EN taxa
+  missing_threatened |>
+    filter(threatStatus %in% c("CR", "EN")) |>
+    arrange(threatStatus, scientificName) |>
+    select(scientificName, threatStatus, taxonRank, family, order) |>
+    slice_head(n = 25) |>
+    kable(caption = "Sample of Missing CR/EN Taxa (Top 25)")
+}
+```
+
+---
+
+# 3. Coverage by Higher Taxonomy
+
+## 3.1 Coverage by Order
+
+```{r order-coverage, fig.height=8}
+if (file.exists(here(p_gaps, "taxonomic_coverage_by_order.csv"))) {
+  order_coverage <- read_csv(here(p_gaps, "taxonomic_coverage_by_order.csv"), show_col_types = FALSE) |>
+    filter(!is.na(order), order != "", n_ref_total >= 5)
+  
+  # Top 20 orders by reference count
+  top_orders_cov <- order_coverage |>
+    arrange(desc(n_ref_total)) |>
+    slice_head(n = 20)
+  
+  ggplot(top_orders_cov, aes(x = fct_reorder(order, pct_coverage), 
+                              y = pct_coverage, fill = pct_coverage)) +
+    geom_col() +
+    geom_text(aes(label = paste0(round(pct_coverage, 0), "%")), 
+              hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_fill_viridis_c(option = "plasma", begin = 0.1, end = 0.9) +
+    labs(
+      title = "GBIF Coverage by Taxonomic Order",
+      subtitle = "Top 20 orders by number of reference taxa",
+      x = NULL,
+      y = "Coverage (%)"
+    ) +
+    theme(legend.position = "none") +
+    ylim(0, 110)
+}
+```
+
+## 3.2 Coverage by Family
+
+```{r family-coverage, fig.height=10}
+if (file.exists(here(p_gaps, "taxonomic_coverage_by_family.csv"))) {
+  family_coverage <- read_csv(here(p_gaps, "taxonomic_coverage_by_family.csv"), show_col_types = FALSE) |>
+    filter(!is.na(family), family != "", n_ref_total >= 5)
+  
+  # Top 25 families by reference count
+  top_families <- family_coverage |>
+    arrange(desc(n_ref_total)) |>
+    slice_head(n = 25)
+  
+  ggplot(top_families, aes(x = fct_reorder(family, pct_coverage), 
+                            y = pct_coverage, fill = pct_coverage)) +
+    geom_col() +
+    geom_text(aes(label = paste0(round(pct_coverage, 0), "%")), 
+              hjust = -0.1, size = 3) +
+    coord_flip() +
+    scale_fill_viridis_c(option = "mako", begin = 0.1, end = 0.9) +
+    labs(
+      title = "GBIF Coverage by Family",
+      subtitle = "Top 25 families by number of reference taxa",
+      x = NULL,
+      y = "Coverage (%)"
+    ) +
+    theme(legend.position = "none") +
+    ylim(0, 110)
+}
+```
+
+---
+
+# 4. Data Mobilization by Order (5-Year Periods)
+
+This section examines how data mobilization has changed over time for different taxonomic orders, grouped into 5-year periods.
+
+```{r load-order-time}
+order_path <- here(p_derived, "order_time_summary_10km.csv")
+
+if (file.exists(order_path)) {
+  order_time <- fread(order_path) |>
+    filter(basisofrecord == "all") |>
+    mutate(
+      yearmonth_chr = str_trim(as.character(yearmonth)),
+      year = as.integer(str_sub(yearmonth_chr, 1, 4))
+    ) |>
+    filter(year >= 1970, year <= current_year, !is.na(order), order != "")
+  
+  # Create 5-year bins
+  order_5yr <- order_time |>
+    mutate(
+      period_start = floor(year / 5) * 5,
+      period = paste0(period_start, "-", period_start + 4)
+    ) |>
+    group_by(order, period, period_start) |>
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+  
+  # Get top 12 orders by total occurrences
+  top_orders <- order_time |>
+    group_by(order) |>
+    summarise(total = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    arrange(desc(total)) |>
+    slice_head(n = 12) |>
+    pull(order)
+  
+  order_5yr_top <- order_5yr |>
+    filter(order %in% top_orders)
+  
+  has_order_data <- TRUE
+} else {
+  cat("Order-level time summary not found.\n")
+  has_order_data <- FALSE
+}
+```
+
+## 4.1 Mobilization Histograms by Order
+
+```{r order-histogram, fig.height=12, fig.width=14}
+if (has_order_data) {
+  ggplot(order_5yr_top, aes(x = period, y = occurrences, fill = order)) +
+    geom_col() +
+    facet_wrap(~order, scales = "free_y", ncol = 3) +
+    scale_fill_viridis_d(option = "turbo") +
+    scale_y_continuous(labels = comma) +
+    labs(
+      title = "Data Mobilization by Taxonomic Order",
+      subtitle = "Occurrence records in 5-year periods (Top 12 orders)",
+      x = "5-Year Period",
+      y = "Occurrences"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      legend.position = "none",
+      strip.text = element_text(face = "bold", size = 11)
+    )
+}
+```
+
+## 4.2 Stacked Area Chart - All Orders Combined
+
+```{r order-stacked, fig.height=8}
+if (has_order_data) {
+  ggplot(order_5yr_top, aes(x = period_start, y = occurrences, fill = order)) +
+    geom_area(position = "stack", alpha = 0.8) +
+    scale_fill_viridis_d(option = "turbo") +
+    scale_y_continuous(labels = comma) +
+    labs(
+      title = "Cumulative Data Mobilization by Order",
+      subtitle = "Stacked area chart showing relative contributions",
+      x = "Period Start Year",
+      y = "Total Occurrences",
+      fill = "Order"
+    ) +
+    theme(legend.position = "right")
+}
+```
+
+## 4.3 Proportional Change Over Time
+
+```{r order-proportional, fig.height=8}
+if (has_order_data) {
+  order_prop <- order_5yr_top |>
+    group_by(period, period_start) |>
+    mutate(total_period = sum(occurrences),
+           proportion = 100 * occurrences / total_period) |>
+    ungroup()
+  
+  ggplot(order_prop, aes(x = period_start, y = proportion, fill = order)) +
+    geom_area(position = "stack") +
+    scale_fill_viridis_d(option = "turbo") +
+    labs(
+      title = "Proportional Contribution by Order Over Time",
+      subtitle = "How the share of data from each order has changed",
+      x = "Period Start Year",
+      y = "Proportion (%)",
+      fill = "Order"
+    )
+}
+```
+
+## 4.4 Recent vs Historical Mobilization Change
+
+```{r order-change, fig.height=8}
+if (has_order_data) {
+  recent_cutoff <- current_year - 10
+  historical_cutoff <- current_year - 20
+  
+  order_change <- order_time |>
+    filter(order %in% top_orders) |>
+    mutate(
+      era = case_when(
+        year >= recent_cutoff ~ "Recent",
+        year >= historical_cutoff ~ "Historical",
+        TRUE ~ NA_character_
+      )
+    ) |>
+    filter(!is.na(era)) |>
+    group_by(order, era) |>
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occurrences) |>
+    mutate(
+      pct_change = 100 * (Recent - Historical) / Historical,
+      direction = ifelse(pct_change >= 0, "Increased", "Decreased")
+    ) |>
+    arrange(desc(pct_change))
+  
+  ggplot(order_change, aes(x = fct_reorder(order, pct_change), 
+                            y = pct_change, fill = direction)) +
+    geom_col() +
+    geom_text(aes(label = paste0(ifelse(pct_change >= 0, "+", ""), 
+                                  round(pct_change, 0), "%")),
+              hjust = ifelse(order_change$pct_change >= 0, -0.1, 1.1), 
+              size = 4) +
+    coord_flip() +
+    scale_fill_viridis_d(option = "viridis", begin = 0.3, end = 0.7) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+    labs(
+      title = "Change in Data Mobilization by Order",
+      subtitle = glue("Comparing {recent_cutoff}-{current_year} vs {historical_cutoff}-{recent_cutoff - 1}"),
+      x = NULL,
+      y = "% Change in Occurrences",
+      fill = NULL
+    )
+}
+```
+
+## 4.5 Mobilization Summary Table
+
+```{r order-summary-table}
+if (has_order_data) {
+  order_summary_table <- order_change |>
+    left_join(
+      order_time |>
+        group_by(order) |>
+        summarise(total_all_time = sum(occurrences, na.rm = TRUE)),
+      by = "order"
+    ) |>
+    arrange(desc(total_all_time)) |>
+    select(order, Historical, Recent, pct_change, total_all_time) |>
+    mutate(
+      across(c(Historical, Recent, total_all_time), comma),
+      pct_change = paste0(ifelse(as.numeric(gsub(",", "", pct_change)) >= 0, "+", ""), 
+                          round(as.numeric(gsub(",", "", pct_change)), 1), "%")
+    )
+  
+  order_summary_table |>
+    kable(
+      caption = "Data Mobilization Summary by Order",
+      col.names = c("Order", "Historical (10-20yr)", "Recent (0-10yr)", 
+                    "Change", "Total All Time")
+    )
+}
+```
+
+---
+
+# 5. Priority Taxa for Data Collection
+
+## 5.1 Priority Taxa Overview
+
+```{r priority-taxa}
+if (file.exists(here(p_integrated, "priority_undersampled_taxa.csv"))) {
+  priority_taxa <- fread(here(p_integrated, "priority_undersampled_taxa.csv"))
+  
+  cat("**Priority Taxa Requiring Attention:**", comma(nrow(priority_taxa)), "\n\n")
+  
+  # Summary by threat status
+  priority_threat <- priority_taxa |>
+    filter(!is.na(threatStatus)) |>
+    count(threatStatus) |>
+    arrange(match(threatStatus, c("CR", "EN", "VU", "NT", "LC")))
+  
+  priority_threat |>
+    kable(caption = "Priority Taxa by Threat Status", 
+          col.names = c("Threat Status", "Count"))
+}
+```
+
+```{r priority-plot, fig.height=5}
+if (exists("priority_threat")) {
+  ggplot(priority_threat, aes(x = threatStatus, y = n, fill = threatStatus)) +
+    geom_col() +
+    geom_text(aes(label = comma(n)), vjust = -0.3, size = 5) +
+    scale_fill_manual(values = threat_colors) +
+    labs(
+      title = "Priority Taxa by IUCN Threat Status",
+      subtitle = "Taxa requiring additional data collection or verification",
+      x = "Threat Status",
+      y = "Number of Taxa"
+    ) +
+    theme(legend.position = "none")
+}
+```
+
+## 5.2 Highest Priority Species (CR & EN)
+
+```{r priority-cr-en}
+if (exists("priority_taxa")) {
+  priority_taxa |>
+    filter(threatStatus %in% c("CR", "EN")) |>
+    arrange(threatStatus, scientificName) |>
+    select(scientificName, threatStatus, taxonRank, family, order) |>
+    slice_head(n = 30) |>
+    kable(caption = "Top 30 Critically Endangered and Endangered Priority Taxa")
+}
+```
+
+## 5.3 Priority Taxa by Family
+
+```{r priority-by-family, fig.height=8}
+if (exists("priority_taxa")) {
+  priority_by_family <- priority_taxa |>
+    filter(!is.na(family), family != "") |>
+    count(family, sort = TRUE) |>
+    slice_head(n = 20)
+  
+  ggplot(priority_by_family, aes(x = fct_reorder(family, n), y = n, fill = n)) +
+    geom_col() +
+    geom_text(aes(label = n), hjust = -0.2, size = 3.5) +
+    coord_flip() +
+    scale_fill_viridis_c(option = "rocket", direction = -1, begin = 0.2, end = 0.8) +
+    labs(
+      title = "Priority Taxa by Family",
+      subtitle = "Families with most taxa requiring attention",
+      x = NULL,
+      y = "Number of Priority Taxa"
+    ) +
+    theme(legend.position = "none")
+}
+```
+
+---
+
+# 6. Key Findings
+
+```{r summary}
+cat("## Taxonomic Gap Summary\n\n")
+
+# Overall coverage
+if (exists("dashboard")) {
+  cat("**Overall Coverage:**\n")
+  cat("- Reference taxa:", comma(dashboard$taxa_in_reference), "\n")
+  cat("- Found in GBIF:", comma(dashboard$taxa_in_gbif), 
+      "(", dashboard$taxa_pct_coverage, "%)\n")
+  cat("- Missing taxa:", comma(dashboard$taxa_in_reference - dashboard$taxa_in_gbif), "\n\n")
+}
+
+# Threatened species
+if (exists("missing_threatened")) {
+  cat("**Threatened Species Gaps:**\n")
+  cat("- Missing CR taxa:", sum(missing_threatened$threatStatus == "CR"), "\n")
+  cat("- Missing EN taxa:", sum(missing_threatened$threatStatus == "EN"), "\n")
+  cat("- Missing VU taxa:", sum(missing_threatened$threatStatus == "VU"), "\n\n")
+}
+
+# Mobilization trends
+if (has_order_data) {
+  cat("**Data Mobilization Trends:**\n")
+  increased <- sum(order_change$pct_change > 0)
+  decreased <- sum(order_change$pct_change < 0)
+  cat("- Orders with increased recent mobilization:", increased, "\n")
+  cat("- Orders with decreased recent mobilization:", decreased, "\n")
+  
+  top_increase <- order_change |> slice_head(n = 1)
+  top_decrease <- order_change |> slice_tail(n = 1)
+  cat("- Largest increase:", top_increase$order, 
+      "(+", round(top_increase$pct_change, 0), "%)\n")
+  if (top_decrease$pct_change < 0) {
+    cat("- Largest decrease:", top_decrease$order, 
+        "(", round(top_decrease$pct_change, 0), "%)\n")
+  }
+  cat("\n")
+}
+
+# Priority taxa
+if (exists("priority_taxa")) {
+  cat("**Priority Actions:**\n")
+  cat("- Total priority taxa:", comma(nrow(priority_taxa)), "\n")
+  cr_en <- sum(priority_taxa$threatStatus %in% c("CR", "EN"), na.rm = TRUE)
+  cat("- High priority (CR/EN):", comma(cr_en), "\n\n")
+}
+
+cat("**Recommendations:**\n")
+cat("1. Focus on CR and EN species with no or very few GBIF records\n")
+cat("2. Target underrepresented families for systematic surveys\n")
+cat("3. Investigate causes of declining mobilization in affected orders\n")
+cat("4. Leverage museum collections for historical specimen digitization\n")
+cat("5. Coordinate with taxonomic experts for difficult groups\n")
+```
+
+---
+
+# Session Info
+
+```{r session}
+sessionInfo()
+```

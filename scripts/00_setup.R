@@ -13,10 +13,10 @@ if (!requireNamespace("here", quietly = TRUE)) {
   install.packages("here")
 }
 
-library(here)
-library(purrr)
-library(glue)
-library(cli)
+library(here) # finding the project root and building paths
+library(purrr) # functional programming
+library(glue) # string interpolation
+library(cli) # 'command-line-interface, pretty console output with colors and formatting
 
 # Load package management functions --------------------------------------
 source(here("R", "packages.R"))

@@ -1,0 +1,1083 @@
+---
+title: "Comprehensive Sanity Checks"
+subtitle: "GBIF Sweden Data Gap Analysis - Data Quality & Readiness Assessment"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: hide
+    theme: flatly
+    df_print: paged
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  eval = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 6,
+  dpi = 150
+)
+
+library(here)
+source(here("scripts", "00_setup.R"))
+
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(ggplot2)
+library(purrr)
+library(sf)
+library(viridis)
+library(scales)
+library(glue)
+library(knitr)
+library(forcats)
+library(tibble)
+library(data.table)
+library(DT)
+
+theme_set(
+ theme_minimal(base_size = 12) +
+   theme(
+     plot.title = element_text(face = "bold"),
+     legend.position = "bottom"
+   )
+)
+
+p_derived <- here(p_data_proc, "derived")
+p_by_order <- here(p_derived, "by_order")
+p_by_family <- here(p_derived, "by_family")
+```
+
+# Overview
+
+This notebook provides comprehensive quality checks for the GBIF Sweden occurrence data, validating readiness for **spatial**, **temporal**, and **taxonomic** gap analysis.
+
+**Run this after:** Scripts 01-06 (ingestion + derived summaries)
+
+**Purpose:** 
+
+1. Verify all required files exist and are properly formatted
+2. Identify data quality issues before gap analysis
+3. Characterize spatial, temporal, and taxonomic coverage
+4. Flag potential biases that may affect gap interpretation
+
+**Last run:** `r Sys.time()`
+
+---
+
+# 1. File Inventory & Validation {.tabset}
+
+## 1.1 Core Processed Files
+
+```{r check-core-files}
+core_files <- tribble(
+ ~file, ~location, ~required, ~description,
+ "grids_10km.gpkg", p_data_proc, TRUE, "EEA 10km reference grid",
+ "grids_50km.gpkg", p_data_proc, TRUE, "EEA 50km reference grid",
+ "taxa_reference_current.rds", p_data_proc, TRUE, "Dyntaxa taxonomy backbone",
+ "cube_manifest.csv", p_data_proc, FALSE, "Cube file metadata",
+ "cube_totals_by_basisOfRecord.csv", p_data_proc, FALSE, "Occurrence totals summary"
+) |>
+ mutate(
+   path = here(location, file),
+   exists = file.exists(path),
+   size_mb = map_dbl(path, ~if (file.exists(.x)) round(file.size(.x) / 1024^2, 2) else NA_real_),
+   status = case_when(
+     exists ~ "✅ OK",
+     required ~ "❌ MISSING",
+     TRUE ~ "⚠️ Optional"
+   )
+ )
+
+core_files |>
+ select(file, description, status, size_mb) |>
+ kable(caption = "Core Processed Files")
+```
+
+## 1.2 Derived Summary Files (Script 06a)
+
+```{r check-derived-core}
+derived_core <- tribble(
+ ~file, ~required, ~description,
+ "cell_summary_10km.csv", TRUE, "Occurrences per cell (10km)",
+ "cell_summary_50km.csv", TRUE, "Occurrences per cell (50km)",
+ "time_summary_10km.csv", TRUE, "Occurrences per month (10km)",
+ "time_summary_50km.csv", TRUE, "Occurrences per month (50km)",
+ "cell_time_summary_10km.csv", TRUE, "Cell × month matrix (10km)",
+ "cell_time_summary_50km.csv", TRUE, "Cell × month matrix (50km)",
+ "order_cell_summary_10km.csv", TRUE, "Order × cell (10km)",
+ "order_cell_summary_50km.csv", TRUE, "Order × cell (50km)",
+ "order_time_summary_10km.csv", TRUE, "Order × month (10km)",
+ "order_time_summary_50km.csv", TRUE, "Order × month (50km)",
+ "family_time_summary_10km.csv", TRUE, "Family × month (10km)",
+ "family_time_summary_50km.csv", TRUE, "Family × month (50km)",
+ "cube_key_summary.csv", TRUE, "Cube file statistics"
+) |>
+ mutate(
+   path = here(p_derived, file),
+   exists = file.exists(path),
+   size_mb = map_dbl(path, ~if (file.exists(.x)) round(file.size(.x) / 1024^2, 2) else NA_real_),
+   rows = map_dbl(path, ~{
+     if (file.exists(.x)) {
+       tryCatch(nrow(fread(.x, select = 1L)), error = function(e) NA_real_)
+     } else NA_real_
+   }),
+   status = case_when(
+     exists ~ "✅",
+     required ~ "❌",
+     TRUE ~ "⚠️"
+   )
+ )
+
+derived_core |>
+ select(file, description, status, size_mb, rows) |>
+ mutate(rows = scales::comma(rows)) |>
+ kable(caption = "Core Derived Files (from 06a)")
+```
+
+## 1.3 Species-Level Files (Script 06b)
+
+```{r check-species-files}
+# Count files in by_order and by_family directories
+by_order_counts <- tibble(
+ type = c("species_summary", "species_cell", "species_time", "species_cell_time"),
+ dir = here(p_by_order, type)
+) |>
+ mutate(
+   n_files = map_int(dir, ~{
+     if (dir.exists(.x)) length(list.files(.x, pattern = "\\.csv$")) else 0L
+   }),
+   total_size_mb = map_dbl(dir, ~{
+     if (dir.exists(.x)) {
+       files <- list.files(.x, pattern = "\\.csv$", full.names = TRUE)
+       sum(file.size(files)) / 1024^2
+     } else 0
+   })
+ )
+
+by_family_counts <- tibble(
+ type = c("species_summary", "species_cell", "species_time", "species_cell_time"),
+ dir = here(p_by_family, type)
+) |>
+ mutate(
+   n_files = map_int(dir, ~{
+     if (dir.exists(.x)) length(list.files(.x, pattern = "\\.csv$")) else 0L
+   }),
+   total_size_mb = map_dbl(dir, ~{
+     if (dir.exists(.x)) {
+       files <- list.files(.x, pattern = "\\.csv$", full.names = TRUE)
+       sum(file.size(files)) / 1024^2
+     } else 0
+   })
+ )
+
+species_summary <- bind_rows(
+ by_order_counts |> mutate(location = "by_order"),
+ by_family_counts |> mutate(location = "by_family")
+) |>
+ select(location, type, n_files, total_size_mb) |>
+ mutate(total_size_mb = round(total_size_mb, 1))
+
+species_summary |>
+ pivot_wider(names_from = location, values_from = c(n_files, total_size_mb)) |>
+ kable(caption = "Species-Level Files (from 06b)")
+
+# Total counts
+cat("\n**Total species-level files:**", sum(species_summary$n_files), "\n")
+cat("**Total size:**", round(sum(species_summary$total_size_mb), 1), "MB\n")
+```
+
+## 1.4 Validation Summary
+
+```{r validation-summary}
+validation <- tribble(
+ ~check, ~status, ~details,
+ "Core processed files",
+   ifelse(all(core_files$exists[core_files$required]), "✅ PASS", "❌ FAIL"),
+   glue("{sum(core_files$exists)} / {nrow(core_files)} files"),
+ "Derived core files (06a)",
+   ifelse(all(derived_core$exists[derived_core$required]), "✅ PASS", "❌ FAIL"),
+   glue("{sum(derived_core$exists)} / {sum(derived_core$required)} required"),
+ "Species by_order files (06b)",
+   ifelse(sum(by_order_counts$n_files) > 0, "✅ PASS", "❌ FAIL"),
+   glue("{sum(by_order_counts$n_files)} files"),
+ "Species by_family files (06b)",
+   ifelse(sum(by_family_counts$n_files) >= 0, "✅ PASS", "⚠️ None (OK if no large orders)"),
+   glue("{sum(by_family_counts$n_files)} files")
+)
+
+validation |> kable(caption = "File Validation Summary")
+```
+
+---
+
+# 2. Spatial Coverage Assessment {.tabset}
+
+```{r load-spatial-data}
+cell10 <- fread(here(p_derived, "cell_summary_10km.csv"))
+cell50 <- fread(here(p_derived, "cell_summary_50km.csv"))
+
+# Load grids for mapping
+grid10 <- tryCatch(
+ st_read(here(p_data_proc, "grids_10km.gpkg"), quiet = TRUE),
+ error = function(e) NULL
+)
+grid50 <- tryCatch(
+ st_read(here(p_data_proc, "grids_50km.gpkg"), quiet = TRUE),
+ error = function(e) NULL
+)
+```
+
+## 2.1 Coverage Statistics
+
+```{r spatial-stats}
+calc_spatial_stats <- function(cell_data, grid_name) {
+ cell_data |>
+   filter(basisofrecord == "all") |>
+   summarise(
+     grid = grid_name,
+     total_cells = n(),
+     cells_with_data = sum(occurrences > 0),
+     zero_cells = sum(occurrences == 0),
+     pct_coverage = round(100 * cells_with_data / total_cells, 1),
+     total_occurrences = sum(occurrences),
+     mean_occ = round(mean(occurrences)),
+     median_occ = median(occurrences),
+     sd_occ = round(sd(occurrences)),
+     min_occ = min(occurrences),
+     max_occ = max(occurrences),
+     q10 = quantile(occurrences, 0.10),
+     q25 = quantile(occurrences, 0.25),
+     q75 = quantile(occurrences, 0.75),
+     q90 = quantile(occurrences, 0.90)
+   )
+}
+
+spatial_stats <- bind_rows(
+ calc_spatial_stats(cell10, "10km"),
+ calc_spatial_stats(cell50, "50km")
+)
+
+spatial_stats |>
+ mutate(across(c(total_occurrences, mean_occ, sd_occ, max_occ), comma)) |>
+ kable(caption = "Spatial Coverage Statistics")
+```
+
+## 2.2 Occurrence Distribution by Cell
+
+```{r spatial-distribution, fig.height=5}
+cell10_all <- cell10[basisofrecord == "all"]
+
+# Count zeros
+n_zero <- sum(cell10_all$occurrences == 0, na.rm = TRUE)
+n_nonzero <- sum(cell10_all$occurrences > 0, na.rm = TRUE)
+n_total <- nrow(cell10_all)
+
+cat("**Cell counts:** Total:", n_total, "| With data:", n_nonzero, "| Zero:", n_zero, "\n\n")
+
+# Plot 1: Linear scale to show the zero cells and skew
+p1 <- ggplot(cell10_all, aes(x = occurrences)) +
+ geom_histogram(bins = 100, fill = viridis(1, begin = 0.3), alpha = 0.8) +
+ scale_x_continuous(labels = comma) +
+ labs(title = "Distribution of Occurrences per Cell (10km)",
+      subtitle = paste0("Linear scale - showing all ", comma(n_total), " cells (", comma(n_zero), " with zero)"),
+      x = "Occurrences", y = "Number of Cells")
+
+# Plot 2: Log scale for non-zero cells only
+cell10_nonzero <- cell10_all[occurrences > 0]
+
+p2 <- ggplot(cell10_nonzero, aes(x = occurrences)) +
+ geom_histogram(bins = 50, fill = viridis(1, begin = 0.5), alpha = 0.8) +
+ scale_x_log10(labels = comma) +
+ labs(title = "Distribution (non-zero cells only)",
+      subtitle = paste0("Log scale - ", comma(n_nonzero), " cells with data"),
+      x = "Occurrences (log scale)", y = "Number of Cells")
+
+gridExtra::grid.arrange(p1, p2, ncol = 2)
+```
+
+## 2.3 Zero-Coverage Cells (Gap Candidates)
+ 
+```{r zero-cells}
+zero_cells_10km <- cell10[basisofrecord == "all" & occurrences == 0]
+zero_cells_50km <- cell50[basisofrecord == "all" & occurrences == 0]
+
+cat("**Zero-coverage cells (10km):**", nrow(zero_cells_10km), 
+   "(", round(100 * nrow(zero_cells_10km) / nrow(cell10[basisofrecord == "all"]), 1), "%)\n")
+cat("**Zero-coverage cells (50km):**", nrow(zero_cells_50km),
+   "(", round(100 * nrow(zero_cells_50km) / nrow(cell50[basisofrecord == "all"]), 1), "%)\n")
+
+if (nrow(zero_cells_10km) > 0) {
+ cat("\nFirst 10 zero-coverage cell codes (10km):\n")
+ print(head(zero_cells_10km$eeacellcode, 10))
+}
+```
+
+## 2.4 Low-Coverage Cells (Bottom 10%)
+
+```{r low-coverage}
+q10_threshold <- quantile(cell10[basisofrecord == "all"]$occurrences, 0.10)
+low_cells <- cell10[basisofrecord == "all" & occurrences > 0 & occurrences <= q10_threshold]
+
+cat("**10th percentile threshold:**", q10_threshold, "occurrences\n")
+cat("**Cells at or below threshold:**", nrow(low_cells), "\n")
+
+low_cells |>
+ summarise(
+   n_cells = n(),
+   min_occ = min(occurrences),
+   max_occ = max(occurrences),
+   mean_occ = round(mean(occurrences), 1)
+ ) |>
+ kable(caption = "Low-Coverage Cells (bottom 10%)")
+```
+
+## 2.5 Spatial Map (if grid available)
+
+```{r spatial-map, fig.height=8, eval=!is.null(grid10)}
+if (!is.null(grid10)) {
+  # Find the cell code column name in the grid (could be cellcode, CELLCODE, eea_cellco, etc.)
+  grid_names <- names(grid10)
+  cellcode_col <- grid_names[str_detect(tolower(grid_names), "cell")][1]
+  
+  if (!is.na(cellcode_col)) {
+    # Rename to match for join
+    grid10_temp <- grid10
+    grid10_temp$join_cellcode <- grid10_temp[[cellcode_col]]
+    
+    # Join occurrence data to grid
+    cell10_for_join <- cell10[basisofrecord == "all", .(eeacellcode, occurrences, n_species)]
+    
+    grid10_occ <- grid10_temp |>
+      left_join(
+        cell10_for_join,
+        by = c("join_cellcode" = "eeacellcode")
+      ) |>
+      mutate(
+        occurrences = replace_na(occurrences, 0),
+        log_occ = log10(occurrences + 1)
+      )
+    
+    ggplot(grid10_occ) +
+      geom_sf(aes(fill = log_occ), color = NA) +
+      scale_fill_viridis(option = "inferno", name = "log10(occ+1)") +
+      labs(title = "Spatial Distribution of Occurrences (10km Grid)",
+           subtitle = "Log scale coloring") +
+      theme_void() +
+      theme(legend.position = "right")
+  } else {
+    cat("Could not find cell code column in grid. Available columns:", paste(grid_names, collapse = ", "))
+  }
+}
+```
+
+## 2.6 Coverage by Basis of Record
+
+```{r coverage-by-basis}
+cell10_by_basis <- cell10[, .(
+ n_cells_with_data = sum(occurrences > 0),
+ total_occurrences = sum(occurrences),
+ mean_occ = round(mean(occurrences[occurrences > 0]), 1)
+), by = basisofrecord][order(-total_occurrences)]
+
+cell10_by_basis |>
+ mutate(total_occurrences = comma(total_occurrences)) |>
+ kable(caption = "Spatial Coverage by Basis of Record (10km)")
+```
+
+---
+
+# 3. Temporal Coverage Assessment {.tabset}
+
+```{r load-temporal-data}
+time10 <- fread(here(p_derived, "time_summary_10km.csv"))
+time50 <- fread(here(p_derived, "time_summary_50km.csv"))
+
+# Parse yearmonth
+time10[, `:=`(
+ yearmonth_chr = str_trim(as.character(yearmonth)),
+ year = as.integer(str_sub(as.character(yearmonth), 1, 4)),
+ month = as.integer(str_sub(as.character(yearmonth), 6, 7))
+)]
+time10[, date := as.Date(paste0(yearmonth_chr, "-01"))]
+```
+
+## 3.1 Temporal Range
+
+```{r temporal-range}
+time10_all <- time10[basisofrecord == "all"]
+
+temporal_range <- time10_all[, .(
+ min_year = min(year, na.rm = TRUE),
+ max_year = max(year, na.rm = TRUE),
+ n_years = uniqueN(year),
+ n_months = .N,
+ total_occurrences = sum(occurrences)
+)]
+
+temporal_range |> kable(caption = "Temporal Range Summary")
+```
+
+## 3.2 Annual Trend
+
+```{r annual-trend, fig.height=5}
+annual <- time10_all[, .(
+ occurrences = sum(occurrences),
+ n_months = .N,
+ n_cells = sum(n_cells, na.rm = TRUE)
+), by = year][order(year)]
+
+ggplot(annual, aes(x = year, y = occurrences)) +
+ geom_line(color = viridis(1, begin = 0.4), linewidth = 1) +
+ geom_point(color = viridis(1, begin = 0.4), size = 2) +
+ scale_y_continuous(labels = comma) +
+ labs(title = "Annual Occurrence Trend",
+      subtitle = "Total occurrences per year",
+      x = "Year", y = "Occurrences")
+```
+
+## 3.3 Seasonal Pattern
+
+```{r seasonal-pattern, fig.height=5}
+monthly <- time10_all[, .(
+ occurrences = sum(occurrences),
+ n_years = uniqueN(year)
+), by = month][order(month)]
+
+ggplot(monthly, aes(x = factor(month), y = occurrences)) +
+ geom_col(fill = viridis(1, begin = 0.5)) +
+ scale_y_continuous(labels = comma) +
+ scale_x_discrete(labels = month.abb) +
+ labs(title = "Seasonal Distribution of Occurrences",
+      subtitle = "Aggregated across all years",
+      x = "Month", y = "Total Occurrences")
+```
+
+## 3.4 Year × Month Heatmap
+
+```{r temporal-heatmap, fig.height=10}
+year_month <- time10_all[, .(occurrences = sum(occurrences)), by = .(year, month)]
+
+ggplot(year_month, aes(x = factor(month), y = year, fill = log10(occurrences + 1))) +
+ geom_tile(color = "white", size = 0.1) +
+ scale_fill_viridis(option = "inferno", name = "log10(occ+1)") +
+ scale_x_discrete(labels = month.abb) +
+ labs(title = "Sampling Intensity: Year × Month",
+      x = "Month", y = "Year") +
+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## 3.5 Temporal Gaps
+
+```{r temporal-gaps}
+# Find years with no data
+all_years <- seq(min(time10_all$year, na.rm = TRUE), max(time10_all$year, na.rm = TRUE))
+years_with_data <- unique(time10_all$year)
+missing_years <- setdiff(all_years, years_with_data)
+
+cat("**Years with no data:**", length(missing_years), "\n")
+if (length(missing_years) > 0 && length(missing_years) <= 20) {
+ cat("Missing years:", paste(missing_years, collapse = ", "), "\n")
+}
+
+# Find months with unusually low data (< 10% of median)
+monthly_median <- median(monthly$occurrences)
+low_months <- monthly[occurrences < monthly_median * 0.1]
+
+if (nrow(low_months) > 0) {
+ cat("\n**Months with unusually low data (<10% of median):**\n")
+ print(low_months)
+}
+```
+## 3.6 Recent Data Availability
+
+```{r recent-data}
+current_year <- as.integer(format(Sys.Date(), "%Y"))
+recent_years <- (current_year - 5):current_year
+
+recent_data <- annual[year %in% recent_years]
+
+if (nrow(recent_data) > 0) {
+ recent_data |>
+   mutate(occurrences = comma(occurrences)) |>
+   kable(caption = "Recent Years Data Availability")
+} else {
+ cat("No data from the last 5 years\n")
+}
+
+# Most recent data point
+most_recent <- time10_all[which.max(date)]
+cat("\n**Most recent data point:**", as.character(most_recent$date), 
+   "with", comma(most_recent$occurrences), "occurrences\n")
+```
+
+## 3.7 Temporal Coverage by Basis of Record
+
+```{r temporal-by-basis, fig.height=6}
+time_by_basis <- time10[basisofrecord != "all", .(
+ occurrences = sum(occurrences)
+), by = .(year, basisofrecord)]
+
+ggplot(time_by_basis, aes(x = year, y = occurrences, fill = basisofrecord)) +
+  geom_area(alpha = 0.8) +
+  scale_y_continuous(labels = comma) +
+  scale_fill_viridis_d(option = "turbo") +
+  facet_wrap(~basisofrecord, scales = "free_y", ncol = 2) +
+  labs(title = "Temporal Trend by Basis of Record",
+       x = "Year", y = "Occurrences") +
+  theme(legend.position = "none")
+
+ggplot(time_by_basis, aes(x = year, y = occurrences, color = basisofrecord)) +
+  geom_line(linewidth = 1) +
+  scale_y_log10(labels = comma) +
+  scale_color_viridis_d(option = "turbo") +
+  labs(title = "Temporal Trend by Basis of Record",
+       subtitle = "Log scale",
+       x = "Year", y = "Occurrences (log)", color = "Basis of Record")
+
+```
+
+---
+
+# 4. Taxonomic Coverage Assessment {.tabset}
+
+```{r load-taxonomic-data}
+# Load taxa reference
+taxa_ref <- tryCatch(
+ readRDS(here(p_data_proc, "taxa_reference_current.rds")),
+ error = function(e) NULL
+)
+
+# Load order-level summary for quick stats
+order_time <- fread(here(p_derived, "order_time_summary_10km.csv"))
+family_time <- fread(here(p_derived, "family_time_summary_10km.csv"))
+
+# Get species counts from by_order files
+species_files <- list.files(here(p_by_order, "species_summary"), pattern = "_10km\\.csv$", full.names = TRUE)
+```
+
+## 4.1 Taxonomic Backbone Summary
+
+```{r taxa-backbone}
+if (!is.null(taxa_ref)) {
+ taxa_summary <- taxa_ref |>
+   filter(taxonomicStatus == "accepted" | is.na(taxonomicStatus)) |>
+   summarise(
+     total_taxa = n(),
+     n_species = sum(taxonRank == "species", na.rm = TRUE),
+     n_genus = sum(taxonRank == "genus", na.rm = TRUE),
+     n_family = sum(taxonRank == "family", na.rm = TRUE),
+     n_with_threat_dyntaxa = sum(!is.na(threatStatus_dyntaxa)),
+     n_with_threat_redlist = sum(!is.na(threatStatus_redlist)),
+     n_kingdoms = uniqueN(kingdom)
+   )
+ 
+ taxa_summary |> 
+   pivot_longer(everything(), names_to = "metric", values_to = "count") |>
+   mutate(count = comma(count)) |>
+   kable(caption = "Taxonomic Backbone Summary (Dyntaxa)")
+ 
+ # Kingdom breakdown
+ taxa_ref |>
+   filter(taxonomicStatus == "accepted" | is.na(taxonomicStatus)) |>
+   count(kingdom, sort = TRUE) |>
+   kable(caption = "Taxa by Kingdom")
+}
+```
+
+## 4.2 Order-Level Coverage in GBIF
+
+```{r order-coverage}
+order_summary <- order_time[basisofrecord == "all", .(
+ total_occurrences = sum(occurrences),
+ n_months = uniqueN(yearmonth),
+ mean_monthly_occ = round(mean(occurrences))
+), by = order][order(-total_occurrences)]
+
+cat("**Number of orders in GBIF data:**", nrow(order_summary), "\n\n")
+
+order_summary |>
+ head(20) |>
+ mutate(total_occurrences = comma(total_occurrences)) |>
+ kable(caption = "Top 20 Orders by Occurrence Count")
+```
+
+## 4.3 Order Rank-Abundance
+
+```{r order-rank, fig.height=5}
+order_summary[, rank := .I]
+
+ggplot(order_summary, aes(x = rank, y = total_occurrences)) +
+ geom_point(color = viridis(1, begin = 0.4), alpha = 0.7) +
+ geom_line(color = viridis(1, begin = 0.4), alpha = 0.5) +
+ scale_y_log10(labels = comma) +
+ labs(title = "Order Rank-Abundance Distribution",
+      subtitle = "Log scale - showing dominance pattern",
+      x = "Order Rank", y = "Total Occurrences (log)")
+```
+
+## 4.4 Family-Level Coverage
+
+```{r family-coverage}
+family_summary <- family_time[basisofrecord == "all", .(
+ total_occurrences = sum(occurrences),
+ n_months = uniqueN(yearmonth)
+), by = .(order, family)][order(-total_occurrences)]
+
+cat("**Number of families in GBIF data:**", nrow(family_summary), "\n\n")
+
+family_summary |>
+ head(20) |>
+ mutate(total_occurrences = comma(total_occurrences)) |>
+ kable(caption = "Top 20 Families by Occurrence Count")
+```
+
+## 4.5 Species-Level Statistics
+
+```{r species-stats}
+# Read and combine species summary files
+if (length(species_files) > 0) {
+ species_counts <- map_dfr(species_files, ~{
+   dt <- fread(.x)
+   dt[basisofrecord == "all", .(
+     order = str_extract(basename(.x), "species_summary_(.+)_10km", group = 1),
+     n_species = uniqueN(specieskey),
+     total_occurrences = sum(occurrences)
+   )]
+ })
+ 
+ species_totals <- species_counts[, .(
+   n_species = sum(n_species),
+   total_occurrences = sum(total_occurrences)
+ )]
+ 
+ cat("**Total unique species in GBIF data:**", comma(species_totals$n_species), "\n")
+ cat("**Total occurrences:**", comma(species_totals$total_occurrences), "\n\n")
+ 
+ species_counts[order(-n_species)] |>
+   head(15) |>
+   mutate(total_occurrences = comma(total_occurrences)) |>
+   kable(caption = "Species Count by Order (from species_summary files)")
+}
+```
+
+## 4.6 Threat Status Coverage
+
+```{r threat-status}
+if (!is.null(taxa_ref)) {
+ # Dyntaxa threat status
+ dyntaxa_threat <- taxa_ref |>
+   filter(!is.na(threatStatus_dyntaxa)) |>
+   count(threatStatus_dyntaxa, sort = TRUE) |>
+   rename(status = threatStatus_dyntaxa, n_dyntaxa = n)
+ 
+ # Red List threat status
+ redlist_threat <- taxa_ref |>
+   filter(!is.na(threatStatus_redlist)) |>
+   count(threatStatus_redlist, sort = TRUE) |>
+   rename(status = threatStatus_redlist, n_redlist = n)
+ 
+ # Combine
+ threat_comparison <- full_join(dyntaxa_threat, redlist_threat, by = "status") |>
+   mutate(across(starts_with("n_"), ~replace_na(.x, 0))) |>
+   arrange(desc(n_dyntaxa + n_redlist))
+ 
+ threat_comparison |>
+   kable(caption = "Threat Status Coverage: Dyntaxa vs Red List")
+ 
+ # Priority threatened taxa
+ priority_statuses <- c("CR", "EN", "VU", "NT")
+ 
+ n_priority_dyntaxa <- taxa_ref |> 
+   filter(threatStatus_dyntaxa %in% priority_statuses) |> nrow()
+ n_priority_redlist <- taxa_ref |> 
+   filter(threatStatus_redlist %in% priority_statuses) |> nrow()
+ 
+ cat("\n**Priority threatened taxa (CR/EN/VU/NT):**\n")
+ cat("- From Dyntaxa:", n_priority_dyntaxa, "\n")
+ cat("- From Red List:", n_priority_redlist, "\n")
+}
+```
+
+---
+
+# 5. Bias Assessment {.tabset}
+
+## 5.1 Basis of Record Bias
+
+```{r basis-bias}
+totals_file <- here(p_data_proc, "cube_totals_by_basisOfRecord.csv")
+
+if (file.exists(totals_file)) {
+ totals <- fread(totals_file)
+ 
+ totals_summary <- totals[, .(total_occurrences = sum(total_occurrences)), by = basisOfRecord]
+ totals_summary[, pct := round(100 * total_occurrences / sum(total_occurrences), 1)]
+ 
+ totals_summary[order(-total_occurrences)] |>
+   mutate(total_occurrences = comma(total_occurrences)) |>
+   kable(caption = "Occurrence Share by Basis of Record")
+ 
+ # Dominance check
+ max_pct <- max(totals_summary$pct)
+ dominant_basis <- totals_summary[pct == max_pct, basisOfRecord]
+ 
+ if (max_pct > 80) {
+   cat("\n⚠️ **Warning:** ", dominant_basis, " accounts for ", max_pct, 
+       "% of all occurrences. This may bias gap analysis.\n", sep = "")
+ }
+}
+```
+
+## 5.2 Spatial Sampling Bias
+
+```{r spatial-bias, fig.height=5}
+# Check for hotspots (cells with disproportionately high occurrences)
+# Note: cell10_all should already be defined from section 2.3
+# If not, recreate it here
+if (!exists("cell10_all") || nrow(cell10_all) == 0) {
+  cell10_all <- cell10[basisofrecord == "all"]
+}
+
+# Debug info
+cat("**Debug info:**\n")
+cat("- Rows in cell10_all:", nrow(cell10_all), "\n")
+cat("- Columns:", paste(names(cell10_all), collapse = ", "), "\n")
+cat("- Non-zero occurrences:", sum(cell10_all$occurrences > 0, na.rm = TRUE), "\n\n")
+
+# Calculate Gini coefficient for spatial inequality
+gini <- function(x) {
+  x <- as.numeric(x)  # Ensure numeric
+  x <- x[!is.na(x) & x > 0]  # Remove NA and zero values
+  if (length(x) < 2) {
+    cat("Gini debug: Only", length(x), "non-zero values\n")
+    return(NA_real_)
+  }
+  if (sum(x) == 0) {
+    cat("Gini debug: Sum is zero\n")
+    return(NA_real_)
+  }
+  x <- sort(x)
+  n <- length(x)
+  result <- sum((2 * seq_len(n) - n - 1) * x) / (n * sum(x))
+  return(result)
+}
+
+spatial_gini <- gini(cell10_all$occurrences)
+
+if (!is.na(spatial_gini)) {
+  cat("**Spatial Gini coefficient:**", round(spatial_gini, 3), "\n")
+  cat("(0 = perfectly even, 1 = all data in one cell)\n\n")
+  
+  if (spatial_gini > 0.7) {
+    cat("⚠️ **Warning:** High spatial inequality detected. Data is concentrated in few cells.\n")
+  }
+} else {
+  cat("**Spatial Gini coefficient:** Could not calculate\n\n")
+}
+
+# Top 10 cells vs rest
+occ_values <- as.numeric(cell10_all$occurrences)
+occ_values <- occ_values[!is.na(occ_values)]
+
+if (length(occ_values) >= 10 && sum(occ_values) > 0) {
+  top10_occ <- sum(head(sort(occ_values, decreasing = TRUE), 10))
+  total_occ <- sum(occ_values)
+  top10_pct <- round(100 * top10_occ / total_occ, 1)
+  cat("**Top 10 cells account for:**", top10_pct, "% of all occurrences\n")
+} else {
+  top10_pct <- NA_real_
+  cat("**Top 10 cells:** Insufficient data to calculate\n")
+}
+
+# Show the top 10 cells
+top10_cells <- cell10_all[order(-occurrences)][1:10, .(eeacellcode, occurrences, n_species)]
+top10_cells[, pct_of_total := round(100 * occurrences / sum(cell10_all$occurrences), 2)]
+
+cat("\n**Top 10 most-sampled cells:**\n\n")
+print(top10_cells)
+
+# Map top 10 cells (if grid available)
+if (!is.null(grid10)) {
+  grid_names <- names(grid10)
+  cellcode_col <- grid_names[str_detect(tolower(grid_names), "cell")][1]
+  
+  if (!is.na(cellcode_col)) {
+    top10_codes <- top10_cells$eeacellcode
+    
+    grid10_top10 <- grid10 |>
+      mutate(is_top10 = .data[[cellcode_col]] %in% top10_codes) |>
+      left_join(
+        top10_cells |> mutate(eeacellcode = as.character(eeacellcode)),
+        by = setNames("eeacellcode", cellcode_col)
+      )
+    
+    p_top10 <- ggplot() +
+      geom_sf(data = grid10, fill = "grey90", color = "white", size = 0.1) +
+      geom_sf(data = grid10_top10 |> filter(is_top10), 
+              aes(fill = occurrences), color = "red", size = 0.5) +
+      scale_fill_viridis(option = "plasma", labels = comma, name = "Occurrences") +
+      labs(title = "Top 10 Most-Sampled Cells",
+           subtitle = "These cells may represent sampling hotspots (cities, research stations)") +
+      theme_void() +
+      theme(legend.position = "right")
+    
+    print(p_top10)
+  }
+}
+
+```
+
+## 5.3 Temporal Sampling Bias
+
+```{r temporal-bias}
+# Weekend effect (if we had day-of-week data, we'd check this)
+# For now, check year-over-year growth
+
+annual_growth <- annual[, .(
+ year, 
+ occurrences,
+ yoy_growth = round(100 * (occurrences - shift(occurrences)) / shift(occurrences), 1)
+)]
+
+# Recent acceleration?
+recent_5yr <- annual_growth[year >= current_year - 5]
+avg_recent_growth <- mean(recent_5yr$yoy_growth, na.rm = TRUE)
+
+cat("**Average year-over-year growth (last 5 years):**", round(avg_recent_growth, 1), "%\n")
+
+if (avg_recent_growth > 20) {
+ cat("⚠️ **Note:** Rapid recent growth may indicate citizen science surge.\n")
+ cat("Consider temporal detrending for trend analysis.\n")
+}
+```
+
+## 5.4 Taxonomic Sampling Bias
+
+```{r taxonomic-bias}
+# Check if certain orders are over/under-represented relative to expected diversity
+order_summary <- order_time[basisofrecord == "all", .(
+ total_occurrences = sum(occurrences)
+), by = order][order(-total_occurrences)]
+
+# Top 5 orders share
+top5_orders <- head(order_summary, 5)
+top5_pct <- round(100 * sum(top5_orders$total_occurrences) / sum(order_summary$total_occurrences), 1)
+
+cat("**Top 5 orders account for:**", top5_pct, "% of all occurrences\n")
+cat("Top 5 orders:", paste(top5_orders$order, collapse = ", "), "\n\n")
+
+if (top5_pct > 70) {
+ cat("⚠️ **Warning:** Strong taxonomic bias toward few orders.\n")
+ cat("Gap analysis should consider order-specific expectations.\n")
+}
+```
+
+---
+
+# 6. Gap Analysis Readiness {.tabset}
+
+## 6.1 Spatial Gap Analysis Readiness
+
+```{r spatial-readiness}
+spatial_ready <- tribble(
+ ~requirement, ~status, ~details,
+ "Cell summary available",
+   ifelse(file.exists(here(p_derived, "cell_summary_10km.csv")), "✅", "❌"),
+   "Required for zero-coverage detection",
+ "Cell × time summary available",
+   ifelse(file.exists(here(p_derived, "cell_time_summary_10km.csv")), "✅", "❌"),
+   "Required for data recency analysis",
+ "Grid geometries available",
+   ifelse(!is.null(grid10), "✅", "❌"),
+   "Required for mapping",
+ "Order × cell available",
+   ifelse(file.exists(here(p_derived, "order_cell_summary_10km.csv")), "✅", "❌"),
+   "Required for taxonomic spatial gaps",
+ "Zero cells identified",
+   glue("✅ {nrow(zero_cells_10km)} cells"),
+   "Candidates for spatial gaps",
+ "Low coverage cells identified",
+   glue("✅ {nrow(low_cells)} cells"),
+   "Below 10th percentile"
+)
+
+spatial_ready |> kable(caption = "Spatial Gap Analysis Readiness")
+```
+
+## 6.2 Temporal Gap Analysis Readiness
+
+```{r temporal-readiness}
+temporal_ready <- tribble(
+ ~requirement, ~status, ~details,
+ "Time summary available",
+   ifelse(file.exists(here(p_derived, "time_summary_10km.csv")), "✅", "❌"),
+   "Required for temporal trends",
+ "Cell × time summary available",
+   ifelse(file.exists(here(p_derived, "cell_time_summary_10km.csv")), "✅", "❌"),
+   "Required for cell recency",
+ "Order × time available",
+   ifelse(file.exists(here(p_derived, "order_time_summary_10km.csv")), "✅", "❌"),
+   "Required for taxonomic temporal patterns",
+ "Family × time available",
+   ifelse(file.exists(here(p_derived, "family_time_summary_10km.csv")), "✅", "❌"),
+   "Required for family-level trends",
+ "Year range adequate",
+   ifelse(temporal_range$n_years >= 10, "✅", "⚠️"),
+   glue("{temporal_range$n_years} years of data"),
+ "Recent data available",
+   ifelse(max(time10_all$year, na.rm = TRUE) >= current_year - 2, "✅", "⚠️"),
+   glue("Most recent: {max(time10_all$year, na.rm = TRUE)}")
+)
+
+temporal_ready |> kable(caption = "Temporal Gap Analysis Readiness")
+```
+
+## 6.3 Taxonomic Gap Analysis Readiness
+
+```{r taxonomic-readiness}
+taxonomic_ready <- tribble(
+ ~requirement, ~status, ~details,
+ "Taxa backbone available",
+   ifelse(!is.null(taxa_ref), "✅", "❌"),
+   "Dyntaxa reference for Swedish species",
+ "Threat status (Dyntaxa)",
+   ifelse(!is.null(taxa_ref) && sum(!is.na(taxa_ref$threatStatus_dyntaxa)) > 0, "✅", "⚠️"),
+   ifelse(!is.null(taxa_ref), glue("{sum(!is.na(taxa_ref$threatStatus_dyntaxa))} taxa"), "N/A"),
+ "Threat status (Red List)",
+   ifelse(!is.null(taxa_ref) && sum(!is.na(taxa_ref$threatStatus_redlist)) > 0, "✅", "⚠️"),
+   ifelse(!is.null(taxa_ref), glue("{sum(!is.na(taxa_ref$threatStatus_redlist))} taxa"), "N/A"),
+ "Species summaries available",
+   ifelse(length(species_files) > 0, "✅", "❌"),
+   glue("{length(species_files)} order files"),
+ "Bias correction columns",
+   "✅",
+   "familycount, ordercount, classcount in species tables"
+)
+
+taxonomic_ready |> kable(caption = "Taxonomic Gap Analysis Readiness")
+```
+
+## 6.4 Overall Readiness Score
+
+```{r overall-readiness}
+# Count checks
+all_checks <- bind_rows(
+ spatial_ready |> mutate(category = "Spatial"),
+ temporal_ready |> mutate(category = "Temporal"),
+ taxonomic_ready |> mutate(category = "Taxonomic")
+)
+
+passed <- sum(str_detect(all_checks$status, "✅"))
+total <- nrow(all_checks)
+pct_passed <- round(100 * passed / total)
+
+cat("## Overall Gap Analysis Readiness\n\n")
+cat("**Checks passed:**", passed, "/", total, "(", pct_passed, "%)\n\n")
+
+if (pct_passed >= 90) {
+ cat("✅ **READY** for comprehensive gap analysis\n")
+} else if (pct_passed >= 70) {
+ cat("⚠️ **MOSTLY READY** - some components missing, review warnings\n")
+} else {
+ cat("❌ **NOT READY** - critical components missing\n")
+}
+```
+
+---
+
+# 7. Recommendations
+
+```{r recommendations}
+recommendations <- character()
+
+# Spatial recommendations
+if (nrow(zero_cells_10km) > 0) {
+ recommendations <- c(recommendations, 
+   glue("- Investigate {nrow(zero_cells_10km)} zero-coverage cells for spatial gap analysis"))
+}
+
+if (!is.na(spatial_gini) && spatial_gini > 0.7) {
+ recommendations <- c(recommendations,
+   "- Consider spatial bias correction due to high sampling inequality")
+}
+
+# Temporal recommendations
+if (length(missing_years) > 0) {
+ recommendations <- c(recommendations,
+   glue("- {length(missing_years)} years have no data - may affect trend analysis"))
+}
+
+if (avg_recent_growth > 20) {
+ recommendations <- c(recommendations,
+   "- Apply temporal detrending to account for citizen science growth")
+}
+
+# Taxonomic recommendations
+if (top5_pct > 70) {
+ recommendations <- c(recommendations,
+   "- Use relative occurrence (bias correction) for cross-taxa comparisons")
+}
+
+if (!is.null(taxa_ref)) {
+ n_unmatched_estimate <- nrow(taxa_ref) - species_totals$n_species
+ if (n_unmatched_estimate > 1000) {
+   recommendations <- c(recommendations,
+     glue("- ~{comma(n_unmatched_estimate)} Dyntaxa taxa may be missing from GBIF - run taxonomy matching"))
+ }
+}
+
+if (length(recommendations) > 0) {
+ cat("Based on this sanity check, consider the following:\n\n")
+ cat(paste(recommendations, collapse = "\n"))
+} else {
+ cat("No major issues detected. Data appears ready for gap analysis.\n")
+}
+```
+
+---
+
+# 8. Data Quality Summary
+
+```{r final-summary}
+quality_summary <- tribble(
+ ~dimension, ~metric, ~value, ~status,
+ "Files", "Core files present", paste0(sum(core_files$exists), "/", nrow(core_files)),
+   ifelse(all(core_files$exists[core_files$required]), "✅", "❌"),
+ "Files", "Derived files present", paste0(sum(derived_core$exists), "/", nrow(derived_core)),
+   ifelse(all(derived_core$exists[derived_core$required]), "✅", "❌"),
+ "Spatial", "Cell coverage", paste0(spatial_stats$pct_coverage[1], "%"),
+   ifelse(spatial_stats$pct_coverage[1] > 50, "✅", "⚠️"),
+ "Spatial", "Zero-coverage cells", comma(nrow(zero_cells_10km)),
+   ifelse(nrow(zero_cells_10km) < nrow(cell10[basisofrecord == "all"]) * 0.3, "✅", "⚠️"),
+ "Temporal", "Year range", paste0(temporal_range$min_year, "-", temporal_range$max_year),
+   ifelse(temporal_range$n_years >= 20, "✅", "⚠️"),
+ "Temporal", "Data recency", as.character(max(time10_all$year, na.rm = TRUE)),
+   ifelse(max(time10_all$year, na.rm = TRUE) >= current_year - 2, "✅", "⚠️"),
+ "Taxonomic", "Orders covered", comma(nrow(order_summary)),
+   "✅",
+ "Taxonomic", "Families covered", comma(nrow(family_summary)),
+   "✅",
+ "Bias", "Spatial Gini", ifelse(!is.na(spatial_gini), as.character(round(spatial_gini, 2)), "N/A"),
+   ifelse(!is.na(spatial_gini) && spatial_gini < 0.7, "✅", "⚠️"),
+ "Bias", "Top 5 orders share", paste0(top5_pct, "%"),
+   ifelse(top5_pct < 70, "✅", "⚠️")
+)
+
+quality_summary |> kable(caption = "Data Quality Summary")
+```
+
+---
+
+# Session Info
+
+```{r session-info}
+sessionInfo()
+```
