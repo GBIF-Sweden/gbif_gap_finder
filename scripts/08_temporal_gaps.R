@@ -1,15 +1,42 @@
-# scripts/09_define_temporal_gaps.R
+# scripts/08_temporal_gaps.R
 # ==============================================================================
-# Temporal Gap Analysis - Comprehensive
+# Temporal Gap Analysis
 # ==============================================================================
-# This script creates detailed temporal gap metrics across multiple dimensions:
-# - National trends (year, month)
-# - Trends by basis of record
-# - Trends by taxonomic rank (family, order)
-# - Cell-level recency and sampling frequency
-# - Temporal completeness and gaps
+# This script identifies temporal gaps in GBIF occurrence data:
 #
-# Outputs organized by type for flexible plotting
+# INPUTS:
+#   - data_proc/derived/time_summary_*.csv (from 06a)
+#   - data_proc/derived/family_time_summary_*.csv (from 06a)
+#   - data_proc/cubes/*.fst (for cell-level recency)
+#
+# OUTPUTS (in data_proc/gaps/):
+#   National trends:
+#     - temporal_overview_year_*.csv      Annual totals
+#     - temporal_overview_month_*.csv     Monthly totals (seasonal patterns)
+#     - temporal_year_by_basis_*.csv      Annual totals by basis of record
+#     - temporal_month_by_basis_*.csv     Monthly totals by basis of record
+#     - temporal_year_month_*.csv         Year × month matrix (for heatmaps)
+#     - temporal_decade_summary_*.csv     Decadal summaries
+#
+#   Completeness:
+#     - temporal_year_completeness_*.csv  Months per year coverage
+#     - temporal_month_completeness_*.csv Years per month coverage
+#
+#   Gaps:
+#     - temporal_gap_years_detail.csv     All year × basis gaps
+#     - temporal_gap_years_summary.csv    Summary of gap years
+#
+#   Cell-level:
+#     - cell_recency_*.csv                Last observation per cell
+#     - temporal_sampling_frequency_summary.csv
+#
+#   Taxonomic × temporal:
+#     - temporal_year_by_family_*.csv     Family trends over time
+#
+# GAP DEFINITIONS:
+#   - Gap year: No observations in a year within the overall range
+#   - Stale cell: No observations in last 12 months or 5 years
+#   - Incomplete year: <12 months with data
 
 library(here)
 library(dplyr)
@@ -24,20 +51,28 @@ library(cli)
 
 source(here("scripts", "00_setup.R"))
 
-# Configuration -----------------------------------------------------------
+# ===========================================================================
+# CONFIGURATION
+# ===========================================================================
+
 p_derived <- here(p_data_proc, "derived")
 p_cubes <- here(p_data_proc, "cubes")
 p_gaps <- here(p_data_proc, "gaps")
 
 dir.create(p_gaps, showWarnings = FALSE, recursive = TRUE)
 
-# Staleness thresholds (months)
-STALE_12M <- 12
-STALE_60M <- 60  # 5 years
+# Staleness thresholds from config (or defaults)
+STALE_12M <- cfg_get("parameters.temporal.stale_months_12", 12)
+STALE_60M <- cfg_get("parameters.temporal.stale_months_60", 60)
 
-# Helper functions --------------------------------------------------------
+cli_h1("Temporal Gap Analysis (Script 08)")
+cli_alert_info("Staleness thresholds: {STALE_12M} months, {STALE_60M} months")
 
-#' Parse yearmonth to Date
+# ===========================================================================
+# HELPER FUNCTIONS
+# ===========================================================================
+
+#' Parse yearmonth string to Date
 parse_yearmonth <- function(x) {
   x_chr <- str_trim(as.character(x))
   valid <- str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
@@ -62,7 +97,7 @@ read_time_summary <- function(filename) {
   
   dt <- fread(path)
   
-  required_cols <- c("grid", "basisofrecord", "yearmonth", "occurrences")
+  required_cols <- c("basisofrecord", "yearmonth", "occurrences")
   missing_cols <- setdiff(required_cols, names(dt))
   
   if (length(missing_cols) > 0) {
@@ -70,6 +105,12 @@ read_time_summary <- function(filename) {
       "Missing required columns in {.path {filename}}",
       "x" = "Missing: {paste(missing_cols, collapse = ', ')}"
     ))
+  }
+  
+  # Add grid column if missing
+  if (!("grid" %in% names(dt))) {
+    grid_suffix <- str_extract(filename, "\\d+km")
+    dt[, grid := paste0("grid", grid_suffix)]
   }
   
   dt
@@ -90,8 +131,7 @@ read_fst_cols <- function(path, cols) {
   df
 }
 
-# Parse and enrich temporal data -----------------------------------------
-
+#' Enrich temporal data with derived fields
 enrich_temporal_data <- function(dt) {
   setDT(dt)
   
@@ -106,7 +146,10 @@ enrich_temporal_data <- function(dt) {
   dt
 }
 
-# Load data ---------------------------------------------------------------
+# ===========================================================================
+# LOAD DATA
+# ===========================================================================
+
 cli_h2("Loading Temporal Summaries")
 
 time10 <- read_time_summary("time_summary_10km.csv")
@@ -119,7 +162,13 @@ cli_alert_success("Loaded 50km: {scales::comma(nrow(time50))} rows")
 time10 <- enrich_temporal_data(time10)
 time50 <- enrich_temporal_data(time50)
 
-# National-level summaries ------------------------------------------------
+cli_alert_info("Year range 10km: {min(time10$year)}-{max(time10$year)}")
+cli_alert_info("Year range 50km: {min(time50$year)}-{max(time50$year)}")
+
+# ===========================================================================
+# NATIONAL-LEVEL SUMMARIES
+# ===========================================================================
+
 cli_h2("Creating National-Level Summaries")
 
 create_national_summaries <- function(time_data, grid_label) {
@@ -178,7 +227,10 @@ summaries_50 <- create_national_summaries(time50, "grid50km")
 
 cli_alert_success("National summaries complete")
 
-# Temporal completeness ---------------------------------------------------
+# ===========================================================================
+# TEMPORAL COMPLETENESS
+# ===========================================================================
+
 cli_h2("Analyzing Temporal Completeness")
 
 compute_completeness <- function(time_data) {
@@ -212,7 +264,10 @@ compute_completeness <- function(time_data) {
 completeness_10 <- compute_completeness(time10)
 completeness_50 <- compute_completeness(time50)
 
-# Gap years (years with zero observations) --------------------------------
+# ===========================================================================
+# GAP YEARS
+# ===========================================================================
+
 cli_h2("Identifying Temporal Gaps")
 
 identify_gap_years <- function(time_data) {
@@ -256,7 +311,10 @@ identify_gap_years <- function(time_data) {
 gap_years_10 <- identify_gap_years(time10)
 gap_years_50 <- identify_gap_years(time50)
 
-# Cell-level recency ------------------------------------------------------
+# ===========================================================================
+# CELL-LEVEL RECENCY
+# ===========================================================================
+
 cli_h2("Computing Cell-Level Recency")
 
 compute_cell_recency <- function(grid_label, cubes_dir) {
@@ -266,7 +324,8 @@ compute_cell_recency <- function(grid_label, cubes_dir) {
   cube_files <- list.files(cubes_dir, pattern = "\\.fst$", full.names = TRUE)
   
   if (length(cube_files) == 0) {
-    cli_abort("No cube files found in: {.path {cubes_dir}}")
+    cli_alert_warning("No cube files found in: {.path {cubes_dir}}")
+    return(NULL)
   }
   
   cols <- c("grid", "basisofrecord", "eeacellcode", "yearmonth", "occurrences")
@@ -344,7 +403,8 @@ compute_cell_recency <- function(grid_label, cubes_dir) {
   cli_progress_done()
   
   if (length(parts) == 0) {
-    cli_abort("No recency data produced for {grid_label}")
+    cli_alert_warning("No recency data produced for {grid_label}")
+    return(NULL)
   }
   
   # Combine all parts
@@ -386,10 +446,17 @@ recency_50 <- compute_cell_recency("grid50km", p_cubes)
 
 cli_alert_success("Cell recency complete")
 
-# Sampling frequency summary ----------------------------------------------
+# ===========================================================================
+# SAMPLING FREQUENCY SUMMARY
+# ===========================================================================
+
 cli_h2("Analyzing Sampling Frequency")
 
 create_frequency_summary <- function(recency_data) {
+  if (is.null(recency_data) || nrow(recency_data) == 0) {
+    return(NULL)
+  }
+  
   recency_data[, .(
     n_cells = .N,
     mean_observations = as.numeric(round(mean(n_observations, na.rm = TRUE), 1)),
@@ -402,12 +469,14 @@ create_frequency_summary <- function(recency_data) {
 
 frequency_summary_10 <- create_frequency_summary(recency_10)
 frequency_summary_50 <- create_frequency_summary(recency_50)
-frequency_summary_all <- rbindlist(list(frequency_summary_10, frequency_summary_50))
+frequency_summary_all <- rbindlist(list(frequency_summary_10, frequency_summary_50), fill = TRUE)
 
-# Load and process taxonomic time series ----------------------------------
-cli_h2("Creating Taxonomic × Temporal Summaries")
+# ===========================================================================
+# TAXONOMIC × TEMPORAL (Family trends)
+# ===========================================================================
 
-# Family × year (if available)
+cli_h2("Creating Taxonomic x Temporal Summaries")
+
 family_year_10 <- NULL
 family_year_50 <- NULL
 
@@ -423,7 +492,7 @@ if (file.exists(family_10_path)) {
     n_families = uniqueN(family)
   ), by = .(grid, year)]
   
-  cli_alert_success("Created family × year summary (10km)")
+  cli_alert_success("Created family x year summary (10km)")
 } else {
   cli_alert_info("Family data not available for 10km")
 }
@@ -437,12 +506,15 @@ if (file.exists(family_50_path)) {
     n_families = uniqueN(family)
   ), by = .(grid, year)]
   
-  cli_alert_success("Created family × year summary (50km)")
+  cli_alert_success("Created family x year summary (50km)")
 } else {
   cli_alert_info("Family data not available for 50km")
 }
 
-# Write outputs -----------------------------------------------------------
+# ===========================================================================
+# WRITE OUTPUTS
+# ===========================================================================
+
 cli_h2("Writing Temporal Gap Outputs")
 
 # National trends
@@ -455,12 +527,10 @@ fwrite(summaries_50$month_all, here(p_gaps, "temporal_overview_month_50km.csv"))
 cli_alert_success("temporal_overview_month_*.csv")
 
 # By basis of record
-year_by_basis_all <- rbindlist(list(summaries_10$year_by_basis, summaries_50$year_by_basis))
 fwrite(summaries_10$year_by_basis, here(p_gaps, "temporal_year_by_basis_10km.csv"))
 fwrite(summaries_50$year_by_basis, here(p_gaps, "temporal_year_by_basis_50km.csv"))
 cli_alert_success("temporal_year_by_basis_*.csv")
 
-month_by_basis_all <- rbindlist(list(summaries_10$month_by_basis, summaries_50$month_by_basis))
 fwrite(summaries_10$month_by_basis, here(p_gaps, "temporal_month_by_basis_10km.csv"))
 fwrite(summaries_50$month_by_basis, here(p_gaps, "temporal_month_by_basis_50km.csv"))
 cli_alert_success("temporal_month_by_basis_*.csv")
@@ -496,15 +566,23 @@ fwrite(gap_summary, here(p_gaps, "temporal_gap_years_summary.csv"))
 cli_alert_success("temporal_gap_years_*.csv")
 
 # Cell recency
-fwrite(recency_10, here(p_gaps, "cell_recency_10km.csv"))
-fwrite(recency_50, here(p_gaps, "cell_recency_50km.csv"))
-cli_alert_success("cell_recency_*.csv")
+if (!is.null(recency_10)) {
+  fwrite(recency_10, here(p_gaps, "cell_recency_10km.csv"))
+  cli_alert_success("cell_recency_10km.csv: {scales::comma(nrow(recency_10))} rows")
+}
+
+if (!is.null(recency_50)) {
+  fwrite(recency_50, here(p_gaps, "cell_recency_50km.csv"))
+  cli_alert_success("cell_recency_50km.csv: {scales::comma(nrow(recency_50))} rows")
+}
 
 # Sampling frequency
-fwrite(frequency_summary_all, here(p_gaps, "temporal_sampling_frequency_summary.csv"))
-cli_alert_success("temporal_sampling_frequency_summary.csv")
+if (!is.null(frequency_summary_all) && nrow(frequency_summary_all) > 0) {
+  fwrite(frequency_summary_all, here(p_gaps, "temporal_sampling_frequency_summary.csv"))
+  cli_alert_success("temporal_sampling_frequency_summary.csv")
+}
 
-# Taxonomic × temporal (if available)
+# Taxonomic × temporal
 if (!is.null(family_year_10)) {
   fwrite(family_year_10, here(p_gaps, "temporal_year_by_family_10km.csv"))
   cli_alert_success("temporal_year_by_family_10km.csv")
@@ -515,23 +593,33 @@ if (!is.null(family_year_50)) {
   cli_alert_success("temporal_year_by_family_50km.csv")
 }
 
-# Summary statistics ------------------------------------------------------
-cli_h2("Summary Statistics")
+# ===========================================================================
+# SUMMARY
+# ===========================================================================
 
-summary_table <- tibble::tribble(
-  ~metric, ~value_10km, ~value_50km,
-  "Year range", glue("{min(time10$year)}-{max(time10$year)}"),
-            glue("{min(time50$year)}-{max(time50$year)}"),
-  "Total observations", scales::comma(sum(time10[basisofrecord == "all"]$occurrences)),
-                        scales::comma(sum(time50[basisofrecord == "all"]$occurrences)),
-  "Cells with recency data", scales::comma(nrow(recency_10[basisofrecord == "all"])),
-                             scales::comma(nrow(recency_50[basisofrecord == "all"])),
-  "Basis of record types", as.character(length(unique(time10$basisofrecord))),
-                          as.character(length(unique(time50$basisofrecord)))
+cli_h1("Summary (Script 08)")
+
+summary_table <- data.table(
+  Metric = c("Year range", "Total records", "Cells with recency", "Stale cells (5y)"),
+  `10km` = c(
+    glue("{min(time10$year)}-{max(time10$year)}"),
+    scales::comma(sum(time10[basisofrecord == "all"]$occurrences)),
+    if (!is.null(recency_10)) scales::comma(nrow(recency_10[basisofrecord == "all"])) else "N/A",
+    if (!is.null(recency_10)) scales::comma(sum(recency_10[basisofrecord == "all"]$gap_stale_5y, na.rm = TRUE)) else "N/A"
+  ),
+  `50km` = c(
+    glue("{min(time50$year)}-{max(time50$year)}"),
+    scales::comma(sum(time50[basisofrecord == "all"]$occurrences)),
+    if (!is.null(recency_50)) scales::comma(nrow(recency_50[basisofrecord == "all"])) else "N/A",
+    if (!is.null(recency_50)) scales::comma(sum(recency_50[basisofrecord == "all"]$gap_stale_5y, na.rm = TRUE)) else "N/A"
+  )
 )
 
 print(summary_table)
 
 cli_alert_success("Temporal gap analysis complete!")
 cli_alert_info("Output location: {.path {p_gaps}}")
-cli_alert_info("Created {21 + (if(!is.null(family_year_10)) 1 else 0) + (if(!is.null(family_year_50)) 1 else 0)} temporal gap files")
+
+# Count output files
+n_outputs <- length(list.files(p_gaps, pattern = "^temporal_|^cell_recency"))
+cli_alert_info("Created {n_outputs} temporal gap files")
