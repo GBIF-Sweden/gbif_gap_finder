@@ -1,8 +1,12 @@
 # scripts/06a_make_core_summaries.R
 # ==============================================================================
-# Create Core and Order-Level Derived Summaries
+# Create Core and Order-Level Derived Summaries + Grid Lookups
 # ==============================================================================
 # This script creates:
+#
+# GRID LOOKUPS:
+#   - grid_lookup_10km.csv: Maps poly_id to eeacellcode for 10km grid
+#   - grid_lookup_50km.csv: Maps poly_id to eeacellcode for 50km grid
 #
 # CORE SUMMARIES (single dimension):
 #   - cell_summary: occurrences per cell
@@ -27,12 +31,14 @@ library(stringr)
 library(data.table)
 library(glue)
 library(cli)
+library(sf)
 
 source(here("scripts", "00_setup.R"))
 
 # Configuration -----------------------------------------------------------
 
 # Toggle sections on/off for debugging or partial runs
+MAKE_GRID_LOOKUPS <- TRUE
 MAKE_CORE_SUMMARIES <- TRUE
 MAKE_CELL_TIME <- TRUE
 MAKE_ORDER_SUMMARIES <- TRUE
@@ -43,21 +49,6 @@ p_derived <- here(p_data_proc, "derived")
 
 # Create output directories
 dir.create(p_derived, showWarnings = FALSE, recursive = TRUE)
-
-# Validate inputs ---------------------------------------------------------
-if (!dir.exists(p_cubes)) {
-
-  cli_abort("Cubes directory not found: {.path {p_cubes}}")
-}
-
-# Check for fst package
-if (!requireNamespace("fst", quietly = TRUE)) {
-  cli_abort(c(
-    "Package {.pkg fst} is required for reading cube files",
-    "i" = "Install with: {.code install.packages('fst')}",
-    "i" = "Then run: {.code renv::snapshot()}"
-  ))
-}
 
 # ===========================================================================
 # HELPER FUNCTIONS
@@ -103,11 +94,156 @@ write_grid_subset <- function(dt, grid_value, out_dir, filename) {
   cli_alert_success("{filename}: {scales::comma(nrow(subset))} rows")
 }
 
+#' Create lookup table for a grid
+#' @param grid sf object with grid geometries
+#' @param grid_label Human-readable label (e.g., "10km")
+#' @param output_file Output filename
+#' @return List with code_field and output path
+create_grid_lookup <- function(grid, grid_label, output_file) {
+  
+  cli_h3("Processing {grid_label} Grid")
+  
+ # Identify cell code field
+  field_names <- names(grid)
+  code_field <- guess_cellcode_field(field_names)
+  
+  if (is.na(code_field)) {
+    cli_abort(c(
+      "Could not identify cell code field for {grid_label} grid",
+      "i" = "Available columns:",
+      paste0("  - ", field_names)
+    ))
+  }
+  
+  cli_alert_info("Cell code field: {.field {code_field}}")
+  
+  # Extract and validate cell codes
+  cell_codes <- grid[[code_field]]
+  
+  # Check for NA values
+  n_na <- sum(is.na(cell_codes))
+  if (n_na > 0) {
+    cli_alert_warning("Cell code field '{code_field}' contains {n_na} NA value{?s}")
+  }
+  
+  # Check uniqueness
+  n_total <- nrow(grid)
+  n_unique <- length(unique(cell_codes))
+  
+  if (n_unique != n_total) {
+    cli_alert_warning(c(
+      "Cell codes are not unique in {grid_label} grid",
+      "Found {n_unique} unique codes for {n_total} rows"
+    ))
+  }
+  
+  cli_alert_success("Validation: {scales::comma(n_unique)} unique cells")
+  
+  # Create stable polygon IDs
+  # Format: gridlabel_000001, gridlabel_000002, etc.
+  poly_ids <- glue("{grid_label}_{str_pad(seq_len(n_total), width = 6, pad = '0')}")
+  
+  # Create lookup table
+  lookup <- tibble(
+    poly_id = as.character(poly_ids),
+    eeacellcode = as.character(cell_codes)
+  )
+  
+  # Write output
+  output_path <- here(p_derived, output_file)
+  write_csv(lookup, output_path)
+  
+  cli_alert_success("Written: {.path {output_file}} ({scales::comma(nrow(lookup))} rows)")
+  
+  invisible(list(
+    code_field = code_field,
+    output_path = output_path,
+    n_cells = nrow(lookup)
+  ))
+}
+
 # ===========================================================================
-# LOCATE CUBE FILES
+# PHASE 0: GRID LOOKUPS
 # ===========================================================================
+
 cli_h1("Core & Order-Level Summaries (Script 06a)")
+
+if (MAKE_GRID_LOOKUPS) {
+  cli_h2("Phase 0: Grid Lookup Tables")
+  
+  # Grid file paths
+  grid_files <- list(
+    grid10km = list(
+      path = here(p_data_proc, "grids_10km.gpkg"),
+      output = "grid_lookup_10km.csv",
+      label = "10km"
+    ),
+    grid50km = list(
+      path = here(p_data_proc, "grids_50km.gpkg"),
+      output = "grid_lookup_50km.csv",
+      label = "50km"
+    )
+  )
+  
+  # Check grid files exist
+  grids_exist <- TRUE
+  for (grid_info in grid_files) {
+    if (!file.exists(grid_info$path)) {
+      cli_alert_warning("Grid file not found: {.path {grid_info$path}}")
+      grids_exist <- FALSE
+    }
+  }
+  
+  if (grids_exist) {
+    lookup_results <- list()
+    
+    for (grid_name in names(grid_files)) {
+      grid_info <- grid_files[[grid_name]]
+      
+      # Read grid
+      grid <- st_read(grid_info$path, quiet = TRUE)
+      
+      # Create lookup
+      lookup_results[[grid_name]] <- create_grid_lookup(
+        grid = grid,
+        grid_label = grid_info$label,
+        output_file = grid_info$output
+      )
+      
+      rm(grid)
+      invisible(gc())
+    }
+    
+    # Summary
+    cli_alert_info("Grid lookup summary:")
+    for (grid_name in names(lookup_results)) {
+      result <- lookup_results[[grid_name]]
+      cli_alert_success("  {grid_name}: {scales::comma(result$n_cells)} cells (field: {result$code_field})")
+    }
+  } else {
+    cli_alert_warning("Skipping grid lookups - grid files not found")
+    cli_alert_info("Run script 02_ingest_grids.R first")
+  }
+}
+
+# ===========================================================================
+# VALIDATE CUBE FILES
+# ===========================================================================
+
 cli_h2("Locating Cube Files")
+
+if (!dir.exists(p_cubes)) {
+  cli_abort("Cubes directory not found: {.path {p_cubes}}")
+}
+
+# Check for fst package
+if (!requireNamespace("fst", quietly = TRUE)) {
+  cli_abort(c(
+    "Package {.pkg fst} is required for reading cube files",
+    "i" = "Install with: {.code install.packages('fst')}",
+    "i" = "Then run: {.code renv::snapshot()}"
+  ))
+}
 
 cube_files <- list.files(p_cubes, pattern = "\\.fst$", full.names = TRUE)
 
@@ -260,7 +396,7 @@ if (MAKE_CORE_SUMMARIES) {
 # ===========================================================================
 
 if (MAKE_CELL_TIME) {
-  cli_h2("Phase 2: Cell × Time Summary")
+  cli_h2("Phase 2: Cell x Time Summary")
   
   cell_time_aggs <- list()
   
@@ -303,7 +439,7 @@ if (MAKE_CELL_TIME) {
   cli_progress_done()
   
   if (length(cell_time_aggs) > 0) {
-    cli_alert_info("Combining cell × time summaries...")
+    cli_alert_info("Combining cell x time summaries...")
     
     cell_time_all <- rbindlist(cell_time_aggs, use.names = TRUE, fill = TRUE)
     cell_time_all <- cell_time_all[, .(
@@ -484,14 +620,16 @@ if (MAKE_ORDER_SUMMARIES) {
 
 cli_h1("Summary (Script 06a)")
 
+lookup_files <- list.files(p_derived, pattern = "^grid_lookup.*\\.csv$")
 core_files <- list.files(p_derived, pattern = "^(cell|time)_summary.*\\.csv$")
 cell_time_files <- list.files(p_derived, pattern = "^cell_time_summary.*\\.csv$")
 order_files <- list.files(p_derived, pattern = "^(order|family).*summary.*\\.csv$")
 
 summary_info <- tibble::tribble(
   ~Category, ~Count, ~Location,
+  "Grid lookups", length(lookup_files), "derived/",
   "Core summaries (cell, time)", length(core_files), "derived/",
-  "Cell × time summaries", length(cell_time_files), "derived/",
+  "Cell x time summaries", length(cell_time_files), "derived/",
   "Order/family summaries", length(order_files), "derived/"
 )
 

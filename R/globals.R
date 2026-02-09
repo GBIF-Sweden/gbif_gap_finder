@@ -90,8 +90,9 @@ cfg_get <- function(name, default = NULL) {
 
 # Coordinate Reference System (CRS) ---------------------------------------
 # Standard CRS for EEA grids: ETRS89-LAEA Europe (EPSG:3035)
-CRS_PROJECT <- 3035
-CRS_LAEA    <- 3035
+CRS_PROJECT     <- 3035
+CRS_LAEA        <- 3035
+CRS_ETRS89_LAEA <- 3035  # Explicit name alias
 
 # Legacy alias for backwards compatibility
 CRS_SWEREF99TM <- 3006  # Swedish national CRS (not used for EEA grids)

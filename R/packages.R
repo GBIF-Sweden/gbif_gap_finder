@@ -70,33 +70,33 @@ optional_packages <- c(
 # Check and install --------------------------------------------------------
 
 #' Check which packages are missing
-#' @param pkgs Character vector of package names
 #' @return Character vector of missing package names
-check_missing <- function(pkgs) {
- pkgs[!sapply(pkgs, requireNamespace, quietly = TRUE)]
+check_packages <- function() {
+ required_packages[!sapply(required_packages, requireNamespace, quietly = TRUE)]
 }
 
 #' Install missing packages
-#' @param pkgs Character vector of package names to install
-install_missing <- function(pkgs) {
- if (length(pkgs) == 0) {
+install_missing_packages <- function() {
+ missing <- check_packages()
+ 
+ if (length(missing) == 0) {
    cli::cli_alert_success("All required packages are installed")
    return(invisible(NULL))
  }
  
- cli::cli_alert_info("Installing {length(pkgs)} missing package(s): {pkgs}")
- install.packages(pkgs, dependencies = TRUE)
+ cli::cli_alert_info("Installing {length(missing)} missing package(s): {missing}")
+ install.packages(missing, dependencies = TRUE)
 }
 
-# Check for missing packages
-missing <- check_missing(required_packages)
+# Run check on source
+missing <- check_packages()
 
 if (length(missing) > 0) {
  cli::cli_alert_warning(
    "Missing {length(missing)} required package(s): {missing}"
  )
  cli::cli_alert_info(
-   "Run: install_missing(c({paste0('\"', missing, '\"', collapse = ', ')}))"
+   "Run: install_missing_packages()"
  )
 }
 
