@@ -1161,27 +1161,58 @@ if (!is.null(order_temporal) && nrow(order_temporal) > 0) {
 
 # 5. Priority Taxa
 
+Priority taxa are species that should be targeted for data collection efforts. These include:
+- Threatened species (CR, EN, VU, NT) missing from GBIF
+- Threatened species with poor spatial coverage in GBIF
+
 ## 5.1 Overview
 
 ```{r priority-overview}
+# Try to load priority_taxa file first
 priority_taxa <- safe_read(here(p_integrated, "priority_taxa_all.csv"))
+
+# If not available, derive from threatened_summary (from section 2)
+if ((is.null(priority_taxa) || nrow(priority_taxa) == 0) && exists("threatened_summary") && !is.null(threatened_summary)) {
+  cat("Deriving priority taxa from threatened species analysis...\n\n")
+  
+  # Priority = threatened species missing from GBIF or with poor coverage
+  priority_taxa <- threatened_summary |>
+    filter(threatStatus %in% c("CR", "EN", "VU", "NT")) |>
+    filter(!matched_any) |>  # Missing from GBIF
+    mutate(priority_reason = "Missing from GBIF")
+}
 
 if (!is.null(priority_taxa) && nrow(priority_taxa) > 0) {
   cat(glue("**{comma(nrow(priority_taxa))} taxa** require priority attention.\n\n"))
   
-  if ("threatStatus" %in% names(priority_taxa)) {
+  # Check for threatStatus column
+ threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_dyntaxa"), names(priority_taxa))[1]
+  
+  if (!is.na(threat_col)) {
+    priority_taxa <- priority_taxa |>
+      mutate(threatStatus = .data[[threat_col]])
+    
     priority_by_threat <- priority_taxa |>
-      filter(!is.na(threatStatus)) |>
+      filter(!is.na(threatStatus), threatStatus != "") |>
       group_by(threatStatus) |>
       summarise(n = n(), .groups = "drop") |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT", "LC")) |>
       arrange(match(threatStatus, c("CR", "EN", "VU", "NT", "LC")))
     
-    for (i in 1:nrow(priority_by_threat)) {
-      cat(glue("- **{priority_by_threat$threatStatus[i]}**: {priority_by_threat$n[i]} taxa\n\n"))
+    if (nrow(priority_by_threat) > 0) {
+      for (i in 1:nrow(priority_by_threat)) {
+        cat(glue("- **{priority_by_threat$threatStatus[i]}**: {priority_by_threat$n[i]} taxa\n\n"))
+      }
     }
+  } else {
+    cat("No threat status column found in priority taxa.\n")
   }
 } else {
-  cat("Priority taxa file not found.\n")
+  cat("No priority taxa identified.\n")
+  cat("This could mean:\n")
+  cat("- All threatened species are already in GBIF, or\n
+")
+  cat("- No threatened species data is available in the reference taxonomy\n")
 }
 ```
 
@@ -1193,20 +1224,24 @@ if (!is.null(priority_taxa) && nrow(priority_taxa) > 0 && "threatStatus" %in% na
     filter(threatStatus %in% c("CR", "EN"))
   
   if (nrow(cr_en_priority) > 0) {
+    cat(glue("**{nrow(cr_en_priority)} Critically Endangered and Endangered taxa** are priority for data mobilization.\n\n"))
+    
     cr_en_priority |>
-      select(any_of(c("scientificName", "threatStatus", "taxonRank", "family", "order", "priority_level"))) |>
-      arrange(threatStatus) |>
-      slice_head(n = 30) |>
-      kable(caption = "Top 30 CR/EN Priority Taxa")
+      select(any_of(c("scientificName", "threatStatus", "taxonRank", "family", "order", "class", "priority_reason"))) |>
+      arrange(threatStatus, order, family, scientificName) |>
+      slice_head(n = 50) |>
+      kable(caption = "Priority CR/EN Taxa (First 50)")
   } else {
-    cat("No CR/EN taxa in priority list.\n")
+    cat("No CR/EN taxa in priority list - all may already be in GBIF.\n")
   }
+} else {
+  cat("No priority taxa data available.\n")
 }
 ```
 
 ## 5.3 Priority by Family
 
-```{r priority-by-family, fig.height=8}
+```{r priority-by-family, fig.height=8, fig.width=10}
 if (!is.null(priority_taxa) && nrow(priority_taxa) > 0 && "family" %in% names(priority_taxa)) {
   priority_by_family <- priority_taxa |>
     filter(!is.na(family), family != "") |>
@@ -1221,9 +1256,50 @@ if (!is.null(priority_taxa) && nrow(priority_taxa) > 0 && "family" %in% names(pr
       geom_text(aes(label = n), hjust = -0.2, size = 3.5) +
       coord_flip() +
       scale_fill_viridis_c(option = "rocket", direction = -1) +
-      labs(title = "Priority Taxa by Family (Top 20)", x = NULL, y = "Number of Priority Taxa") +
+      scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+      labs(
+        title = "Priority Taxa by Family (Top 20)", 
+        subtitle = "Families with most threatened species missing from GBIF",
+        x = NULL, y = "Number of Priority Taxa"
+      ) +
       theme(legend.position = "none")
+  } else {
+    cat("No family data available for priority taxa.\n")
   }
+} else {
+  cat("No priority taxa with family information available.\n")
+}
+```
+
+## 5.4 Priority by Order
+
+```{r priority-by-order, fig.height=8, fig.width=10}
+if (!is.null(priority_taxa) && nrow(priority_taxa) > 0 && "order" %in% names(priority_taxa)) {
+  priority_by_order <- priority_taxa |>
+    filter(!is.na(order), order != "") |>
+    group_by(order) |>
+    summarise(n = n(), .groups = "drop") |>
+    arrange(desc(n)) |>
+    slice_head(n = 20)
+  
+  if (nrow(priority_by_order) > 0) {
+    ggplot(priority_by_order, aes(x = fct_reorder(order, n), y = n, fill = n)) +
+      geom_col(alpha = 0.9) +
+      geom_text(aes(label = n), hjust = -0.2, size = 3.5) +
+      coord_flip() +
+      scale_fill_viridis_c(option = "mako", direction = -1) +
+      scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+      labs(
+        title = "Priority Taxa by Order (Top 20)", 
+        subtitle = "Orders with most threatened species missing from GBIF",
+        x = NULL, y = "Number of Priority Taxa"
+      ) +
+      theme(legend.position = "none")
+  } else {
+    cat("No order data available for priority taxa.\n")
+  }
+} else {
+  cat("No priority taxa with order information available.\n")
 }
 ```
 
