@@ -432,6 +432,20 @@ if (redlist_available && !is.null(redlist_distr)) {
 # 3.3 Filter to accepted taxa only (optional but recommended) --------------
 cli_h2("Filtering Taxonomic Status")
 
+# Ensure threat status columns exist (even if empty)
+# This prevents downstream scripts from failing
+if (!"threatStatus_dyntaxa" %in% names(taxa_reference)) {
+  taxa_reference <- taxa_reference |>
+    mutate(threatStatus_dyntaxa = NA_character_)
+  cli_alert_info("Added empty threatStatus_dyntaxa column")
+}
+
+if (!"threatStatus_redlist" %in% names(taxa_reference)) {
+  taxa_reference <- taxa_reference |>
+    mutate(threatStatus_redlist = NA_character_)
+  cli_alert_info("Added empty threatStatus_redlist column")
+}
+
 # Check what taxonomicStatus values exist
 if ("taxonomicStatus" %in% names(taxa_reference)) {
   status_summary <- taxa_reference |>
@@ -511,8 +525,24 @@ cli_alert_info("Column order: {length(available_core)} core + {length(other_colu
 # ===========================================================================
 cli_h1("Saving Taxa Reference")
 
+# Save RDS (full data with all columns)
 saveRDS(taxa_reference_clean, output_files$taxa_reference, compress = "xz")
-cli_alert_success("Wrote: {.path {output_files$taxa_reference}}")
+cli_alert_success("Wrote RDS: {.path {output_files$taxa_reference}}")
+
+# Also save as CSV for easy inspection and use by other scripts
+csv_path <- file.path(dir_data_proc, "dyntaxa_backbone.csv")
+write_csv(taxa_reference_clean, csv_path)
+cli_alert_success("Wrote CSV: {.path {csv_path}}")
+
+# Report on threat status in final output
+n_threat_dyntaxa <- sum(!is.na(taxa_reference_clean$threatStatus_dyntaxa) & 
+                        taxa_reference_clean$threatStatus_dyntaxa != "", na.rm = TRUE)
+n_threat_redlist <- sum(!is.na(taxa_reference_clean$threatStatus_redlist) & 
+                        taxa_reference_clean$threatStatus_redlist != "", na.rm = TRUE)
+
+cli_alert_info("Threat status in final output:")
+cli_alert_info("  - threatStatus_dyntaxa: {scales::comma(n_threat_dyntaxa)} taxa")
+cli_alert_info("  - threatStatus_redlist: {scales::comma(n_threat_redlist)} taxa")
 
 # ===========================================================================
 # 5. SUMMARY STATISTICS

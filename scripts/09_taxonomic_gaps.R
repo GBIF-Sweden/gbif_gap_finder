@@ -166,17 +166,19 @@ cli_alert_info("Using name column: {name_col}")
 cli_alert_info("Using rank column: {rank_col}")
 cli_alert_info("Using ID column: {id_col}")
 
-# Identify threat status columns (from Dyntaxa or Red List integration)
+# Identify threat status columns (from script 03 output)
+# Script 03 creates: threatStatus_dyntaxa, threatStatus_redlist
 threat_cols <- intersect(
-  c("dyntaxa_redlist_category", "swedish_redlist_category", "redlistCategory", 
-    "threatStatus", "RedlistCategory", "conservation_status"),
+  c("threatStatus_redlist", "threatStatus_dyntaxa",  # From script 03
+    "dyntaxa_redlist_category", "swedish_redlist_category",  # Legacy names
+    "redlistCategory", "threatStatus", "RedlistCategory", "conservation_status"),
   dyntaxa_cols
 )
 
 if (length(threat_cols) > 0) {
-  cli_alert_info("Threat status columns: {paste(threat_cols, collapse = ', ')}")
+  cli_alert_info("Threat status columns found: {paste(threat_cols, collapse = ', ')}")
 } else {
-  cli_alert_warning("No threat status columns found in Dyntaxa")
+  cli_alert_warning("No threat status columns found in Dyntaxa reference")
 }
 
 # Create standardized reference
@@ -194,14 +196,45 @@ if (!is.na(id_col) && id_col != "taxonID") {
 }
 
 # Create primary threat status column
-if ("dyntaxa_redlist_category" %in% names(tax_ref)) {
+# Priority: threatStatus_redlist > threatStatus_dyntaxa > legacy columns
+if ("threatStatus_redlist" %in% names(tax_ref)) {
+  # Use Red List as primary (most authoritative for Sweden)
+  tax_ref[, threatStatus := threatStatus_redlist]
+  cli_alert_info("Using threatStatus_redlist as primary threat status")
+  
+  # Count non-empty values
+  n_with_threat <- sum(!is.na(tax_ref$threatStatus) & tax_ref$threatStatus != "", na.rm = TRUE)
+  cli_alert_info("Taxa with Red List threat status: {scales::comma(n_with_threat)}")
+  
+} else if ("threatStatus_dyntaxa" %in% names(tax_ref)) {
+  tax_ref[, threatStatus := threatStatus_dyntaxa]
+  cli_alert_info("Using threatStatus_dyntaxa as primary threat status")
+  
+} else if ("dyntaxa_redlist_category" %in% names(tax_ref)) {
   tax_ref[, threatStatus := dyntaxa_redlist_category]
+  cli_alert_info("Using dyntaxa_redlist_category as primary threat status")
+  
 } else if ("swedish_redlist_category" %in% names(tax_ref)) {
   tax_ref[, threatStatus := swedish_redlist_category]
+  cli_alert_info("Using swedish_redlist_category as primary threat status")
+  
 } else if (length(threat_cols) > 0) {
   tax_ref[, threatStatus := get(threat_cols[1])]
+  cli_alert_info("Using {threat_cols[1]} as primary threat status")
+  
 } else {
   tax_ref[, threatStatus := NA_character_]
+  cli_alert_warning("No threat status data available - threatStatus will be NA for all taxa")
+}
+
+# Report threat status coverage
+if ("threatStatus" %in% names(tax_ref)) {
+  threat_summary <- tax_ref[!is.na(threatStatus) & threatStatus != "", .N, by = threatStatus]
+  if (nrow(threat_summary) > 0) {
+    setorder(threat_summary, -N)
+    cli_alert_info("Threat status breakdown:")
+    print(threat_summary)
+  }
 }
 
 # Standardize names for matching

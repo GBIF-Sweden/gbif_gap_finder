@@ -152,6 +152,39 @@ annual |>
   )
 ```
 
+## 1.4 Five-Year Period Change
+
+```{r 5yr-change, fig.height=6}
+# Aggregate by 5-year periods
+annual_5yr <- annual |>
+  filter(year >= 1970) |>
+  mutate(period = floor(year / 5) * 5) |>
+  group_by(period) |>
+  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+  mutate(
+    prev_period = lag(occurrences),
+    pct_change = 100 * (occurrences - prev_period) / prev_period,
+    direction = ifelse(pct_change >= 0, "Increase", "Decrease"),
+    period_label = paste0(period, "-", period + 4)
+  ) |>
+  filter(!is.na(pct_change))
+
+ggplot(annual_5yr, aes(x = period_label, y = pct_change, fill = direction)) +
+  geom_col() +
+  geom_text(aes(label = paste0(ifelse(pct_change >= 0, "+", ""), round(pct_change, 0), "%")),
+            vjust = ifelse(annual_5yr$pct_change >= 0, -0.3, 1.3), size = 3.5) +
+  scale_fill_viridis_d(option = "turbo", begin = 0.2, end = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  labs(
+    title = "Five-Year Period Change in Data Collection",
+    subtitle = "Percentage change from previous 5-year period (1970-present)",
+    x = "Period",
+    y = "% Change",
+    fill = NULL
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 ---
 
 # 2. Seasonal Patterns
@@ -272,8 +305,23 @@ if (exists("recency_10km")) {
 ## 3.2 Geographic Distribution of Staleness
 
 ```{r stale-map, fig.height=12, fig.width=10}
-if (file.exists(here(p_gaps, "temporal_cell_recency_10km.csv"))) {
-  cell_recency <- fread(here(p_gaps, "temporal_cell_recency_10km.csv"))
+# Try multiple possible file names
+recency_file <- NULL
+possible_files <- c(
+  here(p_gaps, "temporal_cell_recency_10km.csv"),
+  here(p_gaps, "cell_recency_10km.csv"),
+  here(p_derived, "cell_recency_10km.csv")
+)
+
+for (f in possible_files) {
+  if (file.exists(f)) {
+    recency_file <- f
+    break
+  }
+}
+
+if (!is.null(recency_file)) {
+  cell_recency <- fread(recency_file)
   
   # Load grid
   grid_10km <- st_read(here(p_data_proc, "grids_10km.gpkg"), quiet = TRUE)
@@ -288,7 +336,7 @@ if (file.exists(here(p_gaps, "temporal_cell_recency_10km.csv"))) {
   # Filter for "all" basis and join
   recency_all <- cell_recency |>
     filter(basisofrecord == "all") |>
-    select(eeacellcode, staleness_months, last_ym)
+    select(eeacellcode, staleness_months)
   
   grid_stale <- grid_10km |>
     left_join(recency_all, by = "eeacellcode") |>
@@ -322,6 +370,9 @@ if (file.exists(here(p_gaps, "temporal_cell_recency_10km.csv"))) {
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
       plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40")
     )
+} else {
+  cat("Cell recency file not found. Checked:\n")
+  cat(paste("-", possible_files, collapse = "\n"))
 }
 ```
 
@@ -395,7 +446,43 @@ if (has_order_data) {
 }
 ```
 
-## 4.2 Comparative Mobilization Trends
+## 4.2 Data Mobilization Trends by Order (Bottom 12)
+
+```{r order-5yr-bottom, fig.height=10, fig.width=14}
+if (has_order_data) {
+  # Get bottom 12 orders by total occurrences (excluding very rare)
+  bottom_orders <- order_time |>
+    group_by(order) |>
+    summarise(total = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    filter(total >= 100) |>  # Exclude extremely rare orders
+    arrange(total) |>
+    slice_head(n = 12) |>
+    pull(order)
+  
+  order_5yr_bottom <- order_5yr |>
+    filter(order %in% bottom_orders)
+  
+  ggplot(order_5yr_bottom, aes(x = period, y = occurrences, fill = order)) +
+    geom_col() +
+    facet_wrap(~order, scales = "free_y", ncol = 3) +
+    scale_fill_viridis_d(option = "rocket") +
+    scale_y_continuous(labels = comma) +
+    labs(
+      title = "Data Mobilization by Taxonomic Order (5-Year Periods)",
+      subtitle = "Bottom 12 orders by total occurrence count (min 100 records)",
+      x = "5-Year Period",
+      y = "Occurrences",
+      caption = "Each panel shows a different taxonomic order"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      legend.position = "none",
+      strip.text = element_text(face = "bold", size = 10)
+    )
+}
+```
+
+## 4.3 Comparative Mobilization Trends
 
 ```{r order-comparison, fig.height=8}
 if (has_order_data) {
@@ -423,7 +510,7 @@ if (has_order_data) {
 }
 ```
 
-## 4.3 Change in Mobilization: Recent vs Historical
+## 4.4 Change in Mobilization: Recent vs Historical
 
 ```{r order-change, fig.height=7}
 if (has_order_data) {
@@ -470,7 +557,7 @@ if (has_order_data) {
 }
 ```
 
-## 4.4 5-Year Mobilization Summary Table
+## 4.5 5-Year Mobilization Summary Table
 
 ```{r order-table}
 if (has_order_data) {
@@ -522,7 +609,55 @@ if (file.exists(here(p_integrated, "priority_stale_cells.csv"))) {
 
 ## 5.2 Most Stale Cells
 
-```{r most-stale}
+```{r most-stale-map, fig.height=12, fig.width=10}
+if (exists("priority_stale") && exists("grid_10km")) {
+  # Join staleness data to grid
+  stale_data <- priority_stale |>
+    select(eeacellcode, staleness_months) |>
+    mutate(staleness_years = staleness_months / 12)
+  
+  grid_stale_priority <- grid_10km |>
+    left_join(stale_data, by = "eeacellcode") |>
+    mutate(
+      staleness_cat = case_when(
+        is.na(staleness_years) ~ "Recent (<5 years)",
+        staleness_years <= 7 ~ "5-7 years",
+        staleness_years <= 10 ~ "7-10 years",
+        staleness_years <= 15 ~ "10-15 years",
+        staleness_years <= 20 ~ "15-20 years",
+        TRUE ~ ">20 years"
+      ),
+      staleness_cat = factor(staleness_cat, levels = c(
+        "Recent (<5 years)", "5-7 years", "7-10 years", 
+        "10-15 years", "15-20 years", ">20 years"
+      ))
+    )
+  
+  ggplot(grid_stale_priority) +
+    geom_sf(aes(fill = staleness_cat), color = "white", linewidth = 0.02) +
+    scale_fill_viridis_d(
+      option = "rocket", 
+      direction = -1,
+      na.value = "#2A9D8F",
+      drop = FALSE
+    ) +
+    labs(
+      title = "Priority Stale Cells by Staleness",
+      subtitle = glue("{comma(nrow(priority_stale))} cells not sampled in 5+ years"),
+      fill = "Years Since\nLast Sample",
+      caption = "Darker colors indicate longer time since last observation"
+    ) +
+    theme_void() +
+    theme(
+      legend.position = "right",
+      legend.key.height = unit(0.8, "cm"),
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40")
+    )
+}
+```
+
+```{r most-stale-table}
 if (exists("priority_stale")) {
   priority_stale |>
     arrange(desc(staleness_months)) |>
@@ -537,43 +672,51 @@ if (exists("priority_stale")) {
 
 # 6. Key Findings
 
-```{r summary}
+```{r summary, results='asis'}
 cat("## Temporal Gap Summary\n\n")
 
 # Year range
-cat("**Time Range:**\n")
-cat("- Data spans:", min(annual$year), "-", max(annual$year), "\n")
-cat("- Peak year:", annual$year[which.max(annual$occurrences)], 
-    "(", comma(max(annual$occurrences)), " occurrences)\n\n")
+if (exists("annual") && nrow(annual) > 0) {
+  cat("**Time Range:**\n\n")
+  cat("- Data spans:", min(annual$year), "-", max(annual$year), "\n")
+  cat("- Peak year:", annual$year[which.max(annual$occurrences)], 
+      "(", comma(max(annual$occurrences)), " occurrences)\n\n")
+}
 
 # Seasonal patterns
-peak_month <- monthly$month[which.max(monthly$occurrences)]
-cat("**Seasonal Patterns:**\n")
-cat("- Peak month:", month.name[peak_month], "\n")
-cat("- Summer (Jun-Aug) accounts for:", 
-    round(100 * sum(monthly$occurrences[monthly$month %in% 6:8]) / sum(monthly$occurrences), 1),
-    "% of records\n\n")
+if (exists("monthly") && nrow(monthly) > 0) {
+  peak_month <- monthly$month[which.max(monthly$occurrences)]
+  cat("**Seasonal Patterns:**\n\n")
+  cat("- Peak month:", month.name[peak_month], "\n")
+  cat("- Summer (Jun-Aug) accounts for:", 
+      round(100 * sum(monthly$occurrences[monthly$month %in% 6:8]) / sum(monthly$occurrences), 1),
+      "% of records\n\n")
+}
 
 # Recency
-if (exists("recency_10km")) {
+if (exists("recency_10km") && nrow(recency_10km) > 0) {
   all_recency <- recency_10km |> filter(basisofrecord == "all")
-  cat("**Data Recency:**\n")
-  cat("- Median staleness:", round(all_recency$median_staleness_months, 1), "months\n")
-  cat("- Cells stale >5 years:", round(all_recency$pct_stale_5y, 1), "%\n\n")
+  if (nrow(all_recency) > 0) {
+    cat("**Data Recency:**\n\n")
+    cat("- Median staleness:", round(all_recency$median_staleness_months[1], 1), "months\n")
+    cat("- Cells stale >5 years:", round(all_recency$pct_stale_5y[1], 1), "%\n\n")
+  }
 }
 
 # Order mobilization
-if (has_order_data) {
-  cat("**Mobilization Trends by Order:**\n")
+if (exists("has_order_data") && has_order_data && exists("order_change")) {
+  cat("**Mobilization Trends by Order:**\n\n")
   increasing <- order_change |> filter(pct_change > 0) |> nrow()
   decreasing <- order_change |> filter(pct_change < 0) |> nrow()
   cat("- Orders with increased mobilization:", increasing, "\n")
   cat("- Orders with decreased mobilization:", decreasing, "\n")
   top_increase <- order_change |> slice_head(n = 1)
-  cat("- Largest increase:", top_increase$order, "(+", round(top_increase$pct_change, 0), "%)\n\n")
+  if (nrow(top_increase) > 0) {
+    cat("- Largest increase:", top_increase$order[1], "(+", round(top_increase$pct_change[1], 0), "%)\n\n")
+  }
 }
 
-cat("**Recommendations:**\n")
+cat("**Recommendations:**\n\n")
 cat("1. Re-survey cells with >5 years since last observation\n")
 cat("2. Address seasonal sampling bias with winter surveys\n")
 cat("3. Maintain momentum for orders showing increased mobilization\n")
