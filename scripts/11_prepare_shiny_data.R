@@ -355,6 +355,44 @@ if (!is.null(match_summary) && "kingdom" %in% names(match_summary)) {
   cli_alert_success("Taxonomic by kingdom: {nrow(kingdom_coverage)} kingdoms")
 }
 
+# Coverage by phylum (derive from match_summary)
+if (!is.null(match_summary) && "phylum" %in% names(match_summary)) {
+  phylum_coverage <- match_summary |>
+    as_tibble() |>
+    filter(!is.na(phylum), phylum != "") |>
+    group_by(kingdom, phylum) |>
+    summarise(
+      n_ref_total = n(),
+      n_in_gbif = sum(matched_any, na.rm = TRUE),
+      n_missing = n_ref_total - n_in_gbif,
+      pct_coverage = round(100 * n_in_gbif / n_ref_total, 1),
+      .groups = "drop"
+    ) |>
+    arrange(desc(n_ref_total))
+  
+  shiny_data$tax_by_phylum <- phylum_coverage
+  cli_alert_success("Taxonomic by phylum: {nrow(phylum_coverage)} phyla")
+}
+
+# Coverage by class (derive from match_summary)
+if (!is.null(match_summary) && "class" %in% names(match_summary)) {
+  class_coverage <- match_summary |>
+    as_tibble() |>
+    filter(!is.na(class), class != "") |>
+    group_by(kingdom, phylum, class) |>
+    summarise(
+      n_ref_total = n(),
+      n_in_gbif = sum(matched_any, na.rm = TRUE),
+      n_missing = n_ref_total - n_in_gbif,
+      pct_coverage = round(100 * n_in_gbif / n_ref_total, 1),
+      .groups = "drop"
+    ) |>
+    arrange(desc(n_ref_total))
+  
+  shiny_data$tax_by_class <- class_coverage
+  cli_alert_success("Taxonomic by class: {nrow(class_coverage)} classes")
+}
+
 # ===========================================================================
 # 6. ORDER/FAMILY TEMPORAL TRENDS
 # ===========================================================================
