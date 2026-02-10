@@ -3,22 +3,23 @@
 # Prepare Data for Shiny App / Interactive Visualization
 # ==============================================================================
 # This script:
-# - Reads all outputs from the gap analysis pipeline (scripts 07-10)
+# - Reads all outputs from the gap analysis pipeline (scripts 06-10)
 # - Combines and optimizes data for fast Shiny app loading
 # - Pre-aggregates data for common visualizations
+# - Includes threat status data from taxonomic analysis
 # - Saves everything as a single .rds file bundle
 #
 # Run this after: Scripts 01-10 (full pipeline)
-# Output: data_proc/shiny_data.rds
+# Output: shiny_app/data/shiny_data.rds
 #
 # The output bundle contains:
 # - Grid geometries (simplified for web rendering)
 # - Dashboard summary metrics
 # - Spatial gap data (cell-level and summaries)
 # - Temporal data (trends, seasonality, recency)
-# - Taxonomic data (coverage, gaps, priorities)
+# - Taxonomic data (coverage, gaps, threat status, priorities)
 # - Order/family summaries
-# - Priority lists
+# - Priority lists (including CR/EN species)
 # - Pre-aggregated data for common charts
 
 library(here)
@@ -45,8 +46,13 @@ p_tables <- here(p_output, "tables")
 p_integrated <- here(p_output, "tables", "integrated")
 p_derived <- here(p_data_proc, "derived")
 
-# Output path
-shiny_data_path <- here(p_data_proc, "shiny_data.rds")
+# Output path - now in shiny_app/data
+shiny_output_dir <- here("shiny_app", "data")
+if (!dir.exists(shiny_output_dir)) {
+  dir.create(shiny_output_dir, recursive = TRUE)
+  cli_alert_success("Created directory: {.path {shiny_output_dir}}")
+}
+shiny_data_path <- here(shiny_output_dir, "shiny_data.rds")
 
 # Initialize data list
 shiny_data <- list()
@@ -54,6 +60,7 @@ shiny_data <- list()
 # Helper function for safe file reading
 safe_read <- function(path, type = "csv") {
   if (!file.exists(path)) {
+    cli_alert_warning("File not found: {.path {basename(path)}}")
     return(NULL)
   }
   tryCatch({
@@ -96,6 +103,8 @@ if (file.exists(grid_10km_path)) {
   
   rm(grid_10km, grid_10km_simple)
   invisible(gc())
+} else {
+  cli_alert_warning("10km grid not found")
 }
 
 # 50km grid
@@ -117,6 +126,8 @@ if (file.exists(grid_50km_path)) {
   
   rm(grid_50km, grid_50km_simple)
   invisible(gc())
+} else {
+  cli_alert_warning("50km grid not found")
 }
 
 # ===========================================================================
@@ -146,9 +157,8 @@ cli_h2("Loading Spatial Data")
 # Cell-level spatial gaps (10km)
 spatial_gaps_10 <- safe_read(here(p_gaps, "spatial_gaps_10km.csv"))
 if (!is.null(spatial_gaps_10)) {
-  # Filter to "all" basis for mapping
-  shiny_data$spatial_gaps_10km <- spatial_gaps_10[basisofrecord == "all"] |> as_tibble()
-  cli_alert_success("Spatial gaps 10km: {nrow(shiny_data$spatial_gaps_10km)} cells")
+  shiny_data$spatial_gaps_10km <- as_tibble(spatial_gaps_10)
+  cli_alert_success("Spatial gaps 10km: {nrow(shiny_data$spatial_gaps_10km)} rows")
 }
 
 # Spatial overview by basis
@@ -165,15 +175,18 @@ if (!is.null(spatial_by_grid)) {
   cli_alert_success("Spatial by grid loaded")
 }
 
-# Spatial thresholds
-spatial_thresholds <- safe_read(here(p_tables, "overview_spatial_thresholds.csv"))
-if (!is.null(spatial_thresholds)) {
-  shiny_data$spatial_thresholds <- as_tibble(spatial_thresholds)
-  cli_alert_success("Spatial thresholds loaded")
+# Grid comparison
+grid_comparison <- safe_read(here(p_tables, "comparison_grid_resolutions.csv"))
+if (!is.null(grid_comparison)) {
+  shiny_data$comparison_grids <- as_tibble(grid_comparison)
+  cli_alert_success("Grid comparison loaded")
 }
 
 # Zero coverage cells
-zero_cells <- safe_read(here(p_integrated, "priority_cells_zero_coverage.csv"))
+zero_cells <- safe_read(here(p_integrated, "priority_zero_coverage_cells.csv"))
+if (is.null(zero_cells)) {
+  zero_cells <- safe_read(here(p_integrated, "priority_cells_zero_coverage.csv"))
+}
 if (!is.null(zero_cells)) {
   shiny_data$priority_zero_cells <- as_tibble(zero_cells)
   cli_alert_success("Zero coverage cells: {nrow(shiny_data$priority_zero_cells)}")
@@ -220,74 +233,93 @@ if (!is.null(temporal_heatmap)) {
   cli_alert_success("Temporal heatmap data loaded")
 }
 
-# Completeness
-temporal_completeness <- safe_read(here(p_tables, "overview_temporal_completeness.csv"))
-if (!is.null(temporal_completeness)) {
-  shiny_data$temporal_completeness <- as_tibble(temporal_completeness)
-  cli_alert_success("Temporal completeness loaded")
+# Cell recency (10km) - try multiple possible filenames
+cell_recency <- safe_read(here(p_gaps, "temporal_cell_recency_10km.csv"))
+if (is.null(cell_recency)) {
+  cell_recency <- safe_read(here(p_gaps, "cell_recency_10km.csv"))
 }
-
-# Gap years summary
-gap_years <- safe_read(here(p_tables, "overview_temporal_gap_years.csv"))
-if (!is.null(gap_years)) {
-  shiny_data$temporal_gap_years <- as_tibble(gap_years)
-  cli_alert_success("Temporal gap years loaded")
-}
-
-# Recency overview
-recency_overview <- safe_read(here(p_tables, "overview_temporal_recency.csv"))
-if (!is.null(recency_overview)) {
-  shiny_data$recency_overview <- as_tibble(recency_overview)
-  cli_alert_success("Recency overview loaded")
-}
-
-# Cell recency (10km)
-cell_recency <- safe_read(here(p_gaps, "cell_recency_10km.csv"))
 if (!is.null(cell_recency)) {
-  # Filter to "all" basis for mapping
-  shiny_data$cell_recency_10km <- cell_recency[basisofrecord == "all"] |> as_tibble()
-  cli_alert_success("Cell recency 10km: {nrow(shiny_data$cell_recency_10km)} cells")
+  shiny_data$cell_recency_10km <- as_tibble(cell_recency)
+  cli_alert_success("Cell recency 10km: {nrow(shiny_data$cell_recency_10km)} rows")
 }
 
 # Stale cells priority
-stale_cells <- safe_read(here(p_integrated, "priority_cells_stale.csv"))
+stale_cells <- safe_read(here(p_integrated, "priority_stale_cells.csv"))
+if (is.null(stale_cells)) {
+  stale_cells <- safe_read(here(p_integrated, "priority_cells_stale.csv"))
+}
 if (!is.null(stale_cells)) {
   shiny_data$priority_stale_cells <- as_tibble(stale_cells)
   cli_alert_success("Stale cells: {nrow(shiny_data$priority_stale_cells)}")
 }
 
 # ===========================================================================
-# 5. TAXONOMIC DATA
+# 5. TAXONOMIC DATA (including threat status)
 # ===========================================================================
 
 cli_h2("Loading Taxonomic Data")
+
+# Taxonomic match summary (main source for coverage analysis)
+match_summary <- safe_read(here(p_gaps, "taxonomic_match_summary.csv"))
+if (!is.null(match_summary)) {
+  shiny_data$taxonomic_match_summary <- as_tibble(match_summary)
+  cli_alert_success("Taxonomic match summary: {nrow(shiny_data$taxonomic_match_summary)} taxa")
+  
+  # Derive threat status coverage if threat columns exist
+  threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_dyntaxa"), 
+                          names(match_summary))[1]
+  
+  if (!is.na(threat_col)) {
+    cli_alert_info("Found threat status column: {threat_col}")
+    
+    # Create threat coverage summary
+    threat_coverage <- match_summary |>
+      as_tibble() |>
+      mutate(threatStatus = .data[[threat_col]]) |>
+      filter(!is.na(threatStatus), threatStatus != "", 
+             threatStatus %in% c("CR", "EN", "VU", "NT", "LC", "DD")) |>
+      group_by(threatStatus) |>
+      summarise(
+        n_ref_total = n(),
+        n_in_gbif = sum(matched_any, na.rm = TRUE),
+        n_missing = n_ref_total - n_in_gbif,
+        pct_coverage = round(100 * n_in_gbif / n_ref_total, 1),
+        .groups = "drop"
+      )
+    
+    shiny_data$tax_by_threat <- threat_coverage
+    cli_alert_success("Threat coverage: {nrow(threat_coverage)} categories")
+    
+    # Extract missing threatened species (CR/EN priority)
+    missing_threatened <- match_summary |>
+      as_tibble() |>
+      mutate(threatStatus = .data[[threat_col]]) |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT"),
+             !matched_any) |>
+      select(any_of(c("scientificName", "taxonRank", "threatStatus", 
+                      "kingdom", "phylum", "class", "order", "family")))
+    
+    if (nrow(missing_threatened) > 0) {
+      shiny_data$priority_taxa_missing <- missing_threatened
+      cli_alert_success("Missing threatened taxa: {nrow(missing_threatened)}")
+    }
+  }
+}
+
+# Try loading pre-computed threat tables if match_summary didn't have threat data
+if (is.null(shiny_data$tax_by_threat)) {
+  tax_by_threat <- safe_read(here(p_tables, "overview_taxonomic_by_threat.csv"))
+  if (!is.null(tax_by_threat)) {
+    shiny_data$tax_by_threat <- as_tibble(tax_by_threat)
+    cli_alert_success("Taxonomic by threat loaded from pre-computed table")
+  }
+}
 
 # Coverage by rank
 tax_by_rank <- safe_read(here(p_tables, "overview_taxonomic_by_rank.csv"))
 if (!is.null(tax_by_rank)) {
   shiny_data$tax_by_rank <- as_tibble(tax_by_rank)
   cli_alert_success("Taxonomic by rank loaded")
-}
-
-# Coverage by threat status
-tax_by_threat <- safe_read(here(p_tables, "overview_taxonomic_by_threat.csv"))
-if (!is.null(tax_by_threat)) {
-  shiny_data$tax_by_threat <- as_tibble(tax_by_threat)
-  cli_alert_success("Taxonomic by threat loaded")
-}
-
-# Coverage by basis
-tax_by_basis <- safe_read(here(p_tables, "overview_taxonomic_by_basis.csv"))
-if (!is.null(tax_by_basis)) {
-  shiny_data$tax_by_basis <- as_tibble(tax_by_basis)
-  cli_alert_success("Taxonomic by basis loaded")
-}
-
-# Rank × threat matrix
-tax_rank_threat <- safe_read(here(p_tables, "overview_taxonomic_rank_threat_matrix.csv"))
-if (!is.null(tax_rank_threat)) {
-  shiny_data$tax_rank_threat <- as_tibble(tax_rank_threat)
-  cli_alert_success("Taxonomic rank × threat matrix loaded")
 }
 
 # Gaps by family
@@ -304,46 +336,30 @@ if (!is.null(tax_by_order)) {
   cli_alert_success("Taxonomic by order: {nrow(shiny_data$tax_by_order)} orders")
 }
 
-# Missing taxa by rank
-missing_by_rank <- safe_read(here(p_tables, "overview_taxonomic_missing_by_rank.csv"))
-if (!is.null(missing_by_rank)) {
-  shiny_data$missing_by_rank <- as_tibble(missing_by_rank)
-  cli_alert_success("Missing taxa by rank loaded")
-}
-
-# Threatened species summary
-threatened_summary <- safe_read(here(p_integrated, "species_threatened_summary.csv"))
-if (!is.null(threatened_summary)) {
-  shiny_data$threatened_summary <- as_tibble(threatened_summary)
-  cli_alert_success("Threatened species summary loaded")
-}
-
-# Threatened species detail
-threatened_detail <- safe_read(here(p_integrated, "species_threatened_spatial_detail.csv"))
-if (!is.null(threatened_detail)) {
-  shiny_data$threatened_detail <- as_tibble(threatened_detail)
-  cli_alert_success("Threatened species detail: {nrow(shiny_data$threatened_detail)} species")
+# Coverage by kingdom (derive from match_summary if available)
+if (!is.null(match_summary) && "kingdom" %in% names(match_summary)) {
+  kingdom_coverage <- match_summary |>
+    as_tibble() |>
+    filter(!is.na(kingdom), kingdom != "") |>
+    group_by(kingdom) |>
+    summarise(
+      n_ref_total = n(),
+      n_in_gbif = sum(matched_any, na.rm = TRUE),
+      n_missing = n_ref_total - n_in_gbif,
+      pct_coverage = round(100 * n_in_gbif / n_ref_total, 1),
+      .groups = "drop"
+    ) |>
+    arrange(desc(n_ref_total))
+  
+  shiny_data$tax_by_kingdom <- kingdom_coverage
+  cli_alert_success("Taxonomic by kingdom: {nrow(kingdom_coverage)} kingdoms")
 }
 
 # ===========================================================================
-# 6. ORDER/FAMILY SUMMARIES
+# 6. ORDER/FAMILY TEMPORAL TRENDS
 # ===========================================================================
 
 cli_h2("Loading Order/Family Summaries")
-
-# Order summary
-order_summary <- safe_read(here(p_integrated, "order_summary.csv"))
-if (!is.null(order_summary)) {
-  shiny_data$order_summary <- as_tibble(order_summary)
-  cli_alert_success("Order summary: {nrow(shiny_data$order_summary)} orders")
-}
-
-# Order spatial coverage
-order_spatial <- safe_read(here(p_integrated, "order_spatial_coverage.csv"))
-if (!is.null(order_spatial)) {
-  shiny_data$order_spatial <- as_tibble(order_spatial)
-  cli_alert_success("Order spatial coverage loaded")
-}
 
 # Order temporal trends
 order_temporal <- safe_read(here(p_integrated, "order_temporal_trends.csv"))
@@ -374,6 +390,33 @@ if (!is.null(order_temporal)) {
     arrange(desc(total)) |>
     slice_head(n = 25)
   cli_alert_success("Top 25 orders identified")
+  
+  # Recent vs historical change by order
+  recent_cutoff <- current_year - 10
+  historical_cutoff <- current_year - 20
+  
+  order_change <- shiny_data$order_temporal |>
+    filter(order %in% shiny_data$top_orders$order[1:12]) |>
+    mutate(
+      era = case_when(
+        year >= recent_cutoff ~ "Recent",
+        year >= historical_cutoff ~ "Historical",
+        TRUE ~ NA_character_
+      )
+    ) |>
+    filter(!is.na(era)) |>
+    group_by(order, era) |>
+    summarise(occurrences = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occurrences, values_fill = 0) |>
+    filter(Historical > 0) |>
+    mutate(
+      pct_change = round(100 * (Recent - Historical) / Historical, 1),
+      direction = ifelse(pct_change >= 0, "Increased", "Decreased")
+    ) |>
+    arrange(desc(pct_change))
+  
+  shiny_data$order_change <- order_change
+  cli_alert_success("Order change analysis: {nrow(order_change)} orders")
 }
 
 # Family summary
@@ -381,13 +424,6 @@ family_summary <- safe_read(here(p_integrated, "family_summary.csv"))
 if (!is.null(family_summary)) {
   shiny_data$family_summary <- as_tibble(family_summary)
   cli_alert_success("Family summary: {nrow(shiny_data$family_summary)} families")
-}
-
-# Top families
-family_top50 <- safe_read(here(p_integrated, "family_top50.csv"))
-if (!is.null(family_top50)) {
-  shiny_data$family_top50 <- as_tibble(family_top50)
-  cli_alert_success("Top 50 families loaded")
 }
 
 # ===========================================================================
@@ -403,69 +439,17 @@ if (!is.null(priority_summary)) {
   cli_alert_success("Priority summary loaded")
 }
 
-# Priority taxa - threatened missing
-priority_threatened_missing <- safe_read(here(p_integrated, "priority_taxa_threatened_missing.csv"))
-if (!is.null(priority_threatened_missing)) {
-  shiny_data$priority_taxa_missing <- as_tibble(priority_threatened_missing)
-  cli_alert_success("Priority taxa (missing): {nrow(shiny_data$priority_taxa_missing)}")
-}
-
-# Priority taxa - all
-priority_taxa_all <- safe_read(here(p_integrated, "priority_taxa_all.csv"))
-if (!is.null(priority_taxa_all)) {
-  shiny_data$priority_taxa_all <- as_tibble(priority_taxa_all)
-  cli_alert_success("Priority taxa (all): {nrow(shiny_data$priority_taxa_all)}")
+# Priority taxa - all (if not already derived)
+if (is.null(shiny_data$priority_taxa_missing)) {
+  priority_taxa_all <- safe_read(here(p_integrated, "priority_taxa_all.csv"))
+  if (!is.null(priority_taxa_all)) {
+    shiny_data$priority_taxa_all <- as_tibble(priority_taxa_all)
+    cli_alert_success("Priority taxa (all): {nrow(shiny_data$priority_taxa_all)}")
+  }
 }
 
 # ===========================================================================
-# 8. INTEGRATED TABLES
-# ===========================================================================
-
-cli_h2("Loading Integrated Tables")
-
-# Cell integrated (spatial + temporal)
-cell_integrated <- safe_read(here(p_integrated, "cell_integrated_10km.csv"))
-if (!is.null(cell_integrated)) {
-  shiny_data$cell_integrated <- as_tibble(cell_integrated)
-  cli_alert_success("Cell integrated: {nrow(shiny_data$cell_integrated)} cells")
-}
-
-# Basis integrated
-basis_integrated <- safe_read(here(p_integrated, "basis_integrated_10km.csv"))
-if (!is.null(basis_integrated)) {
-  shiny_data$basis_integrated <- as_tibble(basis_integrated)
-  cli_alert_success("Basis integrated loaded")
-}
-
-# ===========================================================================
-# 9. COMPARISON TABLES
-# ===========================================================================
-
-cli_h2("Loading Comparison Tables")
-
-# Grid comparison
-grid_comparison <- safe_read(here(p_tables, "comparison_grid_resolutions.csv"))
-if (!is.null(grid_comparison)) {
-  shiny_data$comparison_grids <- as_tibble(grid_comparison)
-  cli_alert_success("Grid comparison loaded")
-}
-
-# Basis comparison
-basis_comparison <- safe_read(here(p_tables, "comparison_basis_types.csv"))
-if (!is.null(basis_comparison)) {
-  shiny_data$comparison_basis <- as_tibble(basis_comparison)
-  cli_alert_success("Basis comparison loaded")
-}
-
-# Decade comparison
-decade_comparison <- safe_read(here(p_tables, "comparison_decades.csv"))
-if (!is.null(decade_comparison)) {
-  shiny_data$comparison_decades <- as_tibble(decade_comparison)
-  cli_alert_success("Decade comparison loaded")
-}
-
-# ===========================================================================
-# 10. DERIVED SUMMARIES (for detailed exploration)
+# 8. DERIVED SUMMARIES (for detailed exploration)
 # ===========================================================================
 
 cli_h2("Loading Derived Summaries")
@@ -480,8 +464,7 @@ if (!is.null(cell_summary)) {
 # Time summary (for custom charts)
 time_summary <- safe_read(here(p_derived, "time_summary_10km.csv"))
 if (!is.null(time_summary)) {
-  shiny_data$time_summary_10km <- time_summary[basisofrecord == "all"] |> 
-    as_tibble() |>
+  shiny_data$time_summary_10km <- as_tibble(time_summary) |>
     mutate(
       yearmonth_chr = str_trim(as.character(yearmonth)),
       year = as.integer(str_sub(yearmonth_chr, 1, 4)),
@@ -491,7 +474,7 @@ if (!is.null(time_summary)) {
 }
 
 # ===========================================================================
-# 11. METADATA
+# 9. METADATA
 # ===========================================================================
 
 cli_h2("Adding Metadata")
@@ -512,14 +495,15 @@ shiny_data$metadata <- list(
   
   # Data availability flags
   has_spatial = !is.null(shiny_data$spatial_gaps_10km),
-  has_temporal = !is.null(shiny_data$temporal_year),
-  has_taxonomic = !is.null(shiny_data$tax_by_rank),
-  has_orders = !is.null(shiny_data$order_summary),
-  has_priorities = !is.null(shiny_data$priority_summary)
+  has_temporal = !is.null(shiny_data$temporal_year) || !is.null(shiny_data$time_summary_10km),
+  has_taxonomic = !is.null(shiny_data$tax_by_rank) || !is.null(shiny_data$taxonomic_match_summary),
+  has_threat_status = !is.null(shiny_data$tax_by_threat),
+  has_orders = !is.null(shiny_data$order_temporal),
+  has_priorities = !is.null(shiny_data$priority_taxa_missing) || !is.null(shiny_data$priority_taxa_all)
 )
 
 # ===========================================================================
-# 12. SAVE BUNDLE
+# 10. SAVE BUNDLE
 # ===========================================================================
 
 cli_h2("Saving Shiny Data Bundle")
@@ -536,9 +520,9 @@ cli_alert_success("Saved: {.path {shiny_data_path}} ({round(file_size_mb, 2)} MB
 cli_h1("Summary (Script 11)")
 
 # Count by category
-n_spatial <- sum(str_detect(dataset_names, "spatial|grid|cell"))
+n_spatial <- sum(str_detect(dataset_names, "spatial|grid|cell|comparison"))
 n_temporal <- sum(str_detect(dataset_names, "temporal|recency|time"))
-n_taxonomic <- sum(str_detect(dataset_names, "tax|order|family|threatened|missing"))
+n_taxonomic <- sum(str_detect(dataset_names, "tax|order|family|threatened|kingdom"))
 n_priority <- sum(str_detect(dataset_names, "priority"))
 n_other <- length(dataset_names) - n_spatial - n_temporal - n_taxonomic - n_priority
 
@@ -566,3 +550,8 @@ cli_alert_success("")
 cli_alert_success("Shiny data preparation complete!")
 cli_alert_info("Output: {.path {shiny_data_path}}")
 cli_alert_info("Size: {round(file_size_mb, 2)} MB")
+cli_alert_info("")
+cli_alert_info("Key features:")
+cli_alert_info("  - Threat status data: {shiny_data$metadata$has_threat_status}")
+cli_alert_info("  - Priority taxa: {shiny_data$metadata$has_priorities}")
+cli_alert_info("  - Temporal trends: {shiny_data$metadata$has_temporal}")
