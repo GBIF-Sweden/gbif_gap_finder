@@ -43,7 +43,7 @@ gbif_gap_analysis/
 ├── data_proc/               # Processed data (derived/, gaps/)
 ├── output/                  # Summary tables and figures
 ├── docs/                    # Metrics definitions and documentation
-└── shiny_app/               # Interactive dashboards (gap analysis + explorer)
+└── shiny_app/               # Interactive dashboards (gap_app + gbif_explorer)
 ```
 
 ## Quick Start

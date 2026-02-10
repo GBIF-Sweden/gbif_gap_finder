@@ -4,7 +4,7 @@
 # Interactive dashboard for identifying and prioritising biodiversity data gaps
 # across spatial, temporal, and taxonomic dimensions.
 #
-# To run: shiny::runApp("shiny_app/gap_analysis")
+# To run: shiny::runApp("shiny_app/gap_app")
 # =============================================================================
 
 library(shiny)
@@ -52,9 +52,11 @@ priority_zero   <- safe_get("priority_zero_cells")
 priority_stale  <- safe_get("priority_stale_cells")
 comparison_grids <- safe_get("comparison_grids")
 metadata        <- safe_get("metadata")
+spatial_overview <- safe_get("spatial_overview")
 
 # Derived
-basis_types   <- if (!is.null(spatial_gaps)) unique(spatial_gaps$basisofrecord) else "all"
+basis_types   <- if (!is.null(spatial_gaps)) sort(unique(spatial_gaps$basisofrecord)) else "all"
+basis_types_no_all <- basis_types[basis_types != "all"]
 order_choices <- if (!is.null(top_orders)) top_orders$order else character(0)
 current_year  <- year(Sys.Date())
 country_name  <- tryCatch(yaml::read_yaml("../../config.yml")$country$name, error = function(e) "")
@@ -294,6 +296,38 @@ ui <- fluidPage(
               div(class = "card-title", icon("th"), "Year \u00d7 Month Heatmap"),
               plotlyOutput("temporal_heatmap", height = "350px")))
           )
+        )
+      ),
+
+      # =====================================================================
+      # BASIS OF RECORD TAB
+      # =====================================================================
+      tabPanel(
+        title = tagList(icon("layer-group"), "Basis of Record"),
+        value = "basis_tab",
+        div(style = "padding: 1.25rem 0;",
+          div(class = "stat-grid", uiOutput("basis_stat_boxes")),
+          fluidRow(
+            column(6, div(class = "card",
+              div(class = "card-title", icon("chart-pie"), "Occurrences by Basis of Record"),
+              plotlyOutput("basis_pie", height = "340px"))),
+            column(6, div(class = "card",
+              div(class = "card-title", icon("chart-line"), "Temporal Trend by Basis"),
+              plotlyOutput("basis_timeline", height = "340px")))
+          ),
+          fluidRow(
+            column(6, div(class = "card",
+              div(class = "card-title", icon("map"), "Spatial Coverage by Basis"),
+              plotlyOutput("basis_spatial_bar", height = "340px"))),
+            column(6, div(class = "card",
+              div(class = "card-title", icon("dna"), "Species Coverage by Basis"),
+              plotlyOutput("basis_species_bar", height = "340px")))
+          ),
+          div(class = "card",
+            div(class = "card-title", icon("map"), "Spatial Distribution per Basis of Record"),
+            selectInput("basis_map_select", NULL,
+              choices = basis_types_no_all, width = "250px"),
+            leafletOutput("basis_map", height = "450px"))
         )
       ),
 
@@ -803,6 +837,180 @@ server <- function(input, output, session) {
       plotly_layout(
         xaxis = list(title = "", ticktext = month.abb, tickvals = 1:12),
         yaxis = list(title = ""))
+  })
+
+  # ===================================================================
+  # BASIS OF RECORD
+  # ===================================================================
+
+  # Basis palette
+  basis_colors <- c(
+    "HUMAN_OBSERVATION"     = "#6b8f71",
+    "PRESERVED_SPECIMEN"    = "#5c7a99",
+    "MACHINE_OBSERVATION"   = "#c4a882",
+    "OBSERVATION"           = "#8b6d8f",
+    "MATERIAL_SAMPLE"       = "#c47a6c",
+    "OCCURRENCE"            = "#7daa90",
+    "LITERATURE"            = "#a89060",
+    "LIVING_SPECIMEN"       = "#8fa4b8",
+    "FOSSIL_SPECIMEN"       = "#b8967a",
+    "humanObservation"      = "#6b8f71",
+    "preservedSpecimen"     = "#5c7a99",
+    "machineObservation"    = "#c4a882",
+    "observation"           = "#8b6d8f",
+    "materialSample"        = "#c47a6c",
+    "occurrence"            = "#7daa90",
+    "literature"            = "#a89060",
+    "livingSpecimen"        = "#8fa4b8",
+    "fossilSpecimen"        = "#b8967a"
+  )
+  get_basis_color <- function(b) ifelse(b %in% names(basis_colors), basis_colors[b], "#999999")
+
+  # Stat boxes
+  output$basis_stat_boxes <- renderUI({
+    req(spatial_gaps)
+    sg <- spatial_gaps |> filter(basisofrecord != "all")
+    basis_summary <- sg |>
+      group_by(basisofrecord) |>
+      summarise(total_occ = sum(occurrences, na.rm = TRUE),
+                n_cells = n(),
+                n_species = sum(n_species, na.rm = TRUE), .groups = "drop") |>
+      arrange(desc(total_occ)) |>
+      slice_head(n = 4)
+
+    color_classes <- c("sage", "slate", "sand", "coral")
+
+    tagList(lapply(seq_len(nrow(basis_summary)), function(i) {
+      b <- basis_summary[i, ]
+      div(class = "stat-box",
+        div(class = paste("stat-value", color_classes[i]), comma(b$total_occ)),
+        div(class = "stat-label", str_replace_all(b$basisofrecord, "_", " "))
+      )
+    }))
+  })
+
+  # Pie chart
+  output$basis_pie <- renderPlotly({
+    req(spatial_gaps)
+    df <- spatial_gaps |>
+      filter(basisofrecord != "all") |>
+      group_by(basisofrecord) |>
+      summarise(total_occ = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+      arrange(desc(total_occ))
+
+    cols <- sapply(df$basisofrecord, get_basis_color)
+    labels <- str_replace_all(df$basisofrecord, "_", " ")
+
+    plot_ly(df, labels = ~labels, values = ~total_occ, type = "pie",
+      marker = list(colors = cols, line = list(color = "#fff", width = 1.5)),
+      textinfo = "label+percent", textposition = "auto",
+      textfont = list(size = 11),
+      hovertemplate = "%{label}<br>%{value:,.0f} occurrences<br>%{percent}<extra></extra>") |>
+      plotly_layout(showlegend = FALSE)
+  })
+
+  # Timeline by basis
+  output$basis_timeline <- renderPlotly({
+    req(time_summary)
+    df <- time_summary |>
+      filter(basisofrecord != "all", !is.na(year), year >= 1970) |>
+      group_by(basisofrecord, year) |>
+      summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop")
+
+    basis_order <- df |> group_by(basisofrecord) |>
+      summarise(tot = sum(occ)) |> arrange(desc(tot)) |> pull(basisofrecord)
+
+    p <- plot_ly()
+    for (b in basis_order) {
+      bd <- df |> filter(basisofrecord == b)
+      p <- p |> add_trace(data = bd, x = ~year, y = ~occ,
+        type = "scatter", mode = "lines",
+        name = str_replace_all(b, "_", " "),
+        line = list(color = get_basis_color(b), width = 2),
+        stackgroup = "one",
+        hovertemplate = paste0(str_replace_all(b, "_", " "),
+          "<br>%{x}: %{y:,.0f}<extra></extra>"))
+    }
+    p |> plotly_layout(
+      xaxis = list(title = "Year"),
+      yaxis = list(title = "Occurrences"),
+      legend = list(orientation = "h", y = -0.15))
+  })
+
+  # Spatial coverage bar
+  output$basis_spatial_bar <- renderPlotly({
+    req(spatial_gaps)
+    df <- spatial_gaps |>
+      filter(basisofrecord != "all") |>
+      group_by(basisofrecord) |>
+      summarise(
+        cells_with_data = sum(occurrences > 0, na.rm = TRUE),
+        .groups = "drop") |>
+      arrange(desc(cells_with_data))
+
+    total_cells <- if (!is.null(grid_10km)) nrow(grid_10km) else max(df$cells_with_data)
+    df$pct <- round(100 * df$cells_with_data / total_cells, 1)
+    labels <- str_replace_all(df$basisofrecord, "_", " ")
+    cols <- sapply(df$basisofrecord, get_basis_color)
+
+    plot_ly(df, y = ~reorder(labels, cells_with_data), x = ~pct,
+      type = "bar", orientation = "h",
+      marker = list(color = cols),
+      text = ~paste0(pct, "% (", comma(cells_with_data), " cells)"),
+      textposition = "auto", textfont = list(size = 10, color = "#fff"),
+      hovertemplate = "%{y}<br>%{x:.1f}% of cells<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "% of grid cells covered", range = c(0, 105)),
+        yaxis = list(title = ""))
+  })
+
+  # Species coverage bar
+  output$basis_species_bar <- renderPlotly({
+    req(spatial_gaps)
+    df <- spatial_gaps |>
+      filter(basisofrecord != "all") |>
+      group_by(basisofrecord) |>
+      summarise(
+        total_species = sum(n_species, na.rm = TRUE),
+        .groups = "drop") |>
+      arrange(desc(total_species))
+
+    labels <- str_replace_all(df$basisofrecord, "_", " ")
+    cols <- sapply(df$basisofrecord, get_basis_color)
+
+    plot_ly(df, y = ~reorder(labels, total_species), x = ~total_species,
+      type = "bar", orientation = "h",
+      marker = list(color = cols),
+      text = ~comma(total_species),
+      textposition = "auto", textfont = list(size = 10, color = "#fff"),
+      hovertemplate = "%{y}<br>%{x:,.0f} species detections<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "Species detections (sum across cells)"),
+        yaxis = list(title = ""))
+  })
+
+  # Spatial map for selected basis
+  output$basis_map <- renderLeaflet({
+    req(grid_10km, spatial_gaps, input$basis_map_select)
+    sel <- input$basis_map_select
+
+    sg <- spatial_gaps |> filter(basisofrecord == sel)
+    map_sf <- grid_10km |> left_join(sg |> select(eeacellcode, occurrences, n_species), by = "eeacellcode")
+
+    vals <- log10(pmax(map_sf$occurrences, 1, na.rm = TRUE))
+    base_col <- get_basis_color(sel)
+    pal_fn <- colorNumeric(c("#f6f5f1", base_col), domain = vals, na.color = "#eee")
+
+    leaflet(map_sf) |>
+      addProviderTiles(providers$CartoDB.Positron) |>
+      addPolygons(
+        fillColor = ~pal_fn(vals), fillOpacity = 0.65,
+        weight = 0.3, color = "#bbb",
+        popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
+                        "<br><strong>Occurrences:</strong> ", comma(occurrences),
+                        "<br><strong>Species:</strong> ", comma(n_species))) |>
+      addLegend("bottomright", pal = pal_fn, values = vals,
+        title = paste0("log\u2081\u2080(Occ) \u2014 ", str_replace_all(sel, "_", " ")))
   })
 
   # ===================================================================

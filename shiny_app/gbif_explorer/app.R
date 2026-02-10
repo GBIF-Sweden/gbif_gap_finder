@@ -1,473 +1,760 @@
-# =============================================================================
-# SWEDISH BIODIVERSITY EXPLORER
-# =============================================================================
-#
-# Interactive tool for exploring Swedish biodiversity data from GBIF.
-# Designed for researchers, naturalists, and the general public.
-#
-# To run: shiny::runApp("shiny_app/explorer")
-#
-# =============================================================================
+# shiny_app/gbif_explorer/app.R
+# ==============================================================================
+# GBIF Explorer — Species & Biodiversity Explorer
+# ==============================================================================
 
 library(shiny)
-library(shinyWidgets)
 library(dplyr)
 library(tidyr)
-library(ggplot2)
+library(data.table)
 library(plotly)
 library(leaflet)
-library(sf)
 library(DT)
 library(scales)
-library(viridis)
-library(glue)
-library(lubridate)
 library(stringr)
+library(sf)
 
 # =============================================================================
-# LOAD DATA
+# DATA LOADING
 # =============================================================================
 
-data_paths <- c("data/shiny_data.rds", "../data/shiny_data.rds", "shiny_data.rds")
-data_path <- NULL
-for (p in data_paths) {
-  if (file.exists(p)) { data_path <- p; break }
-}
-if (is.null(data_path)) stop("shiny_data.rds not found. Run scripts/11_prepare_shiny_data.R")
+data_path <- "data/shiny_data.rds"
+if (!file.exists(data_path)) stop("shiny_data.rds not found. Run scripts/12_prepare_explorer_app_data.R")
 
+message("Loading explorer data from: ", normalizePath(data_path))
 app_data <- readRDS(data_path)
 
-# Safe accessor
 safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
 
-# Extract datasets
-grid_10km <- safe_get("grid_10km")
-spatial_gaps <- safe_get("spatial_gaps_10km")
-time_summary <- safe_get("time_summary_10km")
-tax_match <- safe_get("taxonomic_match_summary")
-tax_by_threat <- safe_get("tax_by_threat")
-tax_by_kingdom <- safe_get("tax_by_kingdom")
-tax_by_order <- safe_get("tax_by_order")
-tax_by_family <- safe_get("tax_by_family")
-priority_taxa <- safe_get("priority_taxa_missing") %||% safe_get("priority_taxa_all")
-dashboard <- safe_get("dashboard")
+species_lookup     <- safe_get("species_lookup")
+grid_10km          <- safe_get("grid_10km")
+tax_by_threat      <- safe_get("tax_by_threat")
+tax_by_kingdom     <- safe_get("tax_by_kingdom")
+tax_by_phylum      <- safe_get("tax_by_phylum")
+tax_by_class       <- safe_get("tax_by_class")
+tax_by_order       <- safe_get("tax_by_order")
+tax_by_family      <- safe_get("tax_by_family")
+cell_recency       <- safe_get("cell_recency_10km")
+spatial_gaps       <- safe_get("spatial_gaps_10km")
+metadata           <- safe_get("metadata")
+derived_path       <- safe_get("derived_data_path")
+file_index_cell    <- safe_get("file_index_cell")
+file_index_time    <- safe_get("file_index_time")
+cell_species_index <- safe_get("cell_species_index")
 
-current_year <- year(Sys.Date())
+# Convert cell_species_index to data.table for fast lookups
+if (!is.null(cell_species_index) && !is.data.table(cell_species_index)) {
+  cell_species_index <- as.data.table(cell_species_index)
+  setkey(cell_species_index, eeacellcode)
+}
 
-# Build species list for search
-species_list <- if (!is.null(tax_match)) {
-  tax_match |> filter(!is.na(scientificName)) |> arrange(scientificName) |> pull(scientificName) |> unique()
+# Species choices — clean vector for selectize
+species_choices <- if (!is.null(species_lookup)) {
+  # Deduplicate lookup by species name (keep first = highest occurrences)
+  species_lookup <- species_lookup[!duplicated(species_lookup$species), ]
+  sp <- unique(na.omit(species_lookup$species))
+  sp[nchar(sp) > 0]
 } else character(0)
 
-# Threatened species list
-threatened_species <- if (!is.null(tax_match)) {
-  threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_dyntaxa"), names(tax_match))[1]
-  if (!is.na(threat_col)) {
-    tax_match |>
-      filter(.data[[threat_col]] %in% c("CR", "EN", "VU", "NT")) |>
-      mutate(threatStatus = .data[[threat_col]]) |>
-      select(any_of(c("scientificName", "threatStatus", "kingdom", "phylum", "class", "order", "family", "matched_any")))
-  } else NULL
-} else NULL
+country_name <- tryCatch(yaml::read_yaml("../../config.yml")$country$name, error = function(e) "")
 
-# Get kingdoms for filter
-kingdoms <- if (!is.null(tax_match) && "kingdom" %in% names(tax_match)) {
-  sort(unique(tax_match$kingdom[!is.na(tax_match$kingdom) & tax_match$kingdom != ""]))
-} else character(0)
+# Palette
+pal <- list(
+  sage  = "#6b8f71", sage2 = "#8ab090",
+  slate = "#5c7a99", slate2 = "#7d9ab5",
+  sand  = "#c4a882", sand2  = "#d4c0a0",
+  coral = "#c47a6c", coral2 = "#d9a090",
+  plum  = "#8b6d8f",
+  text  = "#2d2d2d", muted = "#6b6b6b"
+)
+
+plotly_layout <- function(p, ...) {
+  args <- list(...)
+  defaults <- list(gridcolor = "#e8e7e1", zerolinecolor = "#e0dfda")
+  if (!is.null(args$xaxis)) args$xaxis <- modifyList(defaults, args$xaxis)
+  else args$xaxis <- defaults
+  if (!is.null(args$yaxis)) args$yaxis <- modifyList(defaults, args$yaxis)
+  else args$yaxis <- defaults
+  do.call(layout, c(list(p = p, paper_bgcolor = "transparent",
+    plot_bgcolor = "#fafaf7", font = list(color = "#2d2d2d", family = "Outfit"),
+    margin = list(t = 30, r = 10)), args))
+}
+
 
 # =============================================================================
 # UI
 # =============================================================================
 
 ui <- fluidPage(
-  
-  tags$head(
-    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css"),
-    tags$style(HTML("
-      .main-title {
-        background: linear-gradient(135deg, #06b6d4 0%, #667eea 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-      }
-      .nav-pills .nav-link.active {
-        background: linear-gradient(135deg, #06b6d4 0%, #667eea 100%);
-      }
-    "))
-  ),
-  
+
+  tags$head(tags$link(rel = "stylesheet", type = "text/css", href = "styles.css")),
+
   # Header
   div(class = "main-header",
-      div(
-        div(class = "main-title", "🦋 Swedish Biodiversity Explorer"),
-        div(class = "main-subtitle", "Discover Sweden's incredible species diversity")
-      ),
-      div(class = "header-stats",
-          div(span("Species: "), span(class = "header-stat-value", 
-              if (!is.null(tax_match)) comma(nrow(tax_match)) else "?")),
-          div(span("Occurrences: "), span(class = "header-stat-value",
-              if (!is.null(dashboard)) comma(dashboard$total_occurrences[1]) else "?"))
+    div(
+      div(class = "main-title",
+        if (nchar(country_name) > 0) paste0("\U0001f50d ", country_name, " \u2014 GBIF Explorer")
+        else "\U0001f50d GBIF Biodiversity Explorer"),
+      div(class = "main-subtitle", "Explore species occurrences, distributions, and biodiversity patterns")
+    ),
+    div(class = "header-stats",
+      if (!is.null(species_lookup)) tagList(
+        span("Species: ", span(class = "header-stat-value", comma(length(species_choices)))),
+        span("Prepared: ", span(class = "header-stat-value",
+          if (!is.null(metadata)) format(metadata$created_at, "%d %b %Y") else "?"))
       )
+    )
   ),
-  
+
   # Main content
-  div(style = "padding: 0 1rem;", class = "explorer",
-      tabsetPanel(
-        id = "main_tabs",
-        type = "pills",
-        
-        # ===== DISCOVER TAB =====
-        tabPanel(
-          title = tagList(icon("search"), "Discover"),
-          value = "discover",
-          
-          div(style = "padding: 1.5rem 0;",
-              
-              div(class = "search-box",
-                  div(class = "search-title", "🔍 Find a Species"),
-                  div(class = "search-subtitle", "Search among ", 
-                      if (!is.null(tax_match)) comma(nrow(tax_match)) else "thousands of", " Swedish species"),
-                  fluidRow(
-                    column(8, offset = 2,
-                           selectizeInput("species_search", NULL, choices = NULL,
-                                          options = list(placeholder = "Type a species name...", maxOptions = 100)))
-                  ),
-                  div(style = "text-align: center; margin-top: 1rem;",
-                      actionButton("random_species", "🎲 Surprise Me!", class = "random-btn"))
+  div(style = "padding: 0 1rem;",
+    tabsetPanel(
+      id = "main_tabs", type = "pills",
+
+      # =====================================================================
+      # SPECIES SEARCH TAB
+      # =====================================================================
+      tabPanel(
+        title = tagList(icon("search"), "Species Search"),
+        value = "species",
+        div(style = "padding: 1.25rem 0;",
+          div(class = "search-container",
+            selectizeInput("species_search", "Search species by name",
+              choices = NULL, multiple = FALSE,
+              width = "100%")
+          ),
+          # Summary stats (always visible)
+          uiOutput("species_landing_stats"),
+          # Species profile (visible after search)
+          conditionalPanel(
+            condition = "output.has_species_selected",
+            fluidRow(
+              column(4,
+                div(class = "card", uiOutput("species_profile")),
+                div(class = "card",
+                  div(class = "card-title", icon("calendar-alt"), "Seasonal Pattern"),
+                  plotlyOutput("species_seasonal", height = "240px"))
               ),
-              
-              uiOutput("species_info"),
-              
-              div(class = "card",
-                  div(class = "card-title", icon("lightbulb"), "Did You Know?"),
-                  uiOutput("fun_fact"))
-          )
-        ),
-        
-        # ===== THREATENED TAB =====
-        tabPanel(
-          title = tagList(icon("exclamation-triangle"), "Threatened Species"),
-          value = "threatened",
-          
-          div(style = "padding: 1.5rem 0;",
-              
-              div(class = "stat-grid",
-                  div(class = "stat-box",
-                      div(class = "stat-value", style = "color: #ef4444;", textOutput("t_stat_cr", inline = TRUE)),
-                      div(class = "stat-label", "Critically Endangered")),
-                  div(class = "stat-box",
-                      div(class = "stat-value", style = "color: #f97316;", textOutput("t_stat_en", inline = TRUE)),
-                      div(class = "stat-label", "Endangered")),
-                  div(class = "stat-box",
-                      div(class = "stat-value", style = "color: #eab308;", textOutput("t_stat_vu", inline = TRUE)),
-                      div(class = "stat-label", "Vulnerable")),
-                  div(class = "stat-box",
-                      div(class = "stat-value", style = "color: #84cc16;", textOutput("t_stat_nt", inline = TRUE)),
-                      div(class = "stat-label", "Near Threatened"))
-              ),
-              
-              div(class = "filter-section",
-                  fluidRow(
-                    column(3,
-                           div(class = "filter-label", "Threat Status"),
-                           pickerInput("threat_filter", NULL, choices = c("CR", "EN", "VU", "NT"),
-                                       selected = c("CR", "EN"), multiple = TRUE)),
-                    column(3,
-                           div(class = "filter-label", "Kingdom"),
-                           pickerInput("kingdom_filter", NULL, choices = kingdoms, selected = kingdoms,
-                                       multiple = TRUE, options = list(`actions-box` = TRUE))),
-                    column(3,
-                           div(class = "filter-label", "GBIF Status"),
-                           radioButtons("gbif_filter", NULL,
-                                        choices = c("All" = "all", "In GBIF" = "yes", "Missing" = "no"),
-                                        selected = "all", inline = TRUE)),
-                    column(3,
-                           div(class = "filter-label", "Search"),
-                           textInput("threat_search", NULL, placeholder = "Filter by name..."))
-                  )),
-              
-              div(class = "card",
-                  div(class = "card-title", icon("list"), "Threatened Species List"),
-                  DTOutput("threatened_table"))
-          )
-        ),
-        
-        # ===== EXPLORE MAP TAB =====
-        tabPanel(
-          title = tagList(icon("map"), "Explore Map"),
-          value = "map",
-          
-          div(style = "padding: 1.5rem 0;",
-              fluidRow(
-                column(8,
-                       div(class = "card",
-                           div(class = "card-title", icon("globe-europe"), "Species Richness Across Sweden"),
-                           leafletOutput("explore_map", height = "600px"))),
-                column(4,
-                       div(class = "card",
-                           div(class = "card-title", icon("info-circle"), "About the Map"),
-                           p(style = "color: #a1a1aa;", 
-                             "This map shows the distribution of biodiversity records across Sweden. 
-                              Brighter colors indicate more occurrence records."),
-                           hr(style = "border-color: rgba(255,255,255,0.1);"),
-                           div(class = "card-title", icon("chart-bar"), "Recording Hotspots"),
-                           tableOutput("map_hotspots")),
-                       div(class = "card",
-                           div(class = "card-title", icon("calendar"), "Recording Over Time"),
-                           plotlyOutput("map_temporal", height = "200px")))
+              column(8,
+                div(class = "card",
+                  div(class = "card-title", icon("map"), "Distribution"),
+                  leafletOutput("species_map", height = "380px")),
+                div(class = "card",
+                  div(class = "card-title", icon("chart-area"), "Occurrence Trend"),
+                  plotlyOutput("species_trend", height = "240px"))
               )
-          )
-        ),
-        
-        # ===== KINGDOMS TAB =====
-        tabPanel(
-          title = tagList(icon("sitemap"), "Kingdoms"),
-          value = "kingdoms",
-          
-          div(style = "padding: 1.5rem 0;",
-              
-              div(class = "card",
-                  div(class = "card-title", icon("chart-pie"), "Species by Kingdom"),
-                  fluidRow(
-                    column(6, plotlyOutput("kingdom_pie", height = "350px")),
-                    column(6, plotlyOutput("kingdom_coverage", height = "350px"))
-                  )),
-              
-              div(class = "card",
-                  div(class = "card-title", icon("layer-group"), "Explore by Kingdom"),
-                  uiOutput("kingdom_cards"))
-          )
-        ),
-        
-        # ===== PHENOLOGY TAB =====
-        tabPanel(
-          title = tagList(icon("calendar-alt"), "Seasonality"),
-          value = "phenology",
-          
-          div(style = "padding: 1.5rem 0;",
-              
-              div(class = "card",
-                  div(class = "card-title", icon("sun"), "When Are Species Observed?"),
-                  p(style = "color: #a1a1aa; margin-bottom: 1rem;",
-                    "Explore the seasonal patterns of biodiversity recording in Sweden."),
-                  plotlyOutput("phenology_plot", height = "400px")),
-              
-              fluidRow(
-                column(6, div(class = "card",
-                              div(class = "card-title", icon("snowflake"), "Winter vs Summer"),
-                              plotlyOutput("season_compare", height = "300px"))),
-                column(6, div(class = "card",
-                              div(class = "card-title", icon("chart-line"), "Recording Trends"),
-                              plotlyOutput("decade_trend", height = "300px")))
-              )
+            )
+          ),
+          # Top species table (visible before search)
+          conditionalPanel(
+            condition = "!output.has_species_selected",
+            div(class = "card",
+              div(class = "card-title", icon("trophy"), "Most Recorded Species"),
+              DTOutput("top_species_table"))
           )
         )
       ),
-      
-      # Footer
-      div(class = "metadata-footer",
-          HTML(paste0(
-            "Data from GBIF Sweden · Updated: ",
-            if (!is.null(app_data$metadata)) format(app_data$metadata$created_at, "%Y-%m-%d") else "Unknown",
-            " · Explore responsibly 🌿"
-          ))
+
+      # =====================================================================
+      # WHAT LIVES HERE TAB
+      # =====================================================================
+      tabPanel(
+        title = tagList(icon("map-marker-alt"), "What Lives Here?"),
+        value = "cell_explore",
+        div(style = "padding: 1.25rem 0;",
+          div(style = "font-size:0.9rem; color:#6b6b6b; margin-bottom:0.75rem;",
+            icon("info-circle"), " Click any grid cell on the map to see all recorded species."),
+          fluidRow(
+            column(7, div(class = "card",
+              div(class = "card-title", icon("globe"), "Species Richness"),
+              leafletOutput("cell_map", height = "520px"))),
+            column(5,
+              div(class = "card",
+                uiOutput("cell_info"),
+                DTOutput("cell_species_table"))
+            )
+          )
+        )
+      ),
+
+      # =====================================================================
+      # TAXONOMY BROWSER TAB
+      # =====================================================================
+      tabPanel(
+        title = tagList(icon("sitemap"), "Taxonomy Browser"),
+        value = "taxonomy",
+        div(style = "padding: 1.25rem 0;",
+          fluidRow(
+            column(3, div(class = "card",
+              div(class = "card-title", icon("filter"), "Navigate Taxonomy"),
+              selectInput("tax_kingdom", "Kingdom", choices = "All", selected = "All"),
+              selectInput("tax_phylum", "Phylum", choices = "All", selected = "All"),
+              selectInput("tax_class", "Class", choices = "All", selected = "All"),
+              selectInput("tax_order", "Order", choices = "All", selected = "All"),
+              hr(),
+              uiOutput("tax_summary")
+            )),
+            column(9,
+              div(class = "card",
+                div(class = "card-title", icon("chart-bar"), "Species by Group"),
+                plotlyOutput("tax_browser_chart", height = "420px")),
+              div(class = "card",
+                div(class = "card-title", icon("table"), "Species List"),
+                DTOutput("tax_browser_table"))
+            )
+          )
+        )
+      ),
+
+      # =====================================================================
+      # THREATENED SPECIES TAB
+      # =====================================================================
+      tabPanel(
+        title = tagList(icon("exclamation-triangle"), "Threatened Species"),
+        value = "threatened",
+        div(style = "padding: 1.25rem 0;",
+          div(class = "stat-grid",
+            div(class = "stat-box",
+              div(class = "stat-value coral", textOutput("stat_cr2", inline = TRUE)),
+              div(class = "stat-label", "Critically Endangered")),
+            div(class = "stat-box",
+              div(class = "stat-value sand", textOutput("stat_en2", inline = TRUE)),
+              div(class = "stat-label", "Endangered")),
+            div(class = "stat-box",
+              div(class = "stat-value slate", textOutput("stat_vu2", inline = TRUE)),
+              div(class = "stat-label", "Vulnerable")),
+            div(class = "stat-box",
+              div(class = "stat-value sage", textOutput("stat_nt2", inline = TRUE)),
+              div(class = "stat-label", "Near Threatened"))
+          ),
+          fluidRow(
+            column(6, div(class = "card",
+              div(class = "card-title", icon("chart-bar"), "GBIF Coverage by Threat Level"),
+              plotlyOutput("threat_coverage_chart", height = "320px"))),
+            column(6, div(class = "card",
+              div(class = "card-title", icon("clock"), "Data Staleness Map"),
+              leafletOutput("threat_stale_map", height = "320px")))
+          ),
+          div(class = "card",
+            div(style = "display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;",
+              div(class = "card-title", icon("table"), "All Threatened Species"),
+              downloadButton("download_threatened", "Download CSV", class = "btn-download")),
+            DTOutput("threatened_table"))
+        )
       )
+    ),
+
+    # Footer
+    div(class = "metadata-footer",
+      HTML(paste0(
+        "Data prepared: ",
+        if (!is.null(metadata)) format(metadata$created_at, "%Y-%m-%d %H:%M") else "Unknown",
+        " \u00b7 gbifgaps Explorer"
+      ))
+    )
   )
 )
+
 
 # =============================================================================
 # SERVER
 # =============================================================================
 
 server <- function(input, output, session) {
-  
-  # Update species search choices
- updateSelectizeInput(session, "species_search", choices = species_list, server = TRUE)
-  
-  # Random species button
-  observeEvent(input$random_species, {
-    if (length(species_list) > 0) {
-      random_sp <- sample(species_list, 1)
-      updateSelectizeInput(session, "species_search", selected = random_sp)
+
+  # ---- Species search: server-side selectize ----
+  updateSelectizeInput(session, "species_search",
+    choices = species_choices,
+    selected = "",
+    server = TRUE,
+    options = list(
+      placeholder = "Type a species name (e.g. Parus major)...",
+      maxOptions = 25,
+      openOnFocus = FALSE
+    )
+  )
+
+  # ---- Helper: find time files for a species ----
+  find_time_files <- function(sp_order, sp_family) {
+    if (is.null(file_index_time) || nrow(file_index_time) == 0) return(character(0))
+    if (!is.na(sp_family)) {
+      m <- file_index_time |> filter(family_name == sp_family)
+      if (nrow(m) > 0) return(m$filepath)
     }
-  })
-  
-  # Species info display
-  output$species_info <- renderUI({
-    req(input$species_search, input$species_search != "")
-    req(tax_match)
-    
-    sp <- tax_match |> filter(scientificName == input$species_search)
+    if (!is.na(sp_order)) {
+      m <- file_index_time |> filter(order_name == sp_order)
+      if (nrow(m) > 0) return(m$filepath)
+    }
+    character(0)
+  }
+
+  # ---- Reactives ----
+  selected_species <- reactive({
+    req(input$species_search, nchar(input$species_search) > 0)
+    sp <- species_lookup |> filter(species == input$species_search)
     if (nrow(sp) == 0) return(NULL)
-    sp <- sp[1, ]
-    
-    threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_dyntaxa"), names(sp))[1]
-    threat <- if (!is.na(threat_col) && !is.na(sp[[threat_col]])) sp[[threat_col]] else NA
-    in_gbif <- if ("matched_any" %in% names(sp)) sp$matched_any else NA
-    
-    div(class = "species-card",
-        div(class = "species-name", sp$scientificName),
-        div(class = "species-taxonomy",
-            paste(na.omit(c(sp$kingdom, sp$phylum, sp$class, sp$order, sp$family)), collapse = " → ")),
-        div(style = "display: flex; gap: 0.5rem; flex-wrap: wrap;",
-            if (!is.na(threat)) div(class = paste0("threat-badge threat-", threat), threat) else NULL,
-            if (!is.na(in_gbif)) div(class = paste0("gbif-badge gbif-", ifelse(in_gbif, "yes", "no")),
-                                      ifelse(in_gbif, "✓ In GBIF", "✗ Not in GBIF")) else NULL
-        )
+    sp[1, ]
+  })
+
+  species_cell_data <- reactive({
+    sp <- selected_species()
+    req(sp, cell_species_index)
+    cell_species_index[species == sp$species]
+  })
+
+  species_time_cache <- reactiveValues()
+
+  species_time_data <- reactive({
+    sp <- selected_species()
+    req(sp)
+    key <- sp$species
+    if (is.null(species_time_cache[[key]])) {
+      files <- find_time_files(sp$order, sp$family)
+      if (length(files) == 0) { species_time_cache[[key]] <- data.table(); return(data.table()) }
+      dt <- rbindlist(lapply(files, function(f) {
+        if (!file.exists(f)) return(NULL)
+        d <- fread(f)
+        d[species == sp$species & basisofrecord == "all" & grid == "grid10km"]
+      }), use.names = TRUE, fill = TRUE)
+      species_time_cache[[key]] <- dt
+    }
+    species_time_cache[[key]]
+  })
+
+  # ===================================================================
+  # SPECIES SEARCH TAB
+  # ===================================================================
+
+  # Flag for conditionalPanel: is a species selected?
+  output$has_species_selected <- reactive({
+    sp <- input$species_search
+    !is.null(sp) && nchar(sp) > 0
+  })
+  outputOptions(output, "has_species_selected", suspendWhenHidden = FALSE)
+
+  output$species_landing_stats <- renderUI({
+    sp_name <- input$species_search
+    if (!is.null(sp_name) && nchar(sp_name) > 0) return(NULL)
+    req(species_lookup)
+
+    n_threatened <- if ("threatStatus" %in% names(species_lookup))
+      sum(species_lookup$threatStatus %in% c("CR","EN","VU","NT"), na.rm = TRUE) else 0
+    n_orders <- length(unique(na.omit(species_lookup$order)))
+    n_families <- length(unique(na.omit(species_lookup$family)))
+
+    div(class = "stat-grid",
+      div(class = "stat-box",
+        div(class = "stat-value sage", comma(length(species_choices))),
+        div(class = "stat-label", "Total Species")),
+      div(class = "stat-box",
+        div(class = "stat-value slate", comma(n_threatened)),
+        div(class = "stat-label", "Threatened")),
+      div(class = "stat-box",
+        div(class = "stat-value sand", comma(n_orders)),
+        div(class = "stat-label", "Orders")),
+      div(class = "stat-box",
+        div(class = "stat-value plum", comma(n_families)),
+        div(class = "stat-label", "Families"))
     )
   })
-  
-  # Fun facts
-  fun_facts <- c(
-    "Sweden has over <strong>60,000</strong> known species, from tiny soil mites to majestic moose.",
-    "The <strong>Arctic Fox</strong> is one of Sweden's most endangered mammals, with only about 200 individuals remaining.",
-    "Sweden's forests cover about <strong>70%</strong> of the country's land area.",
-    "The <strong>Eurasian Lynx</strong> is Sweden's only wild cat species.",
-    "Swedish waters are home to over <strong>100 species</strong> of fish.",
-    "The <strong>White-tailed Eagle</strong> has made a remarkable comeback in Sweden after near extinction.",
-    "Sweden has approximately <strong>2,000 species</strong> of lichens.",
-    "The <strong>Brown Bear</strong> population in Sweden has grown to over 2,800 individuals."
-  )
-  
-  output$fun_fact <- renderUI({
-    div(class = "fun-fact", HTML(sample(fun_facts, 1)))
+
+  output$species_profile <- renderUI({
+    sp <- selected_species()
+    req(sp)
+
+    has_threat <- "threatStatus" %in% names(sp) && !is.na(sp$threatStatus) && sp$threatStatus != ""
+    threat_html <- if (has_threat) {
+      paste0('<span class="threat-badge ', sp$threatStatus, '">', sp$threatStatus, '</span>')
+    } else ""
+
+    n_cells <- if ("n_cells" %in% names(sp) && !is.na(sp$n_cells)) sp$n_cells else "—"
+
+    HTML(paste0(
+      '<div class="species-header">',
+        '<div class="species-name">', sp$species, '</div> ', threat_html,
+      '</div>',
+      '<div class="species-meta">',
+        '<strong>Kingdom:</strong> ', ifelse(is.na(sp$kingdom), "\u2014", sp$kingdom), '<br>',
+        '<strong>Phylum:</strong> ', ifelse(is.na(sp$phylum), "\u2014", sp$phylum), '<br>',
+        '<strong>Class:</strong> ', ifelse(is.na(sp$class), "\u2014", sp$class), '<br>',
+        '<strong>Order:</strong> ', ifelse(is.na(sp$order), "\u2014", sp$order), '<br>',
+        '<strong>Family:</strong> ', ifelse(is.na(sp$family), "\u2014", sp$family),
+      '</div>',
+      '<div class="species-stats">',
+        '<div class="species-stat-item">',
+          '<div class="species-stat-num">', comma(sp$total_occurrences), '</div>',
+          '<div class="species-stat-label">Occurrences</div></div>',
+        '<div class="species-stat-item">',
+          '<div class="species-stat-num">', if (is.character(n_cells)) n_cells else comma(n_cells), '</div>',
+          '<div class="species-stat-label">Grid Cells</div></div>',
+        '<div class="species-stat-item">',
+          '<div class="species-stat-num">', if (has_threat) sp$threatStatus else "LC/NE", '</div>',
+          '<div class="species-stat-label">Threat Status</div></div>',
+      '</div>'
+    ))
   })
-  
-  # ===== THREATENED TAB =====
-  output$t_stat_cr <- renderText({
-    if (!is.null(threatened_species)) comma(sum(threatened_species$threatStatus == "CR")) else "0"
+
+  # Species map
+  output$species_map <- renderLeaflet({
+    leaflet() |>
+      addProviderTiles(providers$CartoDB.Positron) |>
+      setView(lng = 16, lat = 63, zoom = 5)
   })
-  output$t_stat_en <- renderText({
-    if (!is.null(threatened_species)) comma(sum(threatened_species$threatStatus == "EN")) else "0"
-  })
-  output$t_stat_vu <- renderText({
-    if (!is.null(threatened_species)) comma(sum(threatened_species$threatStatus == "VU")) else "0"
-  })
-  output$t_stat_nt <- renderText({
-    if (!is.null(threatened_species)) comma(sum(threatened_species$threatStatus == "NT")) else "0"
-  })
-  
-  threatened_filtered <- reactive({
-    req(threatened_species)
-    df <- threatened_species |> filter(threatStatus %in% input$threat_filter)
-    if (length(input$kingdom_filter) > 0 && "kingdom" %in% names(df)) {
-      df <- df |> filter(kingdom %in% input$kingdom_filter)
+
+  observe({
+    sp_cells <- species_cell_data()
+    req(grid_10km)
+
+    if (is.null(sp_cells) || nrow(sp_cells) == 0) {
+      leafletProxy("species_map") |> clearShapes() |> clearControls()
+      return()
     }
-    if (input$gbif_filter == "yes") df <- df |> filter(matched_any == TRUE)
-    if (input$gbif_filter == "no") df <- df |> filter(matched_any == FALSE)
-    if (nchar(input$threat_search) > 0) {
-      df <- df |> filter(str_detect(tolower(scientificName), tolower(input$threat_search)))
+
+    cell_agg <- sp_cells[, .(occurrences = sum(occurrences, na.rm = TRUE)), by = eeacellcode]
+    map_sf <- grid_10km |> inner_join(cell_agg, by = "eeacellcode")
+
+    if (nrow(map_sf) == 0) {
+      leafletProxy("species_map") |> clearShapes() |> clearControls()
+      return()
     }
+
+    vals <- log10(pmax(map_sf$occurrences, 1))
+    pal_fn <- colorNumeric(c("#e8ede9", pal$sage, "#2c5a35"), domain = vals, na.color = "#ddd")
+
+    leafletProxy("species_map") |>
+      clearShapes() |> clearControls() |>
+      addPolygons(data = map_sf,
+        fillColor = ~pal_fn(vals), fillOpacity = 0.75, weight = 0.5, color = "#999",
+        popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
+                        "<br><strong>Occurrences:</strong> ", comma(occurrences))) |>
+      addLegend("bottomright", pal = pal_fn, values = vals, title = "log\u2081\u2080(Occ)")
+  })
+
+  # Species trend
+  output$species_trend <- renderPlotly({
+    sp_time <- species_time_data()
+    if (is.null(sp_time) || nrow(sp_time) == 0) {
+      return(plot_ly(x = 0, y = 0, type = "scatter", mode = "none") |>
+        plotly_layout(
+          annotations = list(list(text = "Temporal data not available for this species",
+            xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+            showarrow = FALSE, font = list(color = "#9a9a9a", size = 13))),
+          xaxis = list(visible = FALSE), yaxis = list(visible = FALSE)))
+    }
+
+    df <- sp_time[, .(ym = as.character(yearmonth), occurrences)
+      ][, year := as.integer(str_sub(ym, 1, 4))
+      ][, .(occ = sum(occurrences, na.rm = TRUE)), by = year
+      ][year >= 1950]
+    setorder(df, year)
+
+    plot_ly(df, x = ~year, y = ~occ, type = "scatter", mode = "lines+markers",
+      line = list(color = pal$sage, width = 2),
+      marker = list(color = pal$sage, size = 4),
+      fill = "tozeroy", fillcolor = "rgba(107,143,113,0.12)",
+      hovertemplate = "%{x}: %{y:,.0f} occurrences<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "Year"),
+        yaxis = list(title = "Occurrences"))
+  })
+
+  # Species seasonal
+  output$species_seasonal <- renderPlotly({
+    sp_time <- species_time_data()
+    if (is.null(sp_time) || nrow(sp_time) == 0) {
+      return(plot_ly(x = 0, y = 0, type = "scatter", mode = "none") |>
+        plotly_layout(
+          annotations = list(list(text = "No seasonal data",
+            xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+            showarrow = FALSE, font = list(color = "#9a9a9a", size = 13))),
+          xaxis = list(visible = FALSE), yaxis = list(visible = FALSE)))
+    }
+
+    df <- sp_time[, .(ym = as.character(yearmonth), occurrences)
+      ][, month := as.integer(str_sub(ym, 6, 7))
+      ][!is.na(month) & month >= 1 & month <= 12
+      ][, .(occ = sum(occurrences, na.rm = TRUE)), by = month]
+
+    # Radar-like bar chart with month colors
+    month_cols <- colorRampPalette(c(pal$slate, pal$sage, pal$sand, pal$coral, pal$slate))(12)
+
+    plot_ly(df, x = ~month, y = ~occ, type = "bar",
+      marker = list(color = month_cols[df$month]),
+      hovertemplate = "%{x}: %{y:,.0f}<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "", ticktext = month.abb, tickvals = 1:12, dtick = 1),
+        yaxis = list(title = "Occurrences"))
+  })
+
+  # Top species table
+  output$top_species_table <- renderDT({
+    req(species_lookup)
+    df <- species_lookup |>
+      slice_head(n = 200) |>
+      select(any_of(c("species", "kingdom", "class", "order", "family",
+                        "threatStatus", "total_occurrences", "n_cells")))
+
+    for (cn in c("kingdom", "class", "order", "family", "threatStatus"))
+      if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
+
+    datatable(df, options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"),
+      style = "bootstrap4", filter = "top",
+      colnames = c("Species", "Kingdom", "Class", "Order", "Family",
+                    "Threat", "Occurrences", "Cells")[seq_along(names(df))]) |>
+      formatCurrency("total_occurrences", currency = "", digits = 0)
+  }, server = TRUE)
+
+  # ===================================================================
+  # WHAT LIVES HERE TAB
+  # ===================================================================
+
+  output$cell_map <- renderLeaflet({
+    req(grid_10km)
+
+    if (!is.null(spatial_gaps)) {
+      sf_data <- spatial_gaps |> filter(basisofrecord == "all")
+      map_sf <- grid_10km |>
+        left_join(sf_data |> select(eeacellcode, n_species), by = "eeacellcode")
+      vals <- log10(pmax(map_sf$n_species, 1, na.rm = TRUE))
+      pal_fn <- colorNumeric(c("#f6f5f1", pal$slate, "#2c4a6b"), domain = vals, na.color = "#eee")
+
+      leaflet(map_sf) |>
+        addProviderTiles(providers$CartoDB.Positron) |>
+        addPolygons(fillColor = ~pal_fn(vals), fillOpacity = 0.5,
+          weight = 0.3, color = "#bbb", layerId = ~eeacellcode,
+          popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
+                          "<br><strong>Species:</strong> ", comma(n_species))) |>
+        addLegend("bottomright", pal = pal_fn, values = vals, title = "log\u2081\u2080(Species)")
+    } else {
+      leaflet(grid_10km) |>
+        addProviderTiles(providers$CartoDB.Positron) |>
+        addPolygons(fillColor = "#ddd", fillOpacity = 0.3, weight = 0.3, color = "#bbb",
+          layerId = ~eeacellcode)
+    }
+  })
+
+  selected_cell <- reactiveVal(NULL)
+  observeEvent(input$cell_map_shape_click, {
+    click <- input$cell_map_shape_click
+    if (!is.null(click$id)) selected_cell(click$id)
+  })
+
+  cell_species_reactive <- reactive({
+    cell_id <- selected_cell()
+    req(cell_id, cell_species_index)
+    dt <- cell_species_index[eeacellcode == cell_id]
+    if (nrow(dt) == 0) return(NULL)
+    setorder(dt, -occurrences)
+    dt
+  })
+
+  output$cell_info <- renderUI({
+    cell_id <- selected_cell()
+    if (is.null(cell_id)) {
+      return(div(class = "empty-state",
+        icon("mouse-pointer"),
+        p("Click a cell on the map to explore")))
+    }
+    df <- cell_species_reactive()
+    n_sp <- if (!is.null(df)) nrow(df) else 0
+    total_occ <- if (!is.null(df)) sum(df$occurrences, na.rm = TRUE) else 0
+
+    tagList(
+      div(class = "card-title", icon("list"), paste0("Cell: ", cell_id)),
+      div(class = "species-stats", style = "grid-template-columns: repeat(2, 1fr); margin-bottom:0.75rem;",
+        div(class = "species-stat-item",
+          div(class = "species-stat-num", comma(n_sp)),
+          div(class = "species-stat-label", "Species")),
+        div(class = "species-stat-item",
+          div(class = "species-stat-num", comma(total_occ)),
+          div(class = "species-stat-label", "Occurrences"))
+      )
+    )
+  })
+
+  output$cell_species_table <- renderDT({
+    df <- cell_species_reactive()
+    req(df)
+    df <- as_tibble(df) |>
+      left_join(species_lookup |> select(any_of(c("species", "order", "family", "threatStatus"))), by = "species") |>
+      select(any_of(c("species", "occurrences", "order", "family", "threatStatus")))
+
+    for (cn in c("order", "family", "threatStatus"))
+      if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
+
+    datatable(df, options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"),
+      style = "bootstrap4", filter = "top")
+  }, server = TRUE)
+
+  # ===================================================================
+  # TAXONOMY BROWSER TAB
+  # ===================================================================
+
+  observe({
+    req(species_lookup)
+    updateSelectInput(session, "tax_kingdom",
+      choices = c("All", sort(unique(na.omit(species_lookup$kingdom)))))
+  })
+
+  observe({
+    req(species_lookup)
+    df <- species_lookup
+    if (!is.null(input$tax_kingdom) && input$tax_kingdom != "All") df <- df |> filter(kingdom == input$tax_kingdom)
+    updateSelectInput(session, "tax_phylum",
+      choices = c("All", sort(unique(na.omit(df$phylum)))))
+  })
+
+  observe({
+    req(species_lookup)
+    df <- species_lookup
+    if (!is.null(input$tax_kingdom) && input$tax_kingdom != "All") df <- df |> filter(kingdom == input$tax_kingdom)
+    if (!is.null(input$tax_phylum) && input$tax_phylum != "All") df <- df |> filter(phylum == input$tax_phylum)
+    updateSelectInput(session, "tax_class",
+      choices = c("All", sort(unique(na.omit(df$class)))))
+  })
+
+  observe({
+    req(species_lookup)
+    df <- species_lookup
+    if (!is.null(input$tax_kingdom) && input$tax_kingdom != "All") df <- df |> filter(kingdom == input$tax_kingdom)
+    if (!is.null(input$tax_phylum) && input$tax_phylum != "All") df <- df |> filter(phylum == input$tax_phylum)
+    if (!is.null(input$tax_class) && input$tax_class != "All") df <- df |> filter(class == input$tax_class)
+    updateSelectInput(session, "tax_order",
+      choices = c("All", sort(unique(na.omit(df$order)))))
+  })
+
+  tax_filtered <- reactive({
+    req(species_lookup)
+    df <- species_lookup
+    if (!is.null(input$tax_kingdom) && input$tax_kingdom != "All") df <- df |> filter(kingdom == input$tax_kingdom)
+    if (!is.null(input$tax_phylum) && input$tax_phylum != "All") df <- df |> filter(phylum == input$tax_phylum)
+    if (!is.null(input$tax_class) && input$tax_class != "All") df <- df |> filter(class == input$tax_class)
+    if (!is.null(input$tax_order) && input$tax_order != "All") df <- df |> filter(order == input$tax_order)
     df
   })
-  
+
+  output$tax_summary <- renderUI({
+    df <- tax_filtered()
+    n_threat <- if ("threatStatus" %in% names(df))
+      sum(df$threatStatus %in% c("CR","EN","VU","NT"), na.rm = TRUE) else 0
+    HTML(paste0(
+      '<div style="font-size:0.85rem; color:#6b6b6b; line-height:1.8;">',
+      '<strong>', comma(nrow(df)), '</strong> species<br>',
+      '<strong>', comma(sum(df$total_occurrences, na.rm = TRUE)), '</strong> occurrences<br>',
+      '<strong>', comma(n_threat), '</strong> threatened',
+      '</div>'
+    ))
+  })
+
+  output$tax_browser_chart <- renderPlotly({
+    df <- tax_filtered()
+    req(nrow(df) > 0)
+
+    group_col <- if (!is.null(input$tax_order) && input$tax_order != "All") "family"
+      else if (!is.null(input$tax_class) && input$tax_class != "All") "order"
+      else if (!is.null(input$tax_phylum) && input$tax_phylum != "All") "class"
+      else if (!is.null(input$tax_kingdom) && input$tax_kingdom != "All") "phylum"
+      else "kingdom"
+
+    chart_df <- df |>
+      filter(!is.na(.data[[group_col]])) |>
+      group_by(group = .data[[group_col]]) |>
+      summarise(n_species = n(), total_occ = sum(total_occurrences, na.rm = TRUE),
+        n_threatened = if ("threatStatus" %in% names(df)) sum(threatStatus %in% c("CR","EN","VU","NT"), na.rm = TRUE) else 0L, .groups = "drop") |>
+      arrange(desc(n_species)) |> slice_head(n = 25)
+
+    plot_ly(chart_df, y = ~reorder(group, n_species), x = ~n_species,
+      type = "bar", orientation = "h",
+      marker = list(color = pal$sage,
+        line = list(color = pal$sage2, width = 0.5)),
+      text = ~paste0(comma(total_occ), " occ | ", n_threatened, " threatened"),
+      hovertemplate = paste0("<b>%{y}</b><br>Species: %{x}<br>%{text}<extra></extra>")) |>
+      plotly_layout(
+        xaxis = list(title = "Number of species"),
+        yaxis = list(title = ""))
+  })
+
+  output$tax_browser_table <- renderDT({
+    df <- tax_filtered() |>
+      select(any_of(c("species", "kingdom", "phylum", "class", "order", "family",
+                        "threatStatus", "total_occurrences", "n_cells"))) |>
+      arrange(desc(total_occurrences)) |> slice_head(n = 500)
+
+    for (cn in c("kingdom", "phylum", "class", "order", "family", "threatStatus"))
+      if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
+
+    datatable(df, options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"),
+      style = "bootstrap4", filter = "top")
+  }, server = TRUE)
+
+  # ===================================================================
+  # THREATENED SPECIES TAB
+  # ===================================================================
+
+  threatened_species <- reactive({
+    req(species_lookup)
+    if (!"threatStatus" %in% names(species_lookup)) return(tibble())
+    species_lookup |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT")) |>
+      arrange(factor(threatStatus, levels = c("CR", "EN", "VU", "NT")), desc(total_occurrences))
+  })
+
+  output$stat_cr2 <- renderText({ df <- threatened_species(); if (nrow(df) == 0) "—" else comma(sum(df$threatStatus == "CR")) })
+  output$stat_en2 <- renderText({ df <- threatened_species(); if (nrow(df) == 0) "—" else comma(sum(df$threatStatus == "EN")) })
+  output$stat_vu2 <- renderText({ df <- threatened_species(); if (nrow(df) == 0) "—" else comma(sum(df$threatStatus == "VU")) })
+  output$stat_nt2 <- renderText({ df <- threatened_species(); if (nrow(df) == 0) "—" else comma(sum(df$threatStatus == "NT")) })
+
+  output$threat_coverage_chart <- renderPlotly({
+    req(tax_by_threat)
+    df <- tax_by_threat |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT")) |>
+      mutate(threatStatus = factor(threatStatus, levels = c("CR", "EN", "VU", "NT")))
+
+    colors <- c("CR" = "#c0392b", "EN" = "#e67e22", "VU" = pal$sand, "NT" = pal$slate)
+
+    plot_ly(df, x = ~threatStatus, y = ~pct_coverage, type = "bar",
+      marker = list(color = ~colors[as.character(threatStatus)],
+        line = list(color = "white", width = 1)),
+      text = ~paste0(round(pct_coverage, 1), "%"),
+      textposition = "auto", textfont = list(size = 13, color = "#fff"),
+      hovertemplate = "%{x}: %{y:.1f}% coverage<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = ""),
+        yaxis = list(title = "GBIF Coverage (%)", range = c(0, 105)))
+  })
+
+  output$threat_stale_map <- renderLeaflet({
+    req(grid_10km)
+    if (!is.null(cell_recency)) {
+      rec <- cell_recency |> filter(basisofrecord == "all") |> select(eeacellcode, staleness_months)
+      map_sf <- grid_10km |> left_join(rec, by = "eeacellcode")
+      vals <- map_sf$staleness_months
+      pal_fn <- colorNumeric(c(pal$sage, pal$sand, pal$coral), domain = vals, na.color = "#eee")
+
+      leaflet(map_sf) |>
+        addProviderTiles(providers$CartoDB.Positron) |>
+        addPolygons(fillColor = ~pal_fn(vals), fillOpacity = 0.6, weight = 0.3, color = "#bbb") |>
+        addLegend("bottomright", pal = pal_fn, values = vals, title = "Months stale")
+    } else {
+      leaflet() |> addProviderTiles(providers$CartoDB.Positron) |> setView(16, 63, 5)
+    }
+  })
+
   output$threatened_table <- renderDT({
-    req(threatened_filtered())
-    threatened_filtered() |>
-      select(any_of(c("scientificName", "threatStatus", "kingdom", "order", "family", "matched_any"))) |>
-      rename_with(~c("Species", "Status", "Kingdom", "Order", "Family", "In GBIF")[1:length(.)]) |>
-      datatable(options = list(pageLength = 15, scrollX = TRUE), style = "bootstrap4", filter = "top")
-  })
-  
-  # ===== MAP TAB =====
-  output$explore_map <- renderLeaflet({
-    req(grid_10km, spatial_gaps)
-    sf_data <- spatial_gaps |> filter(basisofrecord == "all")
-    map_data <- grid_10km |> left_join(sf_data, by = "eeacellcode") |>
-      mutate(log_occ = ifelse(is.na(occurrences), 0, log10(occurrences + 1)))
-    
-    pal <- colorNumeric("viridis", map_data$log_occ, na.color = "#333")
-    leaflet(map_data) |>
-      addProviderTiles(providers$CartoDB.DarkMatter) |>
-      addPolygons(fillColor = ~pal(log_occ), fillOpacity = 0.7, weight = 0.3, color = "#444",
-                  popup = ~paste0("<strong>", eeacellcode, "</strong><br>", comma(occurrences), " occurrences")) |>
-      addLegend("bottomright", pal = pal, values = ~log_occ, title = "Records (log)")
-  })
-  
-  output$map_hotspots <- renderTable({
-    req(spatial_gaps)
-    spatial_gaps |> filter(basisofrecord == "all") |> arrange(desc(occurrences)) |> slice_head(n = 5) |>
-      select(eeacellcode, occurrences) |> mutate(occurrences = comma(occurrences)) |>
-      rename(Cell = eeacellcode, Records = occurrences)
-  }, width = "100%")
-  
-  output$map_temporal <- renderPlotly({
-    req(time_summary)
-    df <- time_summary |> filter(basisofrecord == "all", year >= 2000) |>
-      group_by(year) |> summarise(occ = sum(occurrences, na.rm = TRUE))
-    plot_ly(df, x = ~year, y = ~occ, type = "scatter", mode = "lines+markers",
-            line = list(color = "#06b6d4"), marker = list(color = "#06b6d4")) |>
-      layout(xaxis = list(title = ""), yaxis = list(title = ""),
-             paper_bgcolor = "transparent", plot_bgcolor = "transparent",
-             font = list(color = "#a1a1aa"), margin = list(l = 40, r = 10, t = 10, b = 30))
-  })
-  
-  # ===== KINGDOMS TAB =====
-  output$kingdom_pie <- renderPlotly({
-    req(tax_by_kingdom)
-    plot_ly(tax_by_kingdom, labels = ~kingdom, values = ~n_ref_total, type = "pie",
-            marker = list(colors = viridis(nrow(tax_by_kingdom))), textinfo = "label+percent") |>
-      layout(paper_bgcolor = "transparent", plot_bgcolor = "transparent",
-             font = list(color = "#a1a1aa"), legend = list(orientation = "h", y = -0.1))
-  })
-  
-  output$kingdom_coverage <- renderPlotly({
-    req(tax_by_kingdom)
-    plot_ly(tax_by_kingdom, y = ~reorder(kingdom, pct_coverage), x = ~pct_coverage,
-            type = "bar", orientation = "h",
-            marker = list(color = ~pct_coverage, colorscale = "Viridis")) |>
-      layout(xaxis = list(title = "GBIF Coverage %", range = c(0, 100)), yaxis = list(title = ""),
-             paper_bgcolor = "transparent", plot_bgcolor = "transparent", font = list(color = "#a1a1aa"))
-  })
-  
-  output$kingdom_cards <- renderUI({
-    req(tax_by_kingdom)
-    icons <- c(Animalia = "🦋", Plantae = "🌿", Fungi = "🍄", Chromista = "🦠", Protozoa = "🔬", Bacteria = "🧫")
-    cards <- lapply(1:min(6, nrow(tax_by_kingdom)), function(i) {
-      k <- tax_by_kingdom[i, ]
-      column(2, div(class = "stat-box", style = "text-align: center;",
-                    div(class = "kingdom-icon", icons[k$kingdom] %||% "🌍"),
-                    div(style = "font-weight: 600; margin-bottom: 0.5rem;", k$kingdom),
-                    div(style = "color: #06b6d4; font-family: 'JetBrains Mono';", comma(k$n_ref_total), " species"),
-                    div(style = "color: #a1a1aa; font-size: 0.8rem;", k$pct_coverage, "% in GBIF")))
-    })
-    do.call(fluidRow, cards)
-  })
-  
-  # ===== PHENOLOGY TAB =====
-  output$phenology_plot <- renderPlotly({
-    req(time_summary)
-    df <- time_summary |> filter(basisofrecord == "all", year >= 1990) |>
-      group_by(month) |> summarise(occ = sum(occurrences, na.rm = TRUE))
-    plot_ly(df, x = ~month, y = ~occ, type = "bar",
-            marker = list(color = ~occ, colorscale = list(c(0, "#1e3a5f"), c(1, "#06b6d4")))) |>
-      layout(xaxis = list(title = "", ticktext = month.name, tickvals = 1:12, tickangle = -45),
-             yaxis = list(title = "Total Occurrences"),
-             paper_bgcolor = "transparent", plot_bgcolor = "transparent", font = list(color = "#a1a1aa"))
-  })
-  
-  output$season_compare <- renderPlotly({
-    req(time_summary)
-    df <- time_summary |> filter(basisofrecord == "all") |>
-      mutate(season = case_when(month %in% c(12, 1, 2) ~ "Winter", month %in% 3:5 ~ "Spring",
-                                 month %in% 6:8 ~ "Summer", month %in% 9:11 ~ "Autumn")) |>
-      group_by(season) |> summarise(occ = sum(occurrences, na.rm = TRUE)) |>
-      mutate(season = factor(season, levels = c("Spring", "Summer", "Autumn", "Winter")))
-    colors <- c(Spring = "#84cc16", Summer = "#eab308", Autumn = "#f97316", Winter = "#06b6d4")
-    plot_ly(df, x = ~season, y = ~occ, type = "bar", marker = list(color = colors[as.character(df$season)])) |>
-      layout(xaxis = list(title = ""), yaxis = list(title = "Occurrences"),
-             paper_bgcolor = "transparent", plot_bgcolor = "transparent", font = list(color = "#a1a1aa"))
-  })
-  
-  output$decade_trend <- renderPlotly({
-    req(time_summary)
-    df <- time_summary |> filter(basisofrecord == "all", year >= 1950) |>
-      mutate(decade = paste0(floor(year / 10) * 10, "s")) |>
-      group_by(decade) |> summarise(occ = sum(occurrences, na.rm = TRUE))
-    plot_ly(df, x = ~decade, y = ~occ, type = "bar", marker = list(color = "#667eea")) |>
-      layout(xaxis = list(title = ""), yaxis = list(title = "Occurrences"),
-             paper_bgcolor = "transparent", plot_bgcolor = "transparent", font = list(color = "#a1a1aa"))
-  })
+    df <- threatened_species() |>
+      select(any_of(c("species", "threatStatus", "kingdom", "phylum", "class",
+                        "order", "family", "total_occurrences", "n_cells")))
+    for (cn in c("threatStatus", "kingdom", "phylum", "class", "order", "family"))
+      if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
+
+    datatable(df, options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"),
+      style = "bootstrap4", filter = "top")
+  }, server = TRUE)
+
+  output$download_threatened <- downloadHandler(
+    filename = function() paste0("threatened_species_", Sys.Date(), ".csv"),
+    content = function(file) readr::write_csv(threatened_species(), file)
+  )
 }
 
-shinyApp(ui, server)
+shinyApp(ui = ui, server = server)
