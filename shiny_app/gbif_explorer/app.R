@@ -274,18 +274,10 @@ server <- function(input, output, session) {
     )
   )
 
-  # ---- Helper: find time files for a species ----
-  find_time_files <- function(sp_order, sp_family) {
-    if (is.null(file_index_time) || nrow(file_index_time) == 0) return(character(0))
-    if (!is.na(sp_family)) {
-      m <- file_index_time |> filter(family_name == sp_family)
-      if (nrow(m) > 0) return(m$filepath)
-    }
-    if (!is.na(sp_order)) {
-      m <- file_index_time |> filter(order_name == sp_order)
-      if (nrow(m) > 0) return(m$filepath)
-    }
-    character(0)
+  # ---- Species-to-time-file mapping (direct lookup, no taxonomy needed) ----
+  species_time_map <- safe_get("species_time_map")
+  if (!is.null(species_time_map) && !is.data.table(species_time_map)) {
+    species_time_map <- as.data.table(species_time_map)
   }
 
   # ---- Reactives ----
@@ -309,13 +301,18 @@ server <- function(input, output, session) {
     req(sp)
     key <- sp$species
     if (is.null(species_time_cache[[key]])) {
-      files <- find_time_files(sp$order, sp$family)
-      if (length(files) == 0) { species_time_cache[[key]] <- data.table(); return(data.table()) }
-      dt <- rbindlist(lapply(files, function(f) {
-        if (!file.exists(f)) return(NULL)
-        d <- fread(f)
-        d[species == sp$species & basisofrecord == "all" & grid == "grid10km"]
-      }), use.names = TRUE, fill = TRUE)
+      # Direct lookup via pre-built mapping
+      filepath <- NULL
+      if (!is.null(species_time_map)) {
+        match <- species_time_map[species == sp$species]
+        if (nrow(match) > 0) filepath <- match$time_filepath[1]
+      }
+      if (is.null(filepath) || !file.exists(filepath)) {
+        species_time_cache[[key]] <- data.table()
+        return(data.table())
+      }
+      dt <- fread(filepath)
+      dt <- dt[species == sp$species & basisofrecord == "all" & grid == "grid10km"]
       species_time_cache[[key]] <- dt
     }
     species_time_cache[[key]]
