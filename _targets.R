@@ -22,7 +22,8 @@
 #   3. Summaries    — scripts 06a, 06b
 #   4. Gap Analysis — scripts 07, 08, 09
 #   5. Integration  — script 10
-#   6. Shiny Prep   — script 11
+#   6. Gap App Prep  — script 11
+#   7. Explorer Prep — script 12
 #   7. Reports      — Rmd files (manual trigger)
 # ============================================================================
 
@@ -318,17 +319,17 @@ list(
   ),
 
   # ==========================================================================
-  # Phase 6: Shiny Data Prep (script 11)
+  # Phase 6: Gap App Data Prep (script 11)
   # ==========================================================================
 
   tar_target(
-    shiny_data,
+    gap_app_data,
     {
       gap_overview
 
-      source(here("scripts", "11_prepare_shiny_data.R"), local = TRUE)
+      source(here("scripts", "11_prepare_gap_app_data.R"), local = TRUE)
 
-      shiny_path <- here("data_proc", "shiny_data.rds")
+      shiny_path <- here("shiny_app", "gap_analysis", "data", "shiny_data.rds")
       stopifnot(file.exists(shiny_path))
 
       shiny_path
@@ -337,7 +338,26 @@ list(
   ),
 
   # ==========================================================================
-  # Phase 7: Reports (manual trigger — run with tar_make(report_*))
+  # Phase 7: Explorer App Data Prep (script 12)
+  # ==========================================================================
+
+  tar_target(
+    explorer_app_data,
+    {
+      gap_app_data
+
+      source(here("scripts", "12_prepare_explorer_app_data.R"), local = TRUE)
+
+      explorer_path <- here("shiny_app", "explorer", "data", "shiny_data.rds")
+      stopifnot(file.exists(explorer_path))
+
+      explorer_path
+    },
+    format = "file"
+  ),
+
+  # ==========================================================================
+  # Phase 8: Reports (manual trigger — run with tar_make(report_*))
   # ==========================================================================
   #
   # Reports are set to cue = "never" so they don't run automatically.
@@ -398,7 +418,7 @@ list(
         n_temporal_gap_files   = length(temporal_gaps),
         n_taxonomic_gap_files  = length(taxonomic_gaps),
         n_overview_tables      = length(gap_overview),
-        shiny_data_ready       = file.exists(shiny_data)
+        shiny_data_ready       = file.exists(gap_app_data)
       )
     }
   )
