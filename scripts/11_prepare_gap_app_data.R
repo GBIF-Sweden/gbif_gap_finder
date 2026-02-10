@@ -47,7 +47,7 @@ p_integrated <- here(p_output, "tables", "integrated")
 p_derived <- here(p_data_proc, "derived")
 
 # Output path - gap analysis app data folder
-shiny_output_dir <- here("shiny_app", "gap_analysis", "data")
+shiny_output_dir <- here("shiny_app", "gap_app", "data")
 if (!dir.exists(shiny_output_dir)) {
   dir.create(shiny_output_dir, recursive = TRUE)
   cli_alert_success("Created directory: {.path {shiny_output_dir}}")

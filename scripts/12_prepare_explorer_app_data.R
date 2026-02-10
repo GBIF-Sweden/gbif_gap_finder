@@ -30,7 +30,7 @@ cli_h1("Preparing Explorer App Data")
 
 cli_h2("Loading Gap App Data")
 
-gap_data_path <- here("shiny_app", "gap_analysis", "data", "shiny_data.rds")
+gap_data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
 if (!file.exists(gap_data_path)) {
   cli_abort(c(
     "Gap app data not found: {.path {gap_data_path}}",
@@ -58,27 +58,35 @@ if (length(species_summary_files) > 0) {
   cli_alert_info("Found {length(species_summary_files)} species summary files")
 
   # Read and combine all species summary files
+  want_cols <- c("grid", "basisofrecord", "specieskey", "species",
+                  "order", "family", "class", "occurrences")
+
   species_lookup <- rbindlist(
     lapply(species_summary_files, function(f) {
-      fread(f, select = c("grid", "basisofrecord", "specieskey", "species",
-                           "order", "family", "class", "occurrences"))
+      available <- names(fread(f, nrows = 0))
+      use_cols <- intersect(want_cols, available)
+      fread(f, select = use_cols)
     }),
     use.names = TRUE, fill = TRUE
   )
 
   # Aggregate to one row per species (basisofrecord == "all", grid10km)
+  # Use max (not sum) for occurrences because the same species appears in both
+  # by_order and by_family files with identical counts
   species_lookup <- species_lookup[
     basisofrecord == "all" & grid == "grid10km",
-    .(total_occurrences = sum(occurrences, na.rm = TRUE)),
-    by = .(specieskey, species, order, family, class)
+    .(total_occurrences = max(occurrences, na.rm = TRUE),
+      order = na.omit(order)[1],
+      family = na.omit(family)[1],
+      class = na.omit(class)[1]),
+    by = .(specieskey, species)
   ]
 
   cli_alert_info("Aggregated {scales::comma(nrow(species_lookup))} species")
 
-  # Add kingdom, phylum, threatStatus from taxonomic match summary
+  # Add/fill taxonomy from taxonomic match summary
   match_summary_path <- here(p_data_proc, "gaps", "taxonomic_match_summary.csv")
   if (!file.exists(match_summary_path)) {
-    # Try alternative location
     match_summary_path <- list.files(
       here(p_data_proc), pattern = "taxonomic_match_summary",
       recursive = TRUE, full.names = TRUE
@@ -86,36 +94,33 @@ if (length(species_summary_files) > 0) {
   }
 
   if (!is.na(match_summary_path) && file.exists(match_summary_path)) {
-    ms <- fread(match_summary_path,
-      select = intersect(
-        c("scientificName", "kingdom", "phylum", "threatStatus"),
-        names(fread(match_summary_path, nrows = 0))
-      )
-    )
+    ms <- fread(match_summary_path)
+    ms_cols <- intersect(c("scientificName", "kingdom", "phylum", "class", "order", "family", "threatStatus"), names(ms))
+    ms <- ms[, ..ms_cols]
     ms <- ms[!duplicated(ms, by = "scientificName")]
+    cli_alert_info("Match summary: {scales::comma(nrow(ms))} taxa")
 
-    species_lookup <- merge(
-      species_lookup, ms,
-      by.x = "species", by.y = "scientificName",
-      all.x = TRUE
-    )
-    n_threat <- sum(!is.na(species_lookup$threatStatus) & species_lookup$threatStatus != "")
-    cli_alert_success("Merged taxonomy: {scales::comma(n_threat)} species with threat status")
-  } else {
-    # Fallback: try from the gap app's taxonomic_match_summary
-    if (!is.null(explorer_data$taxonomic_match_summary)) {
-      ms <- as.data.table(explorer_data$taxonomic_match_summary)
-      cols <- intersect(c("scientificName", "kingdom", "phylum", "threatStatus"), names(ms))
-      if (length(cols) >= 2) {
-        ms <- ms[!duplicated(ms, by = "scientificName"), ..cols]
-        species_lookup <- merge(
-          species_lookup, ms,
-          by.x = "species", by.y = "scientificName",
-          all.x = TRUE
-        )
-        cli_alert_success("Merged taxonomy from gap app data")
+    # Simple named-vector lookup for each column
+    tax_cols <- setdiff(ms_cols, "scientificName")
+    for (col in tax_cols) {
+      lookup_vec <- setNames(ms[[col]], ms$scientificName)
+      matched <- lookup_vec[species_lookup$species]
+
+      if (col %in% names(species_lookup)) {
+        # Fill NAs in existing column
+        na_idx <- which(is.na(species_lookup[[col]]) | species_lookup[[col]] == "")
+        species_lookup[[col]][na_idx] <- unname(matched[na_idx])
+      } else {
+        # Create new column
+        species_lookup[[col]] <- unname(matched)
       }
+      n_ok <- sum(!is.na(species_lookup[[col]]) & species_lookup[[col]] != "", na.rm = TRUE)
+      cli_alert_info("  {col}: {scales::comma(n_ok)} non-NA")
     }
+
+    cli_alert_success("Taxonomy merge complete")
+  } else {
+    cli_alert_warning("No taxonomic_match_summary found")
   }
 
   setorder(species_lookup, -total_occurrences)
@@ -155,32 +160,43 @@ cli_h2("Building File Index")
 # Create an index mapping order → file path for fast lookup at runtime
 # This avoids expensive list.files() calls when the app needs to load data
 
-build_file_index <- function(pattern) {
-  files <- list.files(p_derived, pattern = pattern, recursive = TRUE, full.names = TRUE)
+build_file_index <- function(subdir, prefix_regex) {
+  # List files from both by_order and by_family directories
+  dirs <- c(
+    here(p_derived, "by_order", subdir),
+    here(p_derived, "by_family", subdir)
+  )
+  dirs <- dirs[dir.exists(dirs)]
+
+  if (length(dirs) == 0) return(data.table())
+
+  files <- unlist(lapply(dirs, list.files, pattern = "10km\\.csv$", full.names = TRUE))
   if (length(files) == 0) return(data.table())
 
   dt <- data.table(filepath = files)
   dt[, filename := basename(filepath)]
+  dt[, source_dir := fifelse(str_detect(filepath, "by_family"), "by_family", "by_order")]
 
   # Extract order (and optionally family) from filename
-  # Patterns: species_cell_{Order}_{grid}.csv or species_cell_{Order}_{Family}_{grid}.csv
-  dt[, parts := str_remove(filename, "^species_(cell|time|summary)_")]
+  dt[, parts := str_remove(filename, prefix_regex)]
   dt[, parts := str_remove(parts, "_10km\\.csv$")]
 
-  # If parts contain underscore, first part is order, second is family
-  dt[, order_name := str_extract(parts, "^[^_]+")]
-  dt[, family_name := fifelse(
-    str_detect(parts, "_"),
-    str_extract(parts, "(?<=_).+$"),
-    NA_character_
-  )]
+  # For by_family files: parts = "Order_Family"
+  # For by_order files: parts = coded order name (may contain underscores)
+  # We can only reliably parse by_family files for order/family
+  dt[source_dir == "by_family", order_name := str_extract(parts, "^[^_]+")]
+  dt[source_dir == "by_family", family_name := str_remove(parts, "^[^_]+_")]
 
-  dt[, c("filename", "parts") := NULL]
+  # For by_order files, the entire parts string is the order identifier
+  dt[source_dir == "by_order", order_name := parts]
+  dt[source_dir == "by_order", family_name := NA_character_]
+
+  dt[, c("filename", "parts", "source_dir") := NULL]
   dt
 }
 
-cell_index <- build_file_index("species_cell.*10km\\.csv$")
-time_index <- build_file_index("species_time_[^c].*10km\\.csv$")
+cell_index <- build_file_index("species_cell", "^species_cell_")
+time_index <- build_file_index("species_time", "^species_time_")
 
 if (nrow(cell_index) > 0) {
   explorer_data$file_index_cell <- as_tibble(cell_index)
@@ -189,6 +205,60 @@ if (nrow(cell_index) > 0) {
 if (nrow(time_index) > 0) {
   explorer_data$file_index_time <- as_tibble(time_index)
   cli_alert_success("Time file index: {nrow(time_index)} files")
+}
+
+# ===========================================================================
+# 4b. BUILD CELL-SPECIES INDEX (for "What Lives Here?" tab)
+# ===========================================================================
+
+cli_h2("Building Cell-Species Index")
+
+# Read all species_cell files, aggregate to cell × species totals.
+# This avoids scanning all files on every click in the app.
+# The full species_cell data is ~15 GB but aggregated to cell × species
+# (dropping yearmonth, basisofrecord detail) should be much smaller.
+
+if (nrow(cell_index) > 0) {
+  cli_alert_info("Reading {nrow(cell_index)} species_cell files...")
+
+  cell_species_parts <- lapply(seq_len(nrow(cell_index)), function(i) {
+    f <- cell_index$filepath[i]
+    if (!file.exists(f)) return(NULL)
+    dt <- fread(f, select = c("grid", "basisofrecord", "specieskey", "species",
+                                "eeacellcode", "occurrences"))
+    # Filter to grid10km, all basis, then aggregate
+    dt <- dt[grid == "grid10km" & basisofrecord == "all",
+             .(occurrences = sum(occurrences, na.rm = TRUE)),
+             by = .(specieskey, species, eeacellcode)]
+    if (i %% 200 == 0) cli_alert_info("  ... processed {i}/{nrow(cell_index)} files")
+    dt
+  })
+
+  cell_species_index <- rbindlist(cell_species_parts, use.names = TRUE)
+
+  # Final aggregation (in case species spans multiple files)
+  cell_species_index <- cell_species_index[,
+    .(occurrences = sum(occurrences, na.rm = TRUE)),
+    by = .(specieskey, species, eeacellcode)
+  ]
+
+  # Also compute n_cells per species and add to species_lookup
+  cells_per_species <- cell_species_index[, .(n_cells = uniqueN(eeacellcode)), by = specieskey]
+  if (!is.null(explorer_data$species_lookup)) {
+    sl <- as.data.table(explorer_data$species_lookup)
+    sl <- merge(sl, cells_per_species, by = "specieskey", all.x = TRUE)
+    sl[is.na(n_cells), n_cells := 0L]
+    explorer_data$species_lookup <- as_tibble(sl)
+  }
+
+  explorer_data$cell_species_index <- cell_species_index
+  index_size_mb <- object.size(cell_species_index) / 1024^2
+  cli_alert_success("Cell-species index: {scales::comma(nrow(cell_species_index))} rows ({round(index_size_mb, 1)} MB)")
+
+  rm(cell_species_parts)
+  gc()
+} else {
+  cli_alert_warning("No cell files found — 'What Lives Here?' tab will be unavailable")
 }
 
 # ===========================================================================
@@ -225,7 +295,7 @@ explorer_data$metadata <- list(
 
 cli_h2("Saving Explorer Data")
 
-explorer_output_dir <- here("shiny_app", "explorer", "data")
+explorer_output_dir <- here("shiny_app", "gbif_explorer", "data")
 if (!dir.exists(explorer_output_dir)) {
   dir.create(explorer_output_dir, recursive = TRUE)
   cli_alert_success("Created directory: {.path {explorer_output_dir}}")

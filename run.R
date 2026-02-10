@@ -100,7 +100,7 @@ run_reports <- function() {
 
 #' Launch the Gap Analysis app
 launch_gap_app <- function() {
-  gap_data_path <- here("shiny_app", "gap_analysis", "data", "shiny_data.rds")
+  gap_data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
 
   if (!file.exists(gap_data_path)) {
     cat("\u26a0\ufe0f  Gap app data not found. Preparing first...\n")
@@ -108,12 +108,12 @@ launch_gap_app <- function() {
   }
 
   cat("\U0001f680 Launching Gap Analysis app...\n")
-  shiny::runApp(here("shiny_app", "gap_analysis"))
+  shiny::runApp(here("shiny_app", "gap_app"))
 }
 
 #' Launch the GBIF Explorer app
 launch_explorer_app <- function() {
-  explorer_data_path <- here("shiny_app", "explorer", "data", "shiny_data.rds")
+  explorer_data_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
 
   if (!file.exists(explorer_data_path)) {
     cat("\u26a0\ufe0f  Explorer app data not found. Preparing first...\n")
@@ -121,7 +121,7 @@ launch_explorer_app <- function() {
   }
 
   cat("\U0001f680 Launching GBIF Explorer app...\n")
-  shiny::runApp(here("shiny_app", "explorer"))
+  shiny::runApp(here("shiny_app", "gbif_explorer"))
 }
 
 #' Run the full pipeline (core only; reports are separate)
@@ -160,13 +160,13 @@ status <- function() {
     cat("  Overview tables:", length(table_files), "\n")
   }
 
-  gap_app_path <- here("shiny_app", "gap_analysis", "data", "shiny_data.rds")
+  gap_app_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
   cat(
     "  Gap app data ready:",
     ifelse(file.exists(gap_app_path), "Yes", "No"), "\n"
   )
 
-  explorer_path <- here("shiny_app", "explorer", "data", "shiny_data.rds")
+  explorer_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
   cat(
     "  Explorer app data ready:",
     ifelse(file.exists(explorer_path), "Yes", "No"), "\n"

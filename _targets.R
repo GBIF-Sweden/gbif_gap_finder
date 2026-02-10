@@ -329,7 +329,7 @@ list(
 
       source(here("scripts", "11_prepare_gap_app_data.R"), local = TRUE)
 
-      shiny_path <- here("shiny_app", "gap_analysis", "data", "shiny_data.rds")
+      shiny_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
       stopifnot(file.exists(shiny_path))
 
       shiny_path
@@ -348,7 +348,7 @@ list(
 
       source(here("scripts", "12_prepare_explorer_app_data.R"), local = TRUE)
 
-      explorer_path <- here("shiny_app", "explorer", "data", "shiny_data.rds")
+      explorer_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
       stopifnot(file.exists(explorer_path))
 
       explorer_path
