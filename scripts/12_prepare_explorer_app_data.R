@@ -49,42 +49,41 @@ cli_h2("Building Species Lookup Table")
 
 p_derived <- here(p_data_proc, "derived")
 
-species_summary_files <- list.files(
-  p_derived, pattern = "species_summary.*10km\\.csv$",
-  recursive = TRUE, full.names = TRUE
+species_summary_files <- c(
+  list.files(here(p_derived, "by_order", "species_summary"),
+             pattern = "10km\\.csv$", full.names = TRUE),
+  list.files(here(p_derived, "by_family", "species_summary"),
+             pattern = "10km\\.csv$", full.names = TRUE)
 )
 
 if (length(species_summary_files) > 0) {
-  cli_alert_info("Found {length(species_summary_files)} species summary files")
+  cli_alert_info("Found {length(species_summary_files)} species summary files (by_order + by_family)")
 
-  # Read and combine all species summary files
-  want_cols <- c("grid", "basisofrecord", "specieskey", "species",
-                  "order", "family", "class", "occurrences")
-
+  # Read and combine — only need key columns for aggregation
   species_lookup <- rbindlist(
     lapply(species_summary_files, function(f) {
       available <- names(fread(f, nrows = 0))
-      use_cols <- intersect(want_cols, available)
+      use_cols <- intersect(c("grid", "basisofrecord", "specieskey", "species", "occurrences"), available)
       fread(f, select = use_cols)
     }),
     use.names = TRUE, fill = TRUE
   )
 
-  # Aggregate to one row per species (basisofrecord == "all", grid10km)
-  # Use max (not sum) for occurrences because the same species appears in both
-  # by_order and by_family files with identical counts
+  # One row per species: filter to grid10km + all basis, then aggregate
   species_lookup <- species_lookup[
     basisofrecord == "all" & grid == "grid10km",
-    .(total_occurrences = max(occurrences, na.rm = TRUE),
-      order = na.omit(order)[1],
-      family = na.omit(family)[1],
-      class = na.omit(class)[1]),
+    .(total_occurrences = max(occurrences, na.rm = TRUE)),
     by = .(specieskey, species)
   ]
 
-  cli_alert_info("Aggregated {scales::comma(nrow(species_lookup))} species")
+  # Collapse any remaining duplicates (same species name, different specieskey)
+  # by keeping the row with the most occurrences
+  setorder(species_lookup, species, -total_occurrences)
+  species_lookup <- species_lookup[!duplicated(species, fromLast = FALSE)]
 
-  # Add/fill taxonomy from taxonomic match summary
+  cli_alert_info("Aggregated {scales::comma(nrow(species_lookup))} unique species")
+
+  # ---- Fill taxonomy from match summary ----
   match_summary_path <- here(p_data_proc, "gaps", "taxonomic_match_summary.csv")
   if (!file.exists(match_summary_path)) {
     match_summary_path <- list.files(
@@ -95,37 +94,30 @@ if (length(species_summary_files) > 0) {
 
   if (!is.na(match_summary_path) && file.exists(match_summary_path)) {
     ms <- fread(match_summary_path)
-    ms_cols <- intersect(c("scientificName", "kingdom", "phylum", "class", "order", "family", "threatStatus"), names(ms))
+    ms_cols <- intersect(
+      c("scientificName", "kingdom", "phylum", "class", "order", "family", "threatStatus"),
+      names(ms)
+    )
     ms <- ms[, ..ms_cols]
     ms <- ms[!duplicated(ms, by = "scientificName")]
     cli_alert_info("Match summary: {scales::comma(nrow(ms))} taxa")
 
-    # Simple named-vector lookup for each column
+    # Add each taxonomy column via named-vector lookup
     tax_cols <- setdiff(ms_cols, "scientificName")
     for (col in tax_cols) {
       lookup_vec <- setNames(ms[[col]], ms$scientificName)
-      matched <- lookup_vec[species_lookup$species]
-
-      if (col %in% names(species_lookup)) {
-        # Fill NAs in existing column
-        na_idx <- which(is.na(species_lookup[[col]]) | species_lookup[[col]] == "")
-        species_lookup[[col]][na_idx] <- unname(matched[na_idx])
-      } else {
-        # Create new column
-        species_lookup[[col]] <- unname(matched)
-      }
+      species_lookup[[col]] <- unname(lookup_vec[species_lookup$species])
       n_ok <- sum(!is.na(species_lookup[[col]]) & species_lookup[[col]] != "", na.rm = TRUE)
       cli_alert_info("  {col}: {scales::comma(n_ok)} non-NA")
     }
-
     cli_alert_success("Taxonomy merge complete")
   } else {
-    cli_alert_warning("No taxonomic_match_summary found")
+    cli_alert_warning("No taxonomic_match_summary found — taxonomy columns will be missing")
   }
 
   setorder(species_lookup, -total_occurrences)
   explorer_data$species_lookup <- as_tibble(species_lookup)
-  cli_alert_success("Species lookup: {scales::comma(nrow(species_lookup))} species")
+  cli_alert_success("Species lookup: {scales::comma(nrow(species_lookup))} unique species")
 
 } else {
   cli_abort(c(
@@ -205,6 +197,31 @@ if (nrow(cell_index) > 0) {
 if (nrow(time_index) > 0) {
   explorer_data$file_index_time <- as_tibble(time_index)
   cli_alert_success("Time file index: {nrow(time_index)} files")
+
+  # Build species → time file lookup so the app can find temporal data
+  # without needing taxonomy. Read species names from each time file once.
+  cli_alert_info("Building species-to-time-file mapping...")
+  species_time_map <- rbindlist(lapply(seq_len(nrow(time_index)), function(i) {
+    f <- time_index$filepath[i]
+    if (!file.exists(f)) return(NULL)
+    sp <- tryCatch(
+      unique(fread(f, select = "species")$species),
+      error = function(e) character(0)
+    )
+    if (length(sp) == 0) return(NULL)
+    if (i %% 200 == 0) cli_alert_info("  ... scanned {i}/{nrow(time_index)} time files")
+    data.table(species = sp, time_filepath = f)
+  }))
+
+  # Deduplicate: if a species appears in multiple files, keep the by_family
+  # version (which has proper taxonomy names) over by_order (coded names)
+  species_time_map[, is_family := str_detect(time_filepath, "by_family")]
+  setorder(species_time_map, species, -is_family)
+  species_time_map <- species_time_map[!duplicated(species)]
+  species_time_map[, is_family := NULL]
+
+  explorer_data$species_time_map <- species_time_map
+  cli_alert_success("Species-time mapping: {scales::comma(nrow(species_time_map))} species with temporal data")
 }
 
 # ===========================================================================
