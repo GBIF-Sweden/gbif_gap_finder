@@ -79,6 +79,16 @@ body {
   align-items: center;
 }
 
+.main-header .form-group {
+  margin-bottom: 0;
+}
+
+.main-header .selectize-input {
+  min-height: 30px !important;
+  padding: 4px 10px !important;
+  font-size: 0.8rem !important;
+}
+
 .main-title {
   font-family: 'Fraunces', serif;
   font-size: 1.6rem;
@@ -188,41 +198,17 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   GAP SUMMARY PANELS (Overview tab)
+   GAP METRICS (Overview tab — inside cards)
    --------------------------------------------------------------------------- */
-.gap-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
-  border-left: 4px solid var(--sage);
-  margin-bottom: 1rem;
-}
-
-.gap-panel.spatial  { border-left-color: var(--sage); }
-.gap-panel.temporal { border-left-color: var(--slate); }
-.gap-panel.taxonomic { border-left-color: var(--sand); }
-.gap-panel.threatened { border-left-color: var(--coral); }
-
-.gap-panel-title {
-  font-family: 'Fraunces', serif;
-  font-size: 1rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.gap-panel .gap-metric {
+.gap-metric {
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 1.8rem;
+  font-size: 1.6rem;
   font-weight: 500;
   line-height: 1.2;
-  margin-bottom: 0.25rem;
+  white-space: nowrap;
 }
 
-.gap-panel .gap-detail {
+.gap-detail {
   font-size: 0.82rem;
   color: var(--text-secondary);
   line-height: 1.5;

@@ -24,13 +24,10 @@ library(lubridate)
 # LOAD DATA
 # =============================================================================
 
-data_paths <- c("data/shiny_data.rds", "../data/shiny_data.rds", "shiny_data.rds")
-data_path <- NULL
-for (p in data_paths) {
-  if (file.exists(p)) { data_path <- p; break }
-}
-if (is.null(data_path)) stop("shiny_data.rds not found. Run scripts/11_prepare_shiny_data.R")
+data_path <- "data/shiny_data.rds"
+if (!file.exists(data_path)) stop("shiny_data.rds not found in data/. Run scripts/11_prepare_shiny_data.R")
 
+message("Loading shiny data from: ", normalizePath(data_path))
 app_data <- readRDS(data_path)
 
 # Safe accessor
@@ -44,6 +41,7 @@ cell_recency    <- safe_get("cell_recency_10km")
 cell_summary    <- safe_get("cell_summary_10km")
 time_summary    <- safe_get("time_summary_10km")
 order_5yr       <- safe_get("order_5yr")
+order_change    <- safe_get("order_change")
 order_summary   <- safe_get("order_summary")
 top_orders      <- safe_get("top_orders")
 tax_by_threat   <- safe_get("tax_by_threat")
@@ -63,14 +61,30 @@ country_name  <- tryCatch(yaml::read_yaml("../../config.yml")$country$name, erro
 
 # Plotly theme helper — light background, warm palette
 plotly_layout <- function(p, ...) {
-  p |> layout(
+  args <- list(...)
+  
+  # Default axis settings
+  default_xaxis <- list(gridcolor = "#e8e7e1", zerolinecolor = "#e0dfda")
+  default_yaxis <- list(gridcolor = "#e8e7e1", zerolinecolor = "#e0dfda")
+  
+  # Merge caller's axis settings ON TOP of defaults (caller wins)
+  if (!is.null(args$xaxis)) {
+    args$xaxis <- modifyList(default_xaxis, args$xaxis)
+  } else {
+    args$xaxis <- default_xaxis
+  }
+  if (!is.null(args$yaxis)) {
+    args$yaxis <- modifyList(default_yaxis, args$yaxis)
+  } else {
+    args$yaxis <- default_yaxis
+  }
+  
+  do.call(layout, c(list(
+    p = p,
     paper_bgcolor = "transparent",
     plot_bgcolor  = "#fafaf7",
-    font = list(color = "#2d2d2d", family = "Outfit"),
-    xaxis = list(gridcolor = "#e8e7e1", zerolinecolor = "#e0dfda"),
-    yaxis = list(gridcolor = "#e8e7e1", zerolinecolor = "#e0dfda"),
-    ...
-  )
+    font = list(color = "#2d2d2d", family = "Outfit")
+  ), args))
 }
 
 # Palette
@@ -103,10 +117,18 @@ ui <- fluidPage(
       div(class = "main-subtitle", "Identify and prioritise biodiversity data gaps")
     ),
     div(class = "header-stats",
-      if (!is.null(metadata)) tagList(
-        span("Prepared: ", span(class = "header-stat-value",
-          format(metadata$created_at, "%d %b %Y"))),
-        span("Datasets: ", span(class = "header-stat-value", metadata$n_datasets))
+      div(style = "display:flex; align-items:center; gap:1.5rem;",
+        if (!is.null(metadata)) tagList(
+          span("Prepared: ", span(class = "header-stat-value",
+            format(metadata$created_at, "%d %b %Y"))),
+          span("Datasets: ", span(class = "header-stat-value", metadata$n_datasets))
+        ),
+        div(style = "display:flex; align-items:center; gap:0.4rem;",
+          span(style = "font-size:0.8rem; color:#6b6b6b;", "Record type:"),
+          selectInput("basis_filter", NULL,
+            choices = basis_types,
+            selected = "all",
+            width = "180px"))
       )
     )
   ),
@@ -140,22 +162,28 @@ ui <- fluidPage(
               div(class = "stat-label", "Data Prepared"))
           ),
 
-          # Four gap summary panels
+          # Four gap summary panels with visual indicators
           fluidRow(
             column(6,
-              div(class = "gap-panel spatial",
-                div(class = "gap-panel-title", icon("map"), "Spatial Gaps"),
-                div(class = "gap-metric", style = paste0("color:", pal$sage, ";"),
-                  textOutput("ov_spatial_pct", inline = TRUE)),
+              div(class = "card",
+                div(class = "card-title", icon("map"), "Spatial Gaps"),
+                div(style = "display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;",
+                  div(class = "gap-metric", style = paste0("color:", pal$sage, ";"),
+                    textOutput("ov_spatial_pct", inline = TRUE)),
+                  div(style = "flex:1;", uiOutput("ov_spatial_bar"))
+                ),
                 div(class = "gap-detail",
                   textOutput("ov_spatial_detail", inline = TRUE))
               )
             ),
             column(6,
-              div(class = "gap-panel temporal",
-                div(class = "gap-panel-title", icon("clock"), "Temporal Gaps"),
-                div(class = "gap-metric", style = paste0("color:", pal$slate, ";"),
-                  textOutput("ov_temporal_pct", inline = TRUE)),
+              div(class = "card",
+                div(class = "card-title", icon("clock"), "Temporal Gaps"),
+                div(style = "display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;",
+                  div(class = "gap-metric", style = paste0("color:", pal$slate, ";"),
+                    textOutput("ov_temporal_pct", inline = TRUE)),
+                  div(style = "flex:1;", uiOutput("ov_temporal_bar"))
+                ),
                 div(class = "gap-detail",
                   textOutput("ov_temporal_detail", inline = TRUE))
               )
@@ -163,29 +191,40 @@ ui <- fluidPage(
           ),
           fluidRow(
             column(6,
-              div(class = "gap-panel taxonomic",
-                div(class = "gap-panel-title", icon("leaf"), "Taxonomic Gaps"),
-                div(class = "gap-metric", style = paste0("color:", pal$sand, ";"),
-                  textOutput("ov_tax_pct", inline = TRUE)),
+              div(class = "card",
+                div(class = "card-title", icon("leaf"), "Taxonomic Gaps"),
+                div(style = "display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;",
+                  div(class = "gap-metric", style = paste0("color:", pal$sand, ";"),
+                    textOutput("ov_tax_pct", inline = TRUE)),
+                  div(style = "flex:1;", uiOutput("ov_tax_bar"))
+                ),
                 div(class = "gap-detail",
                   textOutput("ov_tax_detail", inline = TRUE))
               )
             ),
             column(6,
-              div(class = "gap-panel threatened",
-                div(class = "gap-panel-title", icon("exclamation-triangle"), "Threatened Species"),
-                div(class = "gap-metric", style = paste0("color:", pal$coral, ";"),
-                  textOutput("ov_threat_pct", inline = TRUE)),
+              div(class = "card",
+                div(class = "card-title", icon("exclamation-triangle"), "Threatened Species"),
+                div(style = "display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;",
+                  div(class = "gap-metric", style = paste0("color:", pal$coral, ";"),
+                    textOutput("ov_threat_pct", inline = TRUE)),
+                  div(style = "flex:1;", uiOutput("ov_threat_bar"))
+                ),
                 div(class = "gap-detail",
                   textOutput("ov_threat_detail", inline = TRUE))
               )
             )
           ),
 
-          # Coverage overview chart
-          div(class = "card",
-            div(class = "card-title", icon("chart-bar"), "Coverage Overview"),
-            plotlyOutput("overview_coverage", height = "260px"))
+          # Coverage overview charts
+          fluidRow(
+            column(7, div(class = "card",
+              div(class = "card-title", icon("chart-bar"), "Coverage Overview"),
+              plotlyOutput("overview_coverage", height = "260px"))),
+            column(5, div(class = "card",
+              div(class = "card-title", icon("calendar-alt"), "Temporal Span"),
+              plotlyOutput("overview_temporal_span", height = "260px")))
+          )
         )
       ),
 
@@ -362,14 +401,26 @@ ui <- fluidPage(
           div(class = "card",
             div(class = "card-title", icon("tasks"), "Recommended Actions"),
             uiOutput("action_table")),
+          div(class = "card",
+            div(style = "display:flex; align-items:center; justify-content:space-between;",
+              div(
+                div(class = "card-title", icon("download"), "Export Action Plan"),
+                div(style = "font-size:0.85rem; color:#6b6b6b;",
+                  "Download all priority items as a single CSV: zero-coverage cells, stale cells, and missing threatened species.")),
+              div(style = "padding-left:1rem;",
+                downloadButton("download_action_plan", "Download CSV",
+                  class = "btn-download", style = "white-space:nowrap;"))
+            )),
           fluidRow(
             column(6, div(class = "card",
               div(class = "card-title", icon("map-marker-alt"), "Zero Coverage Cells"),
-              leafletOutput("zero_map", height = "350px"),
+              leafletOutput("zero_map", height = "400px"),
               div(style = "margin-top:0.75rem;"),
               DTOutput("zero_table"))),
             column(6, div(class = "card",
               div(class = "card-title", icon("hourglass-half"), "Stale Cells"),
+              leafletOutput("stale_map", height = "400px"),
+              div(style = "margin-top:0.75rem;"),
               DTOutput("stale_table")))
           )
         )
@@ -426,10 +477,15 @@ ui <- fluidPage(
 server <- function(input, output, session) {
 
   # ---- Reactive filtered data ----
+  basis_selected <- reactive({
+    b <- input$basis_filter
+    if (is.null(b) || b == "") "all" else b
+  })
+
   time_filtered <- reactive({
     req(time_summary)
     time_summary |> filter(
-      basisofrecord == "all",
+      basisofrecord == basis_selected(),
       year >= input$year_range[1],
       year <= input$year_range[2])
   })
@@ -503,16 +559,18 @@ server <- function(input, output, session) {
 
   # Threatened panel
   output$ov_threat_pct <- renderText({
-    if (!is.null(dashboard) && dashboard$threatened_in_reference[1] > 0)
-      paste0(comma(dashboard$threatened_missing[1]), " missing")
-    else "No threat data"
+    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat) && nrow(tax_by_threat) > 0) {
+      n_miss <- sum(tax_by_threat$n_missing[tax_by_threat$threatStatus %in% c("CR", "EN", "VU", "NT")], na.rm = TRUE)
+      paste0(comma(n_miss), " missing")
+    } else "No threat data"
   })
   output$ov_threat_detail <- renderText({
-    if (!is.null(dashboard) && dashboard$threatened_in_reference[1] > 0)
-      paste0(comma(dashboard$threatened_in_reference[1]),
-             " threatened species in backbone, ",
-             comma(dashboard$threatened_in_gbif[1]), " found in GBIF.")
-    else "Threat status data not available in the current backbone. Enable a red list in config.yml to see threatened species analysis."
+    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat) && nrow(tax_by_threat) > 0) {
+      df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT"))
+      paste0(comma(sum(df$n_ref_total)), " threatened species in backbone, ",
+             comma(sum(df$n_in_gbif)), " found in GBIF (",
+             round(100 * sum(df$n_in_gbif) / sum(df$n_ref_total), 1), "% coverage).")
+    } else "Threat status data not available in the current backbone. Enable a red list in config.yml to see threatened species analysis."
   })
 
   # Overview coverage chart
@@ -538,6 +596,70 @@ server <- function(input, output, session) {
         legend = list(orientation = "h", y = -0.2))
   })
 
+  # Progress bar helper
+  make_progress_bar <- function(pct, color, bg_color) {
+    pct <- min(max(pct, 0), 100)
+    tags$div(
+      style = paste0("background:", bg_color, "; border-radius:6px; height:10px; width:100%; overflow:hidden;"),
+      tags$div(style = paste0(
+        "background:", color, "; height:100%; width:", pct, "%; border-radius:6px; transition:width 0.5s ease;"
+      ))
+    )
+  }
+
+  # Spatial progress bar
+  output$ov_spatial_bar <- renderUI({
+    pct <- if (!is.null(dashboard)) as.numeric(dashboard$cells_10km_pct_coverage[1]) else 0
+    make_progress_bar(pct, pal$sage, "#e8ede9")
+  })
+
+  # Temporal progress bar (inverse: % not stale = freshness)
+  output$ov_temporal_bar <- renderUI({
+    pct <- if (!is.null(dashboard)) 100 - as.numeric(dashboard$pct_stale_5y_10km[1]) else 0
+    make_progress_bar(pct, pal$slate, "#e2e8ee")
+  })
+
+  # Taxonomic progress bar
+  output$ov_tax_bar <- renderUI({
+    pct <- if (!is.null(dashboard)) as.numeric(dashboard$taxa_pct_coverage[1]) else 0
+    make_progress_bar(pct, pal$sand, "#ede8df")
+  })
+
+  # Threatened progress bar
+  output$ov_threat_bar <- renderUI({
+    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat) && nrow(tax_by_threat) > 0) {
+      df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT"))
+      if (sum(df$n_ref_total) > 0) {
+        pct <- round(100 * sum(df$n_in_gbif) / sum(df$n_ref_total), 1)
+      } else { pct <- 0 }
+      make_progress_bar(pct, pal$coral, "#ede3e0")
+    } else {
+      tags$div(
+        style = "background:#eee; border-radius:6px; height:10px; width:100%;",
+        tags$div(style = "background:#ccc; height:100%; width:0%; border-radius:6px;")
+      )
+    }
+  })
+
+  # Temporal span chart — decade-level occurrence volume
+  output$overview_temporal_span <- renderPlotly({
+    req(time_summary)
+    df <- time_summary |>
+      filter(basisofrecord == "all", year >= 1900) |>
+      mutate(decade = floor(year / 10) * 10) |>
+      group_by(decade) |>
+      summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+      mutate(decade_label = paste0(decade, "s"))
+
+    plot_ly(df, x = ~decade, y = ~occ, type = "bar",
+      marker = list(color = pal$slate,
+                    line = list(color = pal$slate2, width = 0.5)),
+      hovertemplate = "%{x}s: %{y:,.0f} occurrences<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "", dtick = 20),
+        yaxis = list(title = "Occurrences per decade"))
+  })
+
   # ===================================================================
   # SPATIAL
   # ===================================================================
@@ -550,14 +672,14 @@ server <- function(input, output, session) {
       setView(lng = 16, lat = 63, zoom = 5)
   })
 
-  # Reactive map update when map_var changes
+  # Reactive map update when map_var or basis changes
   observe({
     req(grid_10km, spatial_gaps, input$map_var)
 
-    sf_base <- spatial_gaps |> filter(basisofrecord == "all")
+    sf_base <- spatial_gaps |> filter(basisofrecord == basis_selected())
 
     if (input$map_var == "stale" && !is.null(cell_recency)) {
-      rec <- cell_recency |> filter(basisofrecord == "all") |>
+      rec <- cell_recency |> filter(basisofrecord == basis_selected()) |>
         select(eeacellcode, staleness_months)
       map_sf <- grid_10km |> left_join(rec, by = "eeacellcode")
       vals   <- map_sf$staleness_months
@@ -597,7 +719,7 @@ server <- function(input, output, session) {
 
   output$spatial_stats <- renderTable({
     req(spatial_gaps)
-    sf <- spatial_gaps |> filter(basisofrecord == "all")
+    sf <- spatial_gaps |> filter(basisofrecord == basis_selected())
     tibble(
       Metric = c("Total 10km Cells", "Cells with Data", "Coverage",
                   "Total Occurrences", "Median per Cell"),
@@ -625,7 +747,7 @@ server <- function(input, output, session) {
 
   output$spatial_hist <- renderPlotly({
     req(spatial_gaps)
-    df <- spatial_gaps |> filter(basisofrecord == "all", occurrences > 0)
+    df <- spatial_gaps |> filter(basisofrecord == basis_selected(), occurrences > 0)
     plot_ly(df, x = ~log_occ, type = "histogram",
       marker = list(color = pal$sage, line = list(color = pal$sage2, width = 0.5))) |>
       plotly_layout(
@@ -706,13 +828,13 @@ server <- function(input, output, session) {
       text = ~label, textposition = "auto",
       textfont = list(size = 10, color = "#fff"),
       orientation = "h") |>
-      add_trace(x = ~miss, name = "Missing",
+      add_trace(x = ~miss, name = "Missing from GBIF",
         marker = list(color = pal$sand2),
         text = "", textposition = "none") |>
       plotly_layout(
         barmode = "stack",
-        xaxis = list(title = "Number of species"),
-        yaxis = list(title = ""),
+        xaxis = list(title = "Species count"),
+        yaxis = list(title = "Order", categoryorder = "total ascending"),
         legend = list(orientation = "h", y = -0.15))
   })
 
@@ -734,31 +856,51 @@ server <- function(input, output, session) {
       textfont = list(size = 10, color = "#fff"),
       orientation = "h") |>
       plotly_layout(
-        xaxis = list(title = "Coverage %", range = c(0, 105)),
-        yaxis = list(title = ""))
+        xaxis = list(title = "Coverage (%)", range = c(0, 105)),
+        yaxis = list(title = "Family", categoryorder = "total ascending"))
   })
 
   output$tax_change <- renderPlotly({
-    req(order_summary)
-    # Derive recent vs historical from order_summary
-    df <- order_summary |>
-      filter(grid == "grid10km") |>
-      mutate(
-        period = ifelse(first_year < 2000 & last_year >= 2000, "both",
-                 ifelse(last_year < 2000, "historical", "recent"))) |>
-      filter(period == "both") |>
-      # We don't have year-level split in order_summary, so show top orders by total
-      arrange(desc(total_occurrences)) |>
-      slice_head(n = 15) |>
-      mutate(
-        bar_col = ifelse(total_occurrences >= median(total_occurrences), pal$sage, pal$sand))
+    # Use order_change if available (has pct_change between historical and recent periods)
+    if (!is.null(order_change) && nrow(order_change) > 0) {
+      df <- order_change |>
+        arrange(desc(abs(pct_change))) |>
+        slice_head(n = 15) |>
+        mutate(bar_col = ifelse(pct_change >= 0, pal$sage, pal$coral))
 
-    plot_ly(df, y = ~reorder(order, total_occurrences), x = ~total_occurrences, type = "bar",
-      marker = list(color = ~bar_col), orientation = "h",
-      hovertemplate = "%{y}: %{x:,.0f} occurrences<extra></extra>") |>
-      plotly_layout(
-        xaxis = list(title = "Total occurrences"),
-        yaxis = list(title = ""))
+      plot_ly(df, y = ~reorder(order, pct_change), x = ~pct_change, type = "bar",
+        marker = list(color = ~bar_col), orientation = "h",
+        hovertemplate = "%{y}: %{x:+.1f}%<extra></extra>") |>
+        plotly_layout(
+          xaxis = list(title = "Change (%)",
+                       zeroline = TRUE, zerolinecolor = "#ccc", zerolinewidth = 1),
+          yaxis = list(title = "Order"))
+
+    } else if (!is.null(order_5yr)) {
+      # Fallback: derive from order_5yr
+      df <- order_5yr |>
+        mutate(era = ifelse(period_start >= 2000, "Recent", "Historical")) |>
+        group_by(order, era) |>
+        summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+        pivot_wider(names_from = era, values_from = occ, values_fill = 0) |>
+        filter(Historical > 0) |>
+        mutate(
+          pct_change = round(100 * (Recent - Historical) / Historical, 1),
+          bar_col = ifelse(pct_change >= 0, pal$sage, pal$coral)) |>
+        arrange(desc(abs(pct_change))) |>
+        slice_head(n = 15)
+
+      plot_ly(df, y = ~reorder(order, pct_change), x = ~pct_change, type = "bar",
+        marker = list(color = ~bar_col), orientation = "h",
+        hovertemplate = "%{y}: %{x:+.1f}%<extra></extra>") |>
+        plotly_layout(
+          xaxis = list(title = "Change (%)",
+                       zeroline = TRUE, zerolinecolor = "#ccc", zerolinewidth = 1),
+          yaxis = list(title = "Order"))
+
+    } else {
+      plotly_empty() |> plotly_layout()
+    }
   })
 
   # ===================================================================
@@ -817,17 +959,27 @@ server <- function(input, output, session) {
   })
 
   output$threat_table <- renderDT({
-    # tax_by_order has n_threatened — show orders with missing threatened species
-    req(tax_by_order)
-    df <- tax_by_order |>
-      filter(n_threatened > 0) |>
-      mutate(threatened_missing = n_threatened - n_threatened_in_gbif) |>
-      filter(threatened_missing > 0) |>
-      select(order, n_threatened, n_threatened_in_gbif, threatened_missing, pct_coverage) |>
-      arrange(desc(threatened_missing))
+    # Use priority_taxa_missing (individual missing threatened species)
+    priority_taxa <- safe_get("priority_taxa_missing")
+    if (!is.null(priority_taxa) && nrow(priority_taxa) > 0) {
+      df <- priority_taxa |>
+        filter(threatStatus %in% c("CR", "EN")) |>
+        select(any_of(c("scientificName", "threatStatus", "kingdom", "phylum",
+                         "class", "order", "family"))) |>
+        arrange(factor(threatStatus, levels = c("CR", "EN")), order, family)
+    } else {
+      df <- tibble(Message = "No missing CR/EN species found.")
+    }
 
-    if (nrow(df) == 0) {
-      df <- tibble(Message = "No threatened species data available. Enable a red list in config.yml.")
+    # Force categorical columns to use dropdown filters
+    col_names <- names(df)
+    filter_types <- lapply(col_names, function(cn) {
+      if (cn %in% c("threatStatus", "kingdom", "phylum", "class", "order", "family")) "factor"
+      else "character"
+    })
+    # Convert dropdown columns to factor so DT renders them as selects
+    for (cn in c("threatStatus", "kingdom", "phylum", "class", "order", "family")) {
+      if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
 
     datatable(df, options = list(pageLength = 15, scrollX = TRUE),
@@ -839,7 +991,11 @@ server <- function(input, output, session) {
   # ===================================================================
 
   output$stat_zero <- renderText({
-    if (!is.null(priority_zero)) comma(nrow(priority_zero)) else "0"
+    if (!is.null(priority_zero) && nrow(priority_zero) > 0) {
+      comma(nrow(priority_zero))
+    } else if (!is.null(dashboard)) {
+      comma(dashboard$n_zero_coverage_cells[1])
+    } else "0"
   })
   output$stat_stale <- renderText({
     if (!is.null(priority_stale)) comma(nrow(priority_stale)) else "0"
@@ -849,48 +1005,139 @@ server <- function(input, output, session) {
   })
 
   output$action_table <- renderUI({
-    n_zero  <- if (!is.null(priority_zero)) nrow(priority_zero) else 0
+    n_zero  <- if (!is.null(priority_zero) && nrow(priority_zero) > 0) nrow(priority_zero) else {
+      # Fallback: derive from dashboard
+      if (!is.null(dashboard)) dashboard$n_zero_coverage_cells[1] else 0
+    }
     n_stale <- if (!is.null(priority_stale)) nrow(priority_stale) else 0
     n_taxa  <- if (!is.null(dashboard)) dashboard$n_priority_taxa[1] else 0
 
     HTML(paste0('
-      <table class="action-table">
-        <tr><td><span class="priority-badge priority-high">HIGH</span></td>
-            <td>Survey zero-coverage grid cells</td>
-            <td style="text-align:right;color:', pal$sage, ';">', comma(n_zero), ' cells</td></tr>
-        <tr><td><span class="priority-badge priority-high">HIGH</span></td>
-            <td>Monitor CR and EN species lacking GBIF records</td>
-            <td style="text-align:right;color:', pal$sage, ';">', comma(n_taxa), ' species</td></tr>
-        <tr><td><span class="priority-badge priority-medium">MEDIUM</span></td>
-            <td>Re-survey cells with >5 years since last observation</td>
-            <td style="text-align:right;color:', pal$sage, ';">', comma(n_stale), ' cells</td></tr>
-        <tr><td><span class="priority-badge priority-low">LOW</span></td>
-            <td>Expand citizen science programs to low-coverage regions</td>
-            <td style="text-align:right;color:', pal$muted, ';">Ongoing</td></tr>
+      <table style="width:100%; border-collapse:separate; border-spacing:0 0.6rem;">
+        <tr>
+          <td style="width:100px; vertical-align:middle;">
+            <span class="priority-badge priority-high" style="font-size:0.85rem; padding:0.4rem 1rem;">HIGH</span></td>
+          <td style="vertical-align:middle; font-size:1.15rem; padding:0.75rem 0.5rem;">
+            Survey zero-coverage grid cells</td>
+          <td style="text-align:right; vertical-align:middle; padding:0.75rem 0.5rem;
+                     color:', pal$sage, '; font-family:IBM Plex Mono,monospace; font-size:1.3rem; font-weight:500;">
+            ', comma(n_zero), ' cells</td>
+        </tr>
+        <tr>
+          <td style="vertical-align:middle;">
+            <span class="priority-badge priority-high" style="font-size:0.85rem; padding:0.4rem 1rem;">HIGH</span></td>
+          <td style="vertical-align:middle; font-size:1.15rem; padding:0.75rem 0.5rem;">
+            Monitor CR and EN species lacking GBIF records</td>
+          <td style="text-align:right; vertical-align:middle; padding:0.75rem 0.5rem;
+                     color:', pal$sage, '; font-family:IBM Plex Mono,monospace; font-size:1.3rem; font-weight:500;">
+            ', comma(n_taxa), ' species</td>
+        </tr>
+        <tr>
+          <td style="vertical-align:middle;">
+            <span class="priority-badge priority-medium" style="font-size:0.85rem; padding:0.4rem 1rem;">MED</span></td>
+          <td style="vertical-align:middle; font-size:1.15rem; padding:0.75rem 0.5rem;">
+            Re-survey cells with &gt;5 years since last observation</td>
+          <td style="text-align:right; vertical-align:middle; padding:0.75rem 0.5rem;
+                     color:', pal$sage, '; font-family:IBM Plex Mono,monospace; font-size:1.3rem; font-weight:500;">
+            ', comma(n_stale), ' cells</td>
+        </tr>
+        <tr>
+          <td style="vertical-align:middle;">
+            <span class="priority-badge priority-low" style="font-size:0.85rem; padding:0.4rem 1rem;">LOW</span></td>
+          <td style="vertical-align:middle; font-size:1.15rem; padding:0.75rem 0.5rem;">
+            Expand citizen science programs to low-coverage regions</td>
+          <td style="text-align:right; vertical-align:middle; padding:0.75rem 0.5rem;
+                     color:', pal$muted, '; font-size:1.1rem;">
+            Ongoing</td>
+        </tr>
       </table>'))
   })
 
   # Zero coverage map
   output$zero_map <- renderLeaflet({
-    req(grid_10km, priority_zero)
+    req(grid_10km)
+
+    if (is.null(priority_zero) || nrow(priority_zero) == 0) {
+      return(
+        leaflet() |>
+          addProviderTiles(providers$CartoDB.Positron) |>
+          setView(lng = 16, lat = 63, zoom = 5)
+      )
+    }
 
     zero_codes <- priority_zero$eeacellcode
     zero_sf <- grid_10km |> filter(eeacellcode %in% zero_codes)
+
+    if (nrow(zero_sf) == 0) {
+      # Codes might not match — show empty map
+      return(
+        leaflet(grid_10km) |>
+          addProviderTiles(providers$CartoDB.Positron)
+      )
+    }
 
     leaflet(zero_sf) |>
       addProviderTiles(providers$CartoDB.Positron) |>
       addPolygons(
         fillColor   = pal$coral,
-        fillOpacity = 0.6,
+        fillOpacity = 0.7,
         weight      = 0.5,
         color       = pal$coral,
-        popup       = ~paste0("Cell: ", eeacellcode))
+        popup       = ~paste0("Cell: ", eeacellcode, "<br>Status: Zero coverage"))
   })
 
   output$zero_table <- renderDT({
     req(priority_zero)
     datatable(priority_zero |> slice_head(n = 100),
-      options = list(pageLength = 8, scrollX = TRUE), style = "bootstrap4")
+      options = list(pageLength = 6, scrollX = TRUE), style = "bootstrap4")
+  })
+
+  # Stale cells map — color-coded by staleness
+  output$stale_map <- renderLeaflet({
+    req(grid_10km)
+
+    if (is.null(priority_stale) || nrow(priority_stale) == 0) {
+      return(
+        leaflet() |>
+          addProviderTiles(providers$CartoDB.Positron) |>
+          setView(lng = 16, lat = 63, zoom = 5)
+      )
+    }
+
+    stale_join <- priority_stale |>
+      mutate(years_stale = staleness_months / 12) |>
+      select(eeacellcode, staleness_months, years_stale, total_occurrences)
+
+    stale_sf <- grid_10km |>
+      inner_join(stale_join, by = "eeacellcode")
+
+    if (nrow(stale_sf) == 0) {
+      return(
+        leaflet(grid_10km) |>
+          addProviderTiles(providers$CartoDB.Positron)
+      )
+    }
+
+    yrs <- stale_sf$years_stale
+
+    pal_stale <- colorNumeric(
+      palette = c(pal$sand, pal$coral, "#8b2020"),
+      domain = yrs,
+      na.color = "#ccc")
+
+    leaflet(stale_sf) |>
+      addProviderTiles(providers$CartoDB.Positron) |>
+      addPolygons(
+        fillColor   = ~pal_stale(yrs),
+        fillOpacity = 0.7,
+        weight      = 0.3,
+        color       = "#999",
+        popup       = ~paste0(
+          "Cell: ", eeacellcode,
+          "<br>Last sampled: ", round(yrs, 1), " years ago",
+          "<br>Total occurrences: ", comma(total_occurrences))) |>
+      addLegend("bottomright", pal = pal_stale, values = yrs,
+        title = "Years since sampled")
   })
 
   output$stale_table <- renderDT({
@@ -902,8 +1149,49 @@ server <- function(input, output, session) {
                          "last_ym", "priority_level"))) |>
         arrange(desc(years_stale)) |>
         slice_head(n = 100),
-      options = list(pageLength = 8, scrollX = TRUE), style = "bootstrap4")
+      options = list(pageLength = 6, scrollX = TRUE), style = "bootstrap4")
   })
+
+  # Export combined action plan
+  output$download_action_plan <- downloadHandler(
+    filename = function() {
+      paste0("action_plan_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      parts <- list()
+
+      # Zero coverage cells
+      if (!is.null(priority_zero) && nrow(priority_zero) > 0) {
+        parts[[1]] <- priority_zero |>
+          mutate(priority_type = "zero_coverage") |>
+          select(priority_type, any_of(c("eeacellcode", "grid", "priority_reason", "priority_level")))
+      }
+
+      # Stale cells
+      if (!is.null(priority_stale) && nrow(priority_stale) > 0) {
+        parts[[length(parts) + 1]] <- priority_stale |>
+          mutate(priority_type = "stale_cell",
+                 years_stale = round(staleness_months / 12, 1)) |>
+          select(priority_type, any_of(c("eeacellcode", "grid", "years_stale",
+                   "staleness_months", "total_occurrences", "last_ym",
+                   "priority_reason", "priority_level")))
+      }
+
+      # Missing threatened species
+      priority_taxa <- safe_get("priority_taxa_missing")
+      if (!is.null(priority_taxa) && nrow(priority_taxa) > 0) {
+        parts[[length(parts) + 1]] <- priority_taxa |>
+          filter(threatStatus %in% c("CR", "EN")) |>
+          mutate(priority_type = "missing_threatened") |>
+          select(priority_type, any_of(c("scientificName", "threatStatus",
+                   "kingdom", "phylum", "class", "order", "family")))
+      }
+
+      # Combine with bind_rows (fills missing columns with NA)
+      combined <- bind_rows(parts)
+      readr::write_csv(combined, file)
+    }
+  )
 
   # ===================================================================
   # EXPLORER
@@ -922,14 +1210,20 @@ server <- function(input, output, session) {
     datatable(explorer_data(),
       options = list(pageLength = 15, scrollX = TRUE),
       style = "bootstrap4", filter = "top")
-  })
+  }, server = TRUE)
 
   output$explorer_download <- downloadHandler(
     filename = function() {
-      paste0(input$explorer_ds, "_", Sys.Date(), ".csv")
+      paste0(input$explorer_ds, "_filtered_", Sys.Date(), ".csv")
     },
     content = function(file) {
-      readr::write_csv(explorer_data(), file)
+      # Get filtered row indices from DT
+      filtered_rows <- input$explorer_table_rows_all
+      df <- explorer_data()
+      if (!is.null(filtered_rows)) {
+        df <- df[filtered_rows, , drop = FALSE]
+      }
+      readr::write_csv(df, file)
     }
   )
 }
