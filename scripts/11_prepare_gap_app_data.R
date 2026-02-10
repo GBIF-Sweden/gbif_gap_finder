@@ -1,6 +1,6 @@
-# scripts/11_prepare_shiny_data.R
+# scripts/11_prepare_gap_app_data.R
 # ==============================================================================
-# Prepare Data for Shiny App / Interactive Visualization
+# Prepare Data for Gap Analysis App
 # ==============================================================================
 # This script:
 # - Reads all outputs from the gap analysis pipeline (scripts 06-10)
@@ -10,8 +10,7 @@
 # - Saves everything as a single .rds file bundle
 #
 # Run this after: Scripts 01-10 (full pipeline)
-# Output in: shiny_app/gap_app/data/shiny_data.rds
-# and shiny_app/gbif_explorer/data/shiny_data.rds
+# Output: shiny_app/data/shiny_data.rds
 #
 # The output bundle contains:
 # - Grid geometries (simplified for web rendering)
@@ -47,21 +46,13 @@ p_tables <- here(p_output, "tables")
 p_integrated <- here(p_output, "tables", "integrated")
 p_derived <- here(p_data_proc, "derived")
 
-# Output paths - save into each app's data folder
-app_data_dirs <- c(
-  here("shiny_app", "gap_app", "data"),
-  here("shiny_app", "gbif_explorer", "data")
-)
-
-for (d in app_data_dirs) {
-  if (!dir.exists(d)) {
-    dir.create(d, recursive = TRUE)
-    cli_alert_success("Created directory: {.path {d}}")
-  }
+# Output path - gap analysis app data folder
+shiny_output_dir <- here("shiny_app", "gap_analysis", "data")
+if (!dir.exists(shiny_output_dir)) {
+  dir.create(shiny_output_dir, recursive = TRUE)
+  cli_alert_success("Created directory: {.path {shiny_output_dir}}")
 }
-
-# Primary path (used for size reporting)
-shiny_data_path <- here(app_data_dirs[1], "shiny_data.rds")
+shiny_data_path <- here(shiny_output_dir, "shiny_data.rds")
 
 # Initialize data list
 shiny_data <- list()
@@ -531,7 +522,7 @@ dataset_names <- names(shiny_data)
 
 shiny_data$metadata <- list(
   created_at = Sys.time(),
-  created_by = "scripts/11_prepare_shiny_data.R",
+  created_by = "scripts/11_prepare_gap_app_data.R",
   r_version = R.version.string,
   n_datasets = length(dataset_names),
   datasets = dataset_names,
@@ -559,13 +550,6 @@ saveRDS(shiny_data, shiny_data_path, compress = "xz")
 
 file_size_mb <- file.size(shiny_data_path) / 1024^2
 cli_alert_success("Saved: {.path {shiny_data_path}} ({round(file_size_mb, 2)} MB)")
-
-# Copy to other app data folders
-for (d in app_data_dirs[-1]) {
-  dest <- here(d, "shiny_data.rds")
-  file.copy(shiny_data_path, dest, overwrite = TRUE)
-  cli_alert_success("Copied to: {.path {dest}}")
-}
 
 # ===========================================================================
 # SUMMARY
@@ -602,10 +586,7 @@ for (ds in dataset_names) {
 
 cli_alert_success("")
 cli_alert_success("Shiny data preparation complete!")
-cli_alert_info("Output locations:")
-for (d in app_data_dirs) {
-  cli_alert_info("  {.path {here(d, 'shiny_data.rds')}}")
-}
+cli_alert_info("Output: {.path {shiny_data_path}}")
 cli_alert_info("Size: {round(file_size_mb, 2)} MB")
 cli_alert_info("")
 cli_alert_info("Key features:")
