@@ -172,7 +172,7 @@ threat_cols <- intersect(
   c("threatStatus_redlist", "threatStatus_dyntaxa",  # From script 03
     "dyntaxa_redlist_category", "swedish_redlist_category",  # Legacy names
     "redlistCategory", "threatStatus", "RedlistCategory", "conservation_status"),
-  dyntaxa_cols
+  backbone_cols
 )
 
 if (length(threat_cols) > 0) {
@@ -593,34 +593,41 @@ if (nrow(basis_coverage) > 0) {
 
 cli_h2("Analyzing Coverage by Higher Taxonomy")
 
-# By family
+# By family (include full taxonomy hierarchy for app filtering)
 family_summary <- NULL
 if ("family" %in% names(match_summary)) {
+  # Determine which hierarchy columns are available
+  hierarchy_cols <- intersect(c("kingdom", "phylum", "class", "order"), names(match_summary))
+  group_cols <- c(hierarchy_cols, "family")
+  
   family_summary <- match_summary[!is.na(family) & family != "", .(
     n_taxa = .N,
     n_in_gbif = sum(matched_any),
     pct_coverage = round(100 * sum(matched_any) / .N, 2),
     n_threatened = sum(threatStatus %in% THREATENED_CODES, na.rm = TRUE),
     n_threatened_in_gbif = sum(matched_any & threatStatus %in% THREATENED_CODES, na.rm = TRUE)
-  ), by = family]
+  ), by = group_cols]
   
   setorder(family_summary, -n_taxa)
-  cli_alert_success("Family summary: {scales::comma(nrow(family_summary))} families")
+  cli_alert_success("Family summary: {scales::comma(nrow(family_summary))} families (grouped by {paste(group_cols, collapse = ', ')})")
 }
 
-# By order
+# By order (include full taxonomy hierarchy for app filtering)
 order_summary <- NULL
 if ("order" %in% names(match_summary)) {
+  hierarchy_cols <- intersect(c("kingdom", "phylum", "class"), names(match_summary))
+  group_cols <- c(hierarchy_cols, "order")
+  
   order_summary <- match_summary[!is.na(order) & order != "", .(
     n_taxa = .N,
     n_in_gbif = sum(matched_any),
     pct_coverage = round(100 * sum(matched_any) / .N, 2),
     n_threatened = sum(threatStatus %in% THREATENED_CODES, na.rm = TRUE),
     n_threatened_in_gbif = sum(matched_any & threatStatus %in% THREATENED_CODES, na.rm = TRUE)
-  ), by = order]
+  ), by = group_cols]
   
   setorder(order_summary, -n_taxa)
-  cli_alert_success("Order summary: {scales::comma(nrow(order_summary))} orders")
+  cli_alert_success("Order summary: {scales::comma(nrow(order_summary))} orders (grouped by {paste(group_cols, collapse = ', ')})")
 }
 
 # ===========================================================================
