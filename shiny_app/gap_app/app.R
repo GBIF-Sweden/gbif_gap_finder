@@ -25,7 +25,7 @@ library(lubridate)
 # =============================================================================
 
 data_path <- "data/shiny_data.rds"
-if (!file.exists(data_path)) stop("shiny_data.rds not found in data/. Run scripts/11_prepare_shiny_data.R")
+if (!file.exists(data_path)) stop("shiny_data.rds not found in data/. Run scripts/11_prepare_gap_app_data.R")
 
 message("Loading shiny data from: ", normalizePath(data_path))
 app_data <- readRDS(data_path)

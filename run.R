@@ -37,7 +37,8 @@ cat("
 |    run_phase_3()        Derived summaries                          |
 |    run_phase_4()        Gap analysis (spatial, temporal, taxonomic) |
 |    run_phase_5()        Integrated overview                        |
-|    run_shiny_prep()     Prepare data for Shiny app                 |
+|    run_gap_app_prep()      Prepare data for Gap Analysis app              |
+|    run_explorer_app_prep() Prepare data for GBIF Explorer app             |
 |    run_reports()        Render all R Markdown reports               |
 |                                                                    |
 |  Shiny app:                                                        |
@@ -76,9 +77,14 @@ run_phase_5 <- function() {
   tar_make(names = gap_overview)
 }
 
-#' Prepare data for Shiny app (script 11)
-run_shiny_prep <- function() {
-  tar_make(names = shiny_data)
+#' Prepare data for Gap Analysis app (script 11)
+run_gap_app_prep <- function() {
+  tar_make(names = gap_app_data)
+}
+
+#' Prepare data for GBIF Explorer app (script 12)
+run_explorer_app_prep <- function() {
+  tar_make(names = explorer_app_data)
 }
 
 #' Render all R Markdown reports
@@ -92,30 +98,30 @@ run_reports <- function() {
   ))
 }
 
-#' Launch the Shiny dashboard
-#'
-#' Checks for prepared data and copies it to the app directory
-#' before launching.
-launch_app <- function() {
-  shiny_data_path <- here("data_proc", "shiny_data.rds")
+#' Launch the Gap Analysis app
+launch_gap_app <- function() {
+  gap_data_path <- here("shiny_app", "gap_analysis", "data", "shiny_data.rds")
 
-  if (!file.exists(shiny_data_path)) {
-    cat(
-      "\u26a0\ufe0f  Shiny data not found. Preparing first...\n"
-    )
-    run_shiny_prep()
+  if (!file.exists(gap_data_path)) {
+    cat("\u26a0\ufe0f  Gap app data not found. Preparing first...\n")
+    run_gap_app_prep()
   }
 
-  app_data_dir <- here("shiny_app", "data")
-  dir.create(app_data_dir, showWarnings = FALSE, recursive = TRUE)
-  file.copy(
-    shiny_data_path,
-    file.path(app_data_dir, "shiny_data.rds"),
-    overwrite = TRUE
-  )
+  cat("\U0001f680 Launching Gap Analysis app...\n")
+  shiny::runApp(here("shiny_app", "gap_analysis"))
+}
 
-  cat("\U0001f680 Launching Shiny app...\n")
-  shiny::runApp(here("shiny_app"))
+#' Launch the GBIF Explorer app
+launch_explorer_app <- function() {
+  explorer_data_path <- here("shiny_app", "explorer", "data", "shiny_data.rds")
+
+  if (!file.exists(explorer_data_path)) {
+    cat("\u26a0\ufe0f  Explorer app data not found. Preparing first...\n")
+    run_explorer_app_prep()
+  }
+
+  cat("\U0001f680 Launching GBIF Explorer app...\n")
+  shiny::runApp(here("shiny_app", "explorer"))
 }
 
 #' Run the full pipeline (core only; reports are separate)
@@ -154,10 +160,16 @@ status <- function() {
     cat("  Overview tables:", length(table_files), "\n")
   }
 
-  shiny_path <- here("data_proc", "shiny_data.rds")
+  gap_app_path <- here("shiny_app", "gap_analysis", "data", "shiny_data.rds")
   cat(
-    "  Shiny data ready:",
-    ifelse(file.exists(shiny_path), "Yes", "No"), "\n"
+    "  Gap app data ready:",
+    ifelse(file.exists(gap_app_path), "Yes", "No"), "\n"
+  )
+
+  explorer_path <- here("shiny_app", "explorer", "data", "shiny_data.rds")
+  cat(
+    "  Explorer app data ready:",
+    ifelse(file.exists(explorer_path), "Yes", "No"), "\n"
   )
 }
 
