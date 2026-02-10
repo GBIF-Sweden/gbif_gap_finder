@@ -1,0 +1,94 @@
+# config_norway.yml
+# ============================================================================
+# gbifgaps — Example Configuration for Norway
+# ============================================================================
+# This is a working example showing how to set up gbifgaps for Norway.
+# Copy to config.yml and update the cube DOIs with your own downloads.
+#
+# Taxonomy: Nortaxa (Artsnavnebasen) — Norway's taxonomic register
+# Red list:  Norwegian Red List (Norsk rødliste for arter)
+#
+# Note: You still need to:
+#   1. Request your own GBIF occurrence cube downloads (the DOIs below
+#      are placeholders — each user must create their own downloads)
+#   2. Download EEA grids clipped to Norway
+#   3. Download and unzip the Nortaxa and Red List DwC-A archives
+
+country:
+  code: "NO"
+  name: "Norway"
+  gbif_country_code: "NO"
+  timezone: "Europe/Oslo"
+
+taxonomy:
+  name: "Nortaxa"
+  dataset_key: "a6c6cead-b5ce-4a4e-8cf5-1542ba708dec"
+  doi: "https://doi.org/10.15468/4dd3tf"
+  export_url: "https://ipt.artsdatabanken.no/archive.do?r=nortaxa"
+  version: "1.251"
+
+redlist:
+  enabled: true
+  # Norwegian Red List — check https://www.gbif.org for the current
+  # dataset key. The red list may be published by Artsdatabanken or
+  # accessed via their API. If no DwC-A is available on GBIF, set
+  # enabled: false and skip red list enrichment.
+  dataset_key: ""                    # TODO: find on GBIF
+  doi: ""                            # TODO
+  export_url: ""                     # TODO
+
+cubes:
+  resolutions:
+    - resolution: 10
+      doi: ""                        # TODO: request your own download
+    - resolution: 50
+      doi: ""                        # TODO: request your own download
+
+paths:
+  data_raw: "data_raw"
+  data_proc: "data_proc"
+  output: "output"
+  logs: "logs"
+  gbif_cube_dir: "data_raw/gbif_occurrence_cubes"
+  grid_10km_dir: "data_raw/eea_grid_10km"
+  grid_50km_dir: "data_raw/eea_grid_50km"
+  taxonomy_dir: "data_raw/nortaxa"
+  redlist_dir: "data_raw/redlist_no"
+
+files:
+  grids:
+    grid10km: "no_10km.shp"
+    grid50km: "EEA_50km_grid_v2024.gpkg"
+
+  cube_files:
+    grid10km:
+      occurrence: "species_occurrences_10km.csv"
+      humanObservation: "species_humanObservation_10km.csv"
+      preservedSpecimen: "species_preservedSpecimen_10km.csv"
+    grid50km:
+      occurrence: "species_occurrences_50km.csv"
+      humanObservation: "species_humanObservation_50km.csv"
+      preservedSpecimen: "species_preservedSpecimen_50km.csv"
+
+  taxonomy:
+    taxonomy_taxon: "Taxon.csv"
+    taxonomy_distr: "Distribution.csv"
+
+  redlist:
+    redlist_taxon: "Taxon.csv"
+    redlist_distr: "Distribution.csv"
+
+parameters:
+  crs: 3035
+  spatial:
+    quantile_thresholds: [0.05, 0.10, 0.25]
+  temporal:
+    stale_months_12: 12
+    stale_months_60: 60
+  taxonomic:
+    min_occurrences: 10
+    min_cells: 5
+  processing:
+    large_order_threshold: 500000
+    low_memory_mode: false
+    make_species_cell_time: true

@@ -1,7 +1,7 @@
 ---
 title: "Taxonomic Gap Analysis"
-subtitle: "GBIF Sweden Data Gap Analysis - Species Coverage & Conservation Priorities"
-author: "GBIF Sweden"
+subtitle: "GBIF Gap Analysis - Species Coverage & Conservation Priorities"
+author: "gbifgaps"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output:
   html_document:
@@ -74,11 +74,11 @@ safe_read <- function(path) {
 
 # Overview
 
-This report analyzes **taxonomic gaps** in GBIF Sweden's biodiversity data, comparing coverage against the Dyntaxa backbone and examining threatened species representation.
+This report analyzes **taxonomic gaps** in the national biodiversity data, comparing coverage against the national backbone and examining threatened species representation.
 
 **Key Questions:**
 
-- What proportion of Sweden's known species are in GBIF?
+- What proportion of the country's known species are in GBIF?
 - Which taxonomic groups have the best/worst coverage?
 - How well are threatened species represented?
 - Which species should be prioritized for data collection?
@@ -95,7 +95,7 @@ tax_ref <- safe_read(here(p_data_proc, "dyntaxa_backbone.csv"))
 tax_match <- safe_read(here(p_gaps, "taxonomic_match_summary.csv"))
 
 if (!is.null(dashboard)) {
-  cat(glue("- **Taxa in Dyntaxa reference**: {comma(dashboard$taxa_in_reference)}\n\n"))
+  cat(glue("- **Taxa in backbone reference**: {comma(dashboard$taxa_in_reference)}\n\n"))
   cat(glue("- **Taxa found in GBIF**: {comma(dashboard$taxa_in_gbif)}\n\n"))
   cat(glue("- **Overall coverage**: {dashboard$taxa_pct_coverage}%\n\n"))
   cat(glue("- **Priority taxa identified**: {comma(dashboard$n_priority_taxa)}\n\n"))
@@ -127,11 +127,11 @@ if (!is.null(tax_by_rank) && nrow(tax_by_rank) > 0) {
 }
 ```
 
-## 1.3 Orders by Kingdom: Dyntaxa vs GBIF Coverage
+## 1.3 Orders by Kingdom: Backbone vs GBIF Coverage
 
-This section shows all orders in Dyntaxa grouped by class, where:
+This section shows all orders in the backbone grouped by class, where:
 
-- **Bar length** = total number of species in Dyntaxa for that order
+- **Bar length** = total number of species in the backbone for that order
 - **Green portion** = species found in GBIF
 - **Blue portion** = species missing from GBIF
 
@@ -142,7 +142,7 @@ match_summary <- safe_read(here(p_gaps, "taxonomic_match_summary.csv"))
 order_coverage <- NULL
 
 if (!is.null(match_summary) && nrow(match_summary) > 0 && "order" %in% names(match_summary)) {
-  # Summarize by order: count species in Dyntaxa and in GBIF
+  # Summarize by order: count species in backbone and in GBIF
 
   order_coverage <- match_summary |>
     filter(!is.na(order), order != "") |>
@@ -155,8 +155,8 @@ if (!is.null(match_summary) && nrow(match_summary) > 0 && "order" %in% names(mat
       .groups = "drop"
     )
   
-  cat(glue("**Total orders in Dyntaxa**: {nrow(order_coverage)}\n\n"))
-  cat(glue("**Total species in Dyntaxa**: {comma(sum(order_coverage$n_species_dyntaxa))}\n\n"))
+  cat(glue("**Total orders in backbone**: {nrow(order_coverage)}\n\n"))
+  cat(glue("**Total species in backbone**: {comma(sum(order_coverage$n_species_dyntaxa))}\n\n"))
   cat(glue("**Species found in GBIF**: {comma(sum(order_coverage$n_species_gbif))} ({round(100 * sum(order_coverage$n_species_gbif) / sum(order_coverage$n_species_dyntaxa), 1)}%)\n\n"))
 }
 ```
@@ -216,7 +216,7 @@ plot_kingdom_orders <- function(data, kingdom_name, n_top_classes = 12) {
     scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.05))) +
     labs(
       title = glue("{kingdom_name}: Species Coverage by Order (Absolute)"),
-      subtitle = "Bar length = species in Dyntaxa | Green = in GBIF | Blue = missing",
+      subtitle = "Bar length = species in backbone | Green = in GBIF | Blue = missing",
       x = NULL, 
       y = "Number of Species"
     ) +
@@ -286,7 +286,7 @@ plot_kingdom_orders_pct <- function(data, kingdom_name, n_top_classes = 12) {
     ) +
     labs(
       title = glue("{kingdom_name}: Species Coverage by Order (Percentage)"),
-      subtitle = "All orders = 100% of Dyntaxa species | Green = % in GBIF | Blue = % missing",
+      subtitle = "All orders = 100% of backbone species | Green = % in GBIF | Blue = % missing",
       x = NULL, 
       y = "Coverage (%)"
     ) +
@@ -451,7 +451,7 @@ if (!is.null(order_coverage) && "kingdom" %in% names(order_coverage)) {
       scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.05))) +
       labs(
         title = "Other Kingdoms: Species Coverage by Order",
-        subtitle = "Bar length = species in Dyntaxa | Green = in GBIF | Blue = missing",
+        subtitle = "Bar length = species in backbone | Green = in GBIF | Blue = missing",
         x = NULL, y = "Number of Species"
       ) +
       theme(
@@ -488,7 +488,7 @@ if (!is.null(order_coverage) && "kingdom" %in% names(order_coverage)) {
 
 # 2. Threatened Species
 
-This section analyzes coverage of threatened species from Dyntaxa in GBIF data.
+This section analyzes coverage of threatened species from backbone in GBIF data.
 
 ```{r threatened-data}
 # Use match_summary which we know has the data
@@ -525,7 +525,7 @@ if (!is.null(match_summary) && nrow(match_summary) > 0) {
         mutate(threatStatus = .data[[threat_col]]) |>
         filter(!is.na(threatStatus), threatStatus != "", str_trim(threatStatus) != "")
       
-      cat(glue("**Total taxa with threat status in Dyntaxa**: {comma(nrow(threatened_summary))}\n\n"))
+      cat(glue("**Total taxa with threat status in backbone**: {comma(nrow(threatened_summary))}\n\n"))
       cat(glue("**Found in GBIF**: {comma(sum(threatened_summary$matched_any, na.rm = TRUE))}\n\n"))
       cat(glue("**Missing from GBIF**: {comma(sum(!threatened_summary$matched_any, na.rm = TRUE))}\n\n"))
     }
@@ -535,12 +535,12 @@ if (!is.null(match_summary) && nrow(match_summary) > 0) {
     cat("
 <div style='background-color: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin: 20px 0;'>
 <h4 style='color: #856404; margin-top: 0;'>⚠️ No Threat Status Data Available</h4>
-<p>The Dyntaxa backbone does not contain Red List threat categories (CR, EN, VU, NT, LC, etc.).</p>
+<p>The national backbone does not contain Red List threat categories (CR, EN, VU, NT, LC, etc.).</p>
 <p><strong>To enable threatened species analysis:</strong></p>
 <ol>
-<li>Obtain the Swedish Red List data (Artdatabanken)</li>
-<li>Join it to the Dyntaxa backbone in script 03 (taxa_reference preparation)</li>
-<li>Ensure the joined data has a column named <code>swedish_redlist_category</code> or <code>dyntaxa_redlist_category</code></li>
+<li>Obtain the National Red List data (Artdatabanken)</li>
+<li>Join it to the backbone backbone in script 03 (taxa_reference preparation)</li>
+<li>Ensure the joined data has a column named <code>threatStatus_redlist</code> or <code>threatStatus_dyntaxa</code></li>
 <li>Re-run script 09 to regenerate the taxonomic match summary</li>
 </ol>
 </div>
@@ -608,7 +608,7 @@ if (!is.null(threatened_summary) && nrow(threatened_summary) > 0) {
       scale_y_continuous(expand = expansion(mult = c(0, 0.1)), labels = comma) +
       labs(
         title = "Taxa Count by Threat Status",
-        subtitle = "Total bar height = Dyntaxa taxa",
+        subtitle = "Total bar height = backbone taxa",
         x = "Threat Status", y = "Number of Taxa"
       ) +
       theme(legend.position = "bottom")
@@ -621,13 +621,13 @@ if (!is.null(threatened_summary) && nrow(threatened_summary) > 0) {
       scale_y_continuous(limits = c(0, 105), expand = expansion(mult = c(0, 0))) +
       labs(
         title = "GBIF Coverage by Threat Status",
-        subtitle = "% of Dyntaxa taxa found in GBIF",
+        subtitle = "% of backbone taxa found in GBIF",
         x = "Threat Status", y = "Coverage (%)"
       ) +
       theme(legend.position = "none")
     
     print(p1 + p2 + plot_annotation(
-      title = "Threatened Species Coverage in GBIF Sweden",
+      title = "Threatened Species Coverage in GBIF",
       subtitle = "CR=Critically Endangered, EN=Endangered, VU=Vulnerable, NT=Near Threatened, LC=Least Concern"
     ))
   }
@@ -640,7 +640,7 @@ if (exists("threat_stats") && !is.null(threat_stats) && nrow(threat_stats) > 0) 
     select(threatStatus, n_dyntaxa, n_gbif, n_missing, pct_coverage) |>
     kable(
       caption = "Threatened Species Coverage Summary",
-      col.names = c("Threat Status", "In Dyntaxa", "In GBIF", "Missing", "Coverage %")
+      col.names = c("Threat Status", "In Backbone", "In GBIF", "Missing", "Coverage %")
     )
 }
 ```
@@ -669,7 +669,7 @@ if (!is.null(threatened_summary) && nrow(threatened_summary) > 0) {
       scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
       labs(
         title = "Threatened Taxa Missing from GBIF",
-        subtitle = "Number of Dyntaxa species with no GBIF records",
+        subtitle = "Number of backbone species with no GBIF records",
         x = "Threat Status", y = "Number of Missing Taxa"
       ) +
       theme(legend.position = "none"))
@@ -925,7 +925,7 @@ if (!is.null(tax_by_order) && nrow(tax_by_order) > 0) {
       scale_y_continuous(limits = c(0, 110), expand = expansion(mult = c(0, 0))) +
       labs(
         title = "GBIF Coverage by Order (Top 20 by taxa count)",
-        subtitle = "Orders with at least 10 taxa in Dyntaxa",
+        subtitle = "Orders with at least 10 taxa in backbone",
         x = NULL, y = "Coverage (%)"
       ) +
       theme(legend.position = "none")
@@ -961,7 +961,7 @@ if (!is.null(tax_by_family) && nrow(tax_by_family) > 0) {
       scale_y_continuous(limits = c(0, 110), expand = expansion(mult = c(0, 0))) +
       labs(
         title = "GBIF Coverage by Family (Top 25 by taxa count)",
-        subtitle = "Families with at least 10 taxa in Dyntaxa",
+        subtitle = "Families with at least 10 taxa in backbone",
         x = NULL, y = "Coverage (%)"
       ) +
       theme(legend.position = "none")

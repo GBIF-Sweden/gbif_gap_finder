@@ -1,7 +1,7 @@
 ---
 title: "Spatial Gap Analysis"
-subtitle: "GBIF Sweden Data Gap Analysis - Geographic Coverage Assessment"
-author: "GBIF Sweden"
+subtitle: "GBIF Gap Analysis - Geographic Coverage Assessment"
+author: "gbifgaps"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output:
   html_document:
@@ -83,11 +83,11 @@ safe_read_sf <- function(path) {
 
 # Overview
 
-This report analyzes **spatial gaps** in GBIF Sweden's biodiversity occurrence data, examining geographic coverage patterns across EEA reference grids at 10km and 50km resolutions.
+This report analyzes **spatial gaps** in the national biodiversity occurrence data, examining geographic coverage patterns across EEA reference grids at 10km and 50km resolutions.
 
 **Key questions addressed:**
  
-- What proportion of Sweden's territory has biodiversity occurrence data?
+- What proportion of the study area has biodiversity occurrence data?
 - Where are the geographic gaps in sampling coverage?
 - How does coverage vary by evidence type (basis of record)?
 - Which areas should be prioritized for future sampling efforts?
@@ -239,7 +239,7 @@ if (!is.null(grid_10km) && !is.null(spatial_gaps)) {
     ) +
     labs(
       title = "Geographic Distribution of Occurrence Data",
-      subtitle = "10km EEA Grid - Sweden",
+      subtitle = "10km EEA Grid",
       caption = "Grey cells indicate zero coverage"
     ) +
     theme_void() +

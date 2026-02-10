@@ -1,25 +1,87 @@
+# config.yml
+# ============================================================================
+# GBIF Gap Analysis — Project Configuration
+# ============================================================================
+# This file is the single source of truth for all configurable settings.
+# Override defaults by editing values below; scripts read via cfg_get().
+#
+# To adapt for a different country:
+#   1. Update the [country] section
+#   2. Point taxonomy/redlist to your national datasets
+#   3. Adjust grid paths if not using EEA grids
+#   4. Update cube DOIs for your country's downloads
+
+# ============================================================================
+# Country Identification
+# ============================================================================
+country:
+  code: "SE"                       # ISO 3166-1 alpha-2
+  name: "Sweden"
+  gbif_country_code: "SE"          # For GBIF API queries
+  timezone: "Europe/Stockholm"     # Used for Sys.setenv(TZ=...)
+
+# ============================================================================
+# National Taxonomy Backbone (primary reference)
+# ============================================================================
+taxonomy:
+  name: "Dyntaxa"
+  dataset_key: "de8934f4-a136-481c-a87a-b0b202b80a31"
+  doi: "https://doi.org/10.15468/j43wfc"
+  export_url: "https://ipt.gbif.se/archive.do?r=dyntaxa&v=1.2"
+  version: "1.2"
+
+# ============================================================================
+# National Red List (optional — threat status enrichment)
+# ============================================================================
+redlist:
+  enabled: true
+  dataset_key: "fab88965-e69d-4491-a04d-e3198b626e52"
+  doi: "https://doi.org/10.15468/jhwkpq"
+  export_url: "https://ipt.gbif.se/archive.do?r=swedish-red-list&v=1.8"
+
+# ============================================================================
+# GBIF Occurrence Cubes
+# ============================================================================
+cubes:
+  resolutions:
+    - resolution: 10
+      doi: "https://doi.org/10.15468/dl.wzv3uc"
+    - resolution: 50
+      doi: "https://doi.org/10.15468/dl.qyp3uw"
+
+# ============================================================================
+# Paths
+# ============================================================================
 paths:
-  # Project folders
   data_raw: "data_raw"
   data_proc: "data_proc"
   output: "output"
   logs: "logs"
 
-  # Raw dataset folders
+  # Raw dataset directories
   gbif_cube_dir: "data_raw/gbif_occurrence_cubes"
   grid_10km_dir: "data_raw/eea_grid_10km"
   grid_50km_dir: "data_raw/eea_grid_50km"
+
+  # Generic names (preferred); Sweden-specific aliases kept below
+  redlist_dir: "data_raw/red_list_se"
+  taxonomy_dir: "data_raw/dyntaxa"
+
+  # Backward-compatible aliases (same paths as above)
   redlist_se_dir: "data_raw/red_list_se"
   redlist_iucn_dir: "data_raw/red_list_iucn"
   dyntaxa_dir: "data_raw/dyntaxa"
 
+# ============================================================================
+# Files
+# ============================================================================
 files:
   # EEA grids
   grids:
     grid10km: "se_10km.shp"
     grid50km: "EEA_50km_grid_v2024.gpkg"
-  
-  # GBIF occurrence cube files
+
+  # GBIF occurrence cube CSV files
   cube_files:
     grid10km:
       occurrence: "species_occurrences_10km.csv"
@@ -41,79 +103,65 @@ files:
       preservedSpecimen: "species_preservedSpecimen_50km.csv"
       livingSpecimen: "species_livingSpecimen_50km.csv"
       fossilSpecimen: "species_fossilSpecimen_50km.csv"
-  
-  # Swedish Red List (distribution + taxonomy files)
-  redlist_se:
-    redlist_se_distr: "distribution.txt"
-    redlist_se_taxon: "taxon.txt"
-    
-  # Swedish Taxonomy (distribution + taxonomy files)
-  dyntaxa:
-    dyntaxa_distr: "SpeciesDistribution.csv"
-    dyntaxa_taxon: "Taxon.csv"
 
+  # National taxonomy files (generic names)
+  taxonomy:
+    taxonomy_taxon: "Taxon.csv"
+    taxonomy_distr: "SpeciesDistribution.csv"
+
+  # National red list files (generic names)
+  redlist:
+    redlist_taxon: "taxon.txt"
+    redlist_distr: "distribution.txt"
+
+  # Backward-compatible aliases
+  redlist_se:
+    redlist_se_taxon: "taxon.txt"
+    redlist_se_distr: "distribution.txt"
+
+  dyntaxa:
+    dyntaxa_taxon: "Taxon.csv"
+    dyntaxa_distr: "SpeciesDistribution.csv"
+
+# ============================================================================
+# Derived Summaries (script 06a/06b outputs)
+# ============================================================================
 derived:
   dir: "derived"
 
-  # ============================================================================
-  # Phase 2 outputs: Analysis-ready summaries from scripts 06a and 06b
-  # ============================================================================
-  
-  # --- Script 06a: Core summaries (fast, single-pass) ---
   core:
-    # Cell-level summaries (aggregated across all species)
     cell_summary_10km: "cell_summary_10km.csv"
     cell_summary_50km: "cell_summary_50km.csv"
-    
-    # Time-level summaries (aggregated across all species)
     time_summary_10km: "time_summary_10km.csv"
     time_summary_50km: "time_summary_50km.csv"
-    
-    # Cell x Time summaries (yearmonth resolution)
     cell_time_summary_10km: "cell_time_summary_10km.csv"
     cell_time_summary_50km: "cell_time_summary_50km.csv"
-    
-    # Order-level summaries
     order_cell_summary_10km: "order_cell_summary_10km.csv"
     order_cell_summary_50km: "order_cell_summary_50km.csv"
     order_time_summary_10km: "order_time_summary_10km.csv"
     order_time_summary_50km: "order_time_summary_50km.csv"
-    
-    # Family-level summaries
     family_time_summary_10km: "family_time_summary_10km.csv"
     family_time_summary_50km: "family_time_summary_50km.csv"
-    
-    # Cube metadata
     cube_key_summary: "cube_key_summary.csv"
-    
-    # Grid lookup tables
     grid_lookup_10km: "grid_lookup_10km.csv"
     grid_lookup_50km: "grid_lookup_50km.csv"
 
-  # --- Script 06b: Species-level summaries (with bias correction) ---
-  # Small orders (<500K rows): output to by_order/
-  # Large orders (>=500K rows): split by family, output to by_family/
   species:
-    # Directory structure
     by_order_dir: "by_order"
     by_family_dir: "by_family"
-    
-    # Summary types (created for each order or order/family)
-    # Files named: {type}_{Order}_{grid}.csv or {type}_{Order}_{Family}_{grid}.csv
     types:
-      - species_summary      # Species-level totals with bias correction
-      - species_cell         # Species x cell with bias correction
-      - species_time         # Species x yearmonth with bias correction
-      - species_cell_time    # Species x cell x yearmonth (optional, large)
+      - species_summary
+      - species_cell
+      - species_time
+      - species_cell_time
 
+# ============================================================================
+# Gap Analysis Outputs (scripts 07-09)
+# ============================================================================
 gaps:
   dir: "gaps"
-  
-  # ============================================================================
-  # Phase 3 outputs: Gap analysis from scripts 07-09
-  # ============================================================================
   outputs:
-    # Spatial gaps (script 07)
+    # Spatial (script 07)
     spatial_gaps_10km: "spatial_gaps_10km.csv"
     spatial_gaps_50km: "spatial_gaps_50km.csv"
     spatial_thresholds_by_basis: "spatial_thresholds_by_basis.csv"
@@ -121,8 +169,8 @@ gaps:
     spatial_summary_by_grid: "spatial_summary_by_grid.csv"
     spatial_zero_coverage_cells: "spatial_zero_coverage_cells.csv"
     spatial_low_coverage_cells_q10: "spatial_low_coverage_cells_q10.csv"
-    
-    # Temporal gaps (script 08)
+
+    # Temporal (script 08)
     temporal_overview_year_10km: "temporal_overview_year_10km.csv"
     temporal_overview_year_50km: "temporal_overview_year_50km.csv"
     temporal_overview_month_10km: "temporal_overview_month_10km.csv"
@@ -146,8 +194,8 @@ gaps:
     temporal_year_by_family_50km: "temporal_year_by_family_50km.csv"
     cell_recency_10km: "cell_recency_10km.csv"
     cell_recency_50km: "cell_recency_50km.csv"
-    
-    # Taxonomic gaps (script 09)
+
+    # Taxonomic (script 09)
     taxonomic_match_table: "taxonomic_match_table.csv"
     taxonomic_match_summary: "taxonomic_match_summary.csv"
     taxonomic_missing_taxa: "taxonomic_missing_taxa.csv"
@@ -162,14 +210,12 @@ gaps:
     taxonomic_gaps_by_order: "taxonomic_gaps_by_order.csv"
     taxonomic_priority_taxa: "taxonomic_priority_taxa.csv"
 
+# ============================================================================
+# Overview Outputs (script 10)
+# ============================================================================
 overview:
   dir: "output/tables"
-  
-  # ============================================================================
-  # Phase 4 outputs: Integrated overview from script 10
-  # ============================================================================
   outputs:
-    # Standard overview tables
     dashboard_summary: "dashboard_summary.csv"
     comparison_grid_resolutions: "comparison_grid_resolutions.csv"
     comparison_basis_types: "comparison_basis_types.csv"
@@ -180,40 +226,37 @@ overview:
     overview_temporal_recency_rates: "overview_temporal_recency_rates.csv"
     overview_taxonomic_summary: "overview_taxonomic_summary.csv"
     overview_missing_taxa: "overview_missing_taxa.csv"
-    
-    # Integrated multi-dimensional tables (output/tables/integrated/)
+
+    # Integrated multi-dimensional tables
     space_time_basis_10km: "integrated/space_time_basis_10km.csv"
     space_time_basis_50km: "integrated/space_time_basis_50km.csv"
     space_taxonomy_simple_10km: "integrated/space_taxonomy_simple_10km.csv"
     space_taxonomy_basis_10km: "integrated/space_taxonomy_basis_10km.csv"
     time_taxonomy_basis_10km: "integrated/time_taxonomy_basis_10km.csv"
-    
-    # Priority lists for action
+
+    # Priority lists
     priority_zero_coverage_cells: "integrated/priority_zero_coverage_cells.csv"
     priority_undersampled_taxa: "integrated/priority_undersampled_taxa.csv"
     priority_stale_cells: "integrated/priority_stale_cells.csv"
 
+# ============================================================================
+# Analysis Parameters
+# ============================================================================
 parameters:
+  crs: 3035                        # ETRS89-LAEA Europe (EEA standard)
 
-  # Coordinate Reference System
-  crs: 3035  # ETRS89-LAEA Europe (EEA standard)
-  
-  # Spatial gap parameters
   spatial:
-    quantile_thresholds: [0.05, 0.10, 0.25]  # low-quantile parameters
-    
-  # Temporal gap parameters
-  temporal:
-    stale_months_12: 12   # 1 year staleness threshold
-    stale_months_60: 60   # 5 year staleness threshold
-    
-  # Taxonomic gap parameters
-  taxonomic:
-    min_occurrences: 10   # Poorly sampled threshold
-    min_cells: 5          # Minimum cells for adequate coverage
+    quantile_thresholds: [0.05, 0.10, 0.25]
 
-  # Script 06b performance parameters
+  temporal:
+    stale_months_12: 12
+    stale_months_60: 60
+
+  taxonomic:
+    min_occurrences: 10
+    min_cells: 5
+
   processing:
-    large_order_threshold: 500000  # Orders with more rows split by family
-    low_memory_mode: false         # Set true for <16GB RAM systems
-    make_species_cell_time: true   # Set false to skip largest output (~50% faster)
+    large_order_threshold: 500000
+    low_memory_mode: false
+    make_species_cell_time: true

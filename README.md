@@ -1,201 +1,145 @@
-# GBIF Sweden Data Gap Analysis
+# gbifgaps — GBIF Biodiversity Data Gap Analysis
 
-Systematic analysis of spatial, temporal, and taxonomic gaps in Swedish biodiversity occurrence data from GBIF.
+Identify spatial, temporal, and taxonomic gaps in national GBIF occurrence data. Designed as a reusable pipeline for any GBIF node — currently configured for Sweden, with a template and Norway example for adaptation.
 
-## Overview
+## What It Does
 
-This project analyzes GBIF occurrence data for Sweden to identify:
+Takes a country's GBIF occurrence cubes + national taxonomy and produces:
 
-- **Spatial gaps**: Areas with missing or insufficient sampling coverage
-- **Temporal gaps**: Time periods with reduced or missing data collection  
-- **Taxonomic gaps**: Species groups that are under-represented in the data
-
-The analysis uses EEA reference grids (10km and 50km) with EPSG:3035 (ETRS89-LAEA) projection.
-
-## Project Structure
-
-```
-gbif_sweden_data_gaps/
-├── config.yml              # Central configuration
-├── .Renviron               # API credentials (not in git)
-├── R/
-│   ├── globals.R           # Project paths and constants
-│   └── packages.R          # Package management
-├── scripts/
-│   ├── 00_setup.R                      # Environment setup
-│   ├── 01_download_raw_data.R          # Download from GBIF/sources
-│   ├── 02_ingest_grids.R               # Process EEA grids
-│   ├── 03_ingest_taxonomy.R            # Process Dyntaxa + Red List
-│   ├── 04_ingest_gbif_cubes.R          # Convert cubes to FST
-│   ├── 05_validate_inputs.R            # Validate all inputs
-│   ├── 06a_make_core_summaries.R       # Cell/time/order summaries
-│   ├── 06b_make_species_summaries.R    # Species-level with bias correction
-│   ├── 07_spatial_gaps.R               # Spatial gap analysis
-│   ├── 08_temporal_gaps.R              # Temporal gap analysis
-│   ├── 09_taxonomic_gaps.R             # Taxonomic gap analysis
-│   └── 10_integrated_overview.R        # Combined summary tables
-├── analysis/
-│   ├── 01_sanity_checks.Rmd            # Data quality checks
-│   ├── 02_spatial_gaps.Rmd             # Spatial gap analysis report
-│   ├── 03_temporal_gaps.Rmd            # Temporal gap analysis report
-│   ├── 04_taxonomic_gaps.Rmd           # Taxonomic gap analysis report
-│   └── 05_integrated_report.Rmd        # Combined findings
-├── data_raw/                           # Raw input data (not in git)
-│   ├── gbif_occurrence_cubes/
-│   ├── eea_grid_10km/
-│   ├── eea_grid_50km/
-│   ├── dyntaxa/
-│   └── red_list_se/
-├── data_proc/                          # Processed data
-│   ├── derived/                        # Script 06a/06b outputs
-│   │   ├── cell_summary_*.csv
-│   │   ├── time_summary_*.csv
-│   │   ├── by_order/                   # Species summaries by order
-│   │   └── by_family/                  # Species summaries by family (large orders)
-│   └── gaps/                           # Script 07-09 outputs
-├── output/
-│   ├── tables/                         # Summary tables
-│   │   └── integrated/                 # Multi-dimensional summaries
-│   └── figures/                        # Generated figures
-└── docs/                               # Documentation
-```
+- **Spatial gaps** — grid cells with missing or low sampling coverage (10 km and 50 km EEA grids)
+- **Temporal gaps** — time periods with reduced data collection, staleness maps, seasonal patterns
+- **Taxonomic gaps** — species groups under-represented relative to the national checklist, with threatened species prioritisation
+- **Integrated overview** — combined priority tables identifying where, when, and what to sample next
+- **Interactive dashboards** — Shiny app for exploring results
 
 ## Quick Start
 
-### 1. Setup
-
 ```r
-# Install required packages
-source("R/packages.R")
-install_missing(check_missing(required_packages))
+# 1. Edit config.yml (see "Adapting for Another Country" below)
 
-# Load environment
+# 2. Setup
 source("scripts/00_setup.R")
-```
 
-### 2. Data Preparation
-
-```r
-# Download raw data (requires GBIF credentials in .Renviron)
+# 3. Download + process raw data
 source("scripts/01_download_raw_data.R")
-
-# Process inputs
 source("scripts/02_ingest_grids.R")
 source("scripts/03_ingest_taxonomy.R")
 source("scripts/04_ingest_gbif_cubes.R")
 
-# Validate
+# 4. Validate
 source("scripts/05_validate_inputs.R")
-```
 
-### 3. Create Summaries
-
-```r
-# Core summaries (fast: ~10-30 min)
+# 5. Create summaries (~1–2 hours)
 source("scripts/06a_make_core_summaries.R")
-
-# Species-level summaries (slower: ~30-60 min with fast mode)
 source("scripts/06b_make_species_summaries_highmem.R")
-```
 
-### 4. Gap Analysis
-
-```r
+# 6. Gap analysis (~30 min)
 source("scripts/07_spatial_gaps.R")
 source("scripts/08_temporal_gaps.R")
 source("scripts/09_taxonomic_gaps.R")
-source("scripts/10_integrated_overview.R")
+source("scripts/10_make_gap_overview.R")
+
+# 7. Prepare Shiny dashboard
+source("scripts/11_prepare_shiny_data.R")
 ```
 
-### 5. Reports
+Or use `{targets}` for dependency-tracked execution:
 
 ```r
-# Knit analysis reports
-rmarkdown::render("analysis/01_sanity_checks.Rmd")
-rmarkdown::render("analysis/02_spatial_gaps.Rmd")
-rmarkdown::render("analysis/03_temporal_gaps.Rmd")
-rmarkdown::render("analysis/04_taxonomic_gaps.Rmd")
-rmarkdown::render("analysis/05_integrated_report.Rmd")
+library(targets)
+tar_make()        # runs everything
+tar_visnetwork()  # visualise the pipeline DAG
+```
+
+## Adapting for Another Country
+
+The pipeline is country-agnostic. All country-specific settings live in `config.yml`.
+
+**To set up a new country:**
+
+1. **Copy the template:** `cp config_template.yml config.yml`
+2. **Set your country** — code, name, timezone
+3. **Find your national taxonomy** on GBIF
+   - Go to [gbif.org/dataset/search?type=CHECKLIST](https://www.gbif.org/dataset/search?type=CHECKLIST)
+   - Filter by your country's publishing organisation
+   - Copy the dataset key (UUID) and DwC-A download URL
+4. **Find your national red list** on GBIF (or set `redlist.enabled: false`)
+5. **Request GBIF occurrence cubes** filtered to your country code
+6. **Download EEA reference grids** clipped to your country from [EEA](https://sdi.eea.europa.eu/)
+7. **Update file names** in `config.yml` to match your downloads
+8. **Run the pipeline** from script 01
+
+See `config_template.yml` for detailed instructions on each field, and `config_norway.yml` for a worked example using Norway's Nortaxa taxonomy.
+
+**What might need code changes:** If your national taxonomy DwC-A has a non-standard structure (unusual column names, no Distribution.csv, different ID format), you may need to adjust `scripts/03_ingest_taxonomy.R`. All other scripts work on the standardised intermediate files and require no changes.
+
+## Project Structure
+
+```
+gbifgaps/
+├── config.yml                  ← Central configuration (edit this)
+├── config_template.yml         ← Annotated template for new countries
+├── config_norway.yml           ← Worked example for Norway
+├── _targets.R                  ← Pipeline definition (delegates to scripts)
+├── run.R                       ← Convenience helpers (status, run phases)
+├── R/
+│   ├── globals.R               ← Paths, constants, cfg_get() helper
+│   └── packages.R              ← Package loading + helpers
+├── scripts/
+│   ├── 00_setup.R              ← Environment setup
+│   ├── 01_download_raw_data.R  ← Download from GBIF / EEA
+│   ├── 02_ingest_grids.R       ← Process EEA grids → .gpkg
+│   ├── 03_ingest_taxonomy.R    ← National taxonomy + red list → .rds
+│   ├── 04_ingest_gbif_cubes.R  ← CSV cubes → .fst
+│   ├── 05_validate_inputs.R    ← QA checks → Markdown report
+│   ├── 06a_make_core_summaries.R       ← Cell / time / order aggregates
+│   ├── 06b_make_species_summaries_*.R  ← Species-level + bias correction
+│   ├── 07_spatial_gaps.R       ← Zero- and low-coverage cells
+│   ├── 08_temporal_gaps.R      ← Trends, recency, seasonality
+│   ├── 09_taxonomic_gaps.R     ← Backbone coverage, threatened species
+│   ├── 10_make_gap_overview.R  ← Integrated priority tables
+│   └── 11_prepare_shiny_data.R ← Bundle for Shiny app
+├── analysis/                   ← R Markdown reports (HTML output)
+├── shiny_app/                  ← Interactive dashboards
+├── data_raw/                   ← Raw downloads (not tracked in git)
+├── data_proc/                  ← Processed intermediates
+└── output/                     ← Final summary tables
 ```
 
 ## Pipeline Phases
 
-| Phase | Scripts | Description | Runtime |
+| Phase | Scripts | What it does | Runtime |
 |-------|---------|-------------|---------|
-| 1. Ingestion | 01-04 | Download and process raw data | ~1-2 hours |
-| 2. Validation | 05 | Check data integrity | ~5 min |
-| 3. Summaries | 06a, 06b | Create analysis-ready tables | ~1-2 hours |
-| 4. Gap Analysis | 07-09 | Identify gaps | ~30 min |
-| 5. Integration | 10 | Combined overview | ~10 min |
-| 6. Reports | Rmd files | Generate HTML reports | ~15 min |
-
-## Key Outputs
-
-### Derived Summaries (data_proc/derived/)
-
-| File | Description |
-|------|-------------|
-| `cell_summary_*.csv` | Occurrences/species per grid cell |
-| `time_summary_*.csv` | Occurrences/species per year-month |
-| `cell_time_summary_*.csv` | Cell × time matrix |
-| `order_*_summary_*.csv` | Order-level aggregations |
-| `by_order/species_*.csv` | Species-level with bias correction |
-| `by_family/species_*.csv` | Large orders split by family |
-
-### Gap Analysis (data_proc/gaps/)
-
-| File | Description |
-|------|-------------|
-| `spatial_gaps_*.csv` | Cells with coverage gaps |
-| `temporal_gap_years_*.csv` | Years/periods with data gaps |
-| `taxonomic_missing_*.csv` | Species missing from GBIF |
-
-## Bias Correction
-
-Species-level summaries include bias correction columns:
-
-- `familycount`, `ordercount`, `classcount`: Total occurrences for taxonomic group
-- `relative_family`, `relative_order`, `relative_class`: Normalized occurrence rates
-
-Use `relative_*` columns to account for uneven sampling effort across taxonomy.
-
-## Configuration
-
-Edit `config.yml` to customize:
-
-- File paths
-- Grid resolutions (10km, 50km)
-- Gap thresholds
-- Processing parameters
-
-Key parameters:
-
-```yaml
-parameters:
-  crs: 3035                          # ETRS89-LAEA (EEA standard)
-  processing:
-    large_order_threshold: 500000    # Split large orders by family
-    low_memory_mode: false           # Set true for <16GB RAM
-```
+| Ingestion | 01–04 | Download and process raw data | ~1–2 h |
+| Validation | 05 | Check data integrity | ~5 min |
+| Summaries | 06a, 06b | Aggregate cubes into analysis tables | ~1–2 h |
+| Gap Analysis | 07–09 | Spatial, temporal, taxonomic gaps | ~30 min |
+| Integration | 10 | Combined overview + priority lists | ~10 min |
+| Shiny Prep | 11 | Bundle data for dashboards | ~5 min |
+| Reports | analysis/*.Rmd | HTML reports (optional, manual) | ~10 min |
 
 ## Requirements
 
-- R >= 4.1.0
-- ~16GB RAM recommended (8GB minimum with low_memory_mode)
-- ~50GB disk space for full pipeline
+- **R ≥ 4.1.0**
+- **RAM:** 16 GB recommended. Set `parameters.processing.low_memory_mode: true` in config for 8 GB.
+- **Disk:** ~50 GB for full pipeline (mostly cube CSVs and .fst files)
+- **GBIF account** for requesting occurrence downloads ([gbif.org](https://www.gbif.org))
 
-## Data Sources
+Key R packages: `data.table`, `sf`, `fst`, `dplyr`, `cli`, `yaml`, `here`, `targets`. Full list in `R/packages.R`.
 
-- **GBIF Occurrence Cubes**: Species occurrence data aggregated to EEA grid cells
-- **Dyntaxa**: Swedish taxonomic backbone with species checklist
-- **Swedish Red List**: Threat status for Swedish species
-- **EEA Reference Grids**: 10km and 50km grids in EPSG:3035
+## Data Sources (Sweden defaults)
+
+| Source | Description | DOI |
+|--------|-------------|-----|
+| GBIF Occurrence Cubes | Species data on EEA grids | [10km](https://doi.org/10.15468/dl.wzv3uc), [50km](https://doi.org/10.15468/dl.qyp3uw) |
+| Dyntaxa | Swedish taxonomic backbone | [10.15468/j43wfc](https://doi.org/10.15468/j43wfc) |
+| Swedish Red List | Threat status | [10.15468/jhwkpq](https://doi.org/10.15468/jhwkpq) |
+| EEA Reference Grids | 10 km and 50 km, EPSG:3035 | [EEA](https://sdi.eea.europa.eu/) |
 
 ## License
 
-This analysis code is provided under MIT License.  
-Data sources have their own licenses - see `docs/data_sources.Rmd`.
+Analysis code: MIT License. Data sources have their own licenses — see individual DOIs.
 
-## Contact
+## Contributing
 
-For questions about this analysis, please open an issue.
+Open an issue for bugs or feature requests. Pull requests welcome, especially for new country configurations.
