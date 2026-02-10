@@ -10,7 +10,7 @@
 
 
 
-<meta name="date" content="2026-02-06" />
+<meta name="date" content="2026-02-10" />
 
 <title>Comprehensive Sanity Checks</title>
 
@@ -2856,9 +2856,9 @@ border-radius: 0px;
 
 
 <h1 class="title toc-ignore">Comprehensive Sanity Checks</h1>
-<h3 class="subtitle">GBIF Sweden Data Gap Analysis - Data Quality &amp;
-Readiness Assessment</h3>
-<h4 class="date">February 06, 2026</h4>
+<h3 class="subtitle">GBIF Gap Analysis - Data Quality &amp; Readiness
+Assessment</h3>
+<h4 class="date">February 10, 2026</h4>
 
 </div>
 
@@ -2866,9 +2866,9 @@ Readiness Assessment</h3>
 <div id="overview" class="section level1">
 <h1>Overview</h1>
 <p>This notebook provides comprehensive quality checks for the GBIF
-Sweden occurrence data, validating readiness for
-<strong>spatial</strong>, <strong>temporal</strong>, and
-<strong>taxonomic</strong> gap analysis.</p>
+occurrence data, validating readiness for <strong>spatial</strong>,
+<strong>temporal</strong>, and <strong>taxonomic</strong> gap
+analysis.</p>
 <p><strong>Run this after:</strong> Scripts 01-06 (ingestion + derived
 summaries)</p>
 <p><strong>Purpose:</strong></p>
@@ -2878,7 +2878,7 @@ summaries)</p>
 <li>Characterize spatial, temporal, and taxonomic coverage</li>
 <li>Flag potential biases that may affect gap interpretation</li>
 </ol>
-<p><strong>Last run:</strong> 2026-02-06 19:55:13.824395</p>
+<p><strong>Last run:</strong> 2026-02-10 15:45:49.162204</p>
 <hr />
 </div>
 <div id="file-inventory-validation" class="section level1 tabset">
@@ -2889,7 +2889,7 @@ summaries)</p>
  ~file, ~location, ~required, ~description,
  &quot;grids_10km.gpkg&quot;, p_data_proc, TRUE, &quot;EEA 10km reference grid&quot;,
  &quot;grids_50km.gpkg&quot;, p_data_proc, TRUE, &quot;EEA 50km reference grid&quot;,
- &quot;taxa_reference_current.rds&quot;, p_data_proc, TRUE, &quot;Dyntaxa taxonomy backbone&quot;,
+ &quot;taxa_reference_current.rds&quot;, p_data_proc, TRUE, &quot;National taxonomy backbone&quot;,
  &quot;cube_manifest.csv&quot;, p_data_proc, FALSE, &quot;Cube file metadata&quot;,
  &quot;cube_totals_by_basisOfRecord.csv&quot;, p_data_proc, FALSE, &quot;Occurrence totals summary&quot;
 ) |&gt;
@@ -2911,7 +2911,7 @@ core_files |&gt;
 <caption>Core Processed Files</caption>
 <colgroup>
 <col width="44%" />
-<col width="35%" />
+<col width="36%" />
 <col width="9%" />
 <col width="10%" />
 </colgroup>
@@ -2938,7 +2938,7 @@ core_files |&gt;
 </tr>
 <tr class="odd">
 <td align="left">taxa_reference_current.rds</td>
-<td align="left">Dyntaxa taxonomy backbone</td>
+<td align="left">National taxonomy backbone</td>
 <td align="left">✅ OK</td>
 <td align="right">7.54</td>
 </tr>
@@ -3832,7 +3832,7 @@ species_files &lt;- list.files(here(p_by_order, &quot;species_summary&quot;), pa
  taxa_summary |&gt; 
    pivot_longer(everything(), names_to = &quot;metric&quot;, values_to = &quot;count&quot;) |&gt;
    mutate(count = comma(count)) |&gt;
-   kable(caption = &quot;Taxonomic Backbone Summary (Dyntaxa)&quot;)
+   kable(caption = &quot;Taxonomic Backbone Summary&quot;)
  
  # Kingdom breakdown
  taxa_ref |&gt;
@@ -4311,7 +4311,7 @@ if (length(species_files) &gt; 0) {
 <div id="threat-status-coverage" class="section level2">
 <h2>4.6 Threat Status Coverage</h2>
 <pre class="r"><code>if (!is.null(taxa_ref)) {
- # Dyntaxa threat status
+ # Backbone threat status
  dyntaxa_threat &lt;- taxa_ref |&gt;
    filter(!is.na(threatStatus_dyntaxa)) |&gt;
    count(threatStatus_dyntaxa, sort = TRUE) |&gt;
@@ -4329,7 +4329,7 @@ if (length(species_files) &gt; 0) {
    arrange(desc(n_dyntaxa + n_redlist))
  
  threat_comparison |&gt;
-   kable(caption = &quot;Threat Status Coverage: Dyntaxa vs Red List&quot;)
+   kable(caption = &quot;Threat Status Coverage: Backbone vs Red List&quot;)
  
  # Priority threatened taxa
  priority_statuses &lt;- c(&quot;CR&quot;, &quot;EN&quot;, &quot;VU&quot;, &quot;NT&quot;)
@@ -4340,12 +4340,12 @@ if (length(species_files) &gt; 0) {
    filter(threatStatus_redlist %in% priority_statuses) |&gt; nrow()
  
  cat(&quot;\n**Priority threatened taxa (CR/EN/VU/NT):**\n&quot;)
- cat(&quot;- From Dyntaxa:&quot;, n_priority_dyntaxa, &quot;\n&quot;)
+ cat(&quot;- From backbone:&quot;, n_priority_dyntaxa, &quot;\n&quot;)
  cat(&quot;- From Red List:&quot;, n_priority_redlist, &quot;\n&quot;)
 }</code></pre>
 <pre><code>## 
 ## **Priority threatened taxa (CR/EN/VU/NT):**
-## - From Dyntaxa: 4547 
+## - From backbone: 4547 
 ## - From Red List: 4894</code></pre>
 <hr />
 </div>
@@ -4692,8 +4692,8 @@ temporal_ready |&gt; kable(caption = &quot;Temporal Gap Analysis Readiness&quot;
  ~requirement, ~status, ~details,
  &quot;Taxa backbone available&quot;,
    ifelse(!is.null(taxa_ref), &quot;✅&quot;, &quot;❌&quot;),
-   &quot;Dyntaxa reference for Swedish species&quot;,
- &quot;Threat status (Dyntaxa)&quot;,
+   &quot;National taxonomic backbone reference&quot;,
+ &quot;Threat status (backbone)&quot;,
    ifelse(!is.null(taxa_ref) &amp;&amp; sum(!is.na(taxa_ref$threatStatus_dyntaxa)) &gt; 0, &quot;✅&quot;, &quot;⚠️&quot;),
    ifelse(!is.null(taxa_ref), glue(&quot;{sum(!is.na(taxa_ref$threatStatus_dyntaxa))} taxa&quot;), &quot;N/A&quot;),
  &quot;Threat status (Red List)&quot;,
@@ -4726,10 +4726,10 @@ taxonomic_ready |&gt; kable(caption = &quot;Taxonomic Gap Analysis Readiness&quo
 <tr class="odd">
 <td align="left">Taxa backbone available</td>
 <td align="left">✅</td>
-<td align="left">Dyntaxa reference for Swedish species</td>
+<td align="left">National taxonomic backbone reference</td>
 </tr>
 <tr class="even">
-<td align="left">Threat status (Dyntaxa)</td>
+<td align="left">Threat status (backbone)</td>
 <td align="left">✅</td>
 <td align="left">60527 taxa</td>
 </tr>
@@ -4816,7 +4816,7 @@ if (!is.null(taxa_ref)) {
  n_unmatched_estimate &lt;- nrow(taxa_ref) - species_totals$n_species
  if (n_unmatched_estimate &gt; 1000) {
    recommendations &lt;- c(recommendations,
-     glue(&quot;- ~{comma(n_unmatched_estimate)} Dyntaxa taxa may be missing from GBIF - run taxonomy matching&quot;))
+     glue(&quot;- ~{comma(n_unmatched_estimate)} Backbone taxa may be missing from GBIF - run taxonomy matching&quot;))
  }
 }
 
@@ -4830,7 +4830,7 @@ if (length(recommendations) &gt; 0) {
 ## 
 ## - Consider spatial bias correction due to high sampling inequality
 ## - 108 years have no data - may affect trend analysis
-## - ~135,874 Dyntaxa taxa may be missing from GBIF - run taxonomy matching</code></pre>
+## - ~135,874 Backbone taxa may be missing from GBIF - run taxonomy matching</code></pre>
 <hr />
 </div>
 <div id="data-quality-summary" class="section level1">
@@ -4953,48 +4953,30 @@ quality_summary |&gt; kable(caption = &quot;Data Quality Summary&quot;)</code></
 ## tzcode source: internal
 ## 
 ## attached base packages:
-## [1] stats     graphics  grDevices utils     datasets  methods   base     
+## [1] stats     graphics  grDevices datasets  utils     methods   base     
 ## 
 ## other attached packages:
-##  [1] DT_0.34.0         data.table_1.18.0 tibble_3.3.1      forcats_1.0.1    
-##  [5] knitr_1.50        scales_1.4.0      viridis_0.6.5     viridisLite_0.4.2
-##  [9] sf_1.0-24         ggplot2_4.0.1     stringr_1.6.0     readr_2.1.6      
-## [13] tidyr_1.3.2       dplyr_1.1.4       cli_3.6.5         glue_1.8.0       
-## [17] purrr_1.2.1       here_1.0.2       
+##  [1] DT_0.34.0         tibble_3.3.1      forcats_1.0.1     knitr_1.50        scales_1.4.0     
+##  [6] viridis_0.6.5     viridisLite_0.4.2 ggplot2_4.0.1     lubridate_1.9.4   data.table_1.18.0
+## [11] tidyr_1.3.2       fstcore_0.10.0    stringr_1.6.0     dplyr_1.1.4       readr_2.1.6      
+## [16] sf_1.0-24         cli_3.6.5         glue_1.8.0        purrr_1.2.1       here_1.0.2       
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] DBI_1.2.3            gridExtra_2.3        httr2_1.2.2         
-##  [4] rlang_1.1.7          magrittr_2.0.4       shinydashboard_0.7.3
-##  [7] otel_0.2.0           e1071_1.7-17         compiler_4.5.2      
-## [10] callr_3.7.6          vctrs_0.7.0          rgbif_3.8.4         
-## [13] pkgconfig_2.0.3      fastmap_1.2.0        backports_1.5.0     
-## [16] labeling_0.4.3       promises_1.5.0       rmarkdown_2.30      
-## [19] tzdb_0.5.0           ps_1.9.1             xfun_0.56           
-## [22] cachem_1.1.0         jsonlite_2.0.0       later_1.4.5         
-## [25] tarchetypes_0.13.2   terra_1.8-93         parallel_4.5.2      
-## [28] prettyunits_1.2.0    R6_2.6.1             bslib_0.9.0         
-## [31] stringi_1.8.7        RColorBrewer_1.1-3   lubridate_1.9.4     
-## [34] jquerylib_0.1.4      Rcpp_1.1.1           usethis_3.2.1       
-## [37] httpuv_1.6.16        igraph_2.2.1         timechange_0.3.0    
-## [40] tidyselect_1.2.1     rstudioapi_0.18.0    yaml_2.3.10         
-## [43] targets_1.11.4       codetools_0.2-20     processx_3.8.6      
-## [46] lattice_0.22-7       plyr_1.8.9           shiny_1.12.1        
-## [49] withr_3.0.2          S7_0.2.1             evaluate_1.0.5      
-## [52] units_1.0-0          proxy_0.4-29         xml2_1.5.2          
-## [55] exactextractr_0.10.1 pillar_1.11.1        fstcore_0.10.0      
-## [58] DiagrammeR_1.0.11    whisker_0.4.1        KernSmooth_2.23-26  
-## [61] renv_1.1.6           plotly_4.12.0        generics_0.1.4      
-## [64] rprojroot_2.1.1      sp_2.2-0             hms_1.1.4           
-## [67] xtable_1.8-4         base64url_1.4        class_7.3-23        
-## [70] lazyeval_0.2.2       tools_4.5.2          fs_1.6.6            
-## [73] visNetwork_2.1.4     grid_4.5.2           crosstalk_1.2.2     
-## [76] patchwork_1.3.2      raster_3.6-32        rappdirs_0.3.3      
-## [79] fst_0.9.8            gt_1.3.0             gtable_0.3.6        
-## [82] oai_0.4.0            sass_0.4.10          digest_0.6.37       
-## [85] classInt_0.4-11      htmlwidgets_1.6.4    farver_2.1.2        
-## [88] htmltools_0.5.8.1    lifecycle_1.0.4      leaflet_2.2.3       
-## [91] httr_1.4.7           shinyWidgets_0.9.0   secretbase_1.1.1    
-## [94] mime_0.13</code></pre>
+##  [1] tidyselect_1.2.1    farver_2.1.2        targets_1.11.4      S7_0.2.1            fastmap_1.2.0      
+##  [6] digest_0.6.37       fst_0.9.8           base64url_1.4       timechange_0.3.0    lifecycle_1.0.4    
+## [11] secretbase_1.1.1    processx_3.8.6      terra_1.8-93        magrittr_2.0.4      compiler_4.5.2     
+## [16] sass_0.4.10         rlang_1.1.7         tools_4.5.2         utf8_1.2.6          igraph_2.2.1       
+## [21] yaml_2.3.10         gt_1.3.0            labeling_0.4.3      prettyunits_1.2.0   htmlwidgets_1.6.4  
+## [26] bit_4.6.0           classInt_0.4-11     xml2_1.5.2          RColorBrewer_1.1-3  KernSmooth_2.23-26 
+## [31] withr_3.0.2         grid_4.5.2          e1071_1.7-17        crayon_1.5.3        rmarkdown_2.30     
+## [36] generics_0.1.4      rstudioapi_0.18.0   tzdb_0.5.0          cachem_1.1.0        DBI_1.2.3          
+## [41] proxy_0.4-29        parallel_4.5.2      BiocManager_1.30.27 tarchetypes_0.13.2  vctrs_0.7.0        
+## [46] jsonlite_2.0.0      callr_3.7.6         hms_1.1.4           patchwork_1.3.2     bit64_4.6.0-1      
+## [51] systemfonts_1.3.1   jquerylib_0.1.4     units_1.0-0         codetools_0.2-20    ps_1.9.1           
+## [56] stringi_1.8.7       gtable_0.3.6        pillar_1.11.1       htmltools_0.5.8.1   R6_2.6.1           
+## [61] textshaping_1.0.4   rprojroot_2.1.1     vroom_1.6.7         evaluate_1.0.5      kableExtra_1.4.0   
+## [66] backports_1.5.0     bslib_0.9.0         renv_1.1.6          class_7.3-23        Rcpp_1.1.1         
+## [71] svglite_2.2.2       gridExtra_2.3       xfun_0.56           fs_1.6.6            pkgconfig_2.0.3</code></pre>
 </div>
 
 

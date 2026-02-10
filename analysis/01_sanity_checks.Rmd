@@ -1,6 +1,6 @@
 ---
 title: "Comprehensive Sanity Checks"
-subtitle: "GBIF Sweden Data Gap Analysis - Data Quality & Readiness Assessment"
+subtitle: "GBIF Gap Analysis - Data Quality & Readiness Assessment"
 output:
   html_document:
     toc: true
@@ -57,7 +57,7 @@ p_by_family <- here(p_derived, "by_family")
 
 # Overview
 
-This notebook provides comprehensive quality checks for the GBIF Sweden occurrence data, validating readiness for **spatial**, **temporal**, and **taxonomic** gap analysis.
+This notebook provides comprehensive quality checks for the GBIF occurrence data, validating readiness for **spatial**, **temporal**, and **taxonomic** gap analysis.
 
 **Run this after:** Scripts 01-06 (ingestion + derived summaries)
 
@@ -81,7 +81,7 @@ core_files <- tribble(
  ~file, ~location, ~required, ~description,
  "grids_10km.gpkg", p_data_proc, TRUE, "EEA 10km reference grid",
  "grids_50km.gpkg", p_data_proc, TRUE, "EEA 50km reference grid",
- "taxa_reference_current.rds", p_data_proc, TRUE, "Dyntaxa taxonomy backbone",
+ "taxa_reference_current.rds", p_data_proc, TRUE, "National taxonomy backbone",
  "cube_manifest.csv", p_data_proc, FALSE, "Cube file metadata",
  "cube_totals_by_basisOfRecord.csv", p_data_proc, FALSE, "Occurrence totals summary"
 ) |>
@@ -582,7 +582,7 @@ if (!is.null(taxa_ref)) {
  taxa_summary |> 
    pivot_longer(everything(), names_to = "metric", values_to = "count") |>
    mutate(count = comma(count)) |>
-   kable(caption = "Taxonomic Backbone Summary (Dyntaxa)")
+   kable(caption = "Taxonomic Backbone Summary")
  
  # Kingdom breakdown
  taxa_ref |>
@@ -672,7 +672,7 @@ if (length(species_files) > 0) {
 
 ```{r threat-status}
 if (!is.null(taxa_ref)) {
- # Dyntaxa threat status
+ # Backbone threat status
  dyntaxa_threat <- taxa_ref |>
    filter(!is.na(threatStatus_dyntaxa)) |>
    count(threatStatus_dyntaxa, sort = TRUE) |>
@@ -690,7 +690,7 @@ if (!is.null(taxa_ref)) {
    arrange(desc(n_dyntaxa + n_redlist))
  
  threat_comparison |>
-   kable(caption = "Threat Status Coverage: Dyntaxa vs Red List")
+   kable(caption = "Threat Status Coverage: Backbone vs Red List")
  
  # Priority threatened taxa
  priority_statuses <- c("CR", "EN", "VU", "NT")
@@ -701,7 +701,7 @@ if (!is.null(taxa_ref)) {
    filter(threatStatus_redlist %in% priority_statuses) |> nrow()
  
  cat("\n**Priority threatened taxa (CR/EN/VU/NT):**\n")
- cat("- From Dyntaxa:", n_priority_dyntaxa, "\n")
+ cat("- From backbone:", n_priority_dyntaxa, "\n")
  cat("- From Red List:", n_priority_redlist, "\n")
 }
 ```
@@ -947,8 +947,8 @@ taxonomic_ready <- tribble(
  ~requirement, ~status, ~details,
  "Taxa backbone available",
    ifelse(!is.null(taxa_ref), "✅", "❌"),
-   "Dyntaxa reference for Swedish species",
- "Threat status (Dyntaxa)",
+   "National taxonomic backbone reference",
+ "Threat status (backbone)",
    ifelse(!is.null(taxa_ref) && sum(!is.na(taxa_ref$threatStatus_dyntaxa)) > 0, "✅", "⚠️"),
    ifelse(!is.null(taxa_ref), glue("{sum(!is.na(taxa_ref$threatStatus_dyntaxa))} taxa"), "N/A"),
  "Threat status (Red List)",
@@ -1030,7 +1030,7 @@ if (!is.null(taxa_ref)) {
  n_unmatched_estimate <- nrow(taxa_ref) - species_totals$n_species
  if (n_unmatched_estimate > 1000) {
    recommendations <- c(recommendations,
-     glue("- ~{comma(n_unmatched_estimate)} Dyntaxa taxa may be missing from GBIF - run taxonomy matching"))
+     glue("- ~{comma(n_unmatched_estimate)} Backbone taxa may be missing from GBIF - run taxonomy matching"))
  }
 }
 

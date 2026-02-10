@@ -1,7 +1,7 @@
 ---
 title: "Temporal Gap Analysis"
-subtitle: "GBIF Sweden Data Gap Analysis - Temporal Patterns & Data Recency"
-author: "GBIF Sweden"
+subtitle: "GBIF Gap Analysis - Temporal Patterns & Data Recency"
+author: "gbifgaps"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output:
   html_document:
@@ -64,7 +64,7 @@ current_year <- year(Sys.Date())
 
 # Overview
 
-This report analyzes **temporal gaps** in GBIF Sweden's biodiversity occurrence data, examining historical trends, seasonal patterns, data recency, and how data mobilization has changed over time for different taxonomic groups.
+This report analyzes **temporal gaps** in the national biodiversity occurrence data, examining historical trends, seasonal patterns, data recency, and how data mobilization has changed over time for different taxonomic groups.
 
 **Key questions addressed:**
 

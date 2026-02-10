@@ -3,10 +3,10 @@
 # Taxonomic Gap Analysis
 # ==============================================================================
 # This script identifies taxonomic gaps by comparing GBIF data to reference 
-# taxonomies (Dyntaxa as primary backbone, Red List for threat status).
+# taxonomies (national backbone as primary, Red List for threat status).
 #
 # INPUTS:
-#   - data_proc/taxa_reference_current.rds (from 03, Dyntaxa + Red List)
+#   - data_proc/taxa_reference_current.rds (from 03, backbone + Red List)
 #   - data_proc/derived/by_order/species_summary_*.csv (from 06b)
 #   - data_proc/derived/by_family/species_summary_*.csv (from 06b)
 #
@@ -37,9 +37,9 @@
 #     - taxonomic_priority_taxa.csv     Priority taxa for targeted sampling
 #
 # REFERENCE TAXONOMY:
-#   - Dyntaxa: Swedish Taxonomic Database (primary backbone)
-#   - Swedish Red List: Threat status (CR, EN, VU, NT, LC, etc.)
-#   - Dual threat status columns: dyntaxa_redlist_category + swedish_redlist_category
+#   - National Taxonomy: Primary taxonomic backbone (via config)
+#   - National Red List: Threat status (CR, EN, VU, NT, LC, etc.)
+#   - Dual threat status columns: threatStatus_dyntaxa + threatStatus_redlist
 
 library(here)
 library(dplyr)
@@ -128,12 +128,12 @@ load_species_summaries <- function(p_derived, grid_suffix) {
 }
 
 # ===========================================================================
-# LOAD REFERENCE TAXONOMY (Dyntaxa)
+# LOAD REFERENCE TAXONOMY (National Backbone)
 # ===========================================================================
 
 cli_h2("Loading Reference Taxonomy")
 
-# Primary backbone: Dyntaxa (via taxa_reference from script 03)
+# Primary backbone: National taxonomy (via taxa_reference from script 03)
 dyntaxa_path <- here(p_data_proc, "taxa_reference_current.rds")
 
 if (!file.exists(dyntaxa_path)) {
@@ -143,23 +143,23 @@ if (!file.exists(dyntaxa_path)) {
   ))
 }
 
-dyntaxa <- readRDS(dyntaxa_path)
-dyntaxa <- as.data.table(dyntaxa)
+backbone <- readRDS(dyntaxa_path)
+backbone <- as.data.table(backbone)
 
-cli_alert_success("Loaded Dyntaxa: {scales::comma(nrow(dyntaxa))} taxa")
+cli_alert_success("Loaded backbone: {scales::comma(nrow(backbone))} taxa")
 
 # Check available columns
-dyntaxa_cols <- names(dyntaxa)
-cli_alert_info("Dyntaxa columns: {paste(head(dyntaxa_cols, 15), collapse = ', ')}")
+backbone_cols <- names(backbone)
+cli_alert_info("Backbone columns: {paste(head(backbone_cols, 15), collapse = ', ')}")
 
 # Identify key columns (may vary by export format)
 # Common patterns: scientificName, taxonRank, taxonID/TaxonId, etc.
-name_col <- intersect(c("scientificName", "ScientificName", "scientific_name", "canonicalName"), dyntaxa_cols)[1]
-rank_col <- intersect(c("taxonRank", "TaxonRank", "taxon_rank", "Rank"), dyntaxa_cols)[1]
-id_col <- intersect(c("taxonID", "TaxonId", "taxon_id", "id", "Id"), dyntaxa_cols)[1]
+name_col <- intersect(c("scientificName", "ScientificName", "scientific_name", "canonicalName"), backbone_cols)[1]
+rank_col <- intersect(c("taxonRank", "TaxonRank", "taxon_rank", "Rank"), backbone_cols)[1]
+id_col <- intersect(c("taxonID", "TaxonId", "taxon_id", "id", "Id"), backbone_cols)[1]
 
 if (is.na(name_col)) {
-  cli_abort("Could not find scientific name column in Dyntaxa")
+  cli_abort("Could not find scientific name column in backbone")
 }
 
 cli_alert_info("Using name column: {name_col}")
@@ -178,11 +178,11 @@ threat_cols <- intersect(
 if (length(threat_cols) > 0) {
   cli_alert_info("Threat status columns found: {paste(threat_cols, collapse = ', ')}")
 } else {
-  cli_alert_warning("No threat status columns found in Dyntaxa reference")
+  cli_alert_warning("No threat status columns found in backbone reference")
 }
 
 # Create standardized reference
-tax_ref <- copy(dyntaxa)
+tax_ref <- copy(backbone)
 
 # Rename columns to standard names
 if (!is.na(name_col) && name_col != "scientificName") {
@@ -198,7 +198,7 @@ if (!is.na(id_col) && id_col != "taxonID") {
 # Create primary threat status column
 # Priority: threatStatus_redlist > threatStatus_dyntaxa > legacy columns
 if ("threatStatus_redlist" %in% names(tax_ref)) {
-  # Use Red List as primary (most authoritative for Sweden)
+  # Use Red List as primary (most authoritative for national assessment)
   tax_ref[, threatStatus := threatStatus_redlist]
   cli_alert_info("Using threatStatus_redlist as primary threat status")
   
@@ -731,7 +731,7 @@ cli_h1("Summary (Script 09)")
 
 summary_table <- data.table(
   Metric = c(
-    "Reference taxa (Dyntaxa)",
+    "Reference taxa (backbone)",
     "Matched to GBIF",
     "Coverage %",
     "Threatened in reference",
@@ -756,3 +756,4 @@ cli_alert_info("Output location: {.path {p_gaps}}")
 # Count output files
 n_outputs <- length(list.files(p_gaps, pattern = "^taxonomic_"))
 cli_alert_info("Created {n_outputs} taxonomic gap files")
+cli_alert_info("Next: source('scripts/10_make_gap_overview.R')")

@@ -1,7 +1,7 @@
 ---
-title: "GBIF Sweden Biodiversity Data Gaps"
+title: "GBIF Biodiversity Data Gaps"
 subtitle: "Integrated Assessment: Spatial, Temporal, and Taxonomic Dimensions"
-author: "GBIF Sweden"
+author: "gbifgaps"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output:
   html_document:
@@ -90,7 +90,7 @@ safe_col <- function(df, col, default = NA) {
 
 # Executive Summary
 
-This report presents a comprehensive assessment of biodiversity data gaps in GBIF Sweden's occurrence database, integrating spatial, temporal, and taxonomic dimensions to inform strategic priorities for data collection and mobilization.
+This report presents a comprehensive assessment of biodiversity data gaps in the national GBIF occurrence database, integrating spatial, temporal, and taxonomic dimensions to inform strategic priorities for data collection and mobilization.
 
 ```{r load-dashboard}
 dashboard <- safe_read_csv(here(p_tables, "dashboard_summary.csv"))
@@ -142,7 +142,7 @@ if (!is.null(dashboard) && nrow(dashboard) > 0) {
   exec_summary |>
     gt() |>
     tab_header(
-      title = md("**GBIF Sweden Data Gap Assessment**"),
+      title = md("**GBIF Data Gap Assessment**"),
       subtitle = paste("Analysis Date:", safe_col(dashboard, "analysis_date", Sys.Date()))
     ) |>
     cols_label(
@@ -290,7 +290,7 @@ if (file.exists(grid_path) && file.exists(gaps_path)) {
           name = "Occurrences"
         ) +
         labs(title = "Geographic Distribution of Occurrence Data",
-             subtitle = "10km EEA Grid - Sweden") +
+             subtitle = "10km EEA Grid") +
         theme_void() +
         theme(legend.position = "right", legend.key.height = unit(0.8, "cm"),
               plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
@@ -381,7 +381,7 @@ if (file.exists(recency_path) && !is.null(grid_10km)) {
       geom_sf(aes(fill = staleness_cat), color = "white", linewidth = 0.02) +
       scale_fill_viridis_d(option = "rocket", direction = -1, na.value = "grey80",
                            name = "Time Since\nLast Record") +
-      labs(title = "Data Staleness Across Sweden",
+      labs(title = "Data Staleness Across Study Area",
            subtitle = "Time since last occurrence record per 10km cell") +
       theme_void() +
       theme(legend.position = "right", legend.key.height = unit(0.7, "cm"),
@@ -434,7 +434,7 @@ if (!is.null(match_summary) && nrow(match_summary) > 0 &&
     scale_fill_manual(values = c("In GBIF" = "#2A9D8F", "Missing from GBIF" = "#457B9D"), name = NULL) +
     scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.15))) +
     labs(title = "Taxonomic Coverage by Kingdom",
-         subtitle = "Species in Dyntaxa vs found in GBIF Sweden | Percentage = coverage",
+         subtitle = "Species in backbone vs found in GBIF | Percentage = coverage",
          x = NULL, y = "Number of Species") +
     theme(legend.position = "bottom")
 } else {
@@ -498,7 +498,7 @@ if (!is.null(match_summary) && nrow(match_summary) > 0) {
         theme(legend.position = "none")
       
       print(p1 + p2 + plot_annotation(
-        title = "Threatened Species Coverage in GBIF Sweden",
+        title = "Threatened Species Coverage in GBIF",
         subtitle = "CR = Critically Endangered, EN = Endangered, VU = Vulnerable, NT = Near Threatened, LC = Least Concern"
       ))
     }
@@ -506,7 +506,7 @@ if (!is.null(match_summary) && nrow(match_summary) > 0) {
 }
 
 if (!has_threat_data) {
-  cat("No threat status data available. Ensure Swedish Red List is joined to Dyntaxa backbone.\n")
+  cat("No threat status data available. Ensure National Red List is joined to national backbone.\n")
 }
 ```
 
@@ -521,11 +521,11 @@ cat("### Summary of Data Gaps\n\n")
 
 if (!is.null(dashboard) && nrow(dashboard) > 0) {
   cat("**Spatial Coverage**: ", safe_col(dashboard, "cells_10km_pct_coverage", "N/A"), 
-      "% of Sweden's 10km grid cells have occurrence data.\n\n", sep = "")
+      "% of the country's 10km grid cells have occurrence data.\n\n", sep = "")
   cat("**Data Recency**: ", safe_col(dashboard, "pct_stale_5y_10km", "N/A"), 
       "% of cells have not been surveyed in over 5 years.\n\n", sep = "")
   cat("**Taxonomic Coverage**: ", safe_col(dashboard, "taxa_pct_coverage", "N/A"), 
-      "% of Dyntaxa species have GBIF records.\n\n", sep = "")
+      "% of backbone species have GBIF records.\n\n", sep = "")
 }
 
 if (has_threat_data && !is.null(threat_stats)) {
@@ -565,7 +565,7 @@ actions <- tibble(
     paste(comma(n_cr_en), "species"),
     paste(comma(n_stale), "cells"),
     "Focus on low-coverage taxonomic groups",
-    "Northern Sweden, mountainous regions"
+    "Remote and mountainous regions"
   )
 )
 
@@ -584,18 +584,18 @@ actions |>
 
 # 5. Data Sources & Methods
 
-**GBIF Occurrence Cubes - Sweden**
+**GBIF Occurrence Cubes**
 
 - 10km grid: https://doi.org/10.15468/dl.wzv3uc
 - 50km grid: https://doi.org/10.15468/dl.qyp3uw
 
 **Taxonomic Reference**
 
-- Dyntaxa (Swedish Taxonomic Database): https://doi.org/10.15468/j43wfc
-- Swedish Red List: https://doi.org/10.15468/jhwkpq
+- National Taxonomy Backbone: https://doi.org/10.15468/j43wfc
+- National Red List: https://doi.org/10.15468/jhwkpq
 
 **Analysis Date**: `r if(!is.null(dashboard)) safe_col(dashboard, "analysis_date", Sys.Date()) else Sys.Date()`
 
 ---
 
-*For questions or more information, please contact GBIF Sweden.*
+*For questions or more information, please contact your GBIF node.*
