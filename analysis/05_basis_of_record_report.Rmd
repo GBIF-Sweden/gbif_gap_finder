@@ -1,0 +1,582 @@
+---
+title: "Basis of Record Analysis"
+subtitle: "`r yaml::read_yaml(here::here('config.yml'))$country$name` - GBIF Data Gap Assessment"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    fig_width: 10
+    fig_height: 6
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    latex_engine: xelatex
+    fig_width: 10
+    fig_height: 6
+params:
+  grid: "10km"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  dpi = 150, out.width = "100%"
+)
+
+# Hide code in PDF output, show (with folding) in HTML
+if (!knitr::is_html_output()) {
+  knitr::opts_chunk$set(echo = FALSE)
+}
+
+library(here)
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(ggplot2)
+library(scales)
+library(sf)
+library(stringr)
+library(knitr)
+
+source(here("scripts", "00_setup.R"))
+
+# Paths
+p_gaps   <- here(p_data_proc, "gaps")
+p_tables <- here(p_output, "tables")
+p_derived <- here(p_data_proc, "derived")
+
+# Read config
+cfg <- yaml::read_yaml(here("config.yml"))
+country_name <- cfg$country$name
+
+# Helper: read CSV safely
+safe_read <- function(path) {
+  if (file.exists(path)) fread(path) else NULL
+}
+
+# Consistent colour palette for basis of record
+basis_palette <- c(
+  "humanObservation"  = "#6b8f71",
+  "preservedSpecimen" = "#5c7a99",
+  "machineObservation"= "#c4a882",
+  "observation"       = "#8b6d8f",
+  "materialSample"    = "#c47a6c",
+  "occurrence"        = "#7daa90",
+  "materialCitation"  = "#a89060",
+  "livingSpecimen"    = "#8fa4b8",
+  "fossilSpecimen"    = "#b8967a"
+)
+
+# Readable labels
+basis_label <- function(x) {
+  str_replace_all(x, "([a-z])([A-Z])", "\\1 \\2") |>
+    str_to_title()
+}
+
+theme_basis <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(colour = "grey50"),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+
+theme_set(theme_basis)
+```
+
+# Overview
+
+This report analyses **how different types of biodiversity observations** contribute
+to GBIF data coverage in `r country_name`. Understanding the composition of the
+data by basis of record is essential for identifying biases and planning targeted
+data mobilisation efforts.
+
+GBIF distinguishes several basis-of-record categories, each representing a
+different method of documenting biodiversity:
+
+- **Human Observation** - direct field sightings (e.g. citizen science, bird surveys)
+- **Preserved Specimen** - museum and herbarium collections
+- **Machine Observation** - camera traps, acoustic sensors, remote sensing
+- **Material Sample** - DNA, tissue, environmental samples
+- **Fossil Specimen** - palaeontological records
+- **Living Specimen** - botanical gardens, zoos
+
+```{r load-data}
+# Spatial gaps (cell-level, all basis types)
+spatial_gaps <- safe_read(here(p_gaps, paste0("spatial_gaps_", params$grid, ".csv")))
+
+# Time summary
+time_summary <- safe_read(here(p_derived, paste0("time_summary_", params$grid, ".csv")))
+if (!is.null(time_summary)) {
+  time_summary[, year := as.integer(str_sub(as.character(yearmonth), 1, 4))]
+  time_summary[, month := as.integer(str_sub(as.character(yearmonth), 6, 7))]
+}
+
+# Temporal by basis
+temporal_by_basis <- safe_read(here(p_gaps, paste0("temporal_year_by_basis_", params$grid, ".csv")))
+
+# Taxonomic coverage by basis
+tax_by_basis <- safe_read(here(p_gaps, "taxonomic_coverage_by_basis.csv"))
+
+# Grid for maps
+grid_sf <- tryCatch({
+  # Try processed gpkg first (from script 02), then raw shapefile
+  gpkg_path <- here(p_data_proc, paste0("grids_", grid_suffix, ".gpkg"))
+  if (file.exists(gpkg_path)) {
+    g <- st_read(gpkg_path, quiet = TRUE)
+  } else {
+    grid_dir  <- here(cfg$paths[[paste0("grid_", grid_suffix, "_dir")]])
+    grid_file <- cfg$files$grids[[paste0("grid", grid_suffix)]]
+    g <- st_read(here(grid_dir, grid_file), quiet = TRUE)
+  }
+
+  # Standardise cell ID column (same pattern as 00_setup.R / globals.R)
+  cellcode_field <- names(g)[grepl("cellcode|eeacell", tolower(names(g)))][1]
+  if (is.na(cellcode_field)) cellcode_field <- names(g)[grepl("code", tolower(names(g)))][1]
+  if (!is.na(cellcode_field)) g$eeacellcode <- as.character(g[[cellcode_field]])
+  g
+}, error = function(e) NULL)
+
+# Cell summary for total cell count
+cell_summary <- safe_read(here(p_derived, paste0("cell_summary_", params$grid, ".csv")))
+total_cells <- if (!is.null(cell_summary)) uniqueN(cell_summary$eeacellcode) else
+               if (!is.null(spatial_gaps)) uniqueN(spatial_gaps[basisofrecord == "all"]$eeacellcode) else NA
+```
+
+
+# Occurrence Volume by Basis of Record {.tabset}
+
+## Total Occurrences
+
+```{r total-occurrences, fig.height=5}
+if (!is.null(spatial_gaps)) {
+  basis_totals <- spatial_gaps[basisofrecord != "all",
+    .(total_occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
+      cells_with_data = sum(occurrences > 0, na.rm = TRUE),
+      total_species = sum(as.numeric(n_species), na.rm = TRUE)),
+    by = basisofrecord
+  ][order(-total_occurrences)]
+
+  basis_totals[, label := basis_label(basisofrecord)]
+  basis_totals[, pct := round(100 * total_occurrences / sum(total_occurrences), 1)]
+
+  ggplot(basis_totals, aes(x = reorder(label, total_occurrences), y = total_occurrences,
+                            fill = basisofrecord)) +
+    geom_col(show.legend = FALSE) +
+    geom_text(aes(label = paste0(comma(total_occurrences), " (", pct, "%)")),
+              hjust = -0.05, size = 3.2) +
+    scale_fill_manual(values = basis_palette) +
+    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.3))) +
+    coord_flip() +
+    labs(title = "Total Occurrences by Basis of Record",
+         subtitle = paste0(country_name, " - ", params$grid, " grid"),
+         x = NULL, y = "Total occurrences")
+}
+```
+
+## Summary Table
+
+```{r summary-table}
+if (!is.null(spatial_gaps)) {
+  basis_totals[, spatial_coverage := round(100 * cells_with_data / total_cells, 1)]
+
+  basis_totals |>
+    select(label, total_occurrences, pct, cells_with_data, spatial_coverage, total_species) |>
+    rename(
+      `Basis of Record` = label,
+      `Total Occurrences` = total_occurrences,
+      `% of All` = pct,
+      `Cells with Data` = cells_with_data,
+      `Spatial Coverage (%)` = spatial_coverage,
+      `Species Detections` = total_species
+    ) |>
+    kable(format.args = list(big.mark = ","))
+}
+```
+
+
+# Spatial Coverage
+
+How well does each basis of record cover the spatial grid? A basis type that
+covers many cells provides broad geographic information, while one concentrated
+in few cells may reflect institutional or logistical biases.
+
+```{r spatial-coverage, fig.height=5}
+if (!is.null(spatial_gaps)) {
+  coverage_df <- spatial_gaps[basisofrecord != "all",
+    .(cells_with_data = sum(occurrences > 0, na.rm = TRUE)),
+    by = basisofrecord
+  ][order(-cells_with_data)]
+
+  coverage_df[, label := basis_label(basisofrecord)]
+  coverage_df[, pct := round(100 * cells_with_data / total_cells, 1)]
+
+  ggplot(coverage_df, aes(x = reorder(label, pct), y = pct, fill = basisofrecord)) +
+    geom_col(show.legend = FALSE) +
+    geom_text(aes(label = paste0(pct, "%")), hjust = -0.1, size = 3.5) +
+    scale_fill_manual(values = basis_palette) +
+    scale_y_continuous(limits = c(0, 105)) +
+    coord_flip() +
+    labs(title = "Spatial Coverage by Basis of Record",
+         subtitle = paste0("% of ", comma(total_cells), " grid cells (", params$grid, ") with >=1 occurrence"),
+         x = NULL, y = "% of grid cells covered")
+}
+```
+
+```{r spatial-maps, fig.height=8, results='asis'}
+if (!is.null(spatial_gaps) && !is.null(grid_sf) && "eeacellcode" %in% names(grid_sf)) {
+  top_basis <- basis_totals$basisofrecord[1:min(4, nrow(basis_totals))]
+
+  for (b in top_basis) {
+    cat("\n\n###", basis_label(b), "\n\n")
+
+    sg <- spatial_gaps[basisofrecord == b]
+    map_sf <- grid_sf |>
+      left_join(as_tibble(sg) |> select(eeacellcode, occurrences), by = "eeacellcode") |>
+      mutate(log_occ = log10(pmax(occurrences, 1, na.rm = TRUE)))
+
+    p <- ggplot(map_sf) +
+      geom_sf(aes(fill = log_occ), colour = NA) +
+      scale_fill_gradient(
+        low = "#f6f5f1",
+        high = basis_palette[b],
+        na.value = "#eee",
+        name = expression(log[10](occurrences))
+      ) +
+      labs(title = paste0(basis_label(b), " - Spatial Distribution"),
+           subtitle = paste0(comma(sum(sg$occurrences > 0, na.rm = TRUE)),
+                             " cells with data")) +
+      theme_void(base_size = 11) +
+      theme(legend.position = "right",
+            plot.title = element_text(face = "bold"))
+
+    print(p)
+  }
+}
+```
+
+
+# Temporal Trends
+
+How has each basis of record evolved over time? Shifts in the dominant observation
+type reflect changes in biodiversity monitoring practice - from museum collecting
+to citizen science platforms.
+
+## Annual Trend (Stacked Area)
+
+```{r temporal-stacked, fig.height=5}
+if (!is.null(time_summary)) {
+  year_by_basis <- time_summary[
+    basisofrecord != "all" & !is.na(year) & year >= 1970,
+    .(occurrences = sum(as.numeric(occurrences), na.rm = TRUE)),
+    by = .(basisofrecord, year)
+  ]
+
+  # Order by total volume
+  basis_order <- year_by_basis[, .(tot = sum(as.numeric(occurrences))), by = basisofrecord][order(-tot)]
+  year_by_basis[, basisofrecord := factor(basisofrecord, levels = rev(basis_order$basisofrecord))]
+  year_by_basis[, label := basis_label(as.character(basisofrecord))]
+
+  ggplot(year_by_basis, aes(x = year, y = occurrences, fill = basisofrecord)) +
+    geom_area(alpha = 0.85) +
+    scale_fill_manual(values = basis_palette, labels = basis_label) +
+    scale_y_continuous(labels = comma) +
+    labs(title = "Occurrence Volume Over Time by Basis of Record",
+         subtitle = paste0(country_name, " - ", params$grid, " grid, 1970-present"),
+         x = "Year", y = "Occurrences", fill = NULL) +
+    theme(legend.position = "bottom") +
+    guides(fill = guide_legend(nrow = 2))
+}
+```
+
+## Annual Trend (Proportional)
+
+```{r temporal-proportional, fig.height=5}
+if (!is.null(time_summary)) {
+  year_by_basis_pct <- year_by_basis[,
+    .(basisofrecord, label, pct = as.numeric(occurrences) / sum(as.numeric(occurrences)) * 100),
+    by = year
+  ]
+
+  ggplot(year_by_basis_pct, aes(x = year, y = pct, fill = basisofrecord)) +
+    geom_area(alpha = 0.85) +
+    scale_fill_manual(values = basis_palette, labels = basis_label) +
+    labs(title = "Proportional Composition Over Time",
+         subtitle = "How has the data mix shifted?",
+         x = "Year", y = "% of occurrences", fill = NULL) +
+    theme(legend.position = "bottom") +
+    guides(fill = guide_legend(nrow = 2))
+}
+```
+
+## Seasonal Patterns
+
+```{r seasonal, fig.height=5}
+if (!is.null(time_summary)) {
+  month_by_basis <- time_summary[
+    basisofrecord != "all" & !is.na(month) & month >= 1 & month <= 12,
+    .(occurrences = sum(as.numeric(occurrences), na.rm = TRUE)),
+    by = .(basisofrecord, month)
+  ]
+
+  # Normalise within each basis
+  month_by_basis[, pct := as.numeric(occurrences) / sum(as.numeric(occurrences)) * 100, by = basisofrecord]
+
+  # Top 4 basis types only
+  top4 <- month_by_basis[, .(tot = sum(as.numeric(occurrences))), by = basisofrecord][order(-tot)]$basisofrecord[1:4]
+  month_by_basis_top <- month_by_basis[basisofrecord %in% top4]
+  month_by_basis_top[, label := basis_label(basisofrecord)]
+
+  ggplot(month_by_basis_top, aes(x = month, y = pct, colour = basisofrecord)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 2) +
+    scale_colour_manual(values = basis_palette, labels = basis_label) +
+    scale_x_continuous(breaks = 1:12, labels = month.abb) +
+    labs(title = "Seasonal Recording Pattern by Basis of Record",
+         subtitle = "% of each basis type's total occurrences per month",
+         x = NULL, y = "% of annual total", colour = NULL) +
+    theme(legend.position = "bottom")
+}
+```
+
+
+# Species Coverage
+
+Which basis types record the most species? And how unique is each - do
+preserved specimens capture species missed by human observations?
+
+```{r species-coverage, fig.height=5}
+if (!is.null(spatial_gaps)) {
+  species_df <- spatial_gaps[basisofrecord != "all",
+    .(total_species = sum(as.numeric(n_species), na.rm = TRUE)),
+    by = basisofrecord
+  ][order(-total_species)]
+
+  species_df[, label := basis_label(basisofrecord)]
+
+  ggplot(species_df, aes(x = reorder(label, total_species), y = total_species,
+                          fill = basisofrecord)) +
+    geom_col(show.legend = FALSE) +
+    geom_text(aes(label = comma(total_species)), hjust = -0.05, size = 3.2) +
+    scale_fill_manual(values = basis_palette) +
+    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.25))) +
+    coord_flip() +
+    labs(title = "Species Detections by Basis of Record",
+         subtitle = "Sum of unique species across all grid cells",
+         x = NULL, y = "Species detections")
+}
+```
+
+```{r species-overlap, fig.height=5}
+# Compute unique species per basis using cell-level data
+# (species detected in at least one cell)
+if (!is.null(spatial_gaps)) {
+  # Read species_cell files to get actual species lists per basis
+  p_cell_order <- here(p_derived, "by_order", "species_cell")
+  p_cell_family <- here(p_derived, "by_family", "species_cell")
+
+  cell_files <- c(
+    if (dir.exists(p_cell_order)) list.files(p_cell_order, pattern = paste0(params$grid, "\\.csv$"), full.names = TRUE) else character(0),
+    if (dir.exists(p_cell_family)) list.files(p_cell_family, pattern = paste0(params$grid, "\\.csv$"), full.names = TRUE) else character(0)
+  )
+
+  if (length(cell_files) > 0 && length(cell_files) <= 2000) {
+    basis_species <- rbindlist(lapply(cell_files, function(f) {
+      dt <- fread(f, select = c("basisofrecord", "species"))
+      dt[basisofrecord != "all", .(species = unique(species)), by = basisofrecord]
+    }))
+    basis_species <- unique(basis_species)
+
+    sp_counts <- basis_species[, .(n_unique = uniqueN(species)), by = basisofrecord][order(-n_unique)]
+    sp_counts[, label := basis_label(basisofrecord)]
+
+    ggplot(sp_counts, aes(x = reorder(label, n_unique), y = n_unique, fill = basisofrecord)) +
+      geom_col(show.legend = FALSE) +
+      geom_text(aes(label = comma(n_unique)), hjust = -0.05, size = 3.2) +
+      scale_fill_manual(values = basis_palette) +
+      scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.25))) +
+      coord_flip() +
+      labs(title = "Unique Species per Basis of Record",
+           subtitle = "Species recorded at least once under each basis type",
+           x = NULL, y = "Unique species")
+  }
+}
+```
+
+
+# Taxonomic Coverage by Basis
+
+How well does each basis of record cover the national taxonomic backbone?
+This shows whether museum specimens and citizen science records document
+different parts of the tree of life.
+
+```{r taxonomic-coverage}
+if (!is.null(tax_by_basis)) {
+  tax_df <- as_tibble(tax_by_basis)
+
+  if ("basisofrecord" %in% names(tax_df) && "pct_coverage" %in% names(tax_df)) {
+    tax_df <- tax_df |> filter(basisofrecord != "all")
+
+    ggplot(tax_df, aes(x = reorder(basis_label(basisofrecord), pct_coverage),
+                        y = pct_coverage, fill = basisofrecord)) +
+      geom_col(show.legend = FALSE) +
+      geom_text(aes(label = paste0(round(pct_coverage, 1), "%")), hjust = -0.1, size = 3.5) +
+      scale_fill_manual(values = basis_palette) +
+      scale_y_continuous(limits = c(0, 105)) +
+      coord_flip() +
+      labs(title = "Taxonomic Backbone Coverage by Basis of Record",
+           subtitle = paste0("% of ", country_name, " national checklist species detected"),
+           x = NULL, y = "% of checklist species covered")
+  }
+}
+```
+
+
+# Complementarity Analysis
+
+Different basis types often complement each other. Preserved specimens may
+cover taxa poorly represented in citizen science data, and vice versa.
+
+```{r complementarity, fig.height=5}
+if (exists("basis_species") && nrow(basis_species) > 0) {
+  # Top 3 basis types
+  top3 <- sp_counts$basisofrecord[1:min(3, nrow(sp_counts))]
+
+  if (length(top3) >= 2) {
+    sp_lists <- lapply(top3, function(b) unique(basis_species[basisofrecord == b]$species))
+    names(sp_lists) <- basis_label(top3)
+
+    # Pairwise overlap
+    overlap_df <- expand.grid(
+      basis1 = names(sp_lists), basis2 = names(sp_lists),
+      stringsAsFactors = FALSE
+    ) |>
+      filter(basis1 != basis2) |>
+      rowwise() |>
+      mutate(
+        n1 = length(sp_lists[[basis1]]),
+        n2 = length(sp_lists[[basis2]]),
+        shared = length(intersect(sp_lists[[basis1]], sp_lists[[basis2]])),
+        only_in_1 = length(setdiff(sp_lists[[basis1]], sp_lists[[basis2]])),
+        pct_shared = round(100 * shared / n1, 1)
+      ) |>
+      ungroup()
+
+    overlap_df |>
+      select(basis1, basis2, n1, shared, only_in_1, pct_shared) |>
+      rename(
+        `Basis A` = basis1,
+        `Basis B` = basis2,
+        `Species in A` = n1,
+        `Shared` = shared,
+        `Only in A` = only_in_1,
+        `% of A shared` = pct_shared
+      ) |>
+      kable()
+  }
+}
+```
+
+
+# Data Quality Indicators
+
+```{r recency-by-basis, fig.height=5}
+if (!is.null(time_summary)) {
+  # Compute recency per basis type safely (avoids integer overflow and type conflicts)
+  basis_types <- unique(time_summary[basisofrecord != "all" & !is.na(year)]$basisofrecord)
+
+  recency_list <- lapply(basis_types, function(b) {
+    bd <- time_summary[basisofrecord == b & !is.na(year)]
+    total <- sum(as.numeric(bd$occurrences), na.rm = TRUE)
+    if (total == 0) return(NULL)
+
+    recent_5  <- sum(as.numeric(bd[year >= current_year - 5]$occurrences), na.rm = TRUE)
+    recent_10 <- sum(as.numeric(bd[year >= current_year - 10]$occurrences), na.rm = TRUE)
+
+    # Weighted median: cumulative sum approach (no rep() needed)
+    yearly <- bd[, .(occ = sum(as.numeric(occurrences), na.rm = TRUE)), by = year][order(year)]
+    yearly[, cum := cumsum(occ)]
+    half <- sum(yearly$occ) / 2
+    med_year <- yearly$year[which(yearly$cum >= half)[1]]
+
+    data.table(
+      basisofrecord   = b,
+      median_year     = as.numeric(med_year),
+      pct_recent_5yr  = round(100 * recent_5 / total, 1),
+      pct_recent_10yr = round(100 * recent_10 / total, 1)
+    )
+  })
+
+  recent_by_basis <- rbindlist(recency_list)[order(-pct_recent_5yr)]
+  recent_by_basis[, label := basis_label(basisofrecord)]
+
+  ggplot(recent_by_basis,
+         aes(x = reorder(label, pct_recent_5yr), y = pct_recent_5yr,
+             fill = basisofrecord)) +
+    geom_col(show.legend = FALSE) +
+    geom_text(aes(label = paste0(pct_recent_5yr, "%")), hjust = -0.1, size = 3.5) +
+    scale_fill_manual(values = basis_palette) +
+    scale_y_continuous(limits = c(0, 105)) +
+    coord_flip() +
+    labs(title = "Data Recency by Basis of Record",
+         subtitle = glue("% of occurrences from last 5 years ({current_year - 5}-{current_year})"),
+         x = NULL, y = "% recent (last 5 years)")
+}
+```
+
+```{r recency-table}
+if (exists("recent_by_basis")) {
+  recent_by_basis |>
+    select(label, median_year, pct_recent_5yr, pct_recent_10yr) |>
+    rename(
+      `Basis of Record` = label,
+      `Median Year` = median_year,
+      `% Last 5 Years` = pct_recent_5yr,
+      `% Last 10 Years` = pct_recent_10yr
+    ) |>
+    kable()
+}
+```
+
+
+# Key Findings
+
+```{r findings, results='asis'}
+if (!is.null(spatial_gaps) && exists("basis_totals")) {
+  dominant <- basis_totals[1, ]
+  cat(paste0(
+    "- **Dominant data source**: ", basis_label(dominant$basisofrecord),
+    " accounts for ", dominant$pct, "% of all occurrences (",
+    comma(dominant$total_occurrences), " records)\n"
+  ))
+
+  best_coverage <- coverage_df[1, ]
+  cat(paste0(
+    "- **Best spatial coverage**: ", basis_label(best_coverage$basisofrecord),
+    " covers ", best_coverage$pct, "% of grid cells\n"
+  ))
+
+  if (exists("recent_by_basis")) {
+    most_recent <- recent_by_basis[1, ]
+    cat(paste0(
+      "- **Most current data**: ", most_recent$label,
+      " has ", most_recent$pct_recent_5yr, "% of records from the last 5 years\n"
+    ))
+
+    oldest <- recent_by_basis[.N, ]
+    cat(paste0(
+      "- **Most historical data**: ", oldest$label,
+      " has a median year of ", round(oldest$median_year),
+      " (only ", oldest$pct_recent_5yr, "% from the last 5 years)\n"
+    ))
+  }
+}
+```
+
+---
+
+*Report generated by `gbifgaps` on `r format(Sys.time(), '%Y-%m-%d %H:%M')`.*

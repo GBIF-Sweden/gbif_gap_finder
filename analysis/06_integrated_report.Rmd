@@ -12,9 +12,20 @@ output:
     code_folding: hide
     fig_width: 14
     fig_height: 9
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    toc_depth: 3
+    fig_width: 10
+    fig_height: 6
 ---
 
 ```{r setup, include=FALSE}
+
+if (!knitr::is_html_output()) {
+  knitr::opts_chunk$set(echo = FALSE)
+}
+
 knitr::opts_chunk$set(
   echo = FALSE,
   message = FALSE,
@@ -37,7 +48,6 @@ library(patchwork)
 library(sf)
 library(knitr)
 library(data.table)
-library(gt)
 library(glue)
 library(lubridate)
 
@@ -101,12 +111,12 @@ if (!is.null(dashboard) && nrow(dashboard) > 0) {
   # Build the summary table with safe column access
   exec_summary <- tibble(
     Dimension = c(
-      "🗺️ Spatial Coverage (10km)", 
-      "🗺️ Spatial Coverage (50km)", 
-      "📅 Temporal Range",
-      "⏰ Data Recency", 
-      "🔬 Taxonomic Coverage", 
-      "⚠️ Priority Taxa"
+      "Spatial Coverage (10km)", 
+      "Spatial Coverage (50km)", 
+      "Temporal Range",
+      "Data Recency", 
+      "Taxonomic Coverage", 
+      "Priority Taxa"
     ),
     `Current Status` = c(
       paste0(comma(safe_col(dashboard, "cells_10km_with_data", 0)), " / ", 
@@ -116,7 +126,7 @@ if (!is.null(dashboard) && nrow(dashboard) > 0) {
              comma(safe_col(dashboard, "cells_50km_total", 0)), " cells (",
              safe_col(dashboard, "cells_50km_pct_coverage", 0), "%)"),
       paste0(safe_col(dashboard, "year_range", "N/A"), " years (",
-             safe_col(dashboard, "year_min", "?"), "–", safe_col(dashboard, "year_max", "?"), ")"),
+             safe_col(dashboard, "year_min", "?"), "-", safe_col(dashboard, "year_max", "?"), ")"),
       paste0(safe_col(dashboard, "median_staleness_months_10km", "N/A"), " months median; ",
              safe_col(dashboard, "pct_stale_5y_10km", "N/A"), "% cells >5yr stale"),
       paste0(comma(safe_col(dashboard, "taxa_in_gbif", 0)), " / ", 
@@ -126,31 +136,20 @@ if (!is.null(dashboard) && nrow(dashboard) > 0) {
     ),
     Assessment = c(
       { pct <- as.numeric(safe_col(dashboard, "cells_10km_pct_coverage", 0))
-        ifelse(pct >= 90, "✅ Excellent", ifelse(pct >= 75, "✅ Good", "⚠️ Needs Attention")) },
+        ifelse(pct >= 90, "Excellent", ifelse(pct >= 75, "Good", "Needs Attention")) },
       { pct <- as.numeric(safe_col(dashboard, "cells_50km_pct_coverage", 0))
-        ifelse(pct >= 90, "✅ Excellent", ifelse(pct >= 75, "✅ Good", "⚠️ Needs Attention")) },
-      "✅ Good",
+        ifelse(pct >= 90, "Excellent", ifelse(pct >= 75, "Good", "Needs Attention")) },
+      "Good",
       { months <- as.numeric(safe_col(dashboard, "median_staleness_months_10km", 999))
-        ifelse(months <= 24, "✅ Recent", ifelse(months <= 48, "⚠️ Fair", "❌ Needs Update")) },
+        ifelse(months <= 24, "Recent", ifelse(months <= 48, "Fair", "Needs Update")) },
       { pct <- as.numeric(safe_col(dashboard, "taxa_pct_coverage", 0))
-        ifelse(pct >= 75, "✅ Good", ifelse(pct >= 50, "⚠️ Fair", "❌ Low")) },
+        ifelse(pct >= 75, "Good", ifelse(pct >= 50, "Fair", "Low")) },
       { n <- as.numeric(safe_col(dashboard, "n_priority_taxa", 0))
-        ifelse(n < 500, "✅ Manageable", "⚠️ Action Required") }
+        ifelse(n < 500, "Manageable", "Action Required") }
     )
   )
   
-  exec_summary |>
-    gt() |>
-    tab_header(
-      title = md("**GBIF Data Gap Assessment**"),
-      subtitle = paste("Analysis Date:", safe_col(dashboard, "analysis_date", Sys.Date()))
-    ) |>
-    cols_label(
-      Dimension = md("**Dimension**"),
-      `Current Status` = md("**Current Status**"),
-      Assessment = md("**Assessment**")
-    ) |>
-    tab_options(table.font.size = 14, heading.title.font.size = 20)
+  exec_summary |> kable()
 } else {
   cat("Dashboard summary not found. Please run the analysis pipeline first.\n")
 }
@@ -551,7 +550,7 @@ n_cr_en <- if (has_threat_data && !is.null(threat_stats)) {
 } else 0
 
 actions <- tibble(
-  Priority = c("🔴 High", "🔴 High", "🟠 Medium", "🟠 Medium", "🟢 Low"),
+  Priority = c("High", "High", "Medium", "Medium", "Low"),
   Category = c("Spatial", "Taxonomic", "Temporal", "Taxonomic", "Spatial"),
   Action = c(
     "Survey zero-coverage grid cells",
@@ -569,15 +568,7 @@ actions <- tibble(
   )
 )
 
-actions |>
-  gt() |>
-  tab_header(title = md("**Recommended Priority Actions**")) |>
-  cols_label(
-    Priority = md("**Priority**"),
-    Category = md("**Category**"),
-    Action = md("**Action**"),
-    Target = md("**Target**")
-  )
+actions |> kable()
 ```
 
 ---
