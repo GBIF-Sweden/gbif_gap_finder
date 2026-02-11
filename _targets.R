@@ -24,7 +24,7 @@
 #   5. Integration  — script 10
 #   6. Gap App Prep  — script 11
 #   7. Explorer Prep — script 12
-#   7. Reports      — Rmd files (manual trigger)
+#   8. Reports      — Rmd files (manual trigger)
 # ============================================================================
 
 library(targets)
@@ -393,8 +393,15 @@ list(
   ),
 
   tar_render(
+    report_basis_of_record,
+    path       = here("analysis", "05_basis_of_record.Rmd"),
+    output_dir = here("analysis"),
+    cue        = tar_cue(mode = "never")
+  ),
+
+  tar_render(
     report_integrated,
-    path       = here("analysis", "05_integrated_report.Rmd"),
+    path       = here("analysis", "06_integrated_report.Rmd"),
     output_dir = here("analysis"),
     cue        = tar_cue(mode = "never")
   ),
