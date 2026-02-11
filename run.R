@@ -94,6 +94,7 @@ run_reports <- function() {
     report_spatial_gaps,
     report_temporal_gaps,
     report_taxonomic_gaps,
+    report_basis_of_record,
     report_integrated
   ))
 }

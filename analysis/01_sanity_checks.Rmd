@@ -9,6 +9,12 @@ output:
     code_folding: hide
     theme: flatly
     df_print: paged
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    toc_depth: 3
+    fig_width: 10
+    fig_height: 6
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 ---
 
@@ -22,6 +28,11 @@ knitr::opts_chunk$set(
   fig.height = 6,
   dpi = 150
 )
+
+# Hide code in PDF output, show (with folding) in HTML
+if (!knitr::is_html_output()) {
+  knitr::opts_chunk$set(echo = FALSE)
+}
 
 library(here)
 source(here("scripts", "00_setup.R"))

@@ -12,6 +12,12 @@ output:
     theme: flatly
     fig_width: 12
     fig_height: 8
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    toc_depth: 3
+    fig_width: 10
+    fig_height: 6
 ---
 
 ```{r setup, include=FALSE}
@@ -23,6 +29,11 @@ knitr::opts_chunk$set(
   fig.height = 8,
   dpi = 300
 )
+
+# Hide code in PDF output, show (with folding) in HTML
+if (!knitr::is_html_output()) {
+  knitr::opts_chunk$set(echo = FALSE)
+}
 
 library(here)
 library(dplyr)

@@ -38,7 +38,13 @@ gbif_gap_analysis/
 │   ├── 10_make_gap_overview.R               # Integrated summary tables
 │   ├── 11_prepare_gap_app_data.R            # Bundle data for Gap Analysis app
 │   └── 12_prepare_explorer_app_data.R       # Bundle data for GBIF Explorer app
-├── analysis/                # Exploratory R Markdown reports
+├── analysis/                # R Markdown reports
+│   ├── 01_sanity_checks.Rmd            # Data validation & QA
+│   ├── 02_spatial_gaps.Rmd             # Spatial gap analysis
+│   ├── 03_temporal_gaps.Rmd            # Temporal gap analysis
+│   ├── 04_taxonomic_gaps.Rmd           # Taxonomic gap analysis
+│   ├── 05_basis_of_record.Rmd          # Basis of record analysis
+│   └── 06_integrated_report.Rmd        # Combined assessment
 ├── data_raw/                # Raw input data (not in git)
 ├── data_proc/               # Processed data (derived/, gaps/)
 ├── output/                  # Summary tables and figures
