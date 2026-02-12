@@ -80,11 +80,6 @@ files:
 
 parameters:
   crs: 3035
-
-  grid:
-    cellcode_field: "eeacellcode"
-    grid_prefix: "EEA"
-    resolutions: [10, 50]
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]
   temporal:
@@ -93,6 +88,8 @@ parameters:
   taxonomic:
     min_occurrences: 10
     min_cells: 5
+    api_min_occurrences: 10
+    api_max_requests: 5000
   processing:
     large_order_threshold: 500000
     low_memory_mode: false
