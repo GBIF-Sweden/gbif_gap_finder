@@ -106,7 +106,7 @@ time10 <- read_csv(here(p_derived, "time_summary_10km.csv"), show_col_types = FA
 annual <- time10 |>
   group_by(year) |>
   summarise(
-    occurrences = sum(occurrences, na.rm = TRUE),
+    occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
     .groups = "drop"
   ) |>
   filter(year >= 1900, year <= current_year)
@@ -173,7 +173,7 @@ annual_5yr <- annual |>
   filter(year >= 1970) |>
   mutate(period = floor(year / 5) * 5) |>
   group_by(period) |>
-  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+  summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
   mutate(
     prev_period = lag(occurrences),
     pct_change = 100 * (occurrences - prev_period) / prev_period,
@@ -207,7 +207,7 @@ ggplot(annual_5yr, aes(x = period_label, y = pct_change, fill = direction)) +
 ```{r monthly-pattern, fig.height=5}
 monthly <- time10 |>
   group_by(month) |>
-  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+  summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
 
 ggplot(monthly, aes(x = factor(month), y = occurrences, fill = occurrences)) +
   geom_col() +
@@ -230,7 +230,7 @@ ggplot(monthly, aes(x = factor(month), y = occurrences, fill = occurrences)) +
 time10 |>
   filter(year >= 1950, year <= current_year) |>
   group_by(year, month) |>
-  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+  summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
   ggplot(aes(x = factor(month), y = year, fill = log10(occurrences + 1))) +
   geom_tile() +
   scale_fill_viridis(option = "inferno", name = "log10(occ+1)") +
@@ -250,9 +250,9 @@ time10 |>
   filter(year >= 1970) |>
   mutate(decade = paste0(floor(year / 10) * 10, "s")) |>
   group_by(decade, month) |>
-  summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+  summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
   group_by(decade) |>
-  mutate(pct = 100 * occurrences / sum(occurrences)) |>
+  mutate(pct = 100 * occurrences / sum(as.numeric(occurrences))) |>
   ungroup() |>
   ggplot(aes(x = factor(month), y = pct, fill = decade)) +
   geom_col(position = "dodge") +
@@ -419,12 +419,12 @@ if (file.exists(order_path)) {
       period = paste0(period_start, "-", period_start + 4)
     ) |>
     group_by(order, period, period_start) |>
-    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop")
+    summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
   
   # Get top 12 orders by total occurrences
   top_orders <- order_time |>
     group_by(order) |>
-    summarise(total = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    summarise(total = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
     arrange(desc(total)) |>
     slice_head(n = 12) |>
     pull(order)
@@ -470,7 +470,7 @@ if (has_order_data) {
   # Get bottom 12 orders by total occurrences (excluding very rare)
   bottom_orders <- order_time |>
     group_by(order) |>
-    summarise(total = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    summarise(total = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
     filter(total >= 100) |>  # Exclude extremely rare orders
     arrange(total) |>
     slice_head(n = 12) |>
@@ -546,7 +546,7 @@ if (has_order_data) {
     ) |>
     filter(!is.na(era)) |>
     group_by(order, era) |>
-    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
     pivot_wider(names_from = era, values_from = occurrences) |>
     mutate(
       pct_change = 100 * (`Recent (last 10 years)` - `Historical (10-20 years ago)`) / 

@@ -682,7 +682,7 @@ server <- function(input, output, session) {
       filter(basisofrecord == "all", year >= 1900) |>
       mutate(decade = floor(year / 10) * 10) |>
       group_by(decade) |>
-      summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
       mutate(decade_label = paste0(decade, "s"))
 
     plot_ly(df, x = ~decade, y = ~occ, type = "bar",
@@ -796,7 +796,7 @@ server <- function(input, output, session) {
   output$temporal_trend <- renderPlotly({
     req(time_filtered())
     df <- time_filtered() |> group_by(year) |>
-      summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop")
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
     plot_ly(df, x = ~year, y = ~occ, type = "scatter", mode = "lines",
       fill = "tozeroy",
       fillcolor = paste0(pal$sage, "33"),
@@ -809,7 +809,7 @@ server <- function(input, output, session) {
   output$temporal_season <- renderPlotly({
     req(time_filtered())
     df <- time_filtered() |> group_by(month) |>
-      summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop")
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
 
     month_cols <- colorRampPalette(c(pal$slate, pal$sage, pal$sand, pal$coral))(12)
 
@@ -823,7 +823,7 @@ server <- function(input, output, session) {
   output$temporal_heatmap <- renderPlotly({
     req(time_filtered())
     df <- time_filtered() |> group_by(year, month) |>
-      summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
       mutate(log_occ = log10(occ + 1))
 
     # Warm sage-to-sand colorscale
@@ -872,7 +872,7 @@ server <- function(input, output, session) {
     sg <- spatial_gaps |> filter(basisofrecord != "all")
     basis_summary <- sg |>
       group_by(basisofrecord) |>
-      summarise(total_occ = sum(occurrences, na.rm = TRUE),
+      summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE),
                 n_cells = n(),
                 n_species = sum(n_species, na.rm = TRUE), .groups = "drop") |>
       arrange(desc(total_occ)) |>
@@ -895,7 +895,7 @@ server <- function(input, output, session) {
     df <- spatial_gaps |>
       filter(basisofrecord != "all") |>
       group_by(basisofrecord) |>
-      summarise(total_occ = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+      summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
       arrange(desc(total_occ))
 
     cols <- sapply(df$basisofrecord, get_basis_color)
@@ -915,7 +915,7 @@ server <- function(input, output, session) {
     df <- time_summary |>
       filter(basisofrecord != "all", !is.na(year), year >= 1970) |>
       group_by(basisofrecord, year) |>
-      summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop")
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
 
     basis_order <- df |> group_by(basisofrecord) |>
       summarise(tot = sum(occ)) |> arrange(desc(tot)) |> pull(basisofrecord)
@@ -1089,7 +1089,7 @@ server <- function(input, output, session) {
       df <- order_5yr |>
         mutate(era = ifelse(period_start >= 2000, "Recent", "Historical")) |>
         group_by(order, era) |>
-        summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+        summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
         pivot_wider(names_from = era, values_from = occ, values_fill = 0) |>
         filter(Historical > 0) |>
         mutate(

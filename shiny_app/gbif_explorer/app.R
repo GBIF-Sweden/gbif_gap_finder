@@ -407,7 +407,7 @@ server <- function(input, output, session) {
       return()
     }
 
-    cell_agg <- sp_cells[, .(occurrences = sum(occurrences, na.rm = TRUE)), by = eeacellcode]
+    cell_agg <- sp_cells[, .(occurrences = sum(as.numeric(occurrences), na.rm = TRUE)), by = eeacellcode]
     map_sf <- grid_10km |> inner_join(cell_agg, by = "eeacellcode")
 
     if (nrow(map_sf) == 0) {
@@ -441,7 +441,7 @@ server <- function(input, output, session) {
 
     df <- sp_time[, .(ym = as.character(yearmonth), occurrences)
       ][, year := as.integer(str_sub(ym, 1, 4))
-      ][, .(occ = sum(occurrences, na.rm = TRUE)), by = year
+      ][, .(occ = sum(as.numeric(occurrences), na.rm = TRUE)), by = year
       ][year >= 1950]
     setorder(df, year)
 
@@ -470,7 +470,7 @@ server <- function(input, output, session) {
     df <- sp_time[, .(ym = as.character(yearmonth), occurrences)
       ][, month := as.integer(str_sub(ym, 6, 7))
       ][!is.na(month) & month >= 1 & month <= 12
-      ][, .(occ = sum(occurrences, na.rm = TRUE)), by = month]
+      ][, .(occ = sum(as.numeric(occurrences), na.rm = TRUE)), by = month]
 
     # Radar-like bar chart with month colors
     month_cols <- colorRampPalette(c(pal$slate, pal$sage, pal$sand, pal$coral, pal$slate))(12)
