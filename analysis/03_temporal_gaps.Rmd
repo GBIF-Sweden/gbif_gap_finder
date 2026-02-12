@@ -96,9 +96,11 @@ time10 <- read_csv(here(p_derived, "time_summary_10km.csv"), show_col_types = FA
   filter(basisofrecord == "all") |>
   mutate(
     yearmonth_chr = str_trim(as.character(yearmonth)),
-    year = as.integer(str_sub(yearmonth_chr, 1, 4)),
-    month = as.integer(str_sub(yearmonth_chr, 6, 7))
-  )
+    ym_valid = str_detect(yearmonth_chr, "^[0-9]{4}-[0-9]{2}$"),
+    year = if_else(ym_valid, as.integer(str_sub(yearmonth_chr, 1, 4)), NA_integer_),
+    month = if_else(ym_valid, as.integer(str_sub(yearmonth_chr, 6, 7)), NA_integer_)
+  ) |>
+  select(-ym_valid)
 
 # Annual summary
 annual <- time10 |>
@@ -402,7 +404,11 @@ if (file.exists(order_path)) {
     filter(basisofrecord == "all") |>
     mutate(
       yearmonth_chr = str_trim(as.character(yearmonth)),
-      year = as.integer(str_sub(yearmonth_chr, 1, 4))
+      year = if_else(
+        str_detect(yearmonth_chr, "^[0-9]{4}-[0-9]{2}$"),
+        as.integer(str_sub(yearmonth_chr, 1, 4)),
+        NA_integer_
+      )
     ) |>
     filter(year >= 1970, year <= current_year, !is.na(order), order != "")
   
