@@ -97,6 +97,15 @@ write_table <- function(dt, filename) {
   cli_alert_success("{filename}: {scales::comma(nrow(dt))} rows")
 }
 
+#' Extract year from yearmonth string (defensive, returns NA for malformed)
+parse_year <- function(x) {
+  x_chr <- str_trim(as.character(x))
+  valid <- str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
+  out <- rep(NA_integer_, length(x_chr))
+  out[valid] <- as.integer(str_sub(x_chr[valid], 1, 4))
+  out
+}
+
 # ===========================================================================
 # LOAD ALL GAP OUTPUTS
 # ===========================================================================
@@ -431,7 +440,7 @@ if (!is.null(order_cell_10)) {
 if (!is.null(order_time_10)) {
   # Extract year
   order_time_copy <- copy(order_time_10)
-  order_time_copy[, year := as.integer(str_sub(yearmonth, 1, 4))]
+  order_time_copy[, year := parse_year(yearmonth)]
   
   order_trends <- order_time_copy[basisofrecord == "all", .(
     total_occurrences = sum(occurrences, na.rm = TRUE),
@@ -461,7 +470,7 @@ cli_h2("Creating Family-Level Analysis")
 # Family × time trends
 if (!is.null(family_time_10)) {
   family_time_copy <- copy(family_time_10)
-  family_time_copy[, year := as.integer(str_sub(yearmonth, 1, 4))]
+  family_time_copy[, year := parse_year(yearmonth)]
   
   family_summary <- family_time_copy[basisofrecord == "all", .(
     total_occurrences = sum(occurrences, na.rm = TRUE),

@@ -505,9 +505,11 @@ if (!is.null(time_summary)) {
   shiny_data$time_summary_10km <- as_tibble(time_summary) |>
     mutate(
       yearmonth_chr = str_trim(as.character(yearmonth)),
-      year = as.integer(str_sub(yearmonth_chr, 1, 4)),
-      month = as.integer(str_sub(yearmonth_chr, 6, 7))
-    )
+      ym_valid = str_detect(yearmonth_chr, "^[0-9]{4}-[0-9]{2}$"),
+      year = if_else(ym_valid, as.integer(str_sub(yearmonth_chr, 1, 4)), NA_integer_),
+      month = if_else(ym_valid, as.integer(str_sub(yearmonth_chr, 6, 7)), NA_integer_)
+    ) |>
+    select(-ym_valid)
   cli_alert_success("Time summary 10km: {nrow(shiny_data$time_summary_10km)} rows")
 }
 
