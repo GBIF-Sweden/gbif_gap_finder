@@ -156,7 +156,7 @@ derived:
       - species_cell_time
 
 # ============================================================================
-# Gap Analysis Outputs (scripts 07-09)
+# Gap Analysis Outputs (scripts 07, 08, 09a, 09b)
 # ============================================================================
 gaps:
   dir: "gaps"
@@ -195,9 +195,10 @@ gaps:
     cell_recency_10km: "cell_recency_10km.csv"
     cell_recency_50km: "cell_recency_50km.csv"
 
-    # Taxonomic (script 09)
+    # Taxonomic (scripts 09a + 09b)
     taxonomic_match_table: "taxonomic_match_table.csv"
     taxonomic_match_summary: "taxonomic_match_summary.csv"
+    taxonomic_reconciliation_summary: "taxonomic_reconciliation_summary.csv"
     taxonomic_missing_taxa: "taxonomic_missing_taxa.csv"
     taxonomic_missing_threatened: "taxonomic_missing_threatened.csv"
     taxonomic_gap_summary: "taxonomic_gap_summary.csv"
@@ -245,14 +246,6 @@ overview:
 parameters:
   crs: 3035                        # ETRS89-LAEA Europe (EEA standard)
 
-  grid:
-    cellcode_field: "eeacellcode"  # Column name in GBIF cubes for cell IDs
-                                   # EEA grids: "eeacellcode"
-                                   # ISEA3H:    TBD (e.g. "isea3h_cellcode")
-    grid_prefix: "EEA"             # Prefix used in grid column values
-                                   # e.g. "EEA_10km", "ISEA3H_10km"
-    resolutions: [10, 50]          # Grid resolutions in km
-
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]
 
@@ -263,6 +256,8 @@ parameters:
   taxonomic:
     min_occurrences: 10
     min_cells: 5
+    api_min_occurrences: 10            # Tier 4: skip API for species below this
+    api_max_requests: 5000             # Tier 4: max API calls per run (cache persists)
 
   processing:
     large_order_threshold: 500000
