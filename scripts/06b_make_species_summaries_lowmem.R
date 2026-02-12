@@ -342,6 +342,12 @@ process_taxon_group <- function(cube_files, cols_species, filter_expr,
       next
     }
     
+    # Recode missing order/family as "Unplaced" (consistent with scanning step)
+    dt[is.na(order) | order == "", order := "Unplaced"]
+    if ("family" %in% names(dt)) {
+      dt[is.na(family) | family == "", family := "Unplaced"]
+    }
+    
     # Apply filter
     dt <- dt[eval(filter_expr)]
     
@@ -522,12 +528,15 @@ for (f in cube_files) {
   dt <- read_fst_cols(f, c("order", "family", "grid"))
   
   if (all(c("order", "grid") %in% names(dt))) {
-    counts <- dt[!is.na(order) & order != "", .N, by = .(grid, order)]
+    # Recode missing order/family as "Unplaced" so these species
+    # are not silently dropped from downstream analyses
+    dt[is.na(order) | order == "", order := "Unplaced"]
+    counts <- dt[, .N, by = .(grid, order)]
     order_sizes[[length(order_sizes) + 1]] <- counts
     
     if ("family" %in% names(dt)) {
-      family_counts <- dt[!is.na(order) & order != "" & !is.na(family) & family != "", 
-                          .N, by = .(grid, order, family)]
+      dt[is.na(family) | family == "", family := "Unplaced"]
+      family_counts <- dt[, .N, by = .(grid, order, family)]
       family_size_list[[length(family_size_list) + 1]] <- family_counts
     }
   }
@@ -573,6 +582,7 @@ if (nrow(small_orders) > 0) {
     cli_progress_update()
     
     if (is.na(current_order) || current_order == "") next
+    # Note: "Unplaced" orders are valid — they were recoded in Step 1
     
     order_clean <- clean_for_filename(current_order)
     filter_expr <- substitute(order == x, list(x = current_order))
@@ -602,9 +612,8 @@ if (nrow(large_orders) > 0) {
   for (current_order in large_order_names) {
     cli_alert_info("Processing large order: {current_order}")
     
-    # Get families in this order
+    # Get families in this order (NA/empty already recoded to "Unplaced" in Step 1)
     families_in_order <- family_totals[order == current_order, unique(family)]
-    families_in_order <- families_in_order[!is.na(families_in_order) & families_in_order != ""]
     
     cli_alert_info("  → {length(families_in_order)} families to process")
     

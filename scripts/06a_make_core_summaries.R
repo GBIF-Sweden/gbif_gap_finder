@@ -539,6 +539,11 @@ if (MAKE_ORDER_SUMMARIES) {
     have_family <- "family"      %in% names(dt)
     have_spkey  <- "specieskey"  %in% names(dt)
 
+    # Recode missing order/family as "Unplaced" so these species
+    # are not silently dropped from order-level summaries
+    if (have_order)  dt[is.na(order)  | order  == "", order  := "Unplaced"]
+    if (have_family) dt[is.na(family) | family == "", family := "Unplaced"]
+
     # Order × Cell summary
     if (have_order && have_cell) {
       oc_dt <- dt[!is.na(order), .(
