@@ -144,6 +144,13 @@ parameters:
   crs: 3035                          # ETRS89-LAEA (EEA standard for Europe)
                                      # CHANGE for non-European countries
 
+  grid:
+    cellcode_field: "eeacellcode"    # CHANGE â€" column name for cell IDs in GBIF cubes
+                                     # European (EEA grids): "eeacellcode"
+                                     # Non-European (ISEA3H): TBD
+    grid_prefix: "EEA"               # CHANGE â€" prefix in grid column values
+    resolutions: [10, 50]            # CHANGE â€" grid resolutions in km
+
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]  # OPTIONAL
 
