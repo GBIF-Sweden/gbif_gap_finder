@@ -143,15 +143,16 @@ for (f in cube_files) {
   dt <- read_fst_cols(f, c("grid", "order", "family"))
 
   if ("order" %in% names(dt)) {
-    order_sizes[[f]] <- dt[
-      !is.na(order) & order != "", .N, by = .(grid, order)
-    ]
+    # Recode missing order/family as "Unplaced" so these species
+    # are not silently dropped from downstream analyses
+    dt[is.na(order) | order == "", order := "Unplaced"]
     if ("family" %in% names(dt)) {
-      family_info[[f]] <- dt[
-        !is.na(order) & !is.na(family) &
-          order != "" & family != "",
-        .(grid, order, family)
-      ] |> unique()
+      dt[is.na(family) | family == "", family := "Unplaced"]
+    }
+
+    order_sizes[[f]] <- dt[, .N, by = .(grid, order)]
+    if ("family" %in% names(dt)) {
+      family_info[[f]] <- dt[, .(grid, order, family)] |> unique()
     }
   }
   rm(dt); gc()
@@ -238,8 +239,9 @@ for (f in cube_files) {
   have_cell <- "eeacellcode" %in% names(dt)
   have_time <- "yearmonth"   %in% names(dt)
 
-  # Filter to valid orders
-  dt <- dt[!is.na(order) & order != ""]
+  # Recode missing order/family as "Unplaced" (consistent with scanning step)
+  dt[is.na(order) | order == "", order := "Unplaced"]
+  dt[is.na(family) | family == "", family := "Unplaced"]
   if (nrow(dt) == 0) { rm(dt); next }
 
   dt[, is_large_order := order %in% large_order_names]
@@ -302,7 +304,7 @@ for (f in cube_files) {
 
   if (nrow(dt_large) > 0) {
     combos <- unique(
-      dt_large[!is.na(family) & family != "", .(order, family)]
+      dt_large[, .(order, family)]
     )
 
     for (i in seq_len(nrow(combos))) {
