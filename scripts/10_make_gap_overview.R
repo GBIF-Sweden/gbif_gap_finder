@@ -269,7 +269,7 @@ if (!is.null(spatial_10) && !is.null(spatial_50)) {
     n_low_q05 = sum(gap_low_q05, na.rm = TRUE),
     n_low_q10 = sum(gap_low_q10, na.rm = TRUE),
     n_low_q25 = sum(gap_low_q25, na.rm = TRUE),
-    total_occurrences = sum(occurrences, na.rm = TRUE),
+    total_occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
     mean_occ_nonzero = round(mean(occurrences[occurrences > 0], na.rm = TRUE), 1),
     median_occ_nonzero = as.numeric(median(occurrences[occurrences > 0], na.rm = TRUE)),
     max_occurrences = max(occurrences, na.rm = TRUE)
@@ -427,7 +427,7 @@ cli_h2("Creating Order-Level Analysis")
 if (!is.null(order_cell_10)) {
   order_spatial <- order_cell_10[basisofrecord == "all", .(
     n_cells = uniqueN(eeacellcode),
-    total_occurrences = sum(occurrences, na.rm = TRUE),
+    total_occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
     n_species = sum(n_species, na.rm = TRUE),
     mean_occ_per_cell = round(mean(occurrences, na.rm = TRUE), 1)
   ), by = .(grid, order)]
@@ -443,7 +443,7 @@ if (!is.null(order_time_10)) {
   order_time_copy[, year := parse_year(yearmonth)]
   
   order_trends <- order_time_copy[basisofrecord == "all", .(
-    total_occurrences = sum(occurrences, na.rm = TRUE),
+    total_occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
     n_cells = sum(n_cells, na.rm = TRUE)
   ), by = .(grid, order, year)]
   
@@ -451,7 +451,7 @@ if (!is.null(order_time_10)) {
   
   # Order summary across all time
   order_summary <- order_time_copy[basisofrecord == "all", .(
-    total_occurrences = sum(occurrences, na.rm = TRUE),
+    total_occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
     n_years = uniqueN(year),
     first_year = min(year, na.rm = TRUE),
     last_year = max(year, na.rm = TRUE)
@@ -473,7 +473,7 @@ if (!is.null(family_time_10)) {
   family_time_copy[, year := parse_year(yearmonth)]
   
   family_summary <- family_time_copy[basisofrecord == "all", .(
-    total_occurrences = sum(occurrences, na.rm = TRUE),
+    total_occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
     n_years = uniqueN(year),
     first_year = min(year, na.rm = TRUE),
     last_year = max(year, na.rm = TRUE)
