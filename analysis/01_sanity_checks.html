@@ -2878,7 +2878,7 @@ summaries)</p>
 <li>Characterize spatial, temporal, and taxonomic coverage</li>
 <li>Flag potential biases that may affect gap interpretation</li>
 </ol>
-<p><strong>Last run:</strong> 2026-02-12 13:28:58.636114</p>
+<p><strong>Last run:</strong> 2026-02-12 13:32:58.505627</p>
 <hr />
 </div>
 <div id="file-inventory-validation" class="section level1 tabset">
@@ -3288,7 +3288,7 @@ grid50 &lt;- tryCatch(
      cells_with_data = sum(occurrences &gt; 0),
      zero_cells = sum(occurrences == 0),
      pct_coverage = round(100 * cells_with_data / total_cells, 1),
-     total_occurrences = sum(occurrences),
+     total_occurrences = sum(as.numeric(occurrences)),
      mean_occ = round(mean(occurrences)),
      median_occ = median(occurrences),
      sd_occ = round(sd(occurrences)),
@@ -3512,7 +3512,7 @@ cat(&quot;**10th percentile threshold:**&quot;, q10_threshold, &quot;occurrences
 <h2>2.6 Coverage by Basis of Record</h2>
 <pre class="r"><code>cell10_by_basis &lt;- cell10[, .(
  n_cells_with_data = sum(occurrences &gt; 0),
- total_occurrences = sum(occurrences),
+ total_occurrences = sum(as.numeric(occurrences)),
  mean_occ = round(mean(occurrences[occurrences &gt; 0]), 1)
 ), by = basisofrecord][order(-total_occurrences)]
 
@@ -3618,7 +3618,7 @@ temporal_range &lt;- time10_all[, .(
  max_year = max(year, na.rm = TRUE),
  n_years = uniqueN(year),
  n_months = .N,
- total_occurrences = sum(occurrences)
+ total_occurrences = sum(as.numeric(occurrences))
 )]
 
 temporal_range |&gt; kable(caption = &quot;Temporal Range Summary&quot;)</code></pre>
@@ -3647,7 +3647,7 @@ temporal_range |&gt; kable(caption = &quot;Temporal Range Summary&quot;)</code><
 <div id="annual-trend" class="section level2">
 <h2>3.2 Annual Trend</h2>
 <pre class="r"><code>annual &lt;- time10_all[, .(
- occurrences = sum(occurrences),
+ occurrences = sum(as.numeric(occurrences)),
  n_months = .N,
  n_cells = sum(n_cells, na.rm = TRUE)
 ), by = year][order(year)]
@@ -3664,7 +3664,7 @@ ggplot(annual, aes(x = year, y = occurrences)) +
 <div id="seasonal-pattern" class="section level2">
 <h2>3.3 Seasonal Pattern</h2>
 <pre class="r"><code>monthly &lt;- time10_all[, .(
- occurrences = sum(occurrences),
+ occurrences = sum(as.numeric(occurrences)),
  n_years = uniqueN(year)
 ), by = month][order(month)]
 
@@ -3679,7 +3679,7 @@ ggplot(monthly, aes(x = factor(month), y = occurrences)) +
 </div>
 <div id="year-month-heatmap" class="section level2">
 <h2>3.4 Year × Month Heatmap</h2>
-<pre class="r"><code>year_month &lt;- time10_all[, .(occurrences = sum(occurrences)), by = .(year, month)]
+<pre class="r"><code>year_month &lt;- time10_all[, .(occurrences = sum(as.numeric(occurrences))), by = .(year, month)]
 
 ggplot(year_month, aes(x = factor(month), y = year, fill = log10(occurrences + 1))) +
  geom_tile(color = &quot;white&quot;, size = 0.1) +
@@ -3779,7 +3779,7 @@ cat(&quot;\n**Most recent data point:**&quot;, as.character(most_recent$date),
 <div id="temporal-coverage-by-basis-of-record" class="section level2">
 <h2>3.7 Temporal Coverage by Basis of Record</h2>
 <pre class="r"><code>time_by_basis &lt;- time10[basisofrecord != &quot;all&quot;, .(
- occurrences = sum(occurrences)
+ occurrences = sum(as.numeric(occurrences))
 ), by = .(year, basisofrecord)]
 
 ggplot(time_by_basis, aes(x = year, y = occurrences, fill = basisofrecord)) +
@@ -3889,7 +3889,7 @@ species_files &lt;- list.files(here(p_by_order, &quot;species_summary&quot;), pa
 <div id="order-level-coverage-in-gbif" class="section level2">
 <h2>4.2 Order-Level Coverage in GBIF</h2>
 <pre class="r"><code>order_summary &lt;- order_time[basisofrecord == &quot;all&quot;, .(
- total_occurrences = sum(occurrences),
+ total_occurrences = sum(as.numeric(occurrences)),
  n_months = uniqueN(yearmonth),
  mean_monthly_occ = round(mean(occurrences))
 ), by = order][order(-total_occurrences)]
@@ -4050,7 +4050,7 @@ ggplot(order_summary, aes(x = rank, y = total_occurrences)) +
 <div id="family-level-coverage" class="section level2">
 <h2>4.4 Family-Level Coverage</h2>
 <pre class="r"><code>family_summary &lt;- family_time[basisofrecord == &quot;all&quot;, .(
- total_occurrences = sum(occurrences),
+ total_occurrences = sum(as.numeric(occurrences)),
  n_months = uniqueN(yearmonth)
 ), by = .(order, family)][order(-total_occurrences)]
 
@@ -4203,7 +4203,7 @@ if (length(species_files) &gt; 0) {
    dt[basisofrecord == &quot;all&quot;, .(
      order = str_extract(basename(.x), &quot;species_summary_(.+)_10km&quot;, group = 1),
      n_species = uniqueN(specieskey),
-     total_occurrences = sum(occurrences)
+     total_occurrences = sum(as.numeric(occurrences))
    )]
  })
  
@@ -4522,7 +4522,7 @@ cat(&quot;**Average year-over-year growth (last 5 years):**&quot;, round(avg_rec
 <h2>5.4 Taxonomic Sampling Bias</h2>
 <pre class="r"><code># Check if certain orders are over/under-represented relative to expected diversity
 order_summary &lt;- order_time[basisofrecord == &quot;all&quot;, .(
- total_occurrences = sum(occurrences)
+ total_occurrences = sum(as.numeric(occurrences))
 ), by = order][order(-total_occurrences)]
 
 # Top 5 orders share

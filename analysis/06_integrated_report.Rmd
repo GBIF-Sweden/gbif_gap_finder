@@ -325,7 +325,7 @@ if (!is.null(time10) && nrow(time10) > 0 && "basisofrecord" %in% names(time10)) 
   
   annual <- time10 |>
     group_by(year) |>
-    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
     filter(year >= 1900, year <= current_year)
 }
 ```

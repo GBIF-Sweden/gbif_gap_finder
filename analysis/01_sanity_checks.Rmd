@@ -258,7 +258,7 @@ calc_spatial_stats <- function(cell_data, grid_name) {
      cells_with_data = sum(occurrences > 0),
      zero_cells = sum(occurrences == 0),
      pct_coverage = round(100 * cells_with_data / total_cells, 1),
-     total_occurrences = sum(occurrences),
+     total_occurrences = sum(as.numeric(occurrences)),
      mean_occ = round(mean(occurrences)),
      median_occ = median(occurrences),
      sd_occ = round(sd(occurrences)),
@@ -394,7 +394,7 @@ if (!is.null(grid10)) {
 ```{r coverage-by-basis}
 cell10_by_basis <- cell10[, .(
  n_cells_with_data = sum(occurrences > 0),
- total_occurrences = sum(occurrences),
+ total_occurrences = sum(as.numeric(occurrences)),
  mean_occ = round(mean(occurrences[occurrences > 0]), 1)
 ), by = basisofrecord][order(-total_occurrences)]
 
@@ -432,7 +432,7 @@ temporal_range <- time10_all[, .(
  max_year = max(year, na.rm = TRUE),
  n_years = uniqueN(year),
  n_months = .N,
- total_occurrences = sum(occurrences)
+ total_occurrences = sum(as.numeric(occurrences))
 )]
 
 temporal_range |> kable(caption = "Temporal Range Summary")
@@ -442,7 +442,7 @@ temporal_range |> kable(caption = "Temporal Range Summary")
 
 ```{r annual-trend, fig.height=5}
 annual <- time10_all[, .(
- occurrences = sum(occurrences),
+ occurrences = sum(as.numeric(occurrences)),
  n_months = .N,
  n_cells = sum(n_cells, na.rm = TRUE)
 ), by = year][order(year)]
@@ -460,7 +460,7 @@ ggplot(annual, aes(x = year, y = occurrences)) +
 
 ```{r seasonal-pattern, fig.height=5}
 monthly <- time10_all[, .(
- occurrences = sum(occurrences),
+ occurrences = sum(as.numeric(occurrences)),
  n_years = uniqueN(year)
 ), by = month][order(month)]
 
@@ -476,7 +476,7 @@ ggplot(monthly, aes(x = factor(month), y = occurrences)) +
 ## 3.4 Year × Month Heatmap
 
 ```{r temporal-heatmap, fig.height=10}
-year_month <- time10_all[, .(occurrences = sum(occurrences)), by = .(year, month)]
+year_month <- time10_all[, .(occurrences = sum(as.numeric(occurrences))), by = .(year, month)]
 
 ggplot(year_month, aes(x = factor(month), y = year, fill = log10(occurrences + 1))) +
  geom_tile(color = "white", size = 0.1) +
@@ -535,7 +535,7 @@ cat("\n**Most recent data point:**", as.character(most_recent$date),
 
 ```{r temporal-by-basis, fig.height=6}
 time_by_basis <- time10[basisofrecord != "all", .(
- occurrences = sum(occurrences)
+ occurrences = sum(as.numeric(occurrences))
 ), by = .(year, basisofrecord)]
 
 ggplot(time_by_basis, aes(x = year, y = occurrences, fill = basisofrecord)) +
@@ -609,7 +609,7 @@ if (!is.null(taxa_ref)) {
 
 ```{r order-coverage}
 order_summary <- order_time[basisofrecord == "all", .(
- total_occurrences = sum(occurrences),
+ total_occurrences = sum(as.numeric(occurrences)),
  n_months = uniqueN(yearmonth),
  mean_monthly_occ = round(mean(occurrences))
 ), by = order][order(-total_occurrences)]
@@ -640,7 +640,7 @@ ggplot(order_summary, aes(x = rank, y = total_occurrences)) +
 
 ```{r family-coverage}
 family_summary <- family_time[basisofrecord == "all", .(
- total_occurrences = sum(occurrences),
+ total_occurrences = sum(as.numeric(occurrences)),
  n_months = uniqueN(yearmonth)
 ), by = .(order, family)][order(-total_occurrences)]
 
@@ -662,7 +662,7 @@ if (length(species_files) > 0) {
    dt[basisofrecord == "all", .(
      order = str_extract(basename(.x), "species_summary_(.+)_10km", group = 1),
      n_species = uniqueN(specieskey),
-     total_occurrences = sum(occurrences)
+     total_occurrences = sum(as.numeric(occurrences))
    )]
  })
  
@@ -877,7 +877,7 @@ if (avg_recent_growth > 20) {
 ```{r taxonomic-bias}
 # Check if certain orders are over/under-represented relative to expected diversity
 order_summary <- order_time[basisofrecord == "all", .(
- total_occurrences = sum(occurrences)
+ total_occurrences = sum(as.numeric(occurrences))
 ), by = order][order(-total_occurrences)]
 
 # Top 5 orders share
