@@ -25,7 +25,7 @@
 #
 # Inputs:  data_proc/cubes/*.fst (from 04)
 # Config:  parameters.processing.large_order_threshold (default 500000)
-#          parameters.processing.make_species_cell_time (default true)
+#          parameters.processing.make_species_cell_time (default false)
 #
 # Memory: Requires ≥16 GB RAM. For <16 GB, use 06b_*_lowmem.R instead.
 #
@@ -53,7 +53,7 @@ MAKE_SPECIES_SUMMARY   <- TRUE
 MAKE_SPECIES_CELL      <- TRUE
 MAKE_SPECIES_TIME      <- TRUE
 MAKE_SPECIES_CELL_TIME <- cfg_get(
-  "parameters.processing.make_species_cell_time", TRUE
+  "parameters.processing.make_species_cell_time", FALSE
 )
 
 # Paths
