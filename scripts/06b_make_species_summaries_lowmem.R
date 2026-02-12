@@ -39,6 +39,9 @@ source(here("scripts", "00_setup.R"))
 # Orders with more rows than this will be processed family-by-family
 LARGE_ORDER_THRESHOLD <- 1000000  # 1000K rows - adjust if needed
 
+# Toggle species × cell × time output (large files, not used by apps)
+MAKE_SPECIES_CELL_TIME <- FALSE
+
 # Paths -------------------------------------------------------------------
 p_cubes <- here(p_data_proc, "cubes")
 p_derived <- here(p_data_proc, "derived")
@@ -47,11 +50,13 @@ p_derived <- here(p_data_proc, "derived")
 dir.create(here(p_derived, "by_order", "species_summary"), showWarnings = FALSE, recursive = TRUE)
 dir.create(here(p_derived, "by_order", "species_cell"), showWarnings = FALSE, recursive = TRUE)
 dir.create(here(p_derived, "by_order", "species_time"), showWarnings = FALSE, recursive = TRUE)
-dir.create(here(p_derived, "by_order", "species_cell_time"), showWarnings = FALSE, recursive = TRUE)
 dir.create(here(p_derived, "by_family", "species_summary"), showWarnings = FALSE, recursive = TRUE)
 dir.create(here(p_derived, "by_family", "species_cell"), showWarnings = FALSE, recursive = TRUE)
 dir.create(here(p_derived, "by_family", "species_time"), showWarnings = FALSE, recursive = TRUE)
-dir.create(here(p_derived, "by_family", "species_cell_time"), showWarnings = FALSE, recursive = TRUE)
+if (MAKE_SPECIES_CELL_TIME) {
+  dir.create(here(p_derived, "by_order", "species_cell_time"), showWarnings = FALSE, recursive = TRUE)
+  dir.create(here(p_derived, "by_family", "species_cell_time"), showWarnings = FALSE, recursive = TRUE)
+}
 
 # Validate inputs ---------------------------------------------------------
 if (!dir.exists(p_cubes)) {
@@ -442,7 +447,7 @@ process_taxon_group <- function(cube_files, cols_species, filter_expr,
     }
     
     # --- Species × Cell × Time ---
-    if (have_cell && have_time) {
+    if (MAKE_SPECIES_CELL_TIME && have_cell && have_time) {
       sct_by <- c("grid", "basisofrecord", species_cols, "eeacellcode", "yearmonth")
       sct_dt <- dt[, .(
         occurrences = safe_sum(occurrences),
