@@ -623,4 +623,4 @@ cli_alert_info("Output location: {.path {p_gaps}}")
 # Count output files
 n_outputs <- length(list.files(p_gaps, pattern = "^temporal_|^cell_recency"))
 cli_alert_info("Created {n_outputs} temporal gap files")
-cli_alert_info("Next: source('scripts/09_taxonomic_gaps.R')")
+cli_alert_info("Next: source('scripts/09a_reconcile_taxonomy.R')")

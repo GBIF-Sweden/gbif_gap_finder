@@ -144,13 +144,6 @@ parameters:
   crs: 3035                          # ETRS89-LAEA (EEA standard for Europe)
                                      # CHANGE for non-European countries
 
-  grid:
-    cellcode_field: "eeacellcode"    # CHANGE â€" column name for cell IDs in GBIF cubes
-                                     # European (EEA grids): "eeacellcode"
-                                     # Non-European (ISEA3H): TBD
-    grid_prefix: "EEA"               # CHANGE â€" prefix in grid column values
-    resolutions: [10, 50]            # CHANGE â€" grid resolutions in km
-
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]  # OPTIONAL
 
@@ -161,6 +154,8 @@ parameters:
   taxonomic:
     min_occurrences: 10              # OPTIONAL
     min_cells: 5                     # OPTIONAL
+    api_min_occurrences: 10          # OPTIONAL — Tier 4: skip API below this
+    api_max_requests: 5000           # OPTIONAL — Tier 4: max API calls per run
 
   processing:
     large_order_threshold: 500000    # OPTIONAL — split large orders by family

@@ -70,6 +70,7 @@ required_packages <- c(
 
 optional_packages <- c(
   "rgbif",       # GBIF data access
+  "httr2",       # GBIF Species API (09a taxonomy reconciliation)
   "arrow",       # Parquet file support
   "furrr",       # Parallel processing
   "progressr"    # Progress bars

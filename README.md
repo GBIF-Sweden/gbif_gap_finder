@@ -34,7 +34,8 @@ gbif_gap_analysis/
 │   ├── 06b_make_species_summaries_*.R       # Species-level + bias correction
 │   ├── 07_spatial_gaps.R                    # Spatial gap analysis
 │   ├── 08_temporal_gaps.R                   # Temporal gap analysis
-│   ├── 09_taxonomic_gaps.R                  # Taxonomic gap analysis
+│   ├── 09a_reconcile_taxonomy.R             # GBIF ↔ backbone matching (4-tier)
+│   ├── 09b_taxonomic_gaps.R                 # Taxonomic gap analysis
 │   ├── 10_make_gap_overview.R               # Integrated summary tables
 │   ├── 11_prepare_gap_app_data.R            # Bundle data for Gap Analysis app
 │   └── 12_prepare_explorer_app_data.R       # Bundle data for GBIF Explorer app
@@ -94,7 +95,8 @@ source("scripts/06b_make_species_summaries_highmem.R")
 ```r
 source("scripts/07_spatial_gaps.R")
 source("scripts/08_temporal_gaps.R")
-source("scripts/09_taxonomic_gaps.R")
+source("scripts/09a_reconcile_taxonomy.R")  # GBIF ↔ backbone matching (uses GBIF API, cached)
+source("scripts/09b_taxonomic_gaps.R")      # Taxonomic gap analysis
 source("scripts/10_make_gap_overview.R")
 ```
 
@@ -112,10 +114,12 @@ source("scripts/12_prepare_explorer_app_data.R")  # GBIF Explorer app
 | 1. Ingestion | 01–04 | Download and process raw data | ~1–2 hours |
 | 2. Validation | 05 | Check data integrity | ~5 min |
 | 3. Summaries | 06a, 06b | Create analysis-ready tables | ~1–2 hours |
-| 4. Gap Analysis | 07–09 | Identify spatial/temporal/taxonomic gaps | ~30 min |
+| 4. Gap Analysis | 07, 08, 09a, 09b | Identify spatial/temporal/taxonomic gaps | ~30 min + ~15 min API* |
 | 5. Integration | 10 | Combined overview tables | ~10 min |
 | 6. Gap App Prep | 11 | Bundle data for Gap Analysis app | ~5 min |
 | 7. Explorer Prep | 12 | Bundle data for GBIF Explorer app | ~10 min |
+
+\* Script 09a queries the GBIF Species API for unresolved taxonomic matches. Results are cached in `data_proc/gbif_name_cache.rds`, so subsequent runs are instant. Requires `httr2` and internet access; Tiers 1–3 (local matching) run without either.
 
 ## Adapting for Another Country
 
