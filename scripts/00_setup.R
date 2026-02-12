@@ -60,6 +60,17 @@ cli_dl(c(
   "National taxonomy"  = raw_taxonomy_dir
 ))
 
+# Grid abstraction ---------------------------------------------------------
+# These constants enable the pipeline to work with different grid systems
+# (EEA grids for Europe, ISEA3H for non-European countries, etc.)
+# Scripts should use CELLCODE_FIELD instead of hardcoding "eeacellcode".
+# Migration note: 141 references to "eeacellcode" across scripts, apps,
+# and reports will be migrated script-by-script when deploying to a
+# non-EEA country. See: grep -rn "eeacellcode" scripts/ shiny_app/ analysis/
+CELLCODE_FIELD  <- cfg_get("parameters.grid.cellcode_field", "eeacellcode")
+GRID_PREFIX     <- cfg_get("parameters.grid.grid_prefix", "EEA")
+GRID_RESOLUTIONS <- cfg_get("parameters.grid.resolutions", c(10, 50))
+
 # Ensure required directories exist -----------------------------------------
 required_dirs <- c(p_logs, p_data_proc, p_output)
 

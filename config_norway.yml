@@ -80,6 +80,11 @@ files:
 
 parameters:
   crs: 3035
+
+  grid:
+    cellcode_field: "eeacellcode"
+    grid_prefix: "EEA"
+    resolutions: [10, 50]
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]
   temporal:
