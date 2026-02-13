@@ -245,7 +245,7 @@ if (nrow(cell_index) > 0) {
                                 "eeacellcode", "occurrences"))
     # Filter to grid10km, all basis, then aggregate
     dt <- dt[grid == "grid10km" & basisofrecord == "all",
-             .(occurrences = sum(occurrences, na.rm = TRUE)),
+             .(occurrences = sum(as.numeric(occurrences), na.rm = TRUE)),
              by = .(specieskey, species, eeacellcode)]
     if (i %% 200 == 0) cli_alert_info("  ... processed {i}/{nrow(cell_index)} files")
     dt
@@ -255,7 +255,7 @@ if (nrow(cell_index) > 0) {
 
   # Final aggregation (in case species spans multiple files)
   cell_species_index <- cell_species_index[,
-    .(occurrences = sum(occurrences, na.rm = TRUE)),
+    .(occurrences = sum(as.numeric(occurrences), na.rm = TRUE)),
     by = .(specieskey, species, eeacellcode)
   ]
 

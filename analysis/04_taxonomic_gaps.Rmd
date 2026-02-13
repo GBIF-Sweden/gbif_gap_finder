@@ -1021,12 +1021,12 @@ if (!is.null(order_temporal) && nrow(order_temporal) > 0) {
     filter(year >= 1970) |>
     mutate(period = paste0(floor(year / 5) * 5, "-", floor(year / 5) * 5 + 4)) |>
     group_by(phylum, order, period) |>
-    summarise(occurrences = sum(total_occurrences, na.rm = TRUE), .groups = "drop")
+    summarise(occurrences = sum(as.numeric(total_occurrences), na.rm = TRUE), .groups = "drop")
   
   # Get top 10 orders per phylum
   top_orders_by_phylum <- order_5yr |>
     group_by(phylum, order) |>
-    summarise(total = sum(occurrences), .groups = "drop") |>
+    summarise(total = sum(as.numeric(occurrences)), .groups = "drop") |>
     group_by(phylum) |>
     arrange(desc(total)) |>
     slice_head(n = 10) |>
@@ -1086,7 +1086,7 @@ if (!is.null(order_temporal) && nrow(order_temporal) > 0) {
     top_orders <- order_temporal |>
       filter(grid == "grid10km") |>
       group_by(order) |>
-      summarise(total = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+      summarise(total = sum(as.numeric(total_occurrences), na.rm = TRUE), .groups = "drop") |>
       arrange(desc(total)) |>
       slice_head(n = 12)
   }
@@ -1111,7 +1111,7 @@ if (!is.null(order_temporal) && nrow(order_temporal) > 0) {
     if (nrow(order_change) > 0) {
       order_change_agg <- order_change |>
         group_by(order, era) |>
-        summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop")
+        summarise(occ = sum(as.numeric(total_occurrences), na.rm = TRUE), .groups = "drop")
       
       order_change_wide <- order_change_agg |>
         pivot_wider(names_from = era, values_from = occ, values_fill = 0)
