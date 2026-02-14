@@ -67,9 +67,9 @@ run_phase_3 <- function() {
   tar_make(names = c(core_summaries, species_summaries))
 }
 
-#' Run Phase 4: Gap Analysis (scripts 07-09)
+#' Run Phase 4: Gap Analysis (scripts 07, 08, 09a, 09b)
 run_phase_4 <- function() {
-  tar_make(names = c(spatial_gaps, temporal_gaps, taxonomic_gaps))
+  tar_make(names = c(spatial_gaps, temporal_gaps, taxonomic_reconciliation, taxonomic_gaps))
 }
 
 #' Run Phase 5: Integrated Overview (script 10)
@@ -95,7 +95,8 @@ run_reports <- function() {
     report_temporal_gaps,
     report_taxonomic_gaps,
     report_basis_of_record,
-    report_integrated
+    report_integrated,
+    report_taxonomy_qa
   ))
 }
 

@@ -52,6 +52,7 @@ p_derived <- here(p_data_proc, "derived")
 # Read config
 cfg <- yaml::read_yaml(here("config.yml"))
 country_name <- cfg$country$name
+current_year <- as.integer(format(Sys.Date(), "%Y"))
 
 # Helper: read CSV safely
 safe_read <- function(path) {

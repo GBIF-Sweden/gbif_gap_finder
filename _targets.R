@@ -20,7 +20,7 @@
 #   1. Ingestion    — scripts 02, 03, 04
 #   2. Validation   — script 05
 #   3. Summaries    — scripts 06a, 06b
-#   4. Gap Analysis — scripts 07, 08, 09
+#   4. Gap Analysis — scripts 07, 08, 09a, 09b
 #   5. Integration  — script 10
 #   6. Gap App Prep  — script 11
 #   7. Explorer Prep — script 12
@@ -93,7 +93,7 @@ list(
 
       output_files <- c(
         here("data_proc", "taxa_reference_current.rds"),
-        here("data_proc", "dyntaxa_backbone.csv")
+        here("data_proc", "taxonomy_backbone.csv")
       )
 
       stopifnot(all(file.exists(output_files)))
@@ -269,15 +269,34 @@ list(
     format = "file"
   ),
 
-  # 4.3 Taxonomic gaps (script 09) -------------------------------------------
+  # 4.3 Taxonomy reconciliation (script 09a) ----------------------------------
+
+  tar_target(
+    reconcile_taxonomy,
+    {
+      taxa_reference
+      cube_manifest
+
+      source(here("scripts", "09a_reconcile_taxonomy.R"), local = TRUE)
+
+      match_table <- here("data_proc", "gaps", "taxonomic_match_table.csv")
+      stopifnot(file.exists(match_table))
+
+      match_table
+    },
+    format = "file"
+  ),
+
+  # 4.4 Taxonomic gaps (script 09b) -------------------------------------------
 
   tar_target(
     taxonomic_gaps,
     {
+      reconcile_taxonomy
       core_summaries
       species_summaries
 
-      source(here("scripts", "09_taxonomic_gaps.R"), local = TRUE)
+      source(here("scripts", "09b_taxonomic_gaps.R"), local = TRUE)
 
       list.files(
         here("data_proc", "gaps"),
@@ -394,7 +413,7 @@ list(
 
   tar_render(
     report_basis_of_record,
-    path       = here("analysis", "05_basis_of_record.Rmd"),
+    path       = here("analysis", "05_basis_of_record_report.Rmd"),
     output_dir = here("analysis"),
     cue        = tar_cue(mode = "never")
   ),

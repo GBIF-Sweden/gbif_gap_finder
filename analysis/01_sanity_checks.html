@@ -10,7 +10,7 @@
 
 
 
-<meta name="date" content="2026-02-12" />
+<meta name="date" content="2026-02-13" />
 
 <title>Comprehensive Sanity Checks</title>
 
@@ -2858,7 +2858,7 @@ border-radius: 0px;
 <h1 class="title toc-ignore">Comprehensive Sanity Checks</h1>
 <h3 class="subtitle">GBIF Gap Analysis - Data Quality &amp; Readiness
 Assessment</h3>
-<h4 class="date">February 12, 2026</h4>
+<h4 class="date">February 13, 2026</h4>
 
 </div>
 
@@ -2878,7 +2878,7 @@ summaries)</p>
 <li>Characterize spatial, temporal, and taxonomic coverage</li>
 <li>Flag potential biases that may affect gap interpretation</li>
 </ol>
-<p><strong>Last run:</strong> 2026-02-12 16:45:24.004046</p>
+<p><strong>Last run:</strong> 2026-02-13 18:35:46.182121</p>
 <hr />
 </div>
 <div id="file-inventory-validation" class="section level1 tabset">
@@ -3826,7 +3826,7 @@ species_files &lt;- list.files(here(p_by_order, &quot;species_summary&quot;), pa
      n_species = sum(taxonRank == &quot;species&quot;, na.rm = TRUE),
      n_genus = sum(taxonRank == &quot;genus&quot;, na.rm = TRUE),
      n_family = sum(taxonRank == &quot;family&quot;, na.rm = TRUE),
-     n_with_threat_dyntaxa = sum(!is.na(threatStatus_dyntaxa)),
+     n_with_threat_backbone = sum(!is.na(threatStatus_backbone)),
      n_with_threat_redlist = sum(!is.na(threatStatus_redlist)),
      n_kingdoms = uniqueN(kingdom)
    )
@@ -4314,10 +4314,10 @@ if (length(species_files) &gt; 0) {
 <h2>4.6 Threat Status Coverage</h2>
 <pre class="r"><code>if (!is.null(taxa_ref)) {
  # Backbone threat status
- dyntaxa_threat &lt;- taxa_ref |&gt;
-   filter(!is.na(threatStatus_dyntaxa)) |&gt;
-   count(threatStatus_dyntaxa, sort = TRUE) |&gt;
-   rename(status = threatStatus_dyntaxa, n_dyntaxa = n)
+ backbone_threat &lt;- taxa_ref |&gt;
+   filter(!is.na(threatStatus_backbone)) |&gt;
+   count(threatStatus_backbone, sort = TRUE) |&gt;
+   rename(status = threatStatus_backbone, n_backbone = n)
  
  # Red List threat status
  redlist_threat &lt;- taxa_ref |&gt;
@@ -4326,9 +4326,9 @@ if (length(species_files) &gt; 0) {
    rename(status = threatStatus_redlist, n_redlist = n)
  
  # Combine
- threat_comparison &lt;- full_join(dyntaxa_threat, redlist_threat, by = &quot;status&quot;) |&gt;
+ threat_comparison &lt;- full_join(backbone_threat, redlist_threat, by = &quot;status&quot;) |&gt;
    mutate(across(starts_with(&quot;n_&quot;), ~replace_na(.x, 0))) |&gt;
-   arrange(desc(n_dyntaxa + n_redlist))
+   arrange(desc(n_backbone + n_redlist))
  
  threat_comparison |&gt;
    kable(caption = &quot;Threat Status Coverage: Backbone vs Red List&quot;)
@@ -4336,13 +4336,13 @@ if (length(species_files) &gt; 0) {
  # Priority threatened taxa
  priority_statuses &lt;- c(&quot;CR&quot;, &quot;EN&quot;, &quot;VU&quot;, &quot;NT&quot;)
  
- n_priority_dyntaxa &lt;- taxa_ref |&gt; 
-   filter(threatStatus_dyntaxa %in% priority_statuses) |&gt; nrow()
+ n_priority_backbone &lt;- taxa_ref |&gt; 
+   filter(threatStatus_backbone %in% priority_statuses) |&gt; nrow()
  n_priority_redlist &lt;- taxa_ref |&gt; 
    filter(threatStatus_redlist %in% priority_statuses) |&gt; nrow()
  
  cat(&quot;\n**Priority threatened taxa (CR/EN/VU/NT):**\n&quot;)
- cat(&quot;- From backbone:&quot;, n_priority_dyntaxa, &quot;\n&quot;)
+ cat(&quot;- From backbone:&quot;, n_priority_backbone, &quot;\n&quot;)
  cat(&quot;- From Red List:&quot;, n_priority_redlist, &quot;\n&quot;)
 }</code></pre>
 <pre><code>## 
@@ -4696,8 +4696,8 @@ temporal_ready |&gt; kable(caption = &quot;Temporal Gap Analysis Readiness&quot;
    ifelse(!is.null(taxa_ref), &quot;✅&quot;, &quot;❌&quot;),
    &quot;National taxonomic backbone reference&quot;,
  &quot;Threat status (backbone)&quot;,
-   ifelse(!is.null(taxa_ref) &amp;&amp; sum(!is.na(taxa_ref$threatStatus_dyntaxa)) &gt; 0, &quot;✅&quot;, &quot;⚠️&quot;),
-   ifelse(!is.null(taxa_ref), glue(&quot;{sum(!is.na(taxa_ref$threatStatus_dyntaxa))} taxa&quot;), &quot;N/A&quot;),
+   ifelse(!is.null(taxa_ref) &amp;&amp; sum(!is.na(taxa_ref$threatStatus_backbone)) &gt; 0, &quot;✅&quot;, &quot;⚠️&quot;),
+   ifelse(!is.null(taxa_ref), glue(&quot;{sum(!is.na(taxa_ref$threatStatus_backbone))} taxa&quot;), &quot;N/A&quot;),
  &quot;Threat status (Red List)&quot;,
    ifelse(!is.null(taxa_ref) &amp;&amp; sum(!is.na(taxa_ref$threatStatus_redlist)) &gt; 0, &quot;✅&quot;, &quot;⚠️&quot;),
    ifelse(!is.null(taxa_ref), glue(&quot;{sum(!is.na(taxa_ref$threatStatus_redlist))} taxa&quot;), &quot;N/A&quot;),
@@ -4958,31 +4958,39 @@ quality_summary |&gt; kable(caption = &quot;Data Quality Summary&quot;)</code></
 ## [1] stats     graphics  grDevices datasets  utils     methods   base     
 ## 
 ## other attached packages:
-##  [1] httr2_1.2.2        leaflet_2.2.3      plotly_4.12.0      shinyWidgets_0.9.0 shiny_1.12.1       patchwork_1.3.2   
-##  [7] DT_0.34.0          tibble_3.3.1       forcats_1.0.1      knitr_1.50         viridis_0.6.5      viridisLite_0.4.2 
-## [13] ggplot2_4.0.1      scales_1.4.0       lubridate_1.9.4    fst_0.9.8          fstcore_0.10.0     tidyr_1.3.2       
-## [19] data.table_1.18.0  stringr_1.6.0      readr_2.1.6        dplyr_1.1.4        sf_1.0-24          cli_3.6.5         
-## [25] glue_1.8.0         purrr_1.2.1        here_1.0.2        
+##  [1] DT_0.34.0          fstcore_0.10.0     knitr_1.50         patchwork_1.3.2   
+##  [5] viridis_0.6.5      viridisLite_0.4.2  scales_1.4.0       forcats_1.0.1     
+##  [9] ggplot2_4.0.1      yaml_2.3.10        tibble_3.3.1       lubridate_1.9.4   
+## [13] fst_0.9.8          data.table_1.18.0  sf_1.0-24          stringr_1.6.0     
+## [17] readr_2.1.6        tidyr_1.3.2        dplyr_1.1.4        cli_3.6.5         
+## [21] glue_1.8.0         purrr_1.2.1        here_1.0.2         tarchetypes_0.13.2
+## [25] targets_1.11.4    
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] DBI_1.2.3               gridExtra_2.3           rlang_1.1.7             magrittr_2.0.4          otel_0.2.0             
-##  [6] e1071_1.7-17            compiler_4.5.2          systemfonts_1.3.1       callr_3.7.6             vctrs_0.7.0            
-## [11] pkgconfig_2.0.3         crayon_1.5.3            fastmap_1.2.0           backports_1.5.0         fontawesome_0.5.3      
-## [16] labeling_0.4.3          utf8_1.2.6              promises_1.5.0          rmarkdown_2.30          tzdb_0.5.0             
-## [21] ps_1.9.1                bit_4.6.0               xfun_0.56               cachem_1.1.0            jsonlite_2.0.0         
-## [26] later_1.4.5             tarchetypes_0.13.2      terra_1.8-93            parallel_4.5.2          prettyunits_1.2.0      
-## [31] R6_2.6.1                bslib_0.9.0             stringi_1.8.7           RColorBrewer_1.1-3      jquerylib_0.1.4        
-## [36] Rcpp_1.1.1              leaflet.providers_2.0.0 httpuv_1.6.16           igraph_2.2.1            timechange_0.3.0       
-## [41] tidyselect_1.2.1        rstudioapi_0.18.0       yaml_2.3.10             targets_1.11.4          codetools_0.2-20       
-## [46] curl_7.0.0              processx_3.8.6          withr_3.0.2             S7_0.2.1                evaluate_1.0.5         
-## [51] units_1.0-0             proxy_0.4-29            xml2_1.5.2              pillar_1.11.1           BiocManager_1.30.27    
-## [56] KernSmooth_2.23-26      renv_1.1.6              generics_0.1.4          vroom_1.6.7             rprojroot_2.1.1        
-## [61] hms_1.1.4               xtable_1.8-4            base64url_1.4           class_7.3-23            lazyeval_0.2.2         
-## [66] tools_4.5.2             fs_1.6.6                grid_4.5.2              crosstalk_1.2.2         rappdirs_0.3.3         
-## [71] kableExtra_1.4.0        textshaping_1.0.4       svglite_2.2.2           gt_1.3.0                gtable_0.3.6           
-## [76] sass_0.4.10             digest_0.6.37           classInt_0.4-11         htmlwidgets_1.6.4       farver_2.1.2           
-## [81] memoise_2.0.1           htmltools_0.5.8.1       lifecycle_1.0.4         httr_1.4.7              secretbase_1.1.1       
-## [86] mime_0.13               bit64_4.6.0-1</code></pre>
+##  [1] tidyselect_1.2.1    farver_2.1.2        S7_0.2.1           
+##  [4] fastmap_1.2.0       digest_0.6.37       base64url_1.4      
+##  [7] timechange_0.3.0    lifecycle_1.0.4     secretbase_1.1.1   
+## [10] processx_3.8.6      terra_1.8-93        magrittr_2.0.4     
+## [13] compiler_4.5.2      rlang_1.1.7         sass_0.4.10        
+## [16] tools_4.5.2         utf8_1.2.6          igraph_2.2.1       
+## [19] gt_1.3.0            labeling_0.4.3      prettyunits_1.2.0  
+## [22] htmlwidgets_1.6.4   bit_4.6.0           classInt_0.4-11    
+## [25] xml2_1.5.2          RColorBrewer_1.1-3  KernSmooth_2.23-26 
+## [28] withr_3.0.2         grid_4.5.2          e1071_1.7-17       
+## [31] crayon_1.5.3        rmarkdown_2.30      generics_0.1.4     
+## [34] rstudioapi_0.18.0   tzdb_0.5.0          cachem_1.1.0       
+## [37] DBI_1.2.3           proxy_0.4-29        parallel_4.5.2     
+## [40] BiocManager_1.30.27 vctrs_0.7.0         jsonlite_2.0.0     
+## [43] callr_3.7.6         hms_1.1.4           bit64_4.6.0-1      
+## [46] systemfonts_1.3.1   jquerylib_0.1.4     units_1.0-0        
+## [49] codetools_0.2-20    ps_1.9.1            stringi_1.8.7      
+## [52] gtable_0.3.6        pillar_1.11.1       htmltools_0.5.8.1  
+## [55] R6_2.6.1            textshaping_1.0.4   rprojroot_2.1.1    
+## [58] vroom_1.6.7         evaluate_1.0.5      kableExtra_1.4.0   
+## [61] backports_1.5.0     renv_1.1.6          bslib_0.9.0        
+## [64] class_7.3-23        Rcpp_1.1.1          svglite_2.2.2      
+## [67] gridExtra_2.3       xfun_0.56           fs_1.6.6           
+## [70] pkgconfig_2.0.3</code></pre>
 </div>
 
 
