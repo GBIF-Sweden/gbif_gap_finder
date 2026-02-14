@@ -9,7 +9,7 @@
 #   analysis scripts.
 #
 # Inputs:
-#   - National taxonomy backbone files (e.g., Dyntaxa Taxon.csv +
+#   - National taxonomy backbone files (e.g., Taxon.csv +
 #     SpeciesDistribution.csv), configured via config.yml
 #   - National red list files (e.g., taxon.txt + distribution.txt),
 #     optional, configured via config.yml
@@ -17,13 +17,13 @@
 # Outputs (in data_proc/):
 #   - <taxonomy>_taxon_current.rds       Processed taxonomy
 #   - <taxonomy>_distribution_current.rds Processed distribution
-#   - redlist_se_taxon_current.rds       Red list taxonomy (if available)
-#   - redlist_se_distribution_current.rds Red list distribution
+#   - redlist_taxon_current.rds       Red list taxonomy (if available)
+#   - redlist_distribution_current.rds Red list distribution
 #   - taxa_reference_current.rds         Unified reference (main output)
-#   - dyntaxa_backbone.csv               CSV copy for inspection
+#   - taxonomy_backbone.csv               CSV copy for inspection
 #
 # Output columns for threat status:
-#   - threatStatus_dyntaxa  From the national taxonomy distribution
+#   - threatStatus_backbone  From the national taxonomy distribution
 #   - threatStatus_redlist  From the national red list distribution
 #
 # Dependencies: scripts/00_setup.R, readr, dplyr, stringr, purrr
@@ -51,21 +51,21 @@ dir_data_proc  <- here(cfg_get("paths.data_proc", "data_proc"))
 # National taxonomy input files (PRIMARY BACKBONE)
 file_taxonomy_taxon <- cfg_get(
   "files.taxonomy.taxonomy_taxon",
-  cfg_get("files.dyntaxa.dyntaxa_taxon", "Taxon.csv")
+  cfg_get("files.taxonomy.taxonomy_taxon", "Taxon.csv")
 )
 file_taxonomy_distr <- cfg_get(
   "files.taxonomy.taxonomy_distr",
-  cfg_get("files.dyntaxa.dyntaxa_distr", "SpeciesDistribution.csv")
+  cfg_get("files.taxonomy.taxonomy_distr", "SpeciesDistribution.csv")
 )
 
 # National red list input files (SECONDARY - threat status)
 file_redlist_taxon <- cfg_get(
   "files.redlist.redlist_taxon",
-  cfg_get("files.redlist_se.redlist_se_taxon", "taxon.txt")
+  cfg_get("files.redlist.redlist_taxon", "taxon.txt")
 )
 file_redlist_distr <- cfg_get(
   "files.redlist.redlist_distr",
-  cfg_get("files.redlist_se.redlist_se_distr", "distribution.txt")
+  cfg_get("files.redlist.redlist_distr", "distribution.txt")
 )
 
 # Full input paths
@@ -79,16 +79,16 @@ input_files <- list(
 # Output files
 output_files <- list(
   taxonomy_taxon = file.path(
-    dir_data_proc, "dyntaxa_taxon_current.rds"
+    dir_data_proc, "taxonomy_taxon_current.rds"
   ),
   taxonomy_distr = file.path(
-    dir_data_proc, "dyntaxa_distribution_current.rds"
+    dir_data_proc, "taxonomy_distribution_current.rds"
   ),
   redlist_taxon  = file.path(
-    dir_data_proc, "redlist_se_taxon_current.rds"
+    dir_data_proc, "redlist_taxon_current.rds"
   ),
   redlist_distr  = file.path(
-    dir_data_proc, "redlist_se_distribution_current.rds"
+    dir_data_proc, "redlist_distribution_current.rds"
   ),
   taxa_reference = file.path(
     dir_data_proc, "taxa_reference_current.rds"
@@ -96,7 +96,7 @@ output_files <- list(
 )
 
 # Backbone metadata (from config, with backward-compatible defaults)
-backbone_name <- cfg_get("taxonomy.name", "Dyntaxa")
+backbone_name <- cfg_get("taxonomy.name", "National Taxonomy")
 backbone_doi  <- cfg_get(
   "taxonomy.doi", "https://doi.org/10.15468/j43wfc"
 )
@@ -434,7 +434,7 @@ if (redlist_available && !is.null(redlist_distr)) {
       "Keeping both backbone and red list threat status"
     )
     taxa_reference <- taxa_reference |>
-      rename(threatStatus_dyntaxa = threatStatus) |>
+      rename(threatStatus_backbone = threatStatus) |>
       left_join(redlist_threat_lookup, by = "scientificName")
   } else {
     cli_alert_info(
@@ -442,7 +442,7 @@ if (redlist_available && !is.null(redlist_distr)) {
     )
     taxa_reference <- taxa_reference |>
       left_join(redlist_threat_lookup, by = "scientificName") |>
-      mutate(threatStatus_dyntaxa = NA_character_)
+      mutate(threatStatus_backbone = NA_character_)
   }
 
   # Report matches
@@ -463,9 +463,9 @@ if (redlist_available && !is.null(redlist_distr)) {
   if (has_threat) {
     conflicts <- taxa_reference |>
       filter(
-        !is.na(threatStatus_dyntaxa),
+        !is.na(threatStatus_backbone),
         !is.na(threatStatus_redlist),
-        threatStatus_dyntaxa != threatStatus_redlist
+        threatStatus_backbone != threatStatus_redlist
       )
 
     if (nrow(conflicts) > 0) {
@@ -474,7 +474,7 @@ if (redlist_available && !is.null(redlist_distr)) {
       )
       conflict_summary <- conflicts |>
         count(
-          threatStatus_dyntaxa, threatStatus_redlist,
+          threatStatus_backbone, threatStatus_redlist,
           sort = TRUE
         ) |>
         head(10)
@@ -485,23 +485,23 @@ if (redlist_available && !is.null(redlist_distr)) {
   }
 
   # Coverage summary
-  n_dyntaxa <- sum(!is.na(taxa_reference$threatStatus_dyntaxa))
+  n_backbone <- sum(!is.na(taxa_reference$threatStatus_backbone))
   n_redlist <- sum(!is.na(taxa_reference$threatStatus_redlist))
   n_both    <- sum(
-    !is.na(taxa_reference$threatStatus_dyntaxa) &
+    !is.na(taxa_reference$threatStatus_backbone) &
       !is.na(taxa_reference$threatStatus_redlist)
   )
 
   cli_alert_success(
-    "Threat coverage: {scales::comma(n_dyntaxa)} backbone, {scales::comma(n_redlist)} red list, {scales::comma(n_both)} both"
+    "Threat coverage: {scales::comma(n_backbone)} backbone, {scales::comma(n_redlist)} red list, {scales::comma(n_both)} both"
   )
 
   # Breakdowns by source
-  if (n_dyntaxa > 0) {
+  if (n_backbone > 0) {
     cli_alert_info("Backbone threat status breakdown:")
     taxa_reference |>
-      filter(!is.na(threatStatus_dyntaxa)) |>
-      count(threatStatus_dyntaxa, sort = TRUE) |>
+      filter(!is.na(threatStatus_backbone)) |>
+      count(threatStatus_backbone, sort = TRUE) |>
       print()
   }
 
@@ -518,10 +518,10 @@ if (redlist_available && !is.null(redlist_distr)) {
 
 cli_h2("Filtering Taxonomic Status")
 
-if (!"threatStatus_dyntaxa" %in% names(taxa_reference)) {
+if (!"threatStatus_backbone" %in% names(taxa_reference)) {
   taxa_reference <- taxa_reference |>
-    mutate(threatStatus_dyntaxa = NA_character_)
-  cli_alert_info("Added empty threatStatus_dyntaxa column")
+    mutate(threatStatus_backbone = NA_character_)
+  cli_alert_info("Added empty threatStatus_backbone column")
 }
 
 if (!"threatStatus_redlist" %in% names(taxa_reference)) {
@@ -555,10 +555,10 @@ cli_h2("Adding Derived Fields")
 if ("taxonID" %in% names(taxa_reference)) {
   taxa_reference <- taxa_reference |>
     mutate(
-      dyntaxaID = extract_numeric_id(taxonID)
+      backbone_numericID = extract_numeric_id(taxonID)
     )
   cli_alert_success(
-    "Added dyntaxaID (numeric ID from taxonID)"
+    "Added backbone_numericID (numeric ID from taxonID)"
   )
 }
 
@@ -578,7 +578,7 @@ cli_h2("Organising Columns")
 
 core_columns <- c(
   # Identifiers
-  "taxonID", "dyntaxaID",
+  "taxonID", "backbone_numericID",
   "acceptedNameUsageID", "parentNameUsageID",
 
   # Names
@@ -594,7 +594,7 @@ core_columns <- c(
   # Distribution & conservation
   "country", "countryCode", "occurrenceStatus",
   "establishmentMeans",
-  "threatStatus_dyntaxa", "threatStatus_redlist",
+  "threatStatus_backbone", "threatStatus_redlist",
 
   # Metadata
   "taxonomic_backbone", "backbone_version", "backbone_doi",
@@ -628,14 +628,14 @@ cli_alert_success(
   "Wrote RDS: {.path {output_files$taxa_reference}}"
 )
 
-csv_path <- file.path(dir_data_proc, "dyntaxa_backbone.csv")
+csv_path <- file.path(dir_data_proc, "taxonomy_backbone.csv")
 write_csv(taxa_reference_clean, csv_path)
 cli_alert_success("Wrote CSV: {.path {csv_path}}")
 
 # Threat status in final output
-n_threat_dyntaxa <- sum(
-  !is.na(taxa_reference_clean$threatStatus_dyntaxa) &
-    taxa_reference_clean$threatStatus_dyntaxa != "",
+n_threat_backbone <- sum(
+  !is.na(taxa_reference_clean$threatStatus_backbone) &
+    taxa_reference_clean$threatStatus_backbone != "",
   na.rm = TRUE
 )
 n_threat_redlist <- sum(
@@ -646,7 +646,7 @@ n_threat_redlist <- sum(
 
 cli_alert_info("Threat status in final output:")
 cli_alert_info(
-  "  threatStatus_dyntaxa: {scales::comma(n_threat_dyntaxa)}"
+  "  threatStatus_backbone: {scales::comma(n_threat_backbone)}"
 )
 cli_alert_info(
   "  threatStatus_redlist: {scales::comma(n_threat_redlist)}"
@@ -736,8 +736,8 @@ validation_checks <- list(
     "taxonRank" %in% names(taxa_reference_clean),
   "taxonID present" =
     "taxonID" %in% names(taxa_reference_clean),
-  "threatStatus_dyntaxa present" =
-    "threatStatus_dyntaxa" %in% names(taxa_reference_clean),
+  "threatStatus_backbone present" =
+    "threatStatus_backbone" %in% names(taxa_reference_clean),
   "threatStatus_redlist present" =
     "threatStatus_redlist" %in% names(taxa_reference_clean),
   "No duplicate taxonIDs" =
@@ -777,7 +777,7 @@ cli_alert_success(
 )
 if (redlist_available) {
   cli_alert_success(
-    "Threat columns: threatStatus_dyntaxa, threatStatus_redlist"
+    "Threat columns: threatStatus_backbone, threatStatus_redlist"
   )
 }
 cli_alert_info(

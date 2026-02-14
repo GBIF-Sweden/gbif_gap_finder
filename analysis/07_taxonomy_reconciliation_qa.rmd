@@ -1,0 +1,469 @@
+---
+title: "Taxonomy Reconciliation QA Review"
+subtitle: "GBIF Gap Analysis — Verifying 09a Matching Results"
+author: "gbifgaps"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+    fig_width: 12
+    fig_height: 7
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 12,
+  fig.height = 7,
+  dpi = 150
+)
+
+if (!knitr::is_html_output()) {
+  knitr::opts_chunk$set(echo = FALSE)
+}
+
+library(here)
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(viridis)
+library(DT)
+library(knitr)
+library(glue)
+
+theme_qa <- theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12, color = "grey40"),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 11, face = "bold")
+  )
+theme_set(theme_qa)
+
+p_data_proc <- here("data_proc")
+```
+
+# Overview
+
+This report reviews the taxonomy reconciliation produced by `09a_reconcile_taxonomy.R`.
+It helps you verify match quality and identify species that could be resolved with
+manual overrides.
+
+```{r load-data}
+recon <- as.data.table(readRDS(here(p_data_proc, "taxonomic_reconciliation.rds")))
+taxa  <- as.data.table(readRDS(here(p_data_proc, "taxa_reference_current.rds")))
+
+taxa[, name_std := tolower(trimws(scientificName))]
+taxa[, is_accepted := (taxonID == acceptedNameUsageID)]
+
+n_total     <- nrow(recon)
+n_matched   <- sum(recon$match_tier != "unmatched")
+n_unmatched <- sum(recon$match_tier == "unmatched")
+occ_total   <- sum(as.numeric(recon$total_occ))
+occ_matched <- recon[match_tier != "unmatched", sum(as.numeric(total_occ))]
+```
+
+**Reconciliation summary:** `r comma(n_matched)` of `r comma(n_total)` GBIF species
+matched to the national backbone (`r round(100 * n_matched / n_total, 1)`% of species,
+`r round(100 * occ_matched / occ_total, 1)`% of occurrences).
+
+```{r tier-summary}
+tier_summary <- recon[, .(
+  Species = .N,
+  Occurrences = sum(as.numeric(total_occ)),
+  `% Species` = round(100 * .N / n_total, 1),
+  `% Occurrences` = round(100 * sum(as.numeric(total_occ)) / occ_total, 2)
+), by = .(Tier = match_tier, Type = match_type)][order(Tier, -Species)]
+
+kable(tier_summary, format.args = list(big.mark = ","))
+```
+
+```{r tier-plot, fig.height=5}
+tier_occ <- recon[, .(
+  occ = sum(as.numeric(total_occ))
+), by = match_tier]
+
+tier_order <- c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "unmatched")
+tier_labels <- c("Tier 1: Accepted", "Tier 2: Synonym", "Tier 2: Ambiguous",
+                  "Tier 3: Infraspecific", "Tier 4: API", "Unmatched")
+tier_colors <- c("#2E7D32", "#43A047", "#FDD835", "#66BB6A", "#1565C0", "#B71C1C")
+
+tier_occ[, tier_f := factor(match_tier, levels = tier_order, labels = tier_labels)]
+tier_occ <- tier_occ[!is.na(tier_f)]
+
+ggplot(tier_occ, aes(x = tier_f, y = occ / 1e6, fill = tier_f)) +
+  geom_col() +
+  scale_fill_manual(values = setNames(tier_colors, tier_labels), guide = "none") +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Occurrences by Match Tier",
+       x = NULL, y = "Occurrences (millions)") +
+  coord_flip()
+```
+
+
+# 1. Ambiguous Synonym Matches {.tabset}
+
+These species matched a backbone synonym name that points to **more than one accepted
+taxon**. The script took the first match. Review these to confirm correctness —
+especially the high-occurrence ones.
+
+## All Ambiguous Matches
+
+```{r ambiguous-table}
+ambig <- recon[match_tier == "tier2_ambiguous",
+               .(species, backbone_scientificName, total_occ,
+                 match_name_used)][order(-total_occ)]
+
+if (nrow(ambig) > 0) {
+  # For each ambiguous match, find ALL possible accepted taxa
+  ambig_detail <- rbindlist(lapply(seq_len(nrow(ambig)), function(i) {
+    nm <- tolower(trimws(ambig$species[i]))
+    # Find all synonym rows for this name
+    syn_rows <- taxa[!is_accepted & name_std == nm]
+    if (nrow(syn_rows) == 0) return(NULL)
+
+    # Get their accepted taxa
+    accepted_ids <- unique(syn_rows$acceptedNameUsageID)
+    accepted_names <- taxa[taxonID %in% accepted_ids & is_accepted,
+                           .(acceptedNameUsageID = taxonID, accepted_name = scientificName)]
+
+    data.table(
+      gbif_species = ambig$species[i],
+      total_occ = ambig$total_occ[i],
+      chosen_match = ambig$backbone_scientificName[i],
+      all_candidates = paste(accepted_names$accepted_name, collapse = " | "),
+      n_candidates = nrow(accepted_names)
+    )
+  }))
+
+  datatable(
+    ambig_detail,
+    caption = glue("{nrow(ambig)} ambiguous synonym matches"),
+    filter = "top",
+    options = list(pageLength = 25, order = list(list(1, "desc"))),
+    rownames = FALSE
+  ) |> formatCurrency("total_occ", currency = "", digits = 0)
+} else {
+  cat("No ambiguous matches found.")
+}
+```
+
+## Flagged for Review
+
+These ambiguous matches have **> 5,000 occurrences** and deserve manual verification:
+
+```{r ambiguous-flagged}
+if (exists("ambig_detail") && nrow(ambig_detail) > 0) {
+  flagged <- ambig_detail[total_occ > 5000][order(-total_occ)]
+  if (nrow(flagged) > 0) {
+    kable(flagged, format.args = list(big.mark = ","))
+  } else {
+    cat("No high-occurrence ambiguous matches.")
+  }
+} else {
+  cat("No ambiguous matches to review.")
+}
+```
+
+
+# 2. Tier 4 Matches (GBIF API) {.tabset}
+
+These were resolved by querying the GBIF Species API for synonyms. The matches are
+generally reliable (the API provides the authoritative synonym chain), but it's good
+to scan the high-occurrence ones.
+
+## Top 50 by Occurrences
+
+```{r tier4-table}
+t4 <- recon[match_tier == "tier4",
+            .(species, backbone_scientificName, match_name_used,
+              total_occ)][order(-total_occ)]
+
+datatable(
+  head(t4, 50),
+  caption = glue("{comma(nrow(t4))} total Tier 4 matches — showing top 50"),
+  filter = "top",
+  options = list(pageLength = 25),
+  rownames = FALSE
+) |> formatCurrency("total_occ", currency = "", digits = 0)
+```
+
+## Match Patterns
+
+```{r tier4-patterns}
+if (nrow(t4) > 0) {
+  # Classify: same epithet (genus move) vs different epithet (true synonym)
+  t4[, gbif_epithet := word(tolower(species), 2)]
+  t4[, backbone_epithet := word(tolower(backbone_scientificName), 2)]
+  t4[, pattern := fifelse(gbif_epithet == backbone_epithet,
+                          "Genus reclassification", "Different epithet (true synonym)")]
+
+  pattern_summary <- t4[, .(n = .N, occ = sum(as.numeric(total_occ))), by = pattern]
+  kable(pattern_summary, format.args = list(big.mark = ","),
+        col.names = c("Pattern", "Species", "Occurrences"))
+}
+```
+
+
+# 3. Unmatched Species Analysis {.tabset}
+
+## Overview
+
+```{r unmatched-overview}
+unmatched <- recon[match_tier == "unmatched"]
+
+unmatched_summary <- unmatched[, .(
+  n = .N,
+  total_occ = sum(as.numeric(total_occ)),
+  max_occ = max(total_occ)
+), by = match_type][order(-total_occ)]
+
+kable(unmatched_summary, format.args = list(big.mark = ","),
+      col.names = c("Category", "Species", "Total Occurrences", "Max Occurrences"))
+```
+
+## Top Unmatched Binomials — Epithet Candidates
+
+For the highest-occurrence unmatched binomials, we check if the **species epithet**
+exists in the backbone under a different genus. These are the best candidates for manual
+resolution — likely genus reclassifications that the GBIF API missed or that fell
+below the API threshold.
+
+```{r epithet-analysis}
+# Get unmatched binomials with significant occurrences
+unmatched_binom <- unmatched[match_type %in% c("binomial_no_match", "below_api_threshold") &
+                               grepl(" ", species)]
+unmatched_binom[, `:=`(
+  genus   = word(tolower(species), 1),
+  epithet = word(tolower(species), 2)
+)]
+
+# Build backbone epithet lookup (accepted + synonym names, binomials only)
+backbone_binomials <- taxa[nchar(name_std) > 0 &
+                            sapply(strsplit(name_std, "\\s+"), length) == 2]
+backbone_binomials[, `:=`(
+  d_genus   = word(name_std, 1),
+  d_epithet = word(name_std, 2)
+)]
+
+# For each unmatched species, find backbone names sharing the epithet
+epithet_candidates <- rbindlist(lapply(
+  seq_len(nrow(unmatched_binom)),
+  function(i) {
+    ep <- unmatched_binom$epithet[i]
+    gn <- unmatched_binom$genus[i]
+
+    # Find backbone names with same epithet but different genus
+    matches <- backbone_binomials[d_epithet == ep & d_genus != gn]
+    if (nrow(matches) == 0) return(NULL)
+
+    # Get accepted name for each match
+    match_info <- merge(
+      matches[, .(name_std, taxonID, acceptedNameUsageID, is_accepted)],
+      taxa[is_accepted == TRUE, .(taxonID, accepted_scientificName = scientificName)],
+      by.x = "acceptedNameUsageID", by.y = "taxonID",
+      all.x = TRUE
+    )
+
+    # Deduplicate: unique accepted taxa
+    accepted_options <- unique(match_info[!is.na(accepted_scientificName),
+                                          .(accepted_scientificName)])
+
+    data.table(
+      gbif_species     = unmatched_binom$species[i],
+      total_occ        = unmatched_binom$total_occ[i],
+      epithet          = ep,
+      backbone_candidates = paste(unique(accepted_options$accepted_scientificName),
+                                  collapse = " | "),
+      n_candidates     = nrow(accepted_options),
+      match_category   = unmatched_binom$match_type[i]
+    )
+  }
+))
+```
+
+```{r epithet-results}
+if (!is.null(epithet_candidates) && nrow(epithet_candidates) > 0) {
+  # Split into high-confidence (1 candidate) and ambiguous (>1)
+  single <- epithet_candidates[n_candidates == 1][order(-total_occ)]
+  multi  <- epithet_candidates[n_candidates > 1][order(-total_occ)]
+  none   <- unmatched_binom[!species %in% epithet_candidates$gbif_species][order(-total_occ)]
+
+  cat(glue("**{comma(nrow(epithet_candidates))}** unmatched species share an epithet with the backbone:
+- **{nrow(single)}** have exactly 1 backbone candidate (high confidence)
+- **{nrow(multi)}** have multiple candidates (need manual review)
+- **{comma(nrow(none))}** have no epithet match in the backbone at all\n\n"))
+} else {
+  cat("No epithet candidates found.\n")
+}
+```
+
+### High-Confidence Candidates (1 backbone match)
+
+These have a single backbone species sharing the epithet — almost certainly genus
+reclassifications. **These can likely be added as manual overrides directly.**
+
+```{r single-candidates}
+if (exists("single") && nrow(single) > 0) {
+  datatable(
+    single[, .(gbif_species, backbone_candidates, total_occ, match_category)],
+    caption = glue("{nrow(single)} high-confidence epithet matches"),
+    filter = "top",
+    options = list(pageLength = 50, order = list(list(2, "desc"))),
+    rownames = FALSE,
+    colnames = c("GBIF Species", "Backbone Match", "Occurrences", "Why Unmatched")
+  ) |> formatCurrency("total_occ", currency = "", digits = 0)
+} else {
+  cat("None found.")
+}
+```
+
+### Ambiguous Candidates (> 1 backbone match)
+
+These need manual review — the epithet appears under multiple genera in the backbone,
+so automated resolution is risky.
+
+```{r multi-candidates}
+if (exists("multi") && nrow(multi) > 0) {
+  datatable(
+    multi[, .(gbif_species, backbone_candidates, n_candidates, total_occ)],
+    caption = glue("{nrow(multi)} ambiguous epithet matches"),
+    filter = "top",
+    options = list(pageLength = 50, order = list(list(3, "desc"))),
+    rownames = FALSE,
+    colnames = c("GBIF Species", "Backbone Candidates", "N", "Occurrences")
+  ) |> formatCurrency("total_occ", currency = "", digits = 0)
+} else {
+  cat("None found.")
+}
+```
+
+### No Epithet Match
+
+These species have no shared epithet with any backbone name — they are likely
+genuinely absent from the national backbone (foreign vagrants, non-native species,
+or taxa the backbone doesn't cover).
+
+```{r no-epithet}
+if (exists("none") && nrow(none) > 0) {
+  datatable(
+    head(none[, .(species, total_occ, match_type)], 100),
+    caption = glue("{comma(nrow(none))} species with no epithet in the backbone — top 100"),
+    filter = "top",
+    options = list(pageLength = 25, order = list(list(1, "desc"))),
+    rownames = FALSE,
+    colnames = c("GBIF Species", "Occurrences", "Category")
+  ) |> formatCurrency("total_occ", currency = "", digits = 0)
+} else {
+  cat("None — all unmatched binomials share an epithet with the backbone.")
+}
+```
+
+
+# 4. Manual Override Template {.tabset}
+
+## Export for Review
+
+This section exports a CSV you can edit to add manual overrides. Fill in the
+`accept` column with `TRUE` for matches you've verified, and `backbone_override`
+with the correct backbone name if the auto-suggested candidate is wrong.
+
+```{r export-overrides}
+override_template <- NULL
+
+if (exists("single") && nrow(single) > 0) {
+  override_single <- single[, .(
+    gbif_species,
+    suggested_backbone = backbone_candidates,
+    total_occ,
+    source = "epithet_single_match",
+    accept = NA,
+    backbone_override = NA_character_,
+    notes = NA_character_
+  )]
+  override_template <- override_single
+}
+
+if (exists("ambig_detail") && nrow(ambig_detail) > 0) {
+  override_ambig <- ambig_detail[, .(
+    gbif_species,
+    suggested_backbone = chosen_match,
+    total_occ,
+    source = "tier2_ambiguous",
+    accept = NA,
+    backbone_override = NA_character_,
+    notes = all_candidates
+  )]
+  override_template <- rbindlist(list(override_template, override_ambig), fill = TRUE)
+}
+
+if (!is.null(override_template) && nrow(override_template) > 0) {
+  setorder(override_template, -total_occ)
+
+  override_path <- here(p_data_proc, "taxonomy_manual_overrides_template.csv")
+  fwrite(override_template, override_path)
+
+  cat(glue("**Exported {nrow(override_template)} candidates** to:
+`{override_path}`
+
+Edit this file, set `accept = TRUE` for verified matches, then 09a can
+read it as a Tier 0 override on the next run.\n\n"))
+
+  datatable(
+    head(override_template, 50),
+    caption = "Top 50 override candidates (full list in CSV)",
+    filter = "top",
+    options = list(pageLength = 25, order = list(list(2, "desc"))),
+    rownames = FALSE
+  ) |> formatCurrency("total_occ", currency = "", digits = 0)
+} else {
+  cat("No override candidates to export.")
+}
+```
+
+## How to Use Overrides
+
+Once you've reviewed the CSV:
+
+1. Open `data_proc/taxonomy_manual_overrides_template.csv`
+2. For each row, set `accept = TRUE` if the suggested match is correct
+3. If the suggestion is wrong but you know the correct name, fill in `backbone_override`
+4. Save as `data_proc/taxonomy_manual_overrides.csv`
+5. A future version of 09a can read this file as a "Tier 0" pre-match step
+
+
+# 5. Summary Statistics
+
+```{r final-summary}
+cat(glue("
+## Reconciliation Health Check
+
+- **Total GBIF species:** {comma(n_total)}
+- **Matched (Tiers 1-4):** {comma(n_matched)} ({round(100 * n_matched / n_total, 1)}%)
+- **Occurrence coverage:** {round(100 * occ_matched / occ_total, 1)}%
+- **Ambiguous matches needing review:** {nrow(ambig)} ({comma(sum(ambig$total_occ))} occ)
+- **Unmatched with epithet candidate:** {if (exists('epithet_candidates') && nrow(epithet_candidates) > 0) comma(nrow(epithet_candidates)) else '0'}
+- **Truly unresolvable:** {if (exists('none')) comma(nrow(none)) else 'unknown'}
+
+### Potential improvement from manual overrides
+
+"))
+
+if (exists("single") && nrow(single) > 0) {
+  potential_occ <- sum(as.numeric(single$total_occ))
+  new_coverage <- round(100 * (occ_matched + potential_occ) / occ_total, 2)
+  cat(glue("If all **{nrow(single)}** high-confidence epithet matches are accepted,
+occurrence coverage would increase from **{round(100 * occ_matched / occ_total, 2)}%**
+to **{new_coverage}%** (+{comma(potential_occ)} occurrences).\n"))
+}
+```

@@ -149,7 +149,7 @@ filter_coarse_grid_to_country <- function(
 }
 
 # Backward-compatible alias
-get_sweden_cellcodes_50km <- filter_coarse_grid_to_country
+filter_coarse_grid_to_country <- filter_coarse_grid_to_country
 
 #' Create complete cell universe (all cells × all basis types)
 make_cell_universe <- function(cell_data, all_cellcodes) {
@@ -227,7 +227,7 @@ compute_spatial_gaps <- function(cell_data,
 
   # Cell-level aggregates (across all basis types)
   cell_agg <- result[, .(
-    total_occurrences_cell = sum(as.numeric(occurrences)),
+    total_occurrences_cell = sum(occurrences),
     n_basis_with_data      = sum(has_data),
     n_basis_zero           = sum(gap_zero),
     cell_has_any_data      = any(has_data),
@@ -252,7 +252,7 @@ create_basis_summary <- function(gaps_data) {
     n_cells_with_data  = sum(has_data),
     pct_zero           = round(100 * mean(gap_zero), 2),
     pct_with_data      = round(100 * mean(has_data), 2),
-    total_occurrences  = sum(as.numeric(occurrences)),
+    total_occurrences  = sum(occurrences),
     mean_occurrences   = round(mean(occurrences[occurrences > 0]), 2),
     median_occurrences = median(occurrences[occurrences > 0])
   ), by = .(grid, basisofrecord)]
@@ -265,7 +265,7 @@ create_grid_summary <- function(gaps_data) {
     n_cells_with_data = sum(has_data),
     n_cells_zero      = sum(gap_zero),
     pct_coverage      = round(100 * mean(has_data), 2),
-    total_occurrences = sum(as.numeric(occurrences)),
+    total_occurrences = sum(occurrences),
     mean_per_cell     = round(mean(occurrences), 2),
     median_per_cell   = median(occurrences)
   ), by = grid]

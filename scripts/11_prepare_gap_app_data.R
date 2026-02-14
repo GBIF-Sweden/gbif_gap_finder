@@ -266,7 +266,7 @@ if (!is.null(match_summary)) {
   cli_alert_success("Taxonomic match summary: {nrow(shiny_data$taxonomic_match_summary)} taxa")
   
   # Derive threat status coverage if threat columns exist
-  threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_dyntaxa"), 
+  threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), 
                           names(match_summary))[1]
   
   if (!is.na(threat_col)) {
@@ -505,11 +505,9 @@ if (!is.null(time_summary)) {
   shiny_data$time_summary_10km <- as_tibble(time_summary) |>
     mutate(
       yearmonth_chr = str_trim(as.character(yearmonth)),
-      ym_valid = str_detect(yearmonth_chr, "^[0-9]{4}-[0-9]{2}$"),
-      year = if_else(ym_valid, as.integer(str_sub(yearmonth_chr, 1, 4)), NA_integer_),
-      month = if_else(ym_valid, as.integer(str_sub(yearmonth_chr, 6, 7)), NA_integer_)
-    ) |>
-    select(-ym_valid)
+      year = as.integer(str_sub(yearmonth_chr, 1, 4)),
+      month = as.integer(str_sub(yearmonth_chr, 6, 7))
+    )
   cli_alert_success("Time summary 10km: {nrow(shiny_data$time_summary_10km)} rows")
 }
 
