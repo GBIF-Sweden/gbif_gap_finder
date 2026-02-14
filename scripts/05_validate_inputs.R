@@ -391,8 +391,8 @@ if (file_exists_safe(taxa_ref_path)) {
     "taxonRank",             c("taxonrank", "taxonRank"),
     "acceptedNameUsageID",   c("acceptednameusageid",
                                "acceptedNameUsageID"),
-    "threatStatus_dyntaxa",  c("threatstatus_dyntaxa",
-                               "threatStatus_dyntaxa"),
+    "threatStatus_backbone",  c("threatstatus_dyntaxa",
+                               "threatStatus_backbone"),
     "threatStatus_redlist",  c("threatstatus_redlist",
                                "threatStatus_redlist")
   )
@@ -428,7 +428,7 @@ if (file_exists_safe(taxa_ref_path)) {
   }
 
   # Threat status coverage (both columns)
-  for (threat_col in c("threatStatus_dyntaxa",
+  for (threat_col in c("threatStatus_backbone",
                         "threatStatus_redlist")) {
     if (threat_col %in% col_names) {
       na_rate <- mean(is.na(taxa_ref[[threat_col]]))

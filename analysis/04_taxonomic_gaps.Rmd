@@ -102,7 +102,7 @@ This report analyzes **taxonomic gaps** in the national biodiversity data, compa
 
 ```{r load-data}
 dashboard <- safe_read(here(p_tables, "dashboard_summary.csv"))
-tax_ref <- safe_read(here(p_data_proc, "dyntaxa_backbone.csv"))
+tax_ref <- safe_read(here(p_data_proc, "taxonomy_backbone.csv"))
 tax_match <- safe_read(here(p_gaps, "taxonomic_match_summary.csv"))
 
 if (!is.null(dashboard)) {
@@ -159,16 +159,16 @@ if (!is.null(match_summary) && nrow(match_summary) > 0 && "order" %in% names(mat
     filter(!is.na(order), order != "") |>
     group_by(across(any_of(c("kingdom", "phylum", "class", "order")))) |>
     summarise(
-      n_species_dyntaxa = n(),
+      n_species_backbone = n(),
       n_species_gbif = sum(matched_any, na.rm = TRUE),
-      n_species_missing = n_species_dyntaxa - n_species_gbif,
-      pct_coverage = round(100 * n_species_gbif / n_species_dyntaxa, 1),
+      n_species_missing = n_species_backbone - n_species_gbif,
+      pct_coverage = round(100 * n_species_gbif / n_species_backbone, 1),
       .groups = "drop"
     )
   
   cat(glue("**Total orders in backbone**: {nrow(order_coverage)}\n\n"))
-  cat(glue("**Total species in backbone**: {comma(sum(order_coverage$n_species_dyntaxa))}\n\n"))
-  cat(glue("**Species found in GBIF**: {comma(sum(order_coverage$n_species_gbif))} ({round(100 * sum(order_coverage$n_species_gbif) / sum(order_coverage$n_species_dyntaxa), 1)}%)\n\n"))
+  cat(glue("**Total species in backbone**: {comma(sum(order_coverage$n_species_backbone))}\n\n"))
+  cat(glue("**Species found in GBIF**: {comma(sum(order_coverage$n_species_gbif))} ({round(100 * sum(order_coverage$n_species_gbif) / sum(order_coverage$n_species_backbone), 1)}%)\n\n"))
 }
 ```
 
@@ -198,7 +198,7 @@ plot_kingdom_orders <- function(data, kingdom_name, n_top_classes = 12) {
   # Get top classes by total species
   top_classes <- data |>
     group_by(class) |>
-    summarise(total = sum(n_species_dyntaxa), .groups = "drop") |>
+    summarise(total = sum(n_species_backbone), .groups = "drop") |>
     arrange(desc(total)) |>
     slice_head(n = n_top_classes) |>
     pull(class)
@@ -210,7 +210,7 @@ plot_kingdom_orders <- function(data, kingdom_name, n_top_classes = 12) {
   order_totals <- data |>
     filter(class %in% top_classes) |>
     group_by(class, order) |>
-    summarise(total = sum(n_species_dyntaxa), .groups = "drop")
+    summarise(total = sum(n_species_backbone), .groups = "drop")
   
   plot_data <- plot_data |>
     left_join(order_totals, by = c("class", "order"))
@@ -248,7 +248,7 @@ plot_kingdom_orders_pct <- function(data, kingdom_name, n_top_classes = 12) {
   # Get top classes by total species
   top_classes <- data |>
     group_by(class) |>
-    summarise(total = sum(n_species_dyntaxa), .groups = "drop") |>
+    summarise(total = sum(n_species_backbone), .groups = "drop") |>
     arrange(desc(total)) |>
     slice_head(n = n_top_classes) |>
     pull(class)
@@ -257,10 +257,10 @@ plot_kingdom_orders_pct <- function(data, kingdom_name, n_top_classes = 12) {
   plot_data <- data |>
     filter(class %in% top_classes) |>
     mutate(
-      pct_gbif = 100 * n_species_gbif / n_species_dyntaxa,
-      pct_missing = 100 * n_species_missing / n_species_dyntaxa
+      pct_gbif = 100 * n_species_gbif / n_species_backbone,
+      pct_missing = 100 * n_species_missing / n_species_backbone
     ) |>
-    select(class, order, n_species_dyntaxa, pct_gbif, pct_missing) |>
+    select(class, order, n_species_backbone, pct_gbif, pct_missing) |>
     pivot_longer(
       cols = c(pct_gbif, pct_missing),
       names_to = "status",
@@ -337,13 +337,13 @@ if (exists("animalia") && nrow(animalia) > 0) {
     group_by(class) |>
     summarise(
       n_orders = n(),
-      species_dyntaxa = sum(n_species_dyntaxa),
+      species_backbone = sum(n_species_backbone),
       species_gbif = sum(n_species_gbif),
       species_missing = sum(n_species_missing),
-      pct_coverage = round(100 * species_gbif / species_dyntaxa, 1),
+      pct_coverage = round(100 * species_gbif / species_backbone, 1),
       .groups = "drop"
     ) |>
-    arrange(desc(species_dyntaxa)) |>
+    arrange(desc(species_backbone)) |>
     kable(caption = "Animalia: Species Coverage by Class")
 }
 ```
@@ -375,13 +375,13 @@ if (exists("plantae") && nrow(plantae) > 0) {
     group_by(class) |>
     summarise(
       n_orders = n(),
-      species_dyntaxa = sum(n_species_dyntaxa),
+      species_backbone = sum(n_species_backbone),
       species_gbif = sum(n_species_gbif),
       species_missing = sum(n_species_missing),
-      pct_coverage = round(100 * species_gbif / species_dyntaxa, 1),
+      pct_coverage = round(100 * species_gbif / species_backbone, 1),
       .groups = "drop"
     ) |>
-    arrange(desc(species_dyntaxa)) |>
+    arrange(desc(species_backbone)) |>
     kable(caption = "Plantae: Species Coverage by Class")
 }
 ```
@@ -413,13 +413,13 @@ if (exists("fungi") && nrow(fungi) > 0) {
     group_by(class) |>
     summarise(
       n_orders = n(),
-      species_dyntaxa = sum(n_species_dyntaxa),
+      species_backbone = sum(n_species_backbone),
       species_gbif = sum(n_species_gbif),
       species_missing = sum(n_species_missing),
-      pct_coverage = round(100 * species_gbif / species_dyntaxa, 1),
+      pct_coverage = round(100 * species_gbif / species_backbone, 1),
       .groups = "drop"
     ) |>
-    arrange(desc(species_dyntaxa)) |>
+    arrange(desc(species_backbone)) |>
     kable(caption = "Fungi: Species Coverage by Class")
 }
 ```
@@ -436,7 +436,7 @@ if (!is.null(order_coverage) && "kingdom" %in% names(order_coverage)) {
   if (nrow(other) > 0) {
     # For other kingdoms, facet by kingdom instead of class
     plot_data <- other |>
-      select(kingdom, class, order, n_species_gbif, n_species_missing, n_species_dyntaxa) |>
+      select(kingdom, class, order, n_species_gbif, n_species_missing, n_species_backbone) |>
       pivot_longer(
         cols = c(n_species_gbif, n_species_missing),
         names_to = "status",
@@ -451,7 +451,7 @@ if (!is.null(order_coverage) && "kingdom" %in% names(order_coverage)) {
         label = paste0(class, ": ", order)
       )
     
-    ggplot(plot_data, aes(x = reorder(label, n_species_dyntaxa), y = n_species, fill = status)) +
+    ggplot(plot_data, aes(x = reorder(label, n_species_backbone), y = n_species, fill = status)) +
       geom_col(alpha = 0.9, width = 0.8) +
       coord_flip() +
       facet_wrap(~kingdom, scales = "free_y", ncol = 2) +
@@ -484,13 +484,13 @@ if (!is.null(order_coverage) && "kingdom" %in% names(order_coverage)) {
     group_by(kingdom) |>
     summarise(
       n_orders = n(),
-      species_dyntaxa = sum(n_species_dyntaxa),
+      species_backbone = sum(n_species_backbone),
       species_gbif = sum(n_species_gbif),
       species_missing = sum(n_species_missing),
-      pct_coverage = round(100 * species_gbif / species_dyntaxa, 1),
+      pct_coverage = round(100 * species_gbif / species_backbone, 1),
       .groups = "drop"
     ) |>
-    arrange(desc(species_dyntaxa)) |>
+    arrange(desc(species_backbone)) |>
     kable(caption = "Species Coverage Summary by Kingdom")
 }
 ```
@@ -551,7 +551,7 @@ if (!is.null(match_summary) && nrow(match_summary) > 0) {
 <ol>
 <li>Obtain the National Red List data (Artdatabanken)</li>
 <li>Join it to the backbone backbone in script 03 (taxa_reference preparation)</li>
-<li>Ensure the joined data has a column named <code>threatStatus_redlist</code> or <code>threatStatus_dyntaxa</code></li>
+<li>Ensure the joined data has a column named <code>threatStatus_redlist</code> or <code>threatStatus_backbone</code></li>
 <li>Re-run script 09 to regenerate the taxonomic match summary</li>
 </ol>
 </div>
@@ -587,10 +587,10 @@ if (!is.null(threatened_summary) && nrow(threatened_summary) > 0) {
   threat_stats <- threatened_summary |>
     group_by(threatStatus) |>
     summarise(
-      n_dyntaxa = n(),
+      n_backbone = n(),
       n_gbif = sum(matched_any, na.rm = TRUE),
-      n_missing = n_dyntaxa - n_gbif,
-      pct_coverage = round(100 * n_gbif / n_dyntaxa, 1),
+      n_missing = n_backbone - n_gbif,
+      pct_coverage = round(100 * n_gbif / n_backbone, 1),
       .groups = "drop"
     ) |>
     filter(threatStatus %in% c("CR", "EN", "VU", "NT", "LC")) |>
@@ -610,7 +610,7 @@ if (!is.null(threatened_summary) && nrow(threatened_summary) > 0) {
     p1 <- ggplot(threat_long, aes(x = threatStatus, y = count, fill = status)) +
       geom_col(alpha = 0.9, width = 0.7) +
       geom_text(data = threat_stats, 
-                aes(x = threatStatus, y = n_dyntaxa, label = comma(n_dyntaxa), fill = NULL),
+                aes(x = threatStatus, y = n_backbone, label = comma(n_backbone), fill = NULL),
                 vjust = -0.3, size = 4) +
       scale_fill_manual(
         values = c("In GBIF" = "#2A9D8F", "Missing from GBIF" = "#457B9D"),
@@ -648,7 +648,7 @@ if (!is.null(threatened_summary) && nrow(threatened_summary) > 0) {
 ```{r threat-table, eval=has_threat_data}
 if (exists("threat_stats") && !is.null(threat_stats) && nrow(threat_stats) > 0) {
   threat_stats |>
-    select(threatStatus, n_dyntaxa, n_gbif, n_missing, pct_coverage) |>
+    select(threatStatus, n_backbone, n_gbif, n_missing, pct_coverage) |>
     kable(
       caption = "Threatened Species Coverage Summary",
       col.names = c("Threat Status", "In Backbone", "In GBIF", "Missing", "Coverage %")
@@ -1197,7 +1197,7 @@ if (!is.null(priority_taxa) && nrow(priority_taxa) > 0) {
   cat(glue("**{comma(nrow(priority_taxa))} taxa** require priority attention.\n\n"))
   
   # Check for threatStatus column
- threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_dyntaxa"), names(priority_taxa))[1]
+ threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(priority_taxa))[1]
   
   if (!is.na(threat_col)) {
     priority_taxa <- priority_taxa |>

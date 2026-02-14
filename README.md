@@ -44,8 +44,9 @@ gbif_gap_analysis/
 │   ├── 02_spatial_gaps.Rmd             # Spatial gap analysis
 │   ├── 03_temporal_gaps.Rmd            # Temporal gap analysis
 │   ├── 04_taxonomic_gaps.Rmd           # Taxonomic gap analysis
-│   ├── 05_basis_of_record.Rmd          # Basis of record analysis
-│   └── 06_integrated_report.Rmd        # Combined assessment
+│   ├── 05_basis_of_record_report.Rmd    # Basis of record analysis
+│   ├── 06_integrated_report.Rmd        # Combined assessment
+│   └── 07_taxonomy_reconciliation_qa.Rmd  # Reconciliation review & overrides
 ├── data_raw/                # Raw input data (not in git)
 ├── data_proc/               # Processed data (derived/, gaps/)
 ├── output/                  # Summary tables and figures

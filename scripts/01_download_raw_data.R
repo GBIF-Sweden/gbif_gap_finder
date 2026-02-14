@@ -45,7 +45,7 @@ source(here("scripts", "00_setup.R"))
 
 country_code <- cfg_get("country.gbif_country_code",
                         cfg_get("country.code", "SE"))
-country_name <- cfg_get("country.name", "Sweden")
+country_name <- cfg_get("country.name", "Country")
 
 cli_h1("Download Raw Data \u2014 {country_name} ({country_code})")
 
@@ -227,7 +227,7 @@ cli_h2("EEA 10km Grid")
 
 eea_10km_url <- cfg_get(
   "downloads.grid_10km_url",
-  "https://sdi.eea.europa.eu/datashare/s/10km_Grid_Sweden"
+  ""
 )
 eea_10km_zip <- here(dir_grids_10km, "grid_10km.zip")
 
@@ -284,7 +284,7 @@ redlist_doi <- cfg_get(
 )
 redlist_export_url <- cfg_get(
   "redlist.export_url",
-  "https://ipt.gbif.se/archive.do?r=swedish-red-list&v=1.8"
+  ""
 )
 
 cli_alert_info("DOI: {redlist_doi}")
@@ -313,7 +313,7 @@ taxonomy_doi <- cfg_get(
 )
 taxonomy_export_url <- cfg_get(
   "taxonomy.export_url",
-  "https://ipt.gbif.se/archive.do?r=dyntaxa&v=1.2"
+  ""
 )
 
 cli_alert_info("DOI: {taxonomy_doi}")
@@ -483,19 +483,19 @@ grid_50km_file <- cfg_get(
 )
 redlist_taxon_file <- cfg_get(
   "files.redlist.redlist_taxon",
-  cfg_get("files.redlist_se.redlist_se_taxon", "taxon.txt")
+  cfg_get("files.redlist.redlist_taxon", "taxon.txt")
 )
 redlist_distr_file <- cfg_get(
   "files.redlist.redlist_distr",
-  cfg_get("files.redlist_se.redlist_se_distr", "distribution.txt")
+  cfg_get("files.redlist.redlist_distr", "distribution.txt")
 )
 taxonomy_taxon_file <- cfg_get(
   "files.taxonomy.taxonomy_taxon",
-  cfg_get("files.dyntaxa.dyntaxa_taxon", "Taxon.csv")
+  cfg_get("files.taxonomy.taxonomy_taxon", "Taxon.csv")
 )
 taxonomy_distr_file <- cfg_get(
   "files.taxonomy.taxonomy_distr",
-  cfg_get("files.dyntaxa.dyntaxa_distr", "SpeciesDistribution.csv")
+  cfg_get("files.taxonomy.taxonomy_distr", "SpeciesDistribution.csv")
 )
 
 critical_files <- list(

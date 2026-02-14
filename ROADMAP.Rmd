@@ -1,0 +1,335 @@
+---
+title: "gbifgaps — Development Roadmap"
+subtitle: "GBIF Biodiversity Data Gap Analysis Package"
+author: "GBIF Sweden / NRM"
+date: "`r format(Sys.Date(), '%B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    theme: flatly
+    css: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+# Vision
+
+**gbifgaps** is a plug-and-play R package that enables any GBIF node to generate
+a systematic gap analysis of their national biodiversity data — identifying where,
+when, and which species are under-represented — and to explore the results through
+two interactive dashboards:
+
+1. **Gap Analysis Dashboard** — internal tool for data mobilisation priorities
+2. **Biodiversity Explorer** — public-facing tool for exploring national occurrence data
+
+The package is designed so that a node can point it at their country's GBIF data,
+a national taxonomy backbone, and (optionally) a red list, and produce a complete
+analysis with minimal configuration.
+
+
+# Current Status
+
+## What Works (Sweden)
+
+The full pipeline runs end-to-end for Sweden:
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Data ingestion (scripts 01–04) | ✅ Complete | EEA grids, Dyntaxa, GBIF cubes |
+| Validation (script 05) | ✅ Complete | Automated QA report |
+| Core summaries (scripts 06a, 06b) | ✅ Complete | Cell, time, order, species level |
+| Spatial gaps (script 07) | ✅ Complete | Coverage, hotspots, zero-data cells |
+| Temporal gaps (script 08) | ✅ Complete | Recency, seasonality, trends |
+| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, 99.8% occurrence coverage |
+| Taxonomic gaps (script 09b) | ✅ Complete | Missing taxa, threat coverage, priorities |
+| Integration (script 10) | ✅ Complete | Combined overview tables |
+| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Dark theme, glassmorphism, interactive |
+| Biodiversity Explorer app (script 12 + Shiny) | ✅ Complete | Species search, maps, phenology |
+| R Markdown reports (analysis 01–07) | ✅ Complete | 7 reports including QA review |
+| targets pipeline | ✅ Complete | Full DAG with `tar_make()` |
+| Configuration system | ✅ Complete | `config.yml` with country-specific templates |
+
+## Key Technical Achievements
+
+- **Taxonomy reconciliation** went from 31% to 99.8% occurrence coverage through
+  a 4-tier matching system (accepted names → synonyms → infraspecific collapse → GBIF API)
+- **Integer overflow protection** across all scripts and reports
+- **Grid system abstraction** scaffolded via `CELLCODE_FIELD` config parameter
+- **Defensive coding patterns** for data.table edge cases, empty subsets, API failures
+- **Persistent API caching** for GBIF Species API results
+
+
+# Phase 1: Poland & Hardening (Current)
+
+*Goal: Ensure the Sweden pipeline is bulletproof before extending to other countries.*
+
+## 1.1 Pipeline Integrity ✅
+
+- [x] Integer overflow fixes across all scripts, Rmds, and Shiny apps
+- [x] 09a/09b script split with 4-tier taxonomy reconciliation
+- [x] Pipeline housekeeping (README, config, packages.R, _targets.R, run.R)
+- [x] Taxonomy QA review report (Rmd 07)
+- [x] Full end-to-end `tar_make()` run
+
+## 1.2 Remaining Sweden Work
+
+- [ ] Verify all 7 Rmd reports render cleanly after pipeline rebuild
+- [ ] Review Rmd 04 compatibility with new 09b output columns
+- [ ] Confirm both Shiny apps launch and display correct data
+- [ ] Review Shiny app UX issues (loading spinners, empty states, responsive layout)
+- [ ] Run package dependency audit (`renv::snapshot()`)
+
+## 1.3 Code Quality
+
+- [ ] Consistent `|>` pipe syntax throughout (currently mixed `|>` and `%>%`)
+- [ ] Remove dead code and commented-out sections
+- [ ] Standardise function documentation headers
+- [ ] Ensure all scripts respect 100-character line width
+
+
+# Phase 2: Country Abstraction
+
+*Goal: Make the pipeline work for any European country with EEA grids.*
+
+## 2.1 Norway — First Replication
+
+Norway is the ideal first test: same grid system (EEA), similar national taxonomy
+(Artsnavnebasen/Nortaxa), red list available on GBIF.
+
+**Steps:**
+
+1. Fill in `config_norway.yml` TODOs (taxonomy DOI, red list DOI, GBIF cube DOIs)
+2. Download data: GBIF cubes for NO, EEA grid clipped to Norway, Nortaxa DwC-A
+3. Run full pipeline
+4. Document any Sweden-specific assumptions that break
+
+**Expected issues:**
+
+- Column name differences in Nortaxa vs Dyntaxa DwC-A
+- Red list format variations
+- Taxonomy reconciliation differences (Nortaxa may have different synonym structure)
+
+## 2.2 Configuration Refinement
+
+Based on Norway results, refine the config system:
+
+- [ ] `config_template.yml` — annotated template with all options documented
+- [ ] Taxonomy source abstraction — generic field mapping for any DwC-A backbone
+- [ ] Red list abstraction — handle different threat status column names
+- [ ] Feature flags — graceful degradation when components are missing:
+
+```yaml
+features:
+  has_national_checklist: true   # false → use GBIF backbone
+  has_redlist: true              # false → skip threat analysis
+  has_regional_grids: true       # false → generate from country boundary
+```
+
+## 2.3 Grid System Abstraction
+
+The `CELLCODE_FIELD` parameter is scaffolded but not yet fully implemented.
+
+- [ ] Replace remaining `eeacellcode` references with `CELLCODE_FIELD`
+- [ ] Abstract grid file format (currently assumes `.gpkg` with specific column names)
+- [ ] Support ISEA3H hexagonal grids via `dggridR` package
+- [ ] Auto-generate grid from country boundary when no pre-built grid exists
+
+
+# Phase 3: Ethiopia & Global Grids
+
+*Goal: Prove the pipeline works outside Europe with a fundamentally different grid system.*
+
+## 3.1 ISEA3H Grid Integration
+
+Ethiopia requires ISEA3H (Icosahedral Snyder Equal Area) hexagonal grids since
+EEA grids only cover Europe.
+
+**Technical approach:**
+
+1. Generate ISEA3H hexagons covering Ethiopia at ~10km and ~50km resolutions
+   using `dggridR`
+2. Request GBIF occurrence cubes on ISEA3H grid for Ethiopia
+3. Map `seqnum` (ISEA3H cell ID) to the generic `CELLCODE_FIELD`
+4. Verify spatial analysis works with hexagonal cells
+
+## 3.2 Taxonomy Without National Backbone
+
+Ethiopia may not have a DwC-A national checklist. Options:
+
+- Use GBIF backbone taxonomy filtered to Ethiopian species
+- Use regional checklists (e.g., Flora of Ethiopia and Eritrea)
+- Skip Tier 1–3 matching, rely on GBIF backbone + API directly
+
+The pipeline should handle this gracefully via `features.has_national_checklist: false`.
+
+## 3.3 Sparse Data Handling
+
+Ethiopian GBIF data is likely much sparser than Sweden. The pipeline should:
+
+- Adjust thresholds dynamically based on data volume
+- Handle orders/families with very few records gracefully
+- Skip analyses that require minimum data density
+
+
+# Phase 4: R Package
+
+*Goal: Transform the project into an installable R package.*
+
+## 4.1 Package Structure
+
+```
+gbifgaps/
+├── DESCRIPTION
+├── NAMESPACE
+├── R/
+│   ├── config.R              # Config loading and validation
+│   ├── download.R            # GBIF cube and taxonomy downloads
+│   ├── ingest.R              # Grid, taxonomy, cube processing
+│   ├── summarise.R           # Core and species-level summaries
+│   ├── gaps_spatial.R        # Spatial gap analysis
+│   ├── gaps_temporal.R       # Temporal gap analysis
+│   ├── gaps_taxonomic.R      # Reconciliation + taxonomic gaps
+│   ├── integrate.R           # Overview tables
+│   ├── prepare_apps.R        # Shiny data bundling
+│   └── utils.R               # safe_sum, safe_read, helpers
+├── inst/
+│   ├── shiny/
+│   │   ├── gap_app/
+│   │   └── gbif_explorer/
+│   ├── configs/
+│   │   ├── config_template.yml
+│   │   ├── config_sweden.yml
+│   │   └── config_norway.yml
+│   ├── analysis/             # Rmd reports
+│   └── targets/              # _targets.R template
+├── vignettes/
+│   ├── getting-started.Rmd
+│   ├── configuration.Rmd
+│   ├── running-analysis.Rmd
+│   └── customization.Rmd
+├── tests/
+│   └── testthat/
+└── man/
+```
+
+## 4.2 Core API
+
+```r
+library(gbifgaps)
+
+# Full pipeline in one call
+run_pipeline("config_sweden.yml")
+
+# Or step by step
+setup_project("config_sweden.yml")
+download_data()
+ingest_data()
+make_summaries()
+analyse_gaps()
+prepare_apps()
+
+# Launch dashboards
+launch_gap_app()
+launch_explorer_app()
+
+# Render reports
+render_reports()
+```
+
+## 4.3 Package Development Tasks
+
+- [ ] Create `DESCRIPTION` with proper metadata, authors, license
+- [ ] Extract reusable functions from scripts into `R/` files
+- [ ] Write `roxygen2` documentation for all exported functions
+- [ ] Create vignettes (Getting Started, Configuration, Running, Customization)
+- [ ] Write unit tests (`testthat`) for config validation, data processing, matching
+- [ ] Set up `pkgdown` documentation site
+- [ ] GitHub Actions for R CMD check
+
+
+# Phase 5: Distribution & Hosting
+
+## 5.1 Package Distribution
+
+- [ ] Host on GitHub (`gbif/gbifgaps` or `gbif-sweden/gbifgaps`)
+- [ ] R CMD check passing on Linux, macOS, Windows
+- [ ] `pkgdown` site with country gallery and screenshots
+- [ ] Consider CRAN submission (later, once API is stable)
+
+## 5.2 Shiny App Hosting
+
+Options for GBIF nodes:
+
+| Option | Effort | Cost | Best For |
+|--------|--------|------|----------|
+| shinyapps.io | Low | Free tier / $$ | Quick demos, small nodes |
+| Posit Connect | Medium | $$$ | Enterprise nodes |
+| ShinyProxy + Docker | Medium | Server costs | Self-hosted nodes |
+| GBIF central hosting | Low (for nodes) | Central | `gaps.gbif.org/{country}` |
+
+The central hosting model is most appealing: one deployment at GBIF Secretariat
+with a country selector, nightly data refreshes, and consistent branding.
+
+## 5.3 Data Refresh Strategy
+
+- GBIF cubes can be re-downloaded periodically (monthly/quarterly)
+- Taxonomy reconciliation cache persists across runs
+- `targets` pipeline only reruns what changed
+- Consider scheduled GitHub Actions for automated updates
+
+
+# Phase 6: Future Enhancements
+
+## Analysis Extensions
+
+- [ ] Sampling bias quantification (accessibility models)
+- [ ] Species distribution model coverage gaps
+- [ ] Temporal trend predictions and forecasting
+- [ ] Climate envelope coverage analysis
+- [ ] Cross-country comparison mode
+
+## App Features
+
+- [ ] PDF report generation from within apps
+- [ ] Data download buttons for all tables and maps
+- [ ] Multi-language support (i18n) — English, Swedish, Norwegian, etc.
+- [ ] Country comparison view (side-by-side dashboards)
+- [ ] API endpoint for programmatic gap metric access
+
+## Community
+
+- [ ] Contribution guidelines (CONTRIBUTING.md)
+- [ ] Country config repository (community-maintained configs)
+- [ ] GBIF node webinars and tutorials
+- [ ] Conference presentations (GBIF Science Symposium, TDWG)
+
+
+# Open Questions
+
+1. **Grid bundling** — Should the package bundle EEA grids or always download?
+2. **GBIF authentication** — How to handle API credentials for cube downloads?
+3. **Data freshness** — How often should analyses be re-run?
+4. **Central hosting** — Will GBIF Secretariat host a multi-country instance?
+5. **Branding** — Should apps be GBIF-branded or node-branded?
+6. **Languages** — Is multi-language support needed from launch?
+
+
+# Timeline
+
+| Quarter | Milestone |
+|---------|-----------|
+| Q1 2026 | Phase 1 complete — Sweden polished and documented |
+| Q2 2026 | Phase 2 complete — Norway running, config system refined |
+| Q2 2026 | Phase 3 started — Ethiopia grid abstraction |
+| Q3 2026 | Phase 4 — Package skeleton with core API |
+| Q4 2026 | Phase 5 — First public release, pkgdown site |
+| 2027 | Phase 6 — Community adoption, advanced features |
+
+---
+
+*This roadmap is a living document. Updated `r format(Sys.Date(), '%B %d, %Y')`.*

@@ -4,7 +4,7 @@
 # ============================================================================
 # Purpose:
 #   Build the best possible mapping between GBIF occurrence species and the
-#   national taxonomy backbone (Dyntaxa for Sweden). Uses a 4-tier strategy
+#   national taxonomy backbone (national taxonomy backbone). Uses a 4-tier strategy
 #   to maximise the match rate before the gap analysis in 09b.
 #
 #   This script runs BEFORE 09b_taxonomic_gaps.R and produces a lookup
@@ -12,14 +12,14 @@
 #
 # Matching tiers:
 #   Tier 1 -- Direct accepted name match (local)
-#   Tier 2 -- Synonym name match (local, via Dyntaxa synonym rows)
+#   Tier 2 -- Synonym name match (local, via backbone synonym rows)
 #   Tier 3 -- Infraspecific collapse (strip subsp/var, re-match locally)
 #   Tier 4 -- GBIF Species API (for remaining unmatched, cached)
 #
 # Inputs:
 #   - data_proc/derived/by_order/species_summary/*_10km.csv  (GBIF species)
 #   - data_proc/derived/by_family/species_summary/*_10km.csv
-#   - data_proc/taxa_reference_current.rds                   (Dyntaxa)
+#   - data_proc/taxa_reference_current.rds                   (backbone)
 #
 # Outputs:
 #   - data_proc/taxonomic_reconciliation.rds       Main lookup table
@@ -50,7 +50,7 @@ timer_start <- Sys.time()
 # Occurrence threshold: only query the GBIF API for unmatched species with
 # at least this many occurrences. Species below this are likely vagrants
 # or misidentifications that aren't in the national backbone anyway.
-api_min_occurrences <- cfg_get("parameters.taxonomic.api_min_occurrences", 10)
+api_min_occurrences <- cfg_get("parameters.taxonomic.api_min_occurrences", 1)
 
 # Maximum number of API requests per run (safety valve).
 # If there are more candidates, the remainder will be picked up on
@@ -110,7 +110,7 @@ cli_alert_info("Total occurrences: {scales::comma(sum(gbif_species$total_occ))}"
 
 
 # ============================================================================
-# Step 2: Load National Taxonomy (Dyntaxa)
+# Step 2: Load National Taxonomy (backbone)
 # ============================================================================
 
 cli_h2("Loading national taxonomy backbone")
@@ -130,18 +130,18 @@ accepted_taxa <- taxa[is_accepted == TRUE]
 synonym_taxa  <- taxa[is_accepted == FALSE]
 
 accepted_names    <- unique(accepted_taxa$name_std)
-all_dyntaxa_names <- unique(taxa$name_std)
+all_backbone_names <- unique(taxa$name_std)
 
-cli_alert_info("Dyntaxa accepted: {scales::comma(nrow(accepted_taxa))}")
-cli_alert_info("Dyntaxa synonyms: {scales::comma(nrow(synonym_taxa))}")
+cli_alert_info("Backbone accepted: {scales::comma(nrow(accepted_taxa))}")
+cli_alert_info("Backbone synonyms: {scales::comma(nrow(synonym_taxa))}")
 cli_alert_info("Unique accepted names: {scales::comma(length(accepted_names))}")
-cli_alert_info("Combined unique names: {scales::comma(length(all_dyntaxa_names))}")
+cli_alert_info("Combined unique names: {scales::comma(length(all_backbone_names))}")
 
 
 # ============================================================================
 # Step 3: Build Synonym Lookup
 # ============================================================================
-# For each synonym name in Dyntaxa, resolve to its accepted taxon.
+# For each synonym name in the backbone, resolve to its accepted taxon.
 # This lookup is used in Tier 2, Tier 3, and Tier 4.
 
 cli_h2("Building synonym resolution lookup")
@@ -178,13 +178,13 @@ if (length(ambiguous_syns) > 0) {
 # ============================================================================
 # Initialise the Reconciliation Table
 # ============================================================================
-# Every GBIF species gets exactly one row. We fill in the Dyntaxa match
+# Every GBIF species gets exactly one row. We fill in the backbone match
 # tier by tier. At the end, unmatched species get categorised.
 
 recon <- gbif_species[, .(specieskey, species, name_std, total_occ)]
 recon[, `:=`(
-  dyntaxa_taxonID        = NA_character_,
-  dyntaxa_scientificName = NA_character_,
+  backbone_taxonID        = NA_character_,
+  backbone_scientificName = NA_character_,
   match_tier             = NA_character_,
   match_type             = NA_character_,
   match_name_used        = NA_character_
@@ -194,7 +194,7 @@ recon[, `:=`(
 # ============================================================================
 # TIER 1: Direct Accepted Name Match
 # ============================================================================
-# Does the GBIF species name appear as an accepted Dyntaxa name?
+# Does the GBIF species name appear as an accepted backbone name?
 # This is what the current script 09 does.
 
 cli_h2("Tier 1: Direct accepted name match")
@@ -209,8 +209,8 @@ t1_join <- merge(
 )
 
 recon[t1_join, on = "specieskey",
-      `:=`(dyntaxa_taxonID        = i.taxonID,
-           dyntaxa_scientificName = i.scientificName,
+      `:=`(backbone_taxonID        = i.taxonID,
+           backbone_scientificName = i.scientificName,
            match_tier             = "tier1",
            match_type             = "accepted_name",
            match_name_used        = name_std)]
@@ -222,12 +222,12 @@ cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
 
 # ============================================================================
-# TIER 2: Dyntaxa Synonym Match
+# TIER 2: Backbone Synonym Match
 # ============================================================================
-# Does the GBIF species name appear as a SYNONYM in Dyntaxa?
-# If so, resolve to the accepted Dyntaxa taxon.
+# Does the GBIF species name appear as a SYNONYM in the backbone?
+# If so, resolve to the accepted backbone taxon.
 
-cli_h2("Tier 2: Dyntaxa synonym match")
+cli_h2("Tier 2: Backbone synonym match")
 
 t2_pool <- recon[is.na(match_tier), .(specieskey, name_std)]
 
@@ -239,8 +239,8 @@ t2_join <- merge(
 )
 
 recon[t2_join, on = "specieskey",
-      `:=`(dyntaxa_taxonID        = i.accepted_taxonID,
-           dyntaxa_scientificName = i.accepted_name,
+      `:=`(backbone_taxonID        = i.accepted_taxonID,
+           backbone_scientificName = i.accepted_name,
            match_tier             = fifelse(i.is_ambiguous,
                                             "tier2_ambiguous", "tier2"),
            match_type             = "synonym",
@@ -262,7 +262,7 @@ if (n_t2 > 0) {
   top_t2 <- recon[match_tier == "tier2"][order(-total_occ)][seq_len(min(5, n_t2))]
   cli_alert_info("  Top synonym matches:")
   for (i in seq_len(nrow(top_t2))) {
-    cli_alert_info("    {top_t2$species[i]} -> {top_t2$dyntaxa_scientificName[i]} ({scales::comma(top_t2$total_occ[i])} occ)")
+    cli_alert_info("    {top_t2$species[i]} -> {top_t2$backbone_scientificName[i]} ({scales::comma(top_t2$total_occ[i])} occ)")
   }
 }
 
@@ -271,7 +271,7 @@ if (n_t2 > 0) {
 # TIER 3: Infraspecific Collapse
 # ============================================================================
 # For names with 3+ words (or containing subsp./var./f.), extract the
-# binomial (first two words) and try matching that against Dyntaxa.
+# binomial (first two words) and try matching that against the backbone.
 
 cli_h2("Tier 3: Infraspecific collapse to binomial")
 
@@ -285,8 +285,8 @@ n_t3 <- 0
 
 if (nrow(t3_candidates) > 0) {
   t3_candidates[, binomial := paste(word(name_std, 1), word(name_std, 2))]
-  t3_candidates[, binom_in_dyntaxa := binomial %in% all_dyntaxa_names]
-  t3_hits <- t3_candidates[binom_in_dyntaxa == TRUE]
+  t3_candidates[, binom_in_backbone := binomial %in% all_backbone_names]
+  t3_hits <- t3_candidates[binom_in_backbone == TRUE]
 
   if (nrow(t3_hits) > 0) {
     # Resolve binomial: try accepted names first, then synonyms
@@ -316,8 +316,8 @@ if (nrow(t3_candidates) > 0) {
 
     if (nrow(t3_resolved) > 0) {
       recon[t3_resolved, on = "specieskey",
-            `:=`(dyntaxa_taxonID        = i.taxonID,
-                 dyntaxa_scientificName = i.scientificName,
+            `:=`(backbone_taxonID        = i.taxonID,
+                 backbone_scientificName = i.scientificName,
                  match_tier             = "tier3",
                  match_type             = "infraspecific_collapse",
                  match_name_used        = i.binomial)]
@@ -337,7 +337,7 @@ cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 # ============================================================================
 # For remaining unmatched species above the occurrence threshold:
 #   1. Query GBIF Species API for synonyms of each specieskey
-#   2. Check if any returned synonym matches a Dyntaxa name
+#   2. Check if any returned synonym matches a backbone name
 #   3. Cache all API responses so reruns are instant
 #
 # API endpoint: GET https://api.gbif.org/v1/species/{specieskey}/synonyms
@@ -474,7 +474,7 @@ if (n_to_query > 0 && api_available) {
   cli_alert_success("API cache saved: {scales::comma(length(api_cache))} total entries")
 }
 
-# --- Resolve cached synonyms to Dyntaxa ---
+# --- Resolve cached synonyms to backbone ---
 n_t4 <- 0
 occ_t4 <- 0
 
@@ -511,7 +511,7 @@ if (nrow(t4_candidates) > 0) {
   }), fill = TRUE)
 
   if (!is.null(t4_results) && nrow(t4_results) > 0) {
-    # Resolve the matched API name to a Dyntaxa accepted taxon
+    # Resolve the matched API name to a backbone accepted taxon
     t4_results[, name_std := api_matched_name]
 
     # Try accepted
@@ -541,8 +541,8 @@ if (nrow(t4_candidates) > 0) {
 
     if (nrow(t4_resolved) > 0) {
       recon[t4_resolved, on = "specieskey",
-            `:=`(dyntaxa_taxonID        = i.taxonID,
-                 dyntaxa_scientificName = i.scientificName,
+            `:=`(backbone_taxonID        = i.taxonID,
+                 backbone_scientificName = i.scientificName,
                  match_tier             = "tier4",
                  match_type             = "gbif_api_synonym",
                  match_name_used        = i.api_matched_name)]
@@ -601,13 +601,13 @@ for (i in seq_len(nrow(cat_summary))) {
 # Enrich with Higher Taxonomy
 # ============================================================================
 # Join kingdom/phylum/class/order/family and threat status from the
-# matched Dyntaxa accepted taxon, so 09b doesn't need to re-join.
+# matched backbone accepted taxon, so 09b doesn't need to re-join.
 
-cli_h2("Enriching with higher taxonomy from matched Dyntaxa taxa")
+cli_h2("Enriching with higher taxonomy from matched backbone taxa")
 
 taxa_hier_cols <- intersect(
   c("taxonID", "taxonRank", "kingdom", "phylum", "class", "order", "family",
-    "threatStatus_dyntaxa", "threatStatus_redlist"),
+    "threatStatus_backbone", "threatStatus_redlist"),
   names(accepted_taxa)
 )
 
@@ -618,7 +618,7 @@ if (length(taxa_hier_cols) > 1) {
   recon <- merge(
     recon,
     taxa_hier,
-    by.x = "dyntaxa_taxonID", by.y = "taxonID",
+    by.x = "backbone_taxonID", by.y = "taxonID",
     all.x = TRUE
   )
   cli_alert_success("Added columns: {paste(setdiff(taxa_hier_cols, 'taxonID'), collapse = ', ')}")
@@ -635,7 +635,7 @@ cli_h2("Saving outputs")
 
 # Reorder columns for readability
 key_cols <- c("specieskey", "species", "total_occ",
-              "dyntaxa_taxonID", "dyntaxa_scientificName",
+              "backbone_taxonID", "backbone_scientificName",
               "match_tier", "match_type", "match_name_used")
 other_cols <- setdiff(names(recon), c(key_cols, "name_std"))
 setcolorder(recon, c(key_cols, other_cols))

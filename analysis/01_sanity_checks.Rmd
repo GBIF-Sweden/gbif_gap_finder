@@ -587,7 +587,7 @@ if (!is.null(taxa_ref)) {
      n_species = sum(taxonRank == "species", na.rm = TRUE),
      n_genus = sum(taxonRank == "genus", na.rm = TRUE),
      n_family = sum(taxonRank == "family", na.rm = TRUE),
-     n_with_threat_dyntaxa = sum(!is.na(threatStatus_dyntaxa)),
+     n_with_threat_backbone = sum(!is.na(threatStatus_backbone)),
      n_with_threat_redlist = sum(!is.na(threatStatus_redlist)),
      n_kingdoms = uniqueN(kingdom)
    )
@@ -686,10 +686,10 @@ if (length(species_files) > 0) {
 ```{r threat-status}
 if (!is.null(taxa_ref)) {
  # Backbone threat status
- dyntaxa_threat <- taxa_ref |>
-   filter(!is.na(threatStatus_dyntaxa)) |>
-   count(threatStatus_dyntaxa, sort = TRUE) |>
-   rename(status = threatStatus_dyntaxa, n_dyntaxa = n)
+ backbone_threat <- taxa_ref |>
+   filter(!is.na(threatStatus_backbone)) |>
+   count(threatStatus_backbone, sort = TRUE) |>
+   rename(status = threatStatus_backbone, n_backbone = n)
  
  # Red List threat status
  redlist_threat <- taxa_ref |>
@@ -698,9 +698,9 @@ if (!is.null(taxa_ref)) {
    rename(status = threatStatus_redlist, n_redlist = n)
  
  # Combine
- threat_comparison <- full_join(dyntaxa_threat, redlist_threat, by = "status") |>
+ threat_comparison <- full_join(backbone_threat, redlist_threat, by = "status") |>
    mutate(across(starts_with("n_"), ~replace_na(.x, 0))) |>
-   arrange(desc(n_dyntaxa + n_redlist))
+   arrange(desc(n_backbone + n_redlist))
  
  threat_comparison |>
    kable(caption = "Threat Status Coverage: Backbone vs Red List")
@@ -708,13 +708,13 @@ if (!is.null(taxa_ref)) {
  # Priority threatened taxa
  priority_statuses <- c("CR", "EN", "VU", "NT")
  
- n_priority_dyntaxa <- taxa_ref |> 
-   filter(threatStatus_dyntaxa %in% priority_statuses) |> nrow()
+ n_priority_backbone <- taxa_ref |> 
+   filter(threatStatus_backbone %in% priority_statuses) |> nrow()
  n_priority_redlist <- taxa_ref |> 
    filter(threatStatus_redlist %in% priority_statuses) |> nrow()
  
  cat("\n**Priority threatened taxa (CR/EN/VU/NT):**\n")
- cat("- From backbone:", n_priority_dyntaxa, "\n")
+ cat("- From backbone:", n_priority_backbone, "\n")
  cat("- From Red List:", n_priority_redlist, "\n")
 }
 ```
@@ -962,8 +962,8 @@ taxonomic_ready <- tribble(
    ifelse(!is.null(taxa_ref), "✅", "❌"),
    "National taxonomic backbone reference",
  "Threat status (backbone)",
-   ifelse(!is.null(taxa_ref) && sum(!is.na(taxa_ref$threatStatus_dyntaxa)) > 0, "✅", "⚠️"),
-   ifelse(!is.null(taxa_ref), glue("{sum(!is.na(taxa_ref$threatStatus_dyntaxa))} taxa"), "N/A"),
+   ifelse(!is.null(taxa_ref) && sum(!is.na(taxa_ref$threatStatus_backbone)) > 0, "✅", "⚠️"),
+   ifelse(!is.null(taxa_ref), glue("{sum(!is.na(taxa_ref$threatStatus_backbone))} taxa"), "N/A"),
  "Threat status (Red List)",
    ifelse(!is.null(taxa_ref) && sum(!is.na(taxa_ref$threatStatus_redlist)) > 0, "✅", "⚠️"),
    ifelse(!is.null(taxa_ref), glue("{sum(!is.na(taxa_ref$threatStatus_redlist))} taxa"), "N/A"),

@@ -1,0 +1,371 @@
+# Data Sources (raw inputs)
+
+This file documents **all external datasets** used in this project, including:
+- where they come from (source / DOI / download request)
+- when they were downloaded
+- which files are stored locally in `data_raw/`
+- important notes for reproducibility and re-downloading
+
+> **Important principle:** Raw files in `data_raw/` are never edited manually.
+> All cleaning and transformations are written to `data_proc/` by scripts in `scripts/`.
+
+---
+
+## Automated Downloads
+
+**Script:** `scripts/01_download_raw_data.R`
+
+This script automates downloading/updating of all raw data sources. Run after initial setup or when updating datasets.
+
+**Usage:**
+```r
+source("scripts/01_download_raw_data.R")
+```
+
+**What it does:**
+- Downloads EEA reference grids (with manual fallback if needed)
+- Downloads national red list taxonomy via GBIF API (if enabled)
+- Downloads national taxonomy backbone via GBIF API
+- Provides instructions for GBIF Occurrence Cube downloads
+- Creates `data_raw/download_metadata.json` with download timestamp and file lists
+- Logs all actions to `logs/download_log_YYYY-MM-DD.txt`
+
+**GBIF Authentication Required:**
+Set credentials in `.Renviron`:
+```
+GBIF_USER=your_username
+GBIF_EMAIL=your_email@example.com
+GBIF_PWD=your_password
+```
+
+---
+
+## 1) GBIF Occurrence Cube Downloads (Sweden, GBIF-mediated)
+
+**Purpose:** Species-level, gridded occurrence summaries for Sweden, used for spatial, temporal, and taxonomic gap analysis.
+
+**Downloaded:** 2026-01-08
+**Source:** GBIF Occurrence download API (Occurrence Cube / gridded outputs)
+**Spatial reference:** EEA grid cell codes (`eeacellcode`)
+**Temporal resolution:** monthly (`yearmonth`)
+**Taxonomic reference:** GBIF backbone keys (e.g., `specieskey`)
+
+### Filters / settings (as used for all downloads)
+- Split by **basisOfRecord** into separate files
+- Gridded to **10 km** and **50 km** EEA reference grids
+- Filtered by country code `SE`
+- Other filters held constant across downloads (same query logic)
+
+### Stored in this repository
+Folder: `data_raw/gbif_occurrence_cubes/`
+
+**10 km grid cubes**
+- `species_occurrences_10km.csv`
+- `species_observation_10km.csv`
+- `species_humanObservation_10km.csv`
+- `species_machineObservation_10km.csv`
+- `species_materialSample_10km.csv`
+- `species_materialCitation_10km.csv`
+- `species_preservedSpecimen_10km.csv`
+- `species_livingSpecimen_10km.csv`
+- `species_fossilSpecimen_10km.csv`
+
+**50 km grid cubes**
+- `species_occurrences_50km.csv`
+- `species_observation_50km.csv`
+- `species_humanObservation_50km.csv`
+- `species_machineObservation_50km.csv`
+- `species_materialSample_50km.csv`
+- `species_materialCitation_50km.csv`
+- `species_preservedSpecimen_50km.csv`
+- `species_livingSpecimen_50km.csv`
+- `species_fossilSpecimen_50km.csv`
+
+### Naming convention (raw cube CSVs)
+`lowestGroupedTaxon_basisOfRecord_EEAGridSize.csv`
+
+Example:
+- `species_preservedSpecimen_50km.csv`
+
+### DOIs to cite
+Observation:
+- https://doi.org/10.15468/dl.et9j59 (50 km)
+- https://doi.org/10.15468/dl.2kta9r (10 km)
+
+Machine observation:
+- https://doi.org/10.15468/dl.b7gkpy (50 km)
+- https://doi.org/10.15468/dl.3pfc7j (10 km)
+
+Human observation:
+- https://doi.org/10.15468/dl.93twra (50 km)
+- https://doi.org/10.15468/dl.bmj5a8 (10 km)
+
+Material sample:
+- https://doi.org/10.15468/dl.a25nur (50 km)
+- https://doi.org/10.15468/dl.b48bg5 (10 km)
+
+Material citation:
+- https://doi.org/10.15468/dl.4bcbx7 (50 km)
+- https://doi.org/10.15468/dl.vqdu7s (10 km)
+
+Preserved specimen:
+- https://doi.org/10.15468/dl.y3bn72 (50 km)
+- https://doi.org/10.15468/dl.nnxm3s (10 km)
+
+Fossil specimen:
+- https://doi.org/10.15468/dl.nty9gh (50 km)
+- https://doi.org/10.15468/dl.z2zjaw (10 km)
+
+Living specimen:
+- https://doi.org/10.15468/dl.4sj3cj (50 km)
+- https://doi.org/10.15468/dl.pxhp4m (10 km)
+
+Occurrence:
+- https://doi.org/10.15468/dl.qyp3uw (50 km)
+- https://doi.org/10.15468/dl.wzv3uc (10 km)
+
+### Download requests (zip)
+Observation:
+- https://api.gbif.org/v1/occurrence/download/request/0081612-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081614-251120083545085.zip (10 km)
+
+Machine observation:
+- https://api.gbif.org/v1/occurrence/download/request/0081654-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081649-251120083545085.zip (10 km)
+
+Human observation:
+- https://api.gbif.org/v1/occurrence/download/request/0081665-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081681-251120083545085.zip (10 km)
+
+Material sample:
+- https://api.gbif.org/v1/occurrence/download/request/0081719-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081721-251120083545085.zip (10 km)
+
+Material citation:
+- https://api.gbif.org/v1/occurrence/download/request/0081741-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081742-251120083545085.zip (10 km)
+
+Preserved specimen:
+- https://api.gbif.org/v1/occurrence/download/request/0081758-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081760-251120083545085.zip (10 km)
+
+Fossil specimen:
+- https://api.gbif.org/v1/occurrence/download/request/0081765-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081779-251120083545085.zip (10 km)
+
+Living specimen:
+- https://api.gbif.org/v1/occurrence/download/request/0081782-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081785-251120083545085.zip (10 km)
+
+Occurrence:
+- https://api.gbif.org/v1/occurrence/download/request/0081795-251120083545085.zip (50 km)
+- https://api.gbif.org/v1/occurrence/download/request/0081794-251120083545085.zip (10 km)
+
+### Notes
+- Cube columns include (example): `specieskey`, `species`, `yearmonth`, `eeacellcode`, `occurrences`,
+  and minimum uncertainty metrics (e.g., `mincoordinateuncertaintyinmeters`).
+- These cube files are ingested into fast processed formats in `data_proc/` by `scripts/04_ingest_gbif_cubes.R`.
+
+### Updating GBIF Cubes
+To refresh with newer data:
+1. Use the download URLs above to get updated versions, OR
+2. Request new cube downloads via GBIF web interface or API
+3. Update this file with new download dates and DOIs
+4. Re-run `scripts/04_ingest_gbif_cubes.R`
+
+---
+
+## 2) EEA Reference Grids (spatial reference)
+
+The EEA grids are used as reference spatial units for all spatial gap analysis.
+
+### 2.1 EEA Reference Grid (Europe) 50 km (v2024)
+**Purpose:** 50 km grid reference layer across Europe (subset to Sweden extent during processing).
+**Source page:** https://sdi.eea.europa.eu/geonetwork/srv/api/records/aac8379a-5c4e-445c-b2ef-23a6a2701ef0
+**Downloaded:** 2026-01-08
+**Original CRS:** ETRS89-LAEA Europe (EPSG:3035)
+**Notes from source:** v2024 includes corrections to grid cell codes compared to earlier versions.
+
+**Stored in this repository**
+- Folder: `data_raw/eea_grid_50km/`
+- File: `EEA_50km_grid_v2024.gpkg`
+
+**Processing notes**
+- The original file contains geometry type **MULTISURFACE**.
+- During ingestion (`scripts/02_ingest_grids.R`) geometries are converted to polygon geometry and reprojected to **EPSG:3035**.
+- Filtered to Sweden extent using 10km grid mask.
+
+**Automated download:**
+Use `scripts/01_download_raw_data.R` or download manually from source page.
+
+---
+
+### 2.2 EEA Reference Grid (Sweden) 10 km
+**Purpose:** 10 km grid reference layer covering Sweden.
+**Source page:** https://sdi.eea.europa.eu/geonetwork/srv/api/records/10ade0f6-5cf8-4bf8-8db8-313081857af3
+**Downloaded:** 2026-01-08
+**Notes from source:** Grid based on INSPIRE geographical grid systems.
+
+**Stored in this repository**
+- Folder: `data_raw/eea_grid_10km/`
+- Shapefile base name: `se_10km`
+- This includes multiple files, e.g.:
+  - `se_10km.shp`
+  - `se_10km.shx`
+  - `se_10km.dbf`
+  - `se_10km.prj`
+  - (and possibly `se_10km.cpg`)
+
+**Processing notes**
+- Ingestion (`scripts/02_ingest_grids.R`) reprojects the grid to **EPSG:3035**.
+- Total cells: 7,693
+
+**Automated download:**
+Use `scripts/01_download_raw_data.R` or download manually from source page.
+
+---
+
+## 3) Taxonomic Reference Datasets
+
+### 3.1 Dyntaxa — Swedish Taxonomic Database (National Taxonomy Backbone)
+
+**Purpose:** Taxonomic reference backbone for Swedish taxa, including threat status and taxon identifiers. Dyntaxa is a Swedish taxonomic database of organisms occurring in Swedish nature.
+**Source:** Dyntaxa — svensk taxonomisk databas
+**DOI:** https://doi.org/10.15468/j43wfc
+**GBIF Dataset Key:** `de8934f4-a136-481c-a87a-b0b202b80a31`
+**Accessed via GBIF.org on:** 2026-02-05
+**Current version:** 1.2
+
+**Stored in this repository**
+Folder: `data_raw/taxonomy/`
+
+Files (from Darwin Core Archive):
+- `Taxon.csv`
+  Contains taxonomic backbone information such as: `taxonID`, `acceptedNameUsageID`, `scientificName`,
+  taxonomic rank and hierarchy fields (`kingdom`–`genus`), and taxonomic status fields.
+- `SpeciesDistribution.csv`
+  Contains distribution/status attributes such as: `countryCode`, `occurrenceStatus`, `establishmentMeans`, `threatStatus`.
+- `Reference.csv`
+- `VernacularNames.csv`
+- `meta.xml` (metadata)
+- `eml.xml` (Ecological Metadata Language)
+
+**Total reference taxa:** ~110,000
+
+**Processing notes**
+- Ingested and combined into an analysis-ready reference table:
+  - `data_proc/taxa_reference_current.rds`
+  created by `scripts/03_ingest_taxonomy.R`.
+
+**Automated download:**
+```r
+source("scripts/01_download_raw_data.R")
+```
+This downloads the Darwin Core Archive via GBIF API and extracts the files automatically.
+
+**Manual download:**
+1. Visit: https://www.gbif.org/dataset/de8934f4-a136-481c-a87a-b0b202b80a31
+2. Click "Download" → "Darwin Core Archive"
+3. Extract to `data_raw/taxonomy/`
+
+**When to update:**
+- Check GBIF dataset page for new versions
+- Re-run ingestion and gap analysis scripts after updating
+
+---
+
+### 3.2 Swedish Red List (SLU Artdatabanken)
+
+**Purpose:** Swedish red list reference for threatened species categories (enriches the taxonomy backbone with threat status).
+**Source:** SLU Artdatabanken (2024). The Swedish Red List 2020. Version 1.8. Checklist dataset
+**DOI:** https://doi.org/10.15468/jhwkpq
+**GBIF Dataset Key:** `fab88965-e69d-4491-a04d-e3198b626e52`
+**Accessed via GBIF.org on:** 2026-01-08
+**Current version:** 1.8
+
+**Stored in this repository**
+Folder: `data_raw/redlist/`
+
+Files (from Darwin Core Archive):
+- `taxon.txt`
+  Contains taxonomic backbone information such as: `taxonID`, `acceptedNameUsageID`, `scientificName`,
+  taxonomic rank and hierarchy fields (`kingdom`–`genus`), and taxonomic status fields.
+- `distribution.txt`
+  Contains distribution/status attributes such as: `countryCode`, `occurrenceStatus`, `establishmentMeans`, `threatStatus`.
+- `meta.xml` (metadata)
+- `eml.xml` (Ecological Metadata Language)
+
+**Total reference taxa:** 11,240
+
+**Processing notes**
+- Ingested alongside the taxonomy backbone by `scripts/03_ingest_taxonomy.R`.
+- Red list threat statuses are joined to the backbone as `threatStatus_redlist`.
+
+**Automated download:**
+```r
+source("scripts/01_download_raw_data.R")
+```
+This downloads the Darwin Core Archive via GBIF API and extracts the files automatically.
+
+**Manual download:**
+1. Visit: https://www.gbif.org/dataset/fab88965-e69d-4491-a04d-e3198b626e52
+2. Click "Download" → "Darwin Core Archive"
+3. Extract to `data_raw/redlist/`
+
+**When to update:**
+- Check GBIF dataset page for new versions
+- SLU Artdatabanken typically updates Red List every few years
+- Re-run ingestion and gap analysis scripts after updating
+
+---
+
+## Updating This Document
+
+**When to update `data_sources.Rmd`:**
+
+1. **New data downloaded:**
+   - Update "Downloaded" dates
+   - Add new DOIs if applicable
+   - Update version numbers
+
+2. **Data source changes:**
+   - New GBIF cube downloads (update DOIs and request URLs)
+   - Red list version update (update version number, date, file count)
+   - Grid updates (unlikely but possible)
+
+3. **File structure changes:**
+   - New files added to `data_raw/`
+   - File naming conventions changed
+   - New data sources added
+
+**Workflow:**
+1. Update this file manually
+2. Commit to git with descriptive message
+3. Re-run relevant ingestion scripts
+4. Update `config.yml` if filenames changed
+
+---
+
+## Reproducibility Notes
+
+**For complete reproducibility:**
+
+1. All download metadata is logged in:
+   - `data_raw/download_metadata.json` (created by `scripts/01_download_raw_data.R`)
+   - `logs/download_log_YYYY-MM-DD.txt`
+
+2. GBIF downloads are permanently archived and citeable via DOI
+
+3. Grid sources are versioned (e.g., v2024 for 50km grid)
+
+4. National taxonomy (Dyntaxa) and Red List versions are recorded in `config.yml`
+
+**To reproduce this analysis:**
+1. Use the DOIs listed above to download exact same datasets
+2. Or use `scripts/01_download_raw_data.R` for latest versions
+3. Check version numbers match if exact reproduction needed
+
+---
+
+**Last updated:** 2026-02-13
+**Maintainer:** Lena Thöle

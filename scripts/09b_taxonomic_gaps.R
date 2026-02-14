@@ -113,9 +113,9 @@ cli_alert_info("Accepted taxa: {scales::comma(nrow(tax_accepted))}")
 tax_accepted[, name_std := tolower(trimws(scientificName))]
 
 # --- Resolve threat status ---
-# Priority: threatStatus_redlist > threatStatus_dyntaxa > legacy columns
+# Priority: threatStatus_redlist > threatStatus_backbone > legacy columns
 threat_col_candidates <- c(
-  "threatStatus_redlist", "threatStatus_dyntaxa",
+  "threatStatus_redlist", "threatStatus_backbone",
   "dyntaxa_redlist_category", "swedish_redlist_category",
   "redlistCategory", "threatStatus"
 )
@@ -169,9 +169,9 @@ if ("taxonRank" %in% names(tax_clean)) {
 
 cli_h2("Building Backbone Match Summary")
 
-# Create a lookup: which dyntaxa_taxonIDs have GBIF data?
+# Create a lookup: which backbone_taxonIDs have GBIF data?
 matched_taxa <- recon[match_tier != "unmatched",
-                      .(dyntaxa_taxonID,
+                      .(backbone_taxonID,
                         gbif_specieskey = specieskey,
                         gbif_species    = species,
                         match_tier,
@@ -189,13 +189,13 @@ matched_agg <- matched_taxa[, .(
     c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4")
   ))],
   gbif_specieskeys = paste(unique(gbif_specieskey), collapse = ";")
-), by = .(dyntaxa_taxonID)]
+), by = .(backbone_taxonID)]
 
 # Join to backbone
 match_summary <- merge(
   tax_clean,
   matched_agg,
-  by.x = "taxonID", by.y = "dyntaxa_taxonID",
+  by.x = "taxonID", by.y = "backbone_taxonID",
   all.x = TRUE
 )
 
@@ -384,19 +384,19 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
   }
 
   # Join cell counts to matched backbone taxa via reconciliation
-  # Step 1: map specieskey -> dyntaxa_taxonID
+  # Step 1: map specieskey -> backbone_taxonID
   sk_to_taxon <- recon[match_tier != "unmatched",
-                       .(specieskey, dyntaxa_taxonID)]
+                       .(specieskey, backbone_taxonID)]
 
   sp_cells_with_taxon <- merge(sp_cells, sk_to_taxon, by = "specieskey", all.x = TRUE)
 
   # Step 2: aggregate per backbone taxon (multiple specieskeys may map to same taxon)
-  sp_cells_agg <- sp_cells_with_taxon[!is.na(dyntaxa_taxonID), .(
+  sp_cells_agg <- sp_cells_with_taxon[!is.na(backbone_taxonID), .(
     n_cells_10km   = max(n_cells_10km, na.rm = TRUE),
     n_cells_50km   = max(n_cells_50km, na.rm = TRUE),
     total_occ_10km = sum(total_occ_10km, na.rm = TRUE),
     total_occ_50km = sum(total_occ_50km, na.rm = TRUE)
-  ), by = dyntaxa_taxonID]
+  ), by = backbone_taxonID]
 
   # Step 3: join to backbone match summary
   spatial_cols <- intersect(
@@ -407,7 +407,7 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
   spatial_coverage <- merge(
     match_summary[matched_any == TRUE, ..spatial_cols],
     sp_cells_agg,
-    by.x = "taxonID", by.y = "dyntaxa_taxonID",
+    by.x = "taxonID", by.y = "backbone_taxonID",
     all.x = TRUE
   )
 
