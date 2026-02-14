@@ -236,6 +236,38 @@ cli_alert_info("Reading: {.path {input_files$taxonomy_taxon}}")
 taxonomy_taxon <- read_table_safe(input_files$taxonomy_taxon) |>
   rename_to_dwc()
 
+# -- Backbone compatibility normalisations ----------------------------------
+# These ensure consistent types/values across different national backbones.
+# Some (e.g. Nortaxa) use numeric taxonID; others (Dyntaxa) use LSID strings.
+# Some use "valid" instead of "accepted" for taxonomicStatus.
+# Normalising here prevents type-mismatch errors in downstream joins (09a/09b).
+
+# Force all ID columns to character (some backbones use numeric IDs)
+id_cols <- c("taxonID", "acceptedNameUsageID", "parentNameUsageID")
+id_cols_present <- intersect(id_cols, names(taxonomy_taxon))
+if (length(id_cols_present) > 0) {
+  taxonomy_taxon <- taxonomy_taxon |>
+    mutate(across(all_of(id_cols_present), as.character))
+  cli_alert_info(
+    "Normalised to character: {paste(id_cols_present, collapse = ', ')}"
+  )
+}
+
+if ("taxonomicStatus" %in% names(taxonomy_taxon)) {
+  n_valid <- sum(taxonomy_taxon$taxonomicStatus == "valid", na.rm = TRUE)
+  if (n_valid > 0) {
+    taxonomy_taxon <- taxonomy_taxon |>
+      mutate(
+        taxonomicStatus = if_else(
+          taxonomicStatus == "valid", "accepted", taxonomicStatus
+        )
+      )
+    cli_alert_info(
+      "Mapped {scales::comma(n_valid)} 'valid' \u2192 'accepted' in taxonomicStatus"
+    )
+  }
+}
+
 cli_alert_success(
   "{backbone_name} taxonomy: {scales::comma(nrow(taxonomy_taxon))} rows, {ncol(taxonomy_taxon)} columns"
 )
