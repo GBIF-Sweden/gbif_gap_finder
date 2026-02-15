@@ -41,7 +41,7 @@ dir_grid_50km <- here(cfg_get(
 dir_data_proc <- here(cfg_get("paths.data_proc", "data_proc"))
 
 file_grid_10km <- cfg_get(
-  "files.grids.grid10km", "se_10km.shp"
+  "files.grids.grid10km", ""
 )
 file_grid_50km <- cfg_get(
   "files.grids.grid50km", "EEA_50km_grid_v2024.gpkg"

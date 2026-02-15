@@ -517,6 +517,17 @@ cli_alert_success("Priority taxa: {scales::comma(nrow(priority_all))}")
 
 cli_h2("Writing Outputs")
 
+# Validate schemas before saving
+if (exists("validate_match_summary")) {
+  validate_match_summary(match_summary)
+  validate_missing_threatened(missing_threatened)
+  validate_coverage_by_rank(rank_summary)
+  validate_coverage_by_threat(threat_summary)
+  if (!is.null(spatial_coverage)) {
+    validate_spatial_coverage(spatial_coverage)
+  }
+}
+
 write_gap_file <- function(dt, filename, label = NULL) {
   path <- here(p_gaps, filename)
   fwrite(dt, path)

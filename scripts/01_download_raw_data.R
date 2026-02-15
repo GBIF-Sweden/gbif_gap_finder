@@ -254,7 +254,7 @@ cli_h2("EEA 50km Grid")
 
 eea_50km_url <- cfg_get(
   "downloads.grid_50km_url",
-  "https://sdi.eea.europa.eu/datashare/s/EEA_50km_Grid_v2024"
+  ""
 )
 eea_50km_file <- here(
   dir_grids_50km,
@@ -274,28 +274,23 @@ if (interactive() && tolower(readline()) == "y") {
 
 cli_h1("2 \u2014 National Red List (optional reference)")
 
-redlist_dataset_key <- cfg_get(
-  "redlist.dataset_key",
-  "fab88965-e69d-4491-a04d-e3198b626e52"
-)
-redlist_doi <- cfg_get(
-  "redlist.doi",
-  "https://doi.org/10.15468/jhwkpq"
-)
-redlist_export_url <- cfg_get(
-  "redlist.export_url",
-  ""
-)
+redlist_dataset_key <- cfg_get("redlist.dataset_key", "")
+redlist_doi <- cfg_get("redlist.doi", "")
+redlist_export_url <- cfg_get("redlist.export_url", "")
 
-cli_alert_info("DOI: {redlist_doi}")
+if (redlist_dataset_key == "" || redlist_export_url == "") {
+  cli_alert_warning("Red list not configured in config.yml — skipping download")
+  cli_alert_info("Set redlist.dataset_key and redlist.export_url to enable")
+} else {
+  cli_alert_info("DOI: {redlist_doi}")
 
-download_gbif_dataset(
-  dataset_key    = redlist_dataset_key,
-  export_url     = redlist_export_url,
-  dest_dir       = dir_redlist,
-  label          = "national_redlist",
-  expected_files = c("taxon.txt", "distribution.txt")
-)
+  download_gbif_dataset(
+    dataset_key    = redlist_dataset_key,
+    export_url     = redlist_export_url,
+    dest_dir       = dir_redlist,
+    label          = "national_redlist"
+  )
+}
 
 # ============================================================================
 # 3. National Taxonomy Backbone (primary)
@@ -303,18 +298,17 @@ download_gbif_dataset(
 
 cli_h1("3 \u2014 National Taxonomy Backbone (primary)")
 
-taxonomy_dataset_key <- cfg_get(
-  "taxonomy.dataset_key",
-  "de8934f4-a136-481c-a87a-b0b202b80a31"
-)
-taxonomy_doi <- cfg_get(
-  "taxonomy.doi",
-  "https://doi.org/10.15468/j43wfc"
-)
-taxonomy_export_url <- cfg_get(
-  "taxonomy.export_url",
-  ""
-)
+taxonomy_dataset_key <- cfg_get("taxonomy.dataset_key", "")
+taxonomy_doi <- cfg_get("taxonomy.doi", "")
+taxonomy_export_url <- cfg_get("taxonomy.export_url", "")
+
+if (taxonomy_dataset_key == "" || taxonomy_export_url == "") {
+  cli_abort(c(
+    "Taxonomy backbone not configured in config.yml",
+    "i" = "Set taxonomy.dataset_key and taxonomy.export_url",
+    "i" = "Find your national checklist: https://www.gbif.org/dataset/search?type=CHECKLIST"
+  ))
+}
 
 cli_alert_info("DOI: {taxonomy_doi}")
 
@@ -322,8 +316,7 @@ download_gbif_dataset(
   dataset_key    = taxonomy_dataset_key,
   export_url     = taxonomy_export_url,
   dest_dir       = dir_taxonomy,
-  label          = "national_taxonomy",
-  expected_files = c("Taxon.csv", "SpeciesDistribution.csv")
+  label          = "national_taxonomy"
 )
 
 # ============================================================================
@@ -377,11 +370,16 @@ if (!interactive() || tolower(readline()) == "y") {
     cli_h2("Download Instructions")
     cli_alert_info("Occurrence cubes are specialised downloads.")
 
-    cube_dois <- cfg_get("cubes.resolutions", list())
-    for (cube in cube_dois) {
-      cli_alert_info(
-        "  {cube$resolution}km: {cube$doi}"
-      )
+    cube_10km <- cfg_get("cubes.grid10km", list())
+    cube_50km <- cfg_get("cubes.grid50km", list())
+    if (length(cube_10km) > 0) {
+      cli_alert_info("  10km cubes: {length(cube_10km)} basis types configured")
+    }
+    if (length(cube_50km) > 0) {
+      cli_alert_info("  50km cubes: {length(cube_50km)} basis types configured")
+    }
+    if (length(cube_10km) == 0 && length(cube_50km) == 0) {
+      cli_alert_warning("No cube DOIs configured in config.yml")
     }
 
     cli_alert_info("")
@@ -476,26 +474,22 @@ cli_h1("Verification Checks")
 
 # Build critical-file list from config
 grid_10km_file <- cfg_get(
-  "files.grids.grid10km", "se_10km.shp"
+  "files.grids.grid10km", ""
 )
 grid_50km_file <- cfg_get(
   "files.grids.grid50km", "EEA_50km_grid_v2024.gpkg"
 )
 redlist_taxon_file <- cfg_get(
-  "files.redlist.redlist_taxon",
-  cfg_get("files.redlist.redlist_taxon", "taxon.txt")
+  "files.redlist.redlist_taxon", "taxon.txt"
 )
 redlist_distr_file <- cfg_get(
-  "files.redlist.redlist_distr",
-  cfg_get("files.redlist.redlist_distr", "distribution.txt")
+  "files.redlist.redlist_distr", "distribution.txt"
 )
 taxonomy_taxon_file <- cfg_get(
-  "files.taxonomy.taxonomy_taxon",
-  cfg_get("files.taxonomy.taxonomy_taxon", "Taxon.csv")
+  "files.taxonomy.taxonomy_taxon", "Taxon.csv"
 )
 taxonomy_distr_file <- cfg_get(
-  "files.taxonomy.taxonomy_distr",
-  cfg_get("files.taxonomy.taxonomy_distr", "SpeciesDistribution.csv")
+  "files.taxonomy.taxonomy_distr", "Distribution.csv"
 )
 
 critical_files <- list(

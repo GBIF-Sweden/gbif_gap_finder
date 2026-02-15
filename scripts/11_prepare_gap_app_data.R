@@ -233,10 +233,10 @@ if (!is.null(temporal_heatmap)) {
   cli_alert_success("Temporal heatmap data loaded")
 }
 
-# Cell recency (10km) - try multiple possible filenames
-cell_recency <- safe_read(here(p_gaps, "temporal_cell_recency_10km.csv"))
+# Cell recency (10km)
+cell_recency <- safe_read(here(p_gaps, "cell_recency_10km.csv"))
 if (is.null(cell_recency)) {
-  cell_recency <- safe_read(here(p_gaps, "cell_recency_10km.csv"))
+  cell_recency <- safe_read(here(p_gaps, "temporal_cell_recency_10km.csv"))
 }
 if (!is.null(cell_recency)) {
   shiny_data$cell_recency_10km <- as_tibble(cell_recency)
