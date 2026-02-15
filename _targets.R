@@ -33,14 +33,6 @@ library(tarchetypes)
 # Source project setup (loads globals, config, packages)
 source("scripts/00_setup.R")
 
-# Placeholders for tar_render() -------------------------------------------
-# tarchetypes::tar_render() parses Rmd chunk options at plan-definition time.
-# Some Rmds use eval=has_threat_data or eval=!is.null(grid10) in chunk headers.
-# These variables are properly defined inside the Rmds at render time, but
-# tar_render() needs them to exist when scanning the file.
-has_threat_data <- TRUE
-grid10 <- NULL
-
 # ============================================================================
 # Target Options
 # ============================================================================

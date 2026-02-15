@@ -633,6 +633,11 @@ if (length(taxa_hier_cols) > 1) {
 
 cli_h2("Saving outputs")
 
+# Validate schema before saving
+if (exists("validate_reconciliation")) {
+  validate_reconciliation(recon)
+}
+
 # Reorder columns for readability
 key_cols <- c("specieskey", "species", "total_occ",
               "backbone_taxonID", "backbone_scientificName",

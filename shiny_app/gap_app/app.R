@@ -19,6 +19,7 @@ library(DT)
 library(scales)
 library(glue)
 library(lubridate)
+library(stringr)
 
 # =============================================================================
 # LOAD DATA
