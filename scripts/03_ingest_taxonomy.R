@@ -444,6 +444,19 @@ if (redlist_available && !is.null(redlist_distr)) {
     }
   }
 
+  # Clean threat codes — some red lists have stray characters (e.g. NTº → NT)
+  if ("threatStatus" %in% names(redlist_combined)) {
+    raw_codes <- unique(redlist_combined$threatStatus[!is.na(redlist_combined$threatStatus)])
+    redlist_combined <- redlist_combined |>
+      mutate(threatStatus = gsub("[^A-Za-z]", "", threatStatus))
+    clean_codes <- unique(redlist_combined$threatStatus[!is.na(redlist_combined$threatStatus)])
+    if (length(raw_codes) != length(clean_codes)) {
+      cli_alert_info(
+        "Cleaned threat codes: {length(raw_codes)} unique \u2192 {length(clean_codes)} unique"
+      )
+    }
+  }
+
   # Create threat lookup by scientificName
   redlist_threat_lookup <- redlist_combined |>
     filter(

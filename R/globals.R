@@ -119,9 +119,6 @@ CRS_PROJECT     <- cfg_get("parameters.crs", 3035)
 CRS_LAEA        <- 3035
 CRS_ETRS89_LAEA <- 3035
 
-# Legacy alias for backward compatibility
-CRS_SWEREF99TM <- 3006
-
 # Configure sf package defaults
 if (requireNamespace("sf", quietly = TRUE)) {
   sf::sf_use_s2(TRUE)
@@ -148,35 +145,13 @@ raw_grid_50km_dir <- cfg_get(
 
 raw_redlist_dir <- cfg_get(
   "paths.redlist_dir",
-  cfg_get(
-    "paths.redlist_se_dir",
-    here(p_data_raw, "red_list")
-  )
-)
-
-# Backward-compatible alias
-raw_redlist_se_dir <- raw_redlist_dir
-
-raw_redlist_iucn_dir <- cfg_get(
-  "paths.redlist_iucn_dir",
-  here(p_data_raw, "red_list_iucn")
+  here(p_data_raw, "redlist")
 )
 
 raw_taxonomy_dir <- cfg_get(
   "paths.taxonomy_dir",
-  cfg_get(
-    "paths.dyntaxa_dir",
-    here(p_data_raw, "taxonomy")
-  )
+  here(p_data_raw, "taxonomy")
 )
-
-# Backward-compatible alias
-raw_dyntaxa_dir <- raw_taxonomy_dir
-
-# Optional file references from config
-redlist_se_file  <- cfg_get("files.redlist_se", NULL)
-redlist_iucn_file <- cfg_get("files.redlist_iucn", NULL)
-dyntaxa_file     <- cfg_get("files.dyntaxa", NULL)
 
 # ============================================================================
 # Processed Output Paths
@@ -184,11 +159,6 @@ dyntaxa_file     <- cfg_get("files.dyntaxa", NULL)
 
 out_grid_10km_gpkg  <- here(p_data_proc, "grids_10km.gpkg")
 out_grid_50km_gpkg  <- here(p_data_proc, "grids_50km.gpkg")
-
-out_redlist_se_rds  <- here(p_data_proc, "red_list_se_current.rds")
-out_redlist_iucn_rds <- here(p_data_proc, "red_list_iucn_current.rds")
-
-out_dyntaxa_rds <- here(p_data_proc, "dyntaxa_current.rds")
 
 # ============================================================================
 # Utility Functions
@@ -308,4 +278,202 @@ ensure_dirs <- function() {
     }
   }
   invisible(NULL)
+}
+
+# ============================================================================
+# tar_render() Placeholders
+# ============================================================================
+# tarchetypes::tar_render() scans Rmd chunk options at plan-definition time.
+# Some Rmds use eval=has_threat_data or eval=!is.null(grid10) in chunk headers.
+# These are properly defined inside the Rmds at render time, but tar_render()
+# needs them to exist when scanning. Defining them here (before _targets.R is
+# parsed) avoids spurious error messages at startup.
+has_threat_data <- TRUE
+grid10          <- NULL
+
+# ============================================================================
+# Schema Validators
+# ============================================================================
+# These validators ensure that outputs from producer scripts match what
+# consumer scripts expect. They catch column renames, type changes, and
+# missing fields early — before they cause cryptic errors downstream.
+#
+# Called by: scripts/09a (reconciliation), scripts/09b (gap tables)
+# ============================================================================
+
+#' Validate a data frame against a schema
+#'
+#' @param dt        Data frame or data.table to validate
+#' @param schema    Named list: name -> list(required, type)
+#' @param label     Human-readable name for error messages
+#' @return Invisible TRUE if valid, otherwise stops
+validate_schema <- function(dt, schema, label = "dataset") {
+
+  if (is.null(dt)) {
+    cli_alert_danger("Validation failed: {label} is NULL")
+    stop(paste0("Schema validation failed: ", label, " is NULL"), call. = FALSE)
+  }
+
+  if (nrow(dt) == 0) {
+    cli_alert_warning("Validation warning: {label} has 0 rows")
+  }
+
+  col_names <- names(dt)
+  issues <- character(0)
+
+  for (col in names(schema)) {
+    spec     <- schema[[col]]
+    required <- isTRUE(spec$required)
+
+    if (!col %in% col_names) {
+      if (required) {
+        issues <- c(issues, paste0("Missing required column: ", col))
+      }
+      next
+    }
+
+    # Type check
+    if (!is.null(spec$type) && col %in% col_names) {
+      actual <- class(dt[[col]])[1]
+      ok <- actual %in% spec$type ||
+        (any(spec$type == "numeric")   && actual %in% c("numeric", "integer", "double")) ||
+        (any(spec$type == "character") && actual %in% c("character", "factor"))
+      if (!ok) {
+        issues <- c(issues, paste0(
+          col, ": expected ", paste(spec$type, collapse = "/"), " but got ", actual
+        ))
+      }
+    }
+  }
+
+  if (length(issues) > 0) {
+    cli_alert_danger("Schema validation failed for {label}:")
+    for (issue in issues) cli_alert_warning("  {issue}")
+    stop(
+      paste0("Schema validation failed for ", label, ":\n",
+             paste("  -", issues, collapse = "\n")),
+      call. = FALSE
+    )
+  }
+
+  n_required <- sum(vapply(schema, function(s) isTRUE(s$required), logical(1)))
+  n_present  <- sum(names(schema) %in% col_names)
+  cli_alert_success(
+    "Schema OK: {label} ({n_present}/{length(schema)} columns, {scales::comma(nrow(dt))} rows)"
+  )
+  invisible(TRUE)
+}
+
+# --- Reconciliation (09a output) -------------------------------------------
+# Consumed by: 09b
+schema_reconciliation <- list(
+  specieskey              = list(required = TRUE,  type = "numeric"),
+  species                 = list(required = TRUE,  type = "character"),
+  total_occ               = list(required = TRUE,  type = "numeric"),
+  backbone_taxonID        = list(required = TRUE,  type = "character"),
+  backbone_scientificName = list(required = TRUE,  type = "character"),
+  match_tier              = list(required = TRUE,  type = "character"),
+  match_type              = list(required = TRUE,  type = "character"),
+  match_name_used         = list(required = TRUE,  type = "character"),
+  taxonRank               = list(required = FALSE, type = "character"),
+  kingdom                 = list(required = FALSE, type = "character"),
+  phylum                  = list(required = FALSE, type = "character"),
+  class                   = list(required = FALSE, type = "character"),
+  order                   = list(required = FALSE, type = "character"),
+  family                  = list(required = FALSE, type = "character"),
+  threatStatus_backbone   = list(required = FALSE, type = "character"),
+  threatStatus_redlist    = list(required = FALSE, type = "character")
+)
+
+validate_reconciliation <- function(dt) {
+  validate_schema(dt, schema_reconciliation, "reconciliation (09a)")
+}
+
+# --- Taxonomic match summary (09b output) ----------------------------------
+# Consumed by: 10, 11, 12, Rmd reports
+schema_match_summary <- list(
+  taxonID          = list(required = TRUE,  type = "character"),
+  scientificName   = list(required = TRUE,  type = "character"),
+  taxonRank        = list(required = FALSE, type = "character"),
+  kingdom          = list(required = FALSE, type = "character"),
+  phylum           = list(required = FALSE, type = "character"),
+  class            = list(required = FALSE, type = "character"),
+  order            = list(required = FALSE, type = "character"),
+  family           = list(required = FALSE, type = "character"),
+  threatStatus     = list(required = FALSE, type = "character"),
+  matched_any      = list(required = TRUE,  type = "logical"),
+  n_gbif_species   = list(required = TRUE,  type = "numeric"),
+  gbif_total_occ   = list(required = TRUE,  type = "numeric"),
+  best_match_tier  = list(required = FALSE, type = "character"),
+  gbif_specieskeys = list(required = FALSE, type = "character")
+)
+
+validate_match_summary <- function(dt) {
+  validate_schema(dt, schema_match_summary, "taxonomic_match_summary (09b)")
+}
+
+# --- Missing threatened taxa (09b output) ----------------------------------
+# Consumed by: 10, 11
+schema_missing_threatened <- list(
+  taxonID        = list(required = TRUE,  type = "character"),
+  scientificName = list(required = TRUE,  type = "character"),
+  threatStatus   = list(required = TRUE,  type = "character"),
+  taxonRank      = list(required = FALSE, type = "character"),
+  kingdom        = list(required = FALSE, type = "character"),
+  phylum         = list(required = FALSE, type = "character"),
+  class          = list(required = FALSE, type = "character"),
+  order          = list(required = FALSE, type = "character"),
+  family         = list(required = FALSE, type = "character")
+)
+
+validate_missing_threatened <- function(dt) {
+  validate_schema(dt, schema_missing_threatened, "missing_threatened (09b)")
+}
+
+# --- Coverage by rank (09b output) -----------------------------------------
+# Consumed by: 10, 11
+schema_coverage_by_rank <- list(
+  taxonRank    = list(required = TRUE, type = "character"),
+  n_ref_total  = list(required = TRUE, type = "numeric"),
+  n_in_gbif    = list(required = TRUE, type = "numeric"),
+  pct_coverage = list(required = TRUE, type = "numeric"),
+  n_missing    = list(required = TRUE, type = "numeric")
+)
+
+validate_coverage_by_rank <- function(dt) {
+  validate_schema(dt, schema_coverage_by_rank, "coverage_by_rank (09b)")
+}
+
+# --- Coverage by threat status (09b output) --------------------------------
+# Consumed by: 10
+schema_coverage_by_threat <- list(
+  threatStatus = list(required = TRUE, type = "character"),
+  n_ref_total  = list(required = TRUE, type = "numeric"),
+  n_in_gbif    = list(required = TRUE, type = "numeric"),
+  pct_coverage = list(required = TRUE, type = "numeric"),
+  n_missing    = list(required = TRUE, type = "numeric")
+)
+
+validate_coverage_by_threat <- function(dt) {
+  validate_schema(dt, schema_coverage_by_threat, "coverage_by_threat (09b)")
+}
+
+# --- Spatial coverage per taxon (09b output) -------------------------------
+# Consumed by: 10
+schema_spatial_coverage <- list(
+  taxonID        = list(required = TRUE,  type = "character"),
+  scientificName = list(required = TRUE,  type = "character"),
+  n_cells_10km   = list(required = TRUE,  type = "numeric"),
+  n_cells_50km   = list(required = TRUE,  type = "numeric"),
+  total_occ_10km = list(required = TRUE,  type = "numeric"),
+  total_occ_50km = list(required = TRUE,  type = "numeric"),
+  poorly_sampled = list(required = FALSE, type = "logical"),
+  taxonRank      = list(required = FALSE, type = "character"),
+  threatStatus   = list(required = FALSE, type = "character"),
+  family         = list(required = FALSE, type = "character"),
+  order          = list(required = FALSE, type = "character")
+)
+
+validate_spatial_coverage <- function(dt) {
+  validate_schema(dt, schema_spatial_coverage, "spatial_coverage (09b)")
 }
