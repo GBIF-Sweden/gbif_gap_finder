@@ -244,9 +244,9 @@ if (!is.null(cell_recency)) {
 }
 
 # Stale cells priority
-stale_cells <- safe_read(here(p_integrated, "priority_stale_cells.csv"))
+stale_cells <- safe_read(here(p_integrated, "priority_cells_stale.csv"))
 if (is.null(stale_cells) || nrow(stale_cells) == 0) {
-  stale_cells <- safe_read(here(p_integrated, "priority_cells_stale.csv"))
+  stale_cells <- safe_read(here(p_integrated, "priority_stale_cells.csv"))
 }
 if (!is.null(stale_cells) && nrow(stale_cells) > 0) {
   shiny_data$priority_stale_cells <- as_tibble(stale_cells)
