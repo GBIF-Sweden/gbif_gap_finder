@@ -425,6 +425,13 @@ list(
     cue        = tar_cue(mode = "never")
   ),
 
+  tar_render(
+    report_reconciliation_qa,
+    path       = here("analysis", "07_taxonomy_reconciliation_qa.Rmd"),
+    output_dir = here("analysis"),
+    cue        = tar_cue(mode = "never")
+  ),
+
   # ==========================================================================
   # Pipeline Summary
   # ==========================================================================
