@@ -554,7 +554,87 @@ if (!is.null(cell_summary)) {
 
 ---
 
-# 5. Key Findings
+# 5. Last Year Highlights
+
+```{r ly-spatial-load}
+cell_time <- safe_read(here(p_derived, "cell_time_summary_10km.csv"))
+time_summary_ly <- safe_read(here(p_derived, "time_summary_10km.csv"))
+
+last_full_year <- NULL
+if (!is.null(time_summary_ly)) {
+  ts_ly <- time_summary_ly |> filter(basisofrecord == "all") |>
+    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
+  ym_counts <- ts_ly |> group_by(year) |>
+    summarise(n_m = n_distinct(str_sub(as.character(yearmonth), 6, 7)), .groups = "drop")
+  cands <- ym_counts |> filter(n_m >= 6) |> pull(year)
+  last_full_year <- if (length(cands) > 0) max(cands) else max(ts_ly$year)
+}
+if (is.null(last_full_year)) last_full_year <- year(Sys.Date()) - 1
+ly_label <- as.character(last_full_year)
+```
+
+```{r ly-spatial-summary}
+if (!is.null(cell_time)) {
+  ct <- cell_time |> filter(basisofrecord == "all") |>
+    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
+
+  cell_era <- ct |>
+    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    group_by(eeacellcode, era) |>
+    summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occ, values_fill = 0)
+
+  if (!"prior" %in% names(cell_era)) cell_era$prior <- 0
+  if (!"last_year" %in% names(cell_era)) cell_era$last_year <- 0
+
+  cell_era <- cell_era |>
+    mutate(newly_covered = prior == 0 & last_year > 0,
+           has_ly_data = last_year > 0)
+
+  tibble(
+    Metric = c(
+      paste0("Cells active in ", ly_label),
+      "Newly covered cells",
+      paste0("Total ", ly_label, " occurrences")
+    ),
+    Value = c(
+      comma(sum(cell_era$has_ly_data)),
+      comma(sum(cell_era$newly_covered)),
+      comma(sum(cell_era$last_year))
+    )
+  ) |> kable(caption = paste0("Spatial Activity in ", ly_label))
+}
+```
+
+```{r ly-spatial-map, fig.height=12, fig.width=10}
+if (!is.null(grid_10km) && exists("cell_era")) {
+  grid_ly <- grid_10km |>
+    left_join(cell_era |> select(eeacellcode, last_year, newly_covered, has_ly_data),
+              by = "eeacellcode") |>
+    mutate(status = case_when(
+      newly_covered ~ "Newly covered",
+      has_ly_data ~ paste0("Active in ", ly_label),
+      TRUE ~ paste0("No data in ", ly_label)
+    ))
+
+  ggplot(grid_ly) +
+    geom_sf(aes(fill = status), color = "white", linewidth = 0.02) +
+    scale_fill_manual(values = c("Newly covered" = "#E63946",
+                                  setNames("#2A9D8F", paste0("Active in ", ly_label)),
+                                  setNames("grey85", paste0("No data in ", ly_label)))) +
+    labs(title = paste0("Spatial Activity: ", ly_label),
+         subtitle = paste0(comma(sum(cell_era$has_ly_data)), " cells active, ",
+                           comma(sum(cell_era$newly_covered)), " newly covered")) +
+    theme_void() +
+    theme(legend.position = "bottom",
+          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40"))
+}
+```
+
+---
+
+# 6. Key Findings
 
 ```{r summary-stats, results='asis'}
 cat("## Spatial Coverage Summary\n\n")
