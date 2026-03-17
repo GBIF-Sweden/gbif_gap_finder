@@ -72,7 +72,8 @@ troudet_bias_order   <- safe_get("troudet_bias_order")
 troudet_bias_family  <- safe_get("troudet_bias_family")
 order_time_summary   <- safe_get("order_time_summary")
 family_time_summary  <- safe_get("family_time_summary")
-last_year_ref        <- safe_get("last_year")  # e.g. 2025
+last_year_ref        <- safe_get("last_year")  # now a yearmonth cutoff, e.g. 202504
+recent_label_stored  <- safe_get("recent_label")  # e.g. "Apr 2025 – Mar 2026"
 
 # Derived
 basis_types   <- if (!is.null(spatial_gaps)) sort(unique(spatial_gaps$basisofrecord)) else "all"
@@ -86,8 +87,14 @@ kingdom_choices <- if (!is.null(tax_by_order) && "kingdom" %in% names(tax_by_ord
   sort(unique(tax_by_order$kingdom[!is.na(tax_by_order$kingdom) & tax_by_order$kingdom != ""]))
 } else character(0)
 
-# Last year label
-last_year_label <- if (!is.null(last_year_ref)) as.character(last_year_ref) else "last year"
+# Label for recent period (last 12 months)
+last_year_label <- if (!is.null(recent_label_stored)) {
+  recent_label_stored
+} else if (!is.null(last_year_ref)) {
+  as.character(last_year_ref)
+} else {
+  "last 12 months"
+}
 
 # Plotly theme helper — light background, warm palette
 plotly_layout <- function(p, ...) {
