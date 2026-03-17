@@ -69,6 +69,12 @@ p_data_proc <- here("data_proc")
 p_derived <- here("data_proc", "derived")
 p_integrated <- here("output", "tables", "integrated")
 
+# Admin boundaries
+admin_sf <- tryCatch(
+  st_read(here("data_raw", "admin", "admin_level1.gpkg"), quiet = TRUE),
+  error = function(e) NULL
+)
+
 # Current year for calculations
 current_year <- year(Sys.Date())
 ```
@@ -368,13 +374,23 @@ if (!is.null(recency_file)) {
       ))
     )
   
-  ggplot(grid_stale) +
+  # Admin boundaries
+  
+  stale_colors <- c("< 1 year" = "#5c7a99", "1-3 years" = "#6b8f71",
+                     "3-5 years" = "#c4a882", "5-10 years" = "#c47a6c",
+                     "> 10 years" = "#8b3a3a", "No Data" = "grey85")
+  
+  p <- ggplot(grid_stale) +
     geom_sf(aes(fill = staleness_cat), color = "white", linewidth = 0.02) +
-    scale_fill_viridis_d(option = "turbo", direction = -1, na.value = "grey80") +
-    labs(
+    scale_fill_manual(values = stale_colors, drop = FALSE, name = "Time since\nlast record")
+  
+  if (!is.null(admin_sf)) {
+    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+  }
+  
+  p + labs(
       title = "Geographic Distribution of Data Recency",
-      subtitle = "Time since last occurrence record per cell",
-      fill = "Time Since\nLast Record"
+      subtitle = "Time since last occurrence record per cell"
     ) +
     theme_void() +
     theme(
@@ -650,15 +666,20 @@ if (exists("priority_stale") && exists("grid_10km")) {
       ))
     )
   
-  ggplot(grid_stale_priority) +
+  stale_priority_colors <- c("Recent (<5 years)" = "#6b8f71", "5-7 years" = "#c4a882",
+                              "7-10 years" = "#c47a6c", "10-15 years" = "#8b3a3a",
+                              "15-20 years" = "#6b2020", ">20 years" = "#3d1111")
+  
+  p <- ggplot(grid_stale_priority) +
     geom_sf(aes(fill = staleness_cat), color = "white", linewidth = 0.02) +
-    scale_fill_viridis_d(
-      option = "rocket", 
-      direction = -1,
-      na.value = "#2A9D8F",
-      drop = FALSE
-    ) +
-    labs(
+    scale_fill_manual(values = stale_priority_colors, drop = FALSE,
+                      name = "Years since\nlast sample")
+  
+  if (!is.null(admin_sf)) {
+    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+  }
+  
+  p + labs(
       title = "Priority Stale Cells by Staleness",
       subtitle = glue("{comma(nrow(priority_stale))} cells not sampled in 5+ years"),
       fill = "Years Since\nLast Sample",

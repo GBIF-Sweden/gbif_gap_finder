@@ -96,6 +96,12 @@ safe_col <- function(df, col, default = NA) {
   if (is.null(df)) return(default)
   if (col %in% names(df)) df[[col]][1] else default
 }
+
+# Admin boundaries
+admin_sf <- tryCatch(
+  st_read(here("data_raw", "admin", "admin_level1.gpkg"), quiet = TRUE),
+  error = function(e) NULL
+)
 ```
 
 # Executive Summary
@@ -192,27 +198,45 @@ if (!is.null(dashboard) && nrow(dashboard) > 0) {
 # Year in Review {.tabset}
 
 ```{r year-in-review-load}
-# Load cell_time_summary for spatial last-year analysis
+# Load cell_time_summary for spatial last-12-months analysis
 cell_time <- safe_fread(here(p_derived, "cell_time_summary_10km.csv"))
 time_summary <- safe_fread(here(p_derived, "time_summary_10km.csv"))
 order_temporal <- safe_fread(here(p_integrated, "order_temporal_trends.csv"))
 
-# Determine reference year
-last_full_year <- NULL
-if (!is.null(time_summary)) {
-  ts <- time_summary |> as_tibble() |>
-    filter(basisofrecord == "all") |>
-    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
-  year_months <- ts |> group_by(year) |> summarise(n_m = n_distinct(str_sub(as.character(yearmonth), 6, 7)), .groups = "drop")
-  candidates <- year_months |> filter(n_m >= 6) |> pull(year)
-  last_full_year <- if (length(candidates) > 0) max(candidates) else max(ts$year)
-}
-if (is.null(last_full_year)) last_full_year <- year(Sys.Date()) - 1
+# Determine 12-month reference window from data
+recent_cutoff_ym <- NULL
+recent_label <- NULL
 
-ly_label <- as.character(last_full_year)
+if (!is.null(time_summary)) {
+  ts_all <- time_summary |> as_tibble() |>
+    filter(basisofrecord == "all") |>
+    mutate(yearmonth_int = as.integer(gsub("-", "", yearmonth)))
+
+  all_ym <- sort(unique(ts_all$yearmonth_int))
+  if (length(all_ym) > 0) {
+    latest_ym <- max(all_ym)
+    latest_year <- as.integer(substr(as.character(latest_ym), 1, 4))
+    latest_month <- as.integer(substr(as.character(latest_ym), 5, 6))
+
+    cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-% months(11)
+    recent_cutoff_ym <- as.integer(format(cutoff_date, "%Y%m"))
+
+    recent_label <- paste0(
+      format(cutoff_date, "%b %Y"), " – ",
+      format(as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")), "%b %Y")
+    )
+  }
+}
+
+if (is.null(recent_cutoff_ym)) {
+  recent_cutoff_ym <- as.integer(paste0(year(Sys.Date()) - 1, "01"))
+  recent_label <- paste0(year(Sys.Date()) - 1)
+}
+
+ly_label <- recent_label
 ```
 
-This section highlights what changed in **`r ly_label`** compared to all prior years, across spatial, taxonomic, and priority dimensions.
+This section highlights what changed in the **last 12 months (`r ly_label`)** compared to all prior data, across spatial, taxonomic, and priority dimensions.
 
 ## Overview
 
@@ -220,28 +244,30 @@ This section highlights what changed in **`r ly_label`** compared to all prior y
 if (!is.null(time_summary)) {
   ts <- time_summary |> as_tibble() |>
     filter(basisofrecord == "all") |>
-    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
+    mutate(yearmonth_int = as.integer(gsub("-", "", yearmonth)),
+           year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
 
-  yearly <- ts |>
-    group_by(year) |>
-    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
-
-  ly_occ <- yearly |> filter(year == last_full_year) |> pull(total_occ)
-  prior_occ <- yearly |> filter(year < last_full_year) |> summarise(sum(total_occ)) |> pull()
-  ly_pct <- round(100 * ly_occ / (ly_occ + prior_occ), 1)
+  # Recent vs prior using yearmonth cutoff
+  recent_occ <- ts |>
+    filter(yearmonth_int >= recent_cutoff_ym) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE)) |> pull()
+  prior_occ <- ts |>
+    filter(yearmonth_int < recent_cutoff_ym) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE)) |> pull()
+  recent_pct <- round(100 * recent_occ / (recent_occ + prior_occ), 1)
 
   yir_summary <- tibble(
     Metric = c(
-      paste0("New occurrences in ", ly_label),
+      paste0("New occurrences (", ly_label, ")"),
       "Total prior occurrences",
-      paste0(ly_label, " share of all data"),
-      paste0("Years of data before ", ly_label)
+      "Recent share of all data",
+      "Years of data in archive"
     ),
     Value = c(
-      comma(ly_occ),
+      comma(recent_occ),
       comma(prior_occ),
-      paste0(ly_pct, "%"),
-      paste0(min(yearly$year), "–", last_full_year - 1)
+      paste0(recent_pct, "%"),
+      paste0(min(ts$year, na.rm = TRUE), "–", max(ts$year, na.rm = TRUE))
     )
   )
   yir_summary |> kable()
@@ -253,16 +279,18 @@ if (!is.null(time_summary)) {
   yearly <- ts |>
     group_by(year) |>
     summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
-    filter(year >= 1970) |>
-    mutate(is_last_year = year == last_full_year)
+    filter(year >= 1970)
 
-  ggplot(yearly, aes(x = year, y = total_occ, fill = is_last_year)) +
+  # Highlight years that fall within the recent window
+  cutoff_year <- as.integer(substr(as.character(recent_cutoff_ym), 1, 4))
+  yearly <- yearly |> mutate(is_recent = year >= cutoff_year)
+
+  ggplot(yearly, aes(x = year, y = total_occ, fill = is_recent)) +
     geom_col(width = 0.8, alpha = 0.9) +
     scale_fill_manual(values = c("FALSE" = "#2A9D8F", "TRUE" = "#E76F51"),
                       labels = c("Prior years", ly_label), name = NULL) +
     scale_y_continuous(labels = comma) +
-    scale_x_continuous(breaks = seq(1970, last_full_year, by = 10)) +
-    labs(title = paste0("Annual Occurrence Volume (", ly_label, " Highlighted)"),
+    labs(title = paste0("Annual Occurrence Volume (", ly_label, " highlighted)"),
          x = NULL, y = "Occurrences") +
     theme(legend.position = "bottom")
 }
@@ -277,7 +305,8 @@ if (!is.null(cell_time)) {
     mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
 
   cell_era <- ct |>
-    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    mutate(yearmonth_int = as.integer(gsub("-", "", yearmonth)),
+           era = ifelse(yearmonth_int >= recent_cutoff_ym, "last_year", "prior")) |>
     group_by(eeacellcode, era) |>
     summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
     pivot_wider(names_from = era, values_from = occ, values_fill = 0)
@@ -337,13 +366,20 @@ if (!is.null(grid_10km) && exists("cell_era")) {
                                           paste0("No data in ", ly_label)))
     )
 
-  ggplot(grid_yir) +
+  # Admin boundaries
+
+  p <- ggplot(grid_yir) +
     geom_sf(aes(fill = status), color = "white", linewidth = 0.02) +
     scale_fill_manual(values = c("Newly covered" = "#E76F51",
                                   setNames("#2A9D8F", paste0("Active in ", ly_label)),
                                   setNames("grey85", paste0("No data in ", ly_label))),
-                      name = "Status") +
-    labs(title = paste0("Spatial Activity in ", ly_label),
+                      name = "Status")
+
+  if (!is.null(admin_sf)) {
+    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+  }
+
+  p + labs(title = paste0("Spatial Activity: ", ly_label),
          subtitle = paste0(comma(n_active), " active cells, ",
                            comma(n_newly), " newly covered")) +
     theme_void() +
@@ -374,9 +410,10 @@ if (!is.null(match_summary) && !is.null(order_temporal)) {
     summarise(n_known = n(), .groups = "drop")
 
   # Occurrences per class, split by era
+  cutoff_year <- as.integer(substr(as.character(recent_cutoff_ym), 1, 4))
   occ_by_class <- order_temporal |> as_tibble() |>
     inner_join(order_to_class, by = "order") |>
-    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    mutate(era = ifelse(year >= cutoff_year, "last_year", "prior")) |>
     group_by(kingdom, class, era) |>
     summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
     pivot_wider(names_from = era, values_from = occ, values_fill = 0)
@@ -424,7 +461,7 @@ if (!is.null(match_summary) && !is.null(order_temporal)) {
 ```{r yir-top-orders, fig.height=6, fig.width=12}
 if (!is.null(order_temporal)) {
   order_ly <- order_temporal |> as_tibble() |>
-    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    mutate(era = ifelse(year >= cutoff_year, "last_year", "prior")) |>
     group_by(order, era) |>
     summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
     pivot_wider(names_from = era, values_from = occ, values_fill = 0)
@@ -566,23 +603,30 @@ if (file.exists(grid_path) && file.exists(gaps_path)) {
         mutate(
           occ_cat = case_when(
             is.na(occurrences) | occurrences == 0 ~ "No data",
-            occurrences < 100 ~ "1-99",
-            occurrences < 1000 ~ "100-999",
-            occurrences < 10000 ~ "1,000-9,999",
-            occurrences < 100000 ~ "10,000-99,999",
-            TRUE ~ "100,000+"
+            occurrences <= 100 ~ "1–100",
+            occurrences <= 1000 ~ "101–1,000",
+            occurrences <= 10000 ~ "1,001–10,000",
+            occurrences <= 100000 ~ "10,001–100,000",
+            TRUE ~ ">100,000"
           ),
-          occ_cat = factor(occ_cat, levels = c("No data", "1-99", "100-999", 
-                                                "1,000-9,999", "10,000-99,999", "100,000+"))
+          occ_cat = factor(occ_cat, levels = c(
+            "1–100", "101–1,000", "1,001–10,000",
+            "10,001–100,000", ">100,000", "No data"))
         )
       
-      print(ggplot(grid_map) +
+      occ_colors <- c("1–100" = "#5c7a99", "101–1,000" = "#6b8f71",
+                       "1,001–10,000" = "#c4a882", "10,001–100,000" = "#c47a6c",
+                       ">100,000" = "#8b3a3a", "No data" = "grey85")
+      
+      p <- ggplot(grid_map) +
         geom_sf(aes(fill = occ_cat), color = "white", linewidth = 0.05) +
-        scale_fill_manual(
-          values = c("No data" = "grey85", "1-99" = "#FDE725", "100-999" = "#5DC863",
-                     "1,000-9,999" = "#21908C", "10,000-99,999" = "#3B528B", "100,000+" = "#440154"),
-          name = "Occurrences"
-        ) +
+        scale_fill_manual(values = occ_colors, drop = FALSE, name = "Occurrences")
+      
+      if (!is.null(admin_sf)) {
+        p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+      }
+      
+      print(p +
         labs(title = "Geographic Distribution of Occurrence Data",
              subtitle = "10km EEA Grid") +
         theme_void() +
@@ -674,11 +718,20 @@ if (file.exists(recency_path) && !is.null(grid_10km)) {
         ))
       )
     
-    ggplot(grid_stale) +
+    stale_colors <- c("< 1 year" = "#5c7a99", "1-3 years" = "#6b8f71",
+                       "3-5 years" = "#c4a882", "5-10 years" = "#c47a6c",
+                       "> 10 years" = "#8b3a3a", "No Data" = "grey85")
+    
+    p <- ggplot(grid_stale) +
       geom_sf(aes(fill = staleness_cat), color = "white", linewidth = 0.02) +
-      scale_fill_viridis_d(option = "rocket", direction = -1, na.value = "grey80",
-                           name = "Time Since\nLast Record") +
-      labs(title = "Data Staleness Across Study Area",
+      scale_fill_manual(values = stale_colors, drop = FALSE,
+                         name = "Time since\nlast record")
+    
+    if (!is.null(admin_sf)) {
+      p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+    }
+    
+    p + labs(title = "Data Staleness Across Study Area",
            subtitle = "Time since last occurrence record per 10km cell") +
       theme_void() +
       theme(legend.position = "right", legend.key.height = unit(0.7, "cm"),

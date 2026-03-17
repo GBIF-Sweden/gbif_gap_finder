@@ -59,6 +59,12 @@ safe_read <- function(path) {
   if (file.exists(path)) fread(path) else NULL
 }
 
+# Admin boundaries
+admin_sf <- tryCatch(
+  st_read(here("data_raw", "admin", "admin_level1.gpkg"), quiet = TRUE),
+  error = function(e) NULL
+)
+
 # Consistent colour palette for basis of record
 basis_palette <- c(
   "humanObservation"  = "#6b8f71",
@@ -235,6 +241,7 @@ if (!is.null(spatial_gaps)) {
 if (!is.null(spatial_gaps) && !is.null(grid_sf) && "eeacellcode" %in% names(grid_sf)) {
   top_basis <- basis_totals$basisofrecord[1:min(4, nrow(basis_totals))]
 
+
   for (b in top_basis) {
     cat("\n\n###", basis_label(b), "\n\n")
 
@@ -250,7 +257,13 @@ if (!is.null(spatial_gaps) && !is.null(grid_sf) && "eeacellcode" %in% names(grid
         high = basis_palette[b],
         na.value = "#eee",
         name = expression(log[10](occurrences))
-      ) +
+      )
+
+    if (!is.null(admin_sf)) {
+      p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+    }
+
+    p <- p +
       labs(title = paste0(basis_label(b), " - Spatial Distribution"),
            subtitle = paste0(comma(sum(sg$occurrences > 0, na.rm = TRUE)),
                              " cells with data")) +
