@@ -189,6 +189,301 @@ if (!is.null(dashboard) && nrow(dashboard) > 0) {
 
 ---
 
+# Year in Review {.tabset}
+
+```{r year-in-review-load}
+# Load cell_time_summary for spatial last-year analysis
+cell_time <- safe_fread(here(p_derived, "cell_time_summary_10km.csv"))
+time_summary <- safe_fread(here(p_derived, "time_summary_10km.csv"))
+order_temporal <- safe_fread(here(p_integrated, "order_temporal_trends.csv"))
+
+# Determine reference year
+last_full_year <- NULL
+if (!is.null(time_summary)) {
+  ts <- time_summary |> as_tibble() |>
+    filter(basisofrecord == "all") |>
+    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
+  year_months <- ts |> group_by(year) |> summarise(n_m = n_distinct(str_sub(as.character(yearmonth), 6, 7)), .groups = "drop")
+  candidates <- year_months |> filter(n_m >= 6) |> pull(year)
+  last_full_year <- if (length(candidates) > 0) max(candidates) else max(ts$year)
+}
+if (is.null(last_full_year)) last_full_year <- year(Sys.Date()) - 1
+
+ly_label <- as.character(last_full_year)
+```
+
+This section highlights what changed in **`r ly_label`** compared to all prior years, across spatial, taxonomic, and priority dimensions.
+
+## Overview
+
+```{r yir-overview}
+if (!is.null(time_summary)) {
+  ts <- time_summary |> as_tibble() |>
+    filter(basisofrecord == "all") |>
+    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
+
+  yearly <- ts |>
+    group_by(year) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+  ly_occ <- yearly |> filter(year == last_full_year) |> pull(total_occ)
+  prior_occ <- yearly |> filter(year < last_full_year) |> summarise(sum(total_occ)) |> pull()
+  ly_pct <- round(100 * ly_occ / (ly_occ + prior_occ), 1)
+
+  yir_summary <- tibble(
+    Metric = c(
+      paste0("New occurrences in ", ly_label),
+      "Total prior occurrences",
+      paste0(ly_label, " share of all data"),
+      paste0("Years of data before ", ly_label)
+    ),
+    Value = c(
+      comma(ly_occ),
+      comma(prior_occ),
+      paste0(ly_pct, "%"),
+      paste0(min(yearly$year), "–", last_full_year - 1)
+    )
+  )
+  yir_summary |> kable()
+}
+```
+
+```{r yir-trend, fig.height=5, fig.width=12}
+if (!is.null(time_summary)) {
+  yearly <- ts |>
+    group_by(year) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+    filter(year >= 1970) |>
+    mutate(is_last_year = year == last_full_year)
+
+  ggplot(yearly, aes(x = year, y = total_occ, fill = is_last_year)) +
+    geom_col(width = 0.8, alpha = 0.9) +
+    scale_fill_manual(values = c("FALSE" = "#2A9D8F", "TRUE" = "#E76F51"),
+                      labels = c("Prior years", ly_label), name = NULL) +
+    scale_y_continuous(labels = comma) +
+    scale_x_continuous(breaks = seq(1970, last_full_year, by = 10)) +
+    labs(title = paste0("Annual Occurrence Volume (", ly_label, " Highlighted)"),
+         x = NULL, y = "Occurrences") +
+    theme(legend.position = "bottom")
+}
+```
+
+## Spatial Changes
+
+```{r yir-spatial}
+if (!is.null(cell_time)) {
+  ct <- cell_time |> as_tibble() |>
+    filter(basisofrecord == "all") |>
+    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
+
+  cell_era <- ct |>
+    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    group_by(eeacellcode, era) |>
+    summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occ, values_fill = 0)
+
+  if (!"prior" %in% names(cell_era)) cell_era$prior <- 0
+  if (!"last_year" %in% names(cell_era)) cell_era$last_year <- 0
+
+  cell_era <- cell_era |>
+    mutate(
+      newly_covered = prior == 0 & last_year > 0,
+      has_ly_data = last_year > 0
+    )
+
+  n_newly <- sum(cell_era$newly_covered)
+  n_active <- sum(cell_era$has_ly_data)
+  n_total <- nrow(cell_era)
+
+  spatial_yir <- tibble(
+    Metric = c(
+      paste0("Cells with data in ", ly_label),
+      "Newly covered cells (had zero data before)",
+      "Cells with no data in this year",
+      "Total cells in dataset"
+    ),
+    Value = c(comma(n_active), comma(n_newly), comma(n_total - n_active), comma(n_total))
+  )
+  spatial_yir |> kable()
+}
+```
+
+```{r yir-spatial-map, fig.height=12, fig.width=10}
+# Load grid if not yet available
+if (!exists("grid_10km") || is.null(grid_10km)) {
+  grid_path <- here(p_data_proc, "grids_10km.gpkg")
+  if (file.exists(grid_path)) {
+    grid_10km <- tryCatch(st_read(grid_path, quiet = TRUE), error = function(e) NULL)
+    if (!is.null(grid_10km)) {
+      cellcode_field <- names(grid_10km)[grepl("cellcode|eeacell", tolower(names(grid_10km)))][1]
+      if (is.na(cellcode_field)) cellcode_field <- names(grid_10km)[grepl("code", tolower(names(grid_10km)))][1]
+      if (!is.na(cellcode_field)) grid_10km$eeacellcode <- as.character(grid_10km[[cellcode_field]])
+    }
+  }
+}
+
+if (!is.null(grid_10km) && exists("cell_era")) {
+  grid_yir <- grid_10km |>
+    left_join(cell_era |> select(eeacellcode, last_year, newly_covered, has_ly_data),
+              by = "eeacellcode") |>
+    mutate(
+      status = case_when(
+        newly_covered ~ "Newly covered",
+        has_ly_data ~ paste0("Active in ", ly_label),
+        TRUE ~ paste0("No data in ", ly_label)
+      ),
+      status = factor(status, levels = c("Newly covered",
+                                          paste0("Active in ", ly_label),
+                                          paste0("No data in ", ly_label)))
+    )
+
+  ggplot(grid_yir) +
+    geom_sf(aes(fill = status), color = "white", linewidth = 0.02) +
+    scale_fill_manual(values = c("Newly covered" = "#E76F51",
+                                  setNames("#2A9D8F", paste0("Active in ", ly_label)),
+                                  setNames("grey85", paste0("No data in ", ly_label))),
+                      name = "Status") +
+    labs(title = paste0("Spatial Activity in ", ly_label),
+         subtitle = paste0(comma(n_active), " active cells, ",
+                           comma(n_newly), " newly covered")) +
+    theme_void() +
+    theme(legend.position = "bottom",
+          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40"))
+}
+```
+
+## Taxonomic Changes
+
+```{r yir-taxonomic, fig.height=8, fig.width=12}
+# Load match_summary if not yet available
+if (!exists("match_summary") || is.null(match_summary)) {
+  match_summary <- safe_fread(here(p_gaps, "taxonomic_match_summary.csv"))
+}
+
+if (!is.null(match_summary) && !is.null(order_temporal)) {
+  # Map order → class
+  order_to_class <- match_summary |> as_tibble() |>
+    filter(!is.na(class), class != "", !is.na(order), order != "") |>
+    distinct(kingdom, phylum, class, order)
+
+  # Known species per class
+  known_by_class <- match_summary |> as_tibble() |>
+    filter(!is.na(class), class != "") |>
+    group_by(kingdom, class) |>
+    summarise(n_known = n(), .groups = "drop")
+
+  # Occurrences per class, split by era
+  occ_by_class <- order_temporal |> as_tibble() |>
+    inner_join(order_to_class, by = "order") |>
+    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    group_by(kingdom, class, era) |>
+    summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occ, values_fill = 0)
+
+  if (!"prior" %in% names(occ_by_class)) occ_by_class$prior <- 0
+  if (!"last_year" %in% names(occ_by_class)) occ_by_class$last_year <- 0
+
+  # Troudet-style bias with last year
+  troudet <- known_by_class |>
+    left_join(occ_by_class, by = c("kingdom", "class")) |>
+    mutate(
+      prior = replace_na(prior, 0), last_year = replace_na(last_year, 0),
+      total_occ = prior + last_year,
+      total_known = sum(n_known),
+      ideal_occ = (n_known / total_known) * sum(total_occ),
+      bias = total_occ - ideal_occ
+    ) |>
+    arrange(desc(abs(bias))) |>
+    slice_head(n = 20)
+
+  troudet_long <- troudet |>
+    select(class, prior, last_year, ideal_occ) |>
+    mutate(
+      bias_prior = prior - ideal_occ,
+      bias_ly = last_year
+    ) |>
+    select(class, bias_prior, bias_ly) |>
+    pivot_longer(c(bias_prior, bias_ly), names_to = "era", values_to = "value") |>
+    mutate(era = factor(era, levels = c("bias_prior", "bias_ly"),
+                        labels = c("Prior years", ly_label)))
+
+  ggplot(troudet_long, aes(x = value, y = fct_reorder(class, value, .fun = sum), fill = era)) +
+    geom_col(alpha = 0.9) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+    scale_fill_manual(values = c("Prior years" = "#457B9D", setNames("#E76F51", ly_label)),
+                      name = NULL) +
+    scale_x_continuous(labels = comma) +
+    labs(title = "Taxonomic Bias in Occurrence Data",
+         subtitle = paste0("Deviation from proportional sampling | ", ly_label, " contribution highlighted"),
+         x = "Deviation from ideal (occurrences)", y = NULL) +
+    theme(legend.position = "bottom")
+}
+```
+
+```{r yir-top-orders, fig.height=6, fig.width=12}
+if (!is.null(order_temporal)) {
+  order_ly <- order_temporal |> as_tibble() |>
+    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    group_by(order, era) |>
+    summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occ, values_fill = 0)
+
+  if (!"prior" %in% names(order_ly)) order_ly$prior <- 0
+  if (!"last_year" %in% names(order_ly)) order_ly$last_year <- 0
+
+  top_ly <- order_ly |>
+    arrange(desc(last_year)) |>
+    slice_head(n = 15)
+
+  top_long <- top_ly |>
+    pivot_longer(c(prior, last_year), names_to = "era", values_to = "occ") |>
+    mutate(era = factor(era, levels = c("prior", "last_year"),
+                        labels = c("Prior years", ly_label)))
+
+  ggplot(top_long, aes(x = occ, y = fct_reorder(order, occ, .fun = sum), fill = era)) +
+    geom_col(alpha = 0.9) +
+    scale_fill_manual(values = c("Prior years" = "#2A9D8F", setNames("#E76F51", ly_label)),
+                      name = NULL) +
+    scale_x_continuous(labels = comma) +
+    labs(title = paste0("Top 15 Orders by ", ly_label, " Data Contribution"),
+         subtitle = "Stacked: prior years + last year",
+         x = "Occurrences", y = NULL) +
+    theme(legend.position = "bottom")
+}
+```
+
+## Priorities Resolved
+
+```{r yir-priorities}
+priority_zero_rpt <- safe_fread(here(p_integrated, "priority_zero_coverage_cells.csv"))
+if (is.null(priority_zero_rpt)) {
+  priority_zero_rpt <- safe_fread(here(p_integrated, "priority_cells_zero_coverage.csv"))
+}
+
+if (!is.null(priority_zero_rpt) && exists("cell_era")) {
+  zero_codes <- priority_zero_rpt$eeacellcode
+  resolved <- cell_era |> filter(eeacellcode %in% zero_codes, last_year > 0)
+
+  cat(paste0("Of the **", comma(length(zero_codes)), "** zero-coverage priority cells, **",
+             comma(nrow(resolved)), "** received new data in ", ly_label, ".\n\n"))
+
+  if (nrow(resolved) > 0) {
+    cat("Resolved cells:\n\n")
+    resolved |>
+      select(eeacellcode, last_year) |>
+      arrange(desc(last_year)) |>
+      slice_head(n = 20) |>
+      kable(col.names = c("Cell Code", paste0("Occurrences in ", ly_label)))
+  } else {
+    cat(paste0("No priority zero-coverage cells were resolved in ", ly_label,
+               ". This is an area for targeted action.\n"))
+  }
+}
+```
+
+---
+
 # 1. Spatial Gaps
 
 ## 1.1 Geographic Coverage
