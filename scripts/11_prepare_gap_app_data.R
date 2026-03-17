@@ -130,6 +130,53 @@ if (file.exists(grid_50km_path)) {
   cli_alert_warning("50km grid not found")
 }
 
+# Administrative boundaries (optional — from GADM via 00b script)
+admin_dir <- here("data_raw", "admin")
+for (lvl in c(1, 2)) {
+  admin_path <- here(admin_dir, paste0("admin_level", lvl, ".gpkg"))
+  if (file.exists(admin_path)) {
+    admin_sf <- tryCatch(st_read(admin_path, quiet = TRUE), error = function(e) NULL)
+    if (!is.null(admin_sf)) {
+      if (st_crs(admin_sf)$epsg != 4326) admin_sf <- st_transform(admin_sf, 4326)
+      shiny_data[[paste0("admin_level", lvl)]] <- admin_sf
+      cli_alert_success("Admin level {lvl}: {nrow(admin_sf)} units")
+    }
+  }
+}
+
+# Cell → admin region spatial join (for regional filtering in explorer app)
+if (!is.null(shiny_data$grid_10km) && !is.null(shiny_data$admin_level1)) {
+  cli_alert_info("Computing cell → admin region mapping...")
+  # Use centroids of grid cells for fast point-in-polygon join
+  grid_centroids <- suppressWarnings(
+    st_centroid(shiny_data$grid_10km, of_largest_polygon = TRUE)
+  )
+  cell_admin <- st_join(grid_centroids, shiny_data$admin_level1, join = st_within) |>
+    st_drop_geometry() |>
+    as_tibble() |>
+    select(eeacellcode, admin_name_level1 = admin_name) |>
+    distinct(eeacellcode, .keep_all = TRUE)
+
+  # Also join level 2 if available
+  if (!is.null(shiny_data$admin_level2)) {
+    cell_admin2 <- st_join(grid_centroids, shiny_data$admin_level2, join = st_within) |>
+      st_drop_geometry() |>
+      as_tibble() |>
+      select(eeacellcode, admin_name_level2 = admin_name) |>
+      distinct(eeacellcode, .keep_all = TRUE)
+    cell_admin <- cell_admin |> left_join(cell_admin2, by = "eeacellcode")
+  }
+
+  shiny_data$cell_admin_lookup <- cell_admin
+  cli_alert_success("Cell-admin lookup: {nrow(cell_admin)} cells mapped to admin regions")
+  cli_alert_info("  Level 1 regions: {n_distinct(cell_admin$admin_name_level1, na.rm = TRUE)}")
+  if ("admin_name_level2" %in% names(cell_admin)) {
+    cli_alert_info("  Level 2 units: {n_distinct(cell_admin$admin_name_level2, na.rm = TRUE)}")
+  }
+  rm(grid_centroids)
+  invisible(gc())
+}
+
 # ===========================================================================
 # 2. DASHBOARD SUMMARY
 # ===========================================================================
