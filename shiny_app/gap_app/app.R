@@ -64,6 +64,9 @@ overview_last_year   <- safe_get("overview_last_year")
 priority_resolved    <- safe_get("priority_resolved_last_year")
 troudet_bias         <- safe_get("troudet_bias")
 troudet_bias_order   <- safe_get("troudet_bias_order")
+troudet_bias_family  <- safe_get("troudet_bias_family")
+order_time_summary   <- safe_get("order_time_summary")
+family_time_summary  <- safe_get("family_time_summary")
 last_year_ref        <- safe_get("last_year")  # e.g. 2025
 
 # Derived
@@ -287,7 +290,7 @@ ui <- fluidPage(
                 radioButtons("map_var", NULL,
                   choices = setNames(
                     c("occ", "stale", "richness", "last_year"),
-                    c("Occurrences (log)", "Staleness (months)",
+                    c("Occurrences", "Data recency",
                       "Species richness", paste0(last_year_label, " additions"))),
                   selected = "occ")),
               div(class = "card",
@@ -299,7 +302,7 @@ ui <- fluidPage(
               div(class = "card-title", icon("th"), "Grid Comparison"),
               plotlyOutput("spatial_grid", height = "260px"))),
             column(6, div(class = "card",
-              div(class = "card-title", icon("chart-area"), "Occurrence Distribution"),
+              div(class = "card-title", icon("chart-area"), "Occurrence Distribution (10km cells)"),
               plotlyOutput("spatial_hist", height = "260px")))
           )
         )
@@ -314,15 +317,26 @@ ui <- fluidPage(
         div(style = "padding: 1.25rem 0;",
           div(class = "filter-section",
             fluidRow(
-              column(6,
+              column(2,
                 div(class = "filter-label", "Year Range"),
                 sliderInput("year_range", NULL, min = 1900, max = current_year,
                   value = c(1970, current_year), step = 1, sep = "")),
-              column(6,
-                div(class = "filter-label", "Orders to Display"),
-                pickerInput("order_select", NULL, choices = order_choices,
-                  selected = head(order_choices, 5), multiple = TRUE,
-                  options = list(`actions-box` = TRUE, `live-search` = TRUE)))
+              column(2,
+                div(class = "filter-label", "Kingdom"),
+                selectInput("temp_kingdom", NULL,
+                  choices = c("All" = "", kingdom_choices), selected = "")),
+              column(2,
+                div(class = "filter-label", "Phylum"),
+                uiOutput("temp_phylum_ui")),
+              column(2,
+                div(class = "filter-label", "Class"),
+                uiOutput("temp_class_ui")),
+              column(2,
+                div(class = "filter-label", "Order"),
+                uiOutput("temp_order_ui")),
+              column(2,
+                div(class = "filter-label", "Family"),
+                uiOutput("temp_family_ui"))
             )),
           fluidRow(
             column(8, div(class = "card",
@@ -347,14 +361,16 @@ ui <- fluidPage(
         title = tagList(icon("layer-group"), "Basis of Record"),
         value = "basis_tab",
         div(style = "padding: 1.25rem 0;",
-          div(class = "stat-grid", uiOutput("basis_stat_boxes")),
+          uiOutput("basis_stat_boxes"),
           fluidRow(
             column(6, div(class = "card",
               div(class = "card-title", icon("chart-pie"), "Occurrences by Basis of Record"),
               plotlyOutput("basis_pie", height = "340px"))),
             column(6, div(class = "card",
               div(class = "card-title", icon("chart-line"), "Temporal Trend by Basis"),
-              plotlyOutput("basis_timeline", height = "340px")))
+              selectInput("basis_timeline_select", "Select basis:",
+                choices = basis_types_no_all, width = "250px"),
+              plotlyOutput("basis_timeline", height = "290px")))
           ),
           fluidRow(
             column(6, div(class = "card",
@@ -380,72 +396,60 @@ ui <- fluidPage(
         value = "taxonomic",
         div(style = "padding: 1.25rem 0;",
 
-          # Cascading taxonomy filters (#6)
+          # Cascading taxonomy filters — now includes Family
           div(class = "filter-section",
             fluidRow(
-              column(3,
+              column(2,
                 div(class = "filter-label", "Kingdom"),
                 selectInput("tax_kingdom", NULL,
                   choices = c("All" = "", kingdom_choices),
                   selected = "")),
-              column(3,
+              column(2,
                 div(class = "filter-label", "Phylum"),
                 uiOutput("tax_phylum_ui")),
-              column(3,
+              column(2,
                 div(class = "filter-label", "Class"),
                 uiOutput("tax_class_ui")),
-              column(3,
-                div(class = "filter-label", "Order (filter)"),
-                uiOutput("tax_order_filter_ui"))
-            ),
-            fluidRow(
-              column(3,
-                div(class = "filter-label", "Number of Groups"),
-                sliderInput("tax_n_groups", NULL, min = 5, max = 50,
-                  value = 20, step = 5)),
-              column(3,
-                div(class = "filter-label", "Minimum Species in Backbone"),
-                sliderInput("tax_min_taxa", NULL, min = 1, max = 50,
-                  value = 10, step = 5)),
-              column(3,
-                div(class = "filter-label", "Sort By"),
-                radioButtons("tax_sort", NULL, inline = TRUE,
-                  choices = c("Total species" = "n_taxa",
-                              "Coverage %" = "pct_coverage"),
-                  selected = "n_taxa")),
-              column(3,
-                div(class = "filter-label", "Show Last Year"),
+              column(2,
+                div(class = "filter-label", "Order"),
+                uiOutput("tax_order_filter_ui")),
+              column(2,
+                div(class = "filter-label", "Family"),
+                uiOutput("tax_family_filter_ui")),
+              column(2,
+                div(class = "filter-label", "Last Year"),
                 checkboxInput("tax_show_last_year", paste0("Highlight ", last_year_label),
                   value = FALSE))
             )),
 
-          # Troudet-style bias figure (#7)
+          # Troudet-style bias figure
           div(class = "card",
             div(class = "card-title", icon("balance-scale"), "Taxonomic Bias in Occurrence Data"),
             div(class = "info-note",
-              "Deviation from proportional sampling: if a class has ", em("p"), "% of all known species, ",
+              "Deviation from proportional sampling: if a group has ", em("p"), "% of all known species, ",
               "it should ideally have ", em("p"), "% of all occurrences. ",
               "Green = over-represented, red = under-represented. ",
-              "Use the filters above to drill into specific kingdoms or phyla."),
-            plotlyOutput("troudet_bias_chart", height = "450px")),
+              "Drill down using the filters — the chart auto-adjusts to class, order, or family level."),
+            plotlyOutput("troudet_bias_chart", height = "500px")),
 
+          # Coverage: species count vs coverage %
           fluidRow(
             column(6, div(class = "card",
-              div(class = "card-title", icon("layer-group"), "Coverage by Order"),
+              div(class = "card-title", icon("layer-group"), "Species Count by Order"),
               plotlyOutput("tax_order", height = "450px"))),
             column(6, div(class = "card",
-              div(class = "card-title", icon("folder-tree"), "Coverage by Family"),
+              div(class = "card-title", icon("folder-tree"), "Coverage (%) by Family"),
               plotlyOutput("tax_family", height = "450px")))
           ),
-          fluidRow(
-            column(12, div(class = "card",
-              div(class = "card-title", icon("exchange-alt"), "Recent vs Historical Sampling Intensity"),
-              div(class = "info-note",
-                strong("Baseline: "), "Historical = all records before 2000. ",
-                "Recent = records from 2000 onwards. ",
-                "Bars show the change in total occurrences between the two periods for the top orders."),
-              plotlyOutput("tax_change", height = "320px")))
-          )
+
+          # Recent vs Historical — as info cards
+          div(class = "card",
+            div(class = "card-title", icon("exchange-alt"), "Recent vs Historical Sampling Intensity"),
+            div(class = "info-note",
+              strong("Baseline: "), "Historical = all records before 2000. ",
+              "Recent = records from 2000 onwards. ",
+              "Filtered by the taxonomy selections above."),
+            uiOutput("tax_change_cards"))
         )
       ),
 
@@ -456,20 +460,31 @@ ui <- fluidPage(
         title = tagList(icon("exclamation-triangle"), "Threatened"),
         value = "threatened",
         div(style = "padding: 1.25rem 0;",
-          div(class = "stat-grid",
+          div(class = "stat-grid", style = "grid-template-columns: repeat(5, 1fr);",
             div(class = "stat-box",
               div(class = "stat-value coral", textOutput("stat_cr", inline = TRUE)),
-              div(class = "stat-label", "CR Missing")),
+              div(class = "stat-label", "CR = Critically Endangered")),
             div(class = "stat-box",
               div(class = "stat-value sand", textOutput("stat_en", inline = TRUE)),
-              div(class = "stat-label", "EN Missing")),
+              div(class = "stat-label", "EN = Endangered")),
             div(class = "stat-box",
               div(class = "stat-value", style = "color:#b8a060;", textOutput("stat_vu", inline = TRUE)),
-              div(class = "stat-label", "VU Missing")),
+              div(class = "stat-label", "VU = Vulnerable")),
             div(class = "stat-box",
               div(class = "stat-value sage", textOutput("stat_nt", inline = TRUE)),
-              div(class = "stat-label", "NT Missing"))
+              div(class = "stat-label", "NT = Near Threatened")),
+            div(class = "stat-box",
+              div(class = "stat-value slate", textOutput("stat_dd", inline = TRUE)),
+              div(class = "stat-label", "DD = Data Deficient"))
           ),
+          div(class = "filter-section",
+            fluidRow(
+              column(3, selectInput("threat_kingdom", "Kingdom",
+                choices = c("All" = "", kingdom_choices), selected = "")),
+              column(3, uiOutput("threat_phylum_ui")),
+              column(3, uiOutput("threat_class_ui")),
+              column(3, uiOutput("threat_order_ui"))
+            )),
           fluidRow(
             column(6, div(class = "card",
               div(class = "card-title", icon("shield-alt"), "Coverage by Threat Status"),
@@ -479,11 +494,12 @@ ui <- fluidPage(
               plotlyOutput("threat_missing", height = "300px")))
           ),
           div(class = "card",
-            div(class = "card-title", icon("list"), "Missing CR & EN Species"),
+            div(class = "card-title", icon("list"), "Missing Threatened Species"),
             div(class = "info-note",
-              "Species listed in the national taxonomy backbone with CR or EN threat status ",
+              "Species in the national taxonomy backbone with a threat status ",
               "that have no matching GBIF occurrence records. ",
-              "Use the column filters below to narrow by order or family."),
+              "Includes CR, EN, VU, NT and DD (Data Deficient). ",
+              "Use the filters above and column filters below to narrow results."),
             DTOutput("threat_table"))
         )
       ),
@@ -533,7 +549,19 @@ ui <- fluidPage(
               leafletOutput("stale_map", height = "400px"),
               div(style = "margin-top:0.75rem;"),
               DTOutput("stale_table")))
-          )
+          ),
+
+          # Taxonomic mobilization targets
+          div(class = "card",
+            div(class = "card-title", icon("seedling"), "Taxonomic Mobilization Targets"),
+            div(class = "info-note",
+              "Orders and families with the largest gap between known species and GBIF coverage. ",
+              "These groups should be prioritized for targeted data mobilization, ",
+              "specimen digitization, and citizen science campaigns."),
+            fluidRow(
+              column(6, plotlyOutput("priority_undersampled_orders", height = "380px")),
+              column(6, plotlyOutput("priority_undersampled_families", height = "380px"))
+            ))
         )
       ),
 
@@ -600,18 +628,175 @@ server <- function(input, output, session) {
     if (is.null(b) || b == "") "all" else b
   })
 
-  time_filtered <- reactive({
-    req(time_summary)
-    time_summary |> filter(
-      basisofrecord == basis_selected(),
-      year >= input$year_range[1],
-      year <= input$year_range[2])
+  # ===================================================================
+  # TEMPORAL — with taxonomy filters via order_temporal
+  # ===================================================================
+
+  # Build order→taxonomy mapping for temporal filtering
+  order_tax_map <- if (!is.null(tax_by_order) && all(c("kingdom", "phylum", "class", "order") %in% names(tax_by_order))) {
+    tax_by_order |> distinct(kingdom, phylum, class, order)
+  } else NULL
+
+  # Family→taxonomy mapping
+  family_tax_map <- if (!is.null(tax_by_family) && all(c("kingdom", "phylum", "class", "order", "family") %in% names(tax_by_family))) {
+    tax_by_family |> distinct(kingdom, phylum, class, order, family)
+  } else NULL
+
+  # Temporal taxonomy cascade — Phylum
+  output$temp_phylum_ui <- renderUI({
+    ch <- c("All" = "")
+    if (!is.null(order_tax_map) && !is.null(input$temp_kingdom) && input$temp_kingdom != "") {
+      ph <- order_tax_map |> filter(kingdom == input$temp_kingdom) |> pull(phylum) |> unique() |> sort()
+      ch <- c("All" = "", setNames(ph, ph))
+    }
+    selectInput("temp_phylum", NULL, choices = ch, selected = "")
   })
 
-  order_filtered <- reactive({
-    req(order_5yr, input$order_select)
-    order_5yr |> filter(order %in% input$order_select,
-                        period_start >= input$year_range[1])
+  # Temporal taxonomy cascade — Class
+  output$temp_class_ui <- renderUI({
+    ch <- c("All" = "")
+    if (!is.null(order_tax_map)) {
+      df <- order_tax_map
+      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "") df <- df |> filter(kingdom == input$temp_kingdom)
+      if (!is.null(input$temp_phylum) && input$temp_phylum != "") df <- df |> filter(phylum == input$temp_phylum)
+      cl <- sort(unique(df$class))
+      ch <- c("All" = "", setNames(cl, cl))
+    }
+    selectInput("temp_class", NULL, choices = ch, selected = "")
+  })
+
+  # Temporal taxonomy cascade — Order
+  output$temp_order_ui <- renderUI({
+    ch <- c("All" = "")
+    if (!is.null(order_tax_map)) {
+      df <- order_tax_map
+      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "") df <- df |> filter(kingdom == input$temp_kingdom)
+      if (!is.null(input$temp_phylum) && input$temp_phylum != "") df <- df |> filter(phylum == input$temp_phylum)
+      if (!is.null(input$temp_class) && input$temp_class != "") df <- df |> filter(class == input$temp_class)
+      ord <- sort(unique(df$order))
+      if (length(ord) <= 200) ch <- c("All" = "", setNames(ord, ord))
+    }
+    selectInput("temp_order", NULL, choices = ch, selected = "")
+  })
+
+  # Temporal taxonomy cascade — Family
+  output$temp_family_ui <- renderUI({
+    ch <- c("All" = "")
+    if (!is.null(family_tax_map)) {
+      df <- family_tax_map
+      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "") df <- df |> filter(kingdom == input$temp_kingdom)
+      if (!is.null(input$temp_phylum) && input$temp_phylum != "") df <- df |> filter(phylum == input$temp_phylum)
+      if (!is.null(input$temp_class) && input$temp_class != "") df <- df |> filter(class == input$temp_class)
+      if (!is.null(input$temp_order) && input$temp_order != "") df <- df |> filter(order == input$temp_order)
+      fam <- sort(unique(df$family))
+      if (length(fam) <= 200) ch <- c("All" = "", setNames(fam, fam))
+    }
+    selectInput("temp_family", NULL, choices = ch, selected = "")
+  })
+
+  # Helper: get filtered orders based on temporal taxonomy selections
+  temp_filtered_orders <- reactive({
+    if (is.null(order_tax_map)) return(NULL)
+    df <- order_tax_map
+    if (!is.null(input$temp_kingdom) && input$temp_kingdom != "") df <- df |> filter(kingdom == input$temp_kingdom)
+    if (!is.null(input$temp_phylum) && input$temp_phylum != "") df <- df |> filter(phylum == input$temp_phylum)
+    if (!is.null(input$temp_class) && input$temp_class != "") df <- df |> filter(class == input$temp_class)
+    if (!is.null(input$temp_order) && input$temp_order != "") df <- df |> filter(order == input$temp_order)
+    df$order
+  })
+
+  # Helper: get filtered families
+  temp_filtered_families <- reactive({
+    if (is.null(family_tax_map)) return(NULL)
+    if (is.null(input$temp_family) || input$temp_family == "") return(NULL)
+    input$temp_family
+  })
+
+  # Temporal data: use family_time_summary if family filter active,
+  # order_time_summary if order/class/phylum/kingdom active, else time_summary
+  temp_data <- reactive({
+    sel_family <- temp_filtered_families()
+    orders <- temp_filtered_orders()
+    has_tax_filter <- !is.null(input$temp_kingdom) && input$temp_kingdom != ""
+
+    if (!is.null(sel_family) && !is.null(family_time_summary)) {
+      # Family-level filtering
+      family_time_summary |>
+        filter(basisofrecord == "all",
+               family == sel_family,
+               year >= input$year_range[1],
+               year <= input$year_range[2])
+    } else if (has_tax_filter && !is.null(order_time_summary) && !is.null(orders)) {
+      # Order-level filtering
+      order_time_summary |>
+        filter(basisofrecord == "all",
+               order %in% orders,
+               year >= input$year_range[1],
+               year <= input$year_range[2])
+    } else {
+      req(time_summary)
+      time_summary |>
+        filter(basisofrecord == basis_selected(),
+               year >= input$year_range[1],
+               year <= input$year_range[2])
+    }
+  })
+
+  output$temporal_trend <- renderPlotly({
+    df <- temp_data()
+    yearly <- df |> group_by(year) |>
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+    plot_ly(yearly, x = ~year, y = ~occ, type = "scatter", mode = "lines",
+      fill = "tozeroy",
+      fillcolor = paste0(pal$sage, "33"),
+      line = list(color = pal$sage, width = 2)) |>
+      plotly_layout(
+        xaxis = list(title = "", range = c(input$year_range[1], input$year_range[2])),
+        yaxis = list(title = "Occurrences"))
+  })
+
+  output$temporal_season <- renderPlotly({
+    df <- temp_data()
+    monthly <- df |> filter(!is.na(month)) |> group_by(month) |>
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+    if (nrow(monthly) == 0) {
+      return(plotly_empty() |> plotly_layout(
+        annotations = list(list(text = "No monthly data available",
+          showarrow = FALSE, xref = "paper", yref = "paper", x = 0.5, y = 0.5))))
+    }
+
+    month_cols <- colorRampPalette(c(pal$slate, pal$sage, pal$sand, pal$coral))(12)
+    plot_ly(monthly, x = ~month, y = ~occ, type = "bar",
+      marker = list(color = month_cols)) |>
+      plotly_layout(
+        xaxis = list(title = "", ticktext = month.abb, tickvals = 1:12),
+        yaxis = list(title = ""))
+  })
+
+  output$temporal_heatmap <- renderPlotly({
+    df <- temp_data()
+    hm <- df |> filter(!is.na(month)) |> group_by(year, month) |>
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+      mutate(log_occ = log10(occ + 1))
+
+    if (nrow(hm) == 0) {
+      return(plotly_empty() |> plotly_layout(
+        annotations = list(list(text = "No monthly data available",
+          showarrow = FALSE, xref = "paper", yref = "paper", x = 0.5, y = 0.5))))
+    }
+
+    heatmap_cs <- list(
+      list(0, "#f6f5f1"), list(0.25, "#c8dbc6"),
+      list(0.5, pal$sage), list(0.75, pal$sand),
+      list(1, pal$coral))
+    plot_ly(hm, x = ~month, y = ~year, z = ~log_occ, type = "heatmap",
+      colorscale = heatmap_cs,
+      hovertemplate = "Year: %{y}<br>Month: %{x}<br>log10(occ): %{z:.1f}<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "", ticktext = month.abb, tickvals = 1:12),
+        yaxis = list(title = ""))
   })
 
   # ===================================================================
@@ -816,19 +1001,61 @@ server <- function(input, output, session) {
       rec <- cell_recency |> filter(basisofrecord == basis_selected()) |>
         select(eeacellcode, staleness_months)
       map_sf <- grid_10km |> left_join(rec, by = "eeacellcode")
-      vals   <- map_sf$staleness_months
-      pal_fn <- colorNumeric(c(pal$sage, pal$sand, pal$coral), domain = vals, na.color = "#ddd")
-      legend_title <- "Months since last obs"
+      # Categorical staleness: much more meaningful than raw months
+      map_sf <- map_sf |>
+        mutate(stale_cat = case_when(
+          is.na(staleness_months) ~ "No data",
+          staleness_months <= 12 ~ "< 1 year",
+          staleness_months <= 36 ~ "1–3 years",
+          staleness_months <= 60 ~ "3–5 years",
+          staleness_months <= 120 ~ "5–10 years",
+          TRUE ~ "> 10 years"
+        ),
+        stale_cat = factor(stale_cat, levels = c(
+          "< 1 year", "1–3 years", "3–5 years", "5–10 years", "> 10 years", "No data")))
+      stale_pal <- colorFactor(
+        palette = c("#2A9D8F", "#6b8f71", pal$sand, pal$coral, "#8b2020", "#ddd"),
+        domain = levels(map_sf$stale_cat), na.color = "#ddd")
+      legend_title <- "Data recency"
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Staleness: ",
-                          ifelse(is.na(staleness_months), "No data", paste(staleness_months, "months")))
+                          ifelse(is.na(staleness_months), "No data",
+                                 paste0(round(staleness_months / 12, 1), " years")))
+
+      leafletProxy("spatial_map", data = map_sf) |>
+        clearShapes() |> clearControls() |>
+        addPolygons(
+          fillColor   = ~stale_pal(stale_cat),
+          fillOpacity = 0.7, weight = 0.3, color = "#999",
+          popup       = popup_fn) |>
+        addLegend("bottomright", pal = stale_pal, values = ~stale_cat, title = legend_title)
+      return()
 
     } else if (input$map_var == "richness") {
       map_sf <- grid_10km |> left_join(
         sf_base |> select(eeacellcode, n_species), by = "eeacellcode")
-      vals   <- log10(pmax(map_sf$n_species, 1, na.rm = TRUE))
-      pal_fn <- colorNumeric(c("#f6f5f1", pal$slate, "#2c4a6b"), domain = vals, na.color = "#ddd")
-      legend_title <- "log10(species)"
+      map_sf <- map_sf |>
+        mutate(sp_cat = case_when(
+          is.na(n_species) | n_species == 0 ~ "No data",
+          n_species <= 10 ~ "1–10",
+          n_species <= 100 ~ "11–100",
+          n_species <= 1000 ~ "101–1,000",
+          TRUE ~ "> 1,000"
+        ),
+        sp_cat = factor(sp_cat, levels = c(
+          "1–10", "11–100", "101–1,000", "> 1,000", "No data")))
+      sp_pal <- colorFactor(
+        palette = c("#2A9D8F", "#6b8f71", pal$sand, pal$coral, "#ddd"),
+        domain = levels(map_sf$sp_cat), na.color = "#ddd")
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Species: ", comma(n_species))
+
+      leafletProxy("spatial_map", data = map_sf) |>
+        clearShapes() |> clearControls() |>
+        addPolygons(
+          fillColor   = ~sp_pal(sp_cat),
+          fillOpacity = 0.7, weight = 0.3, color = "#999",
+          popup       = popup_fn) |>
+        addLegend("bottomright", pal = sp_pal, values = ~sp_cat, title = "Species count")
+      return()
 
     } else if (input$map_var == "last_year" && !is.null(cell_last_year)) {
       ly <- cell_last_year |> select(eeacellcode, prior, last_year, newly_covered)
@@ -836,18 +1063,13 @@ server <- function(input, output, session) {
         mutate(
           last_year = replace_na(last_year, 0),
           prior = replace_na(prior, 0),
-          newly_covered = replace_na(newly_covered, FALSE),
-          log_ly = log10(pmax(last_year, 1))
+          newly_covered = replace_na(newly_covered, FALSE)
         )
-      # Color: newly covered cells in coral, cells with last-year data in sage, rest gray
       map_sf$fill_col <- case_when(
         map_sf$newly_covered ~ pal$coral,
         map_sf$last_year > 0 ~ pal$sage,
         TRUE ~ "#e0dfda"
       )
-      vals <- NULL
-      pal_fn <- NULL
-      legend_title <- paste0(last_year_label, " additions")
       popup_fn <- ~paste0("Cell: ", eeacellcode,
                           "<br>", last_year_label, " occ: ", comma(last_year),
                           "<br>Prior occ: ", comma(prior),
@@ -857,35 +1079,42 @@ server <- function(input, output, session) {
         clearShapes() |> clearControls() |>
         addPolygons(
           fillColor   = ~fill_col,
-          fillOpacity = 0.7,
-          weight      = 0.3,
-          color       = "#999",
+          fillOpacity = 0.7, weight = 0.3, color = "#999",
           popup       = popup_fn) |>
         addLegend("bottomright",
           colors = c(pal$coral, pal$sage, "#e0dfda"),
           labels = c("Newly covered", paste0("Active in ", last_year_label), "No data in this year"),
-          title = legend_title)
-      return()  # skip the common addPolygons below
+          title = paste0(last_year_label, " additions"))
+      return()
 
     } else {
+      # Occurrences: fixed categorical breaks
       map_sf <- grid_10km |> left_join(
-        sf_base |> select(eeacellcode, occurrences, log_occ), by = "eeacellcode") |>
-        mutate(log_occ = ifelse(is.na(log_occ), 0, log_occ))
-      vals   <- map_sf$log_occ
-      pal_fn <- colorNumeric(c("#f6f5f1", pal$sage, "#2c5e3a"), domain = vals, na.color = "#ddd")
-      legend_title <- "log10(occurrences)"
-      popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Occ: ", comma(occurrences))
-    }
+        sf_base |> select(eeacellcode, occurrences), by = "eeacellcode")
+      map_sf <- map_sf |>
+        mutate(occ_cat = case_when(
+          is.na(occurrences) | occurrences == 0 ~ "No data",
+          occurrences <= 100 ~ "1–100",
+          occurrences <= 1000 ~ "101–1,000",
+          occurrences <= 10000 ~ "1,001–10,000",
+          occurrences <= 100000 ~ "10,001–100,000",
+          TRUE ~ "> 100,000"
+        ),
+        occ_cat = factor(occ_cat, levels = c(
+          "1–100", "101–1,000", "1,001–10,000", "10,001–100,000", "> 100,000", "No data")))
+      occ_pal <- colorFactor(
+        palette = c("#2A9D8F", "#6b8f71", pal$sand, pal$coral, "#8b2020", "#ddd"),
+        domain = levels(map_sf$occ_cat), na.color = "#ddd")
+      popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Occurrences: ", comma(occurrences))
 
-    leafletProxy("spatial_map", data = map_sf) |>
-      clearShapes() |> clearControls() |>
-      addPolygons(
-        fillColor   = ~pal_fn(vals),
-        fillOpacity = 0.7,
-        weight      = 0.3,
-        color       = "#999",
-        popup       = popup_fn) |>
-      addLegend("bottomright", pal = pal_fn, values = vals, title = legend_title)
+      leafletProxy("spatial_map", data = map_sf) |>
+        clearShapes() |> clearControls() |>
+        addPolygons(
+          fillColor   = ~occ_pal(occ_cat),
+          fillOpacity = 0.7, weight = 0.3, color = "#999",
+          popup       = popup_fn) |>
+        addLegend("bottomright", pal = occ_pal, values = ~occ_cat, title = "Occurrences")
+    }
   })
 
   output$spatial_stats <- renderTable({
@@ -922,58 +1151,9 @@ server <- function(input, output, session) {
     plot_ly(df, x = ~log_occ, type = "histogram",
       marker = list(color = pal$sage, line = list(color = pal$sage2, width = 0.5))) |>
       plotly_layout(
+        title = list(text = "Distribution per 10km cell", font = list(size = 13)),
         xaxis = list(title = "log10(Occurrences + 1)"),
-        yaxis = list(title = "Number of cells"))
-  })
-
-  # ===================================================================
-  # TEMPORAL
-  # ===================================================================
-
-  output$temporal_trend <- renderPlotly({
-    req(time_filtered())
-    df <- time_filtered() |> group_by(year) |>
-      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
-    plot_ly(df, x = ~year, y = ~occ, type = "scatter", mode = "lines",
-      fill = "tozeroy",
-      fillcolor = paste0(pal$sage, "33"),
-      line = list(color = pal$sage, width = 2)) |>
-      plotly_layout(
-        xaxis = list(title = "", range = c(input$year_range[1], input$year_range[2])),
-        yaxis = list(title = "Occurrences"))
-  })
-
-  output$temporal_season <- renderPlotly({
-    req(time_filtered())
-    df <- time_filtered() |> group_by(month) |>
-      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
-
-    month_cols <- colorRampPalette(c(pal$slate, pal$sage, pal$sand, pal$coral))(12)
-
-    plot_ly(df, x = ~month, y = ~occ, type = "bar",
-      marker = list(color = month_cols)) |>
-      plotly_layout(
-        xaxis = list(title = "", ticktext = month.abb, tickvals = 1:12),
-        yaxis = list(title = ""))
-  })
-
-  output$temporal_heatmap <- renderPlotly({
-    req(time_filtered())
-    df <- time_filtered() |> group_by(year, month) |>
-      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
-      mutate(log_occ = log10(occ + 1))
-
-    # Warm sage-to-sand colorscale
-    heatmap_cs <- list(
-      list(0, "#f6f5f1"), list(0.25, "#c8dbc6"),
-      list(0.5, pal$sage), list(0.75, pal$sand),
-      list(1, pal$coral))
-
-    plot_ly(df, x = ~month, y = ~year, z = ~log_occ, type = "heatmap",
-      colorscale = heatmap_cs, hovertemplate = "Year: %{y}<br>Month: %{x}<br>log10(occ): %{z:.1f}<extra></extra>") |>
-      plotly_layout(
-        xaxis = list(title = "", ticktext = month.abb, tickvals = 1:12),
-        yaxis = list(title = ""))
+        yaxis = list(title = "Number of 10km cells"))
   })
 
   # ===================================================================
@@ -1017,61 +1197,63 @@ server <- function(input, output, session) {
 
     color_classes <- c("sage", "slate", "sand", "coral")
 
-    tagList(lapply(seq_len(nrow(basis_summary)), function(i) {
-      b <- basis_summary[i, ]
-      div(class = "stat-box",
-        div(class = paste("stat-value", color_classes[i]), comma(b$total_occ)),
-        div(class = "stat-label", str_replace_all(b$basisofrecord, "_", " "))
-      )
-    }))
+    div(class = "stat-grid", style = "grid-template-columns: repeat(4, 1fr);",
+      tagList(lapply(seq_len(nrow(basis_summary)), function(i) {
+        b <- basis_summary[i, ]
+        div(class = "stat-box",
+          div(class = paste("stat-value", color_classes[i]), comma(b$total_occ)),
+          div(class = "stat-label", str_replace_all(b$basisofrecord, "_", " "))
+        )
+      }))
+    )
   })
 
-  # Pie chart
+  # Pie chart with readable labels
   output$basis_pie <- renderPlotly({
     req(spatial_gaps)
     df <- spatial_gaps |>
       filter(basisofrecord != "all") |>
       group_by(basisofrecord) |>
       summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
-      arrange(desc(total_occ))
+      arrange(desc(total_occ)) |>
+      mutate(
+        pct = round(100 * total_occ / sum(total_occ), 1),
+        label_text = str_replace_all(basisofrecord, "_", " ")
+      )
 
     cols <- sapply(df$basisofrecord, get_basis_color)
-    labels <- str_replace_all(df$basisofrecord, "_", " ")
 
-    plot_ly(df, labels = ~labels, values = ~total_occ, type = "pie",
+    plot_ly(df, labels = ~label_text, values = ~total_occ, type = "pie",
       marker = list(colors = cols, line = list(color = "#fff", width = 1.5)),
-      textinfo = "label+percent", textposition = "auto",
+      textinfo = "label+percent",
+      textposition = "outside",
       textfont = list(size = 11),
+      outsidetextfont = list(size = 10),
       hovertemplate = "%{label}<br>%{value:,.0f} occurrences<br>%{percent}<extra></extra>") |>
-      plotly_layout(showlegend = FALSE)
+      plotly_layout(showlegend = FALSE,
+        margin = list(l = 40, r = 40, t = 20, b = 20))
   })
 
-  # Timeline by basis
+  # Timeline — single basis at a time
   output$basis_timeline <- renderPlotly({
-    req(time_summary)
+    req(time_summary, input$basis_timeline_select)
+    sel <- input$basis_timeline_select
+
     df <- time_summary |>
-      filter(basisofrecord != "all", !is.na(year), year >= 1970) |>
-      group_by(basisofrecord, year) |>
+      filter(basisofrecord == sel, !is.na(year), year >= 1970) |>
+      group_by(year) |>
       summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
 
-    basis_order <- df |> group_by(basisofrecord) |>
-      summarise(tot = sum(occ)) |> arrange(desc(tot)) |> pull(basisofrecord)
+    base_col <- get_basis_color(sel)
 
-    p <- plot_ly()
-    for (b in basis_order) {
-      bd <- df |> filter(basisofrecord == b)
-      p <- p |> add_trace(data = bd, x = ~year, y = ~occ,
-        type = "scatter", mode = "lines",
-        name = str_replace_all(b, "_", " "),
-        line = list(color = get_basis_color(b), width = 2),
-        stackgroup = "one",
-        hovertemplate = paste0(str_replace_all(b, "_", " "),
-          "<br>%{x}: %{y:,.0f}<extra></extra>"))
-    }
-    p |> plotly_layout(
-      xaxis = list(title = "Year"),
-      yaxis = list(title = "Occurrences"),
-      legend = list(orientation = "h", y = -0.15))
+    plot_ly(df, x = ~year, y = ~occ, type = "scatter", mode = "lines",
+      fill = "tozeroy",
+      fillcolor = paste0(base_col, "33"),
+      line = list(color = base_col, width = 2),
+      hovertemplate = "%{x}: %{y:,.0f}<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = ""),
+        yaxis = list(title = "Occurrences"))
   })
 
   # Spatial coverage bar
@@ -1200,14 +1382,31 @@ server <- function(input, output, session) {
         df <- df |> filter(class == input$tax_class)
       }
       ord <- sort(unique(df$order[!is.na(df$order) & df$order != ""]))
-      if (length(ord) <= 100) {  # only show if manageable number
+      if (length(ord) <= 200) {
         choices <- c("All" = "", setNames(ord, ord))
       }
     }
     selectInput("tax_order_filter", NULL, choices = choices, selected = "")
   })
 
-  # Helper: apply cascading filters to a data frame
+  # Reactive: filtered family choices
+  output$tax_family_filter_ui <- renderUI({
+    choices <- c("All" = "")
+    if (!is.null(tax_by_family)) {
+      df <- tax_by_family
+      if (!is.null(input$tax_kingdom) && input$tax_kingdom != "") df <- df |> filter(kingdom == input$tax_kingdom)
+      if (!is.null(input$tax_phylum) && input$tax_phylum != "") df <- df |> filter(phylum == input$tax_phylum)
+      if (!is.null(input$tax_class) && input$tax_class != "") df <- df |> filter(class == input$tax_class)
+      if (!is.null(input$tax_order_filter) && input$tax_order_filter != "") df <- df |> filter(order == input$tax_order_filter)
+      fam <- sort(unique(df$family[!is.na(df$family) & df$family != ""]))
+      if (length(fam) <= 200) {
+        choices <- c("All" = "", setNames(fam, fam))
+      }
+    }
+    selectInput("tax_family_filter", NULL, choices = choices, selected = "")
+  })
+
+  # Helper: apply cascading filters to a data frame (now includes family)
   apply_tax_filters <- function(df) {
     if (!is.null(input$tax_kingdom) && input$tax_kingdom != "" && "kingdom" %in% names(df)) {
       df <- df |> filter(kingdom == input$tax_kingdom)
@@ -1221,6 +1420,9 @@ server <- function(input, output, session) {
     if (!is.null(input$tax_order_filter) && input$tax_order_filter != "" && "order" %in% names(df)) {
       df <- df |> filter(order == input$tax_order_filter)
     }
+    if (!is.null(input$tax_family_filter) && input$tax_family_filter != "" && "family" %in% names(df)) {
+      df <- df |> filter(family == input$tax_family_filter)
+    }
     df
   }
 
@@ -1229,23 +1431,30 @@ server <- function(input, output, session) {
   # ===================================================================
 
   output$troudet_bias_chart <- renderPlotly({
-    # Decide level: if drilling into a specific class, show order-level bias
-    use_order_level <- (!is.null(input$tax_class) && input$tax_class != "") ||
-                       (!is.null(input$tax_phylum) && input$tax_phylum != "")
+    # Auto-detect drill level based on which filters are active
+    has_order <- !is.null(input$tax_order_filter) && input$tax_order_filter != ""
+    has_class <- !is.null(input$tax_class) && input$tax_class != ""
+    has_phylum <- !is.null(input$tax_phylum) && input$tax_phylum != ""
 
-    if (use_order_level && !is.null(troudet_bias_order)) {
-      df <- apply_tax_filters(troudet_bias_order) |>
-        mutate(label = order)
+    # Family level: when drilling into a specific order
+    # Order level: when drilling into class or phylum
+    # Class level: default (no filter or just kingdom)
+    troudet_family <- safe_get("troudet_bias_family")
+
+    if (has_order && !is.null(troudet_family)) {
+      df <- apply_tax_filters(troudet_family) |> mutate(label = family)
+    } else if ((has_class || has_phylum) && !is.null(troudet_bias_order)) {
+      df <- apply_tax_filters(troudet_bias_order) |> mutate(label = order)
     } else if (!is.null(troudet_bias)) {
-      df <- apply_tax_filters(troudet_bias) |>
-        mutate(label = class)
+      df <- apply_tax_filters(troudet_bias) |> mutate(label = class)
     } else {
       return(plotly_empty() |> plotly_layout())
     }
 
     if (nrow(df) == 0) return(plotly_empty() |> plotly_layout())
 
-    n <- min(input$tax_n_groups %||% 20, nrow(df))
+    # Show all groups (capped at 40 for readability)
+    n <- min(40, nrow(df))
 
     df <- df |>
       arrange(desc(abs(bias))) |>
@@ -1255,18 +1464,15 @@ server <- function(input, output, session) {
         direction = ifelse(bias >= 0, "Over-represented", "Under-represented")
       )
 
+    # Dynamic height based on number of bars
     show_ly <- !is.null(input$tax_show_last_year) && input$tax_show_last_year &&
                "occ_last_year" %in% names(df)
 
     if (show_ly) {
-      # Stacked: prior bias + last year contribution
-      # Compute the last-year share of the bias
       df <- df |>
         mutate(
-          # What would bias be without last year?
           bias_prior = occ_prior - ideal_occ,
           bias_last_year = occ_last_year,
-          # For under-represented: last year reduces the deficit
           bar_col_ly = ifelse(bias >= 0, pal$sage2, pal$sand)
         )
 
@@ -1304,14 +1510,11 @@ server <- function(input, output, session) {
 
   output$tax_order <- renderPlotly({
     req(tax_by_order)
-    n <- input$tax_n_groups %||% 20
-    min_t <- input$tax_min_taxa %||% 10
-    sort_col <- input$tax_sort %||% "n_taxa"
 
     df <- apply_tax_filters(tax_by_order) |>
-      filter(!is.na(order), n_taxa >= min_t) |>
-      arrange(desc(.data[[sort_col]])) |>
-      slice_head(n = n) |>
+      filter(!is.na(order)) |>
+      arrange(desc(n_taxa)) |>
+      slice_head(n = 40) |>
       mutate(
         miss = n_taxa - n_in_gbif,
         label = paste0(round(pct_coverage, 1), "%"))
@@ -1329,7 +1532,6 @@ server <- function(input, output, session) {
         text = "", textposition = "none")
 
     if (show_ly && "occ_last_year" %in% names(df)) {
-      # Add annotation showing last-year occurrence count
       p <- p |> add_annotations(
         x = ~n_in_gbif / 2,
         y = ~order,
@@ -1343,20 +1545,17 @@ server <- function(input, output, session) {
     p |> plotly_layout(
         barmode = "stack",
         xaxis = list(title = "Species count"),
-        yaxis = list(title = "Order", categoryorder = "total ascending"),
+        yaxis = list(title = "", categoryorder = "total ascending"),
         legend = list(orientation = "h", y = -0.15))
   })
 
   output$tax_family <- renderPlotly({
     req(tax_by_family)
-    n <- input$tax_n_groups %||% 20
-    min_t <- input$tax_min_taxa %||% 10
-    sort_col <- input$tax_sort %||% "n_taxa"
 
     df <- apply_tax_filters(tax_by_family) |>
-      filter(!is.na(family), n_taxa >= min_t) |>
-      arrange(desc(.data[[sort_col]])) |>
-      slice_head(n = n) |>
+      filter(!is.na(family)) |>
+      arrange(desc(n_taxa)) |>
+      slice_head(n = 40) |>
       mutate(label = paste0(round(pct_coverage, 1), "%"))
 
     plot_ly(df, y = ~reorder(family, pct_coverage), x = ~pct_coverage, type = "bar",
@@ -1366,98 +1565,177 @@ server <- function(input, output, session) {
       orientation = "h") |>
       plotly_layout(
         xaxis = list(title = "Coverage (%)", range = c(0, 105)),
-        yaxis = list(title = "Family", categoryorder = "total ascending"))
+        yaxis = list(title = "", categoryorder = "total ascending"))
   })
 
-  output$tax_change <- renderPlotly({
-    # Use order_change if available (has pct_change between historical and recent periods)
-    if (!is.null(order_change) && nrow(order_change) > 0) {
-      df <- order_change |>
-        arrange(desc(abs(pct_change))) |>
-        slice_head(n = 15) |>
-        mutate(bar_col = ifelse(pct_change >= 0, pal$sage, pal$coral))
+  # Recent vs Historical — info cards showing multiplier
+  output$tax_change_cards <- renderUI({
+    if (is.null(order_5yr)) return(div("No temporal order data available."))
 
-      plot_ly(df, y = ~reorder(order, pct_change), x = ~pct_change, type = "bar",
-        marker = list(color = ~bar_col), orientation = "h",
-        hovertemplate = "%{y}: %{x:+.1f}%<extra></extra>") |>
-        plotly_layout(
-          xaxis = list(title = "Change (%)",
-                       zeroline = TRUE, zerolinecolor = "#ccc", zerolinewidth = 1),
-          yaxis = list(title = "Order"))
-
-    } else if (!is.null(order_5yr)) {
-      # Fallback: derive from order_5yr
-      df <- order_5yr |>
-        mutate(era = ifelse(period_start >= 2000, "Recent", "Historical")) |>
-        group_by(order, era) |>
-        summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
-        pivot_wider(names_from = era, values_from = occ, values_fill = 0) |>
-        filter(Historical > 0) |>
-        mutate(
-          pct_change = round(100 * (Recent - Historical) / Historical, 1),
-          bar_col = ifelse(pct_change >= 0, pal$sage, pal$coral)) |>
-        arrange(desc(abs(pct_change))) |>
-        slice_head(n = 15)
-
-      plot_ly(df, y = ~reorder(order, pct_change), x = ~pct_change, type = "bar",
-        marker = list(color = ~bar_col), orientation = "h",
-        hovertemplate = "%{y}: %{x:+.1f}%<extra></extra>") |>
-        plotly_layout(
-          xaxis = list(title = "Change (%)",
-                       zeroline = TRUE, zerolinecolor = "#ccc", zerolinewidth = 1),
-          yaxis = list(title = "Order"))
-
-    } else {
-      plotly_empty() |> plotly_layout()
+    # Get filtered orders
+    filtered_orders <- NULL
+    if (!is.null(order_tax_map)) {
+      filt <- order_tax_map
+      if (!is.null(input$tax_kingdom) && input$tax_kingdom != "") filt <- filt |> filter(kingdom == input$tax_kingdom)
+      if (!is.null(input$tax_phylum) && input$tax_phylum != "") filt <- filt |> filter(phylum == input$tax_phylum)
+      if (!is.null(input$tax_class) && input$tax_class != "") filt <- filt |> filter(class == input$tax_class)
+      if (!is.null(input$tax_order_filter) && input$tax_order_filter != "") filt <- filt |> filter(order == input$tax_order_filter)
+      filtered_orders <- filt$order
     }
+
+    df <- order_5yr
+    if (!is.null(filtered_orders)) df <- df |> filter(order %in% filtered_orders)
+
+    df <- df |>
+      mutate(era = ifelse(period_start >= 2000, "Recent", "Historical")) |>
+      group_by(order, era) |>
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+      pivot_wider(names_from = era, values_from = occ, values_fill = 0) |>
+      filter(Historical > 0) |>
+      mutate(
+        multiplier = round(Recent / Historical, 1),
+        direction = ifelse(Recent >= Historical, "up", "down")
+      ) |>
+      arrange(desc(abs(multiplier - 1))) |>
+      slice_head(n = 12)
+
+    if (nrow(df) == 0) return(div("No orders with both historical and recent data for current filters."))
+
+    # Build info cards in a grid
+    cards <- lapply(seq_len(nrow(df)), function(i) {
+      row <- df[i, ]
+      mult_text <- if (row$multiplier >= 2) {
+        paste0(row$multiplier, "\u00d7 more")
+      } else if (row$multiplier >= 1) {
+        paste0("+", round((row$multiplier - 1) * 100), "%")
+      } else {
+        paste0(round((1 - row$multiplier) * 100), "% less")
+      }
+      col <- if (row$direction == "up") pal$sage else pal$coral
+      icon_char <- if (row$direction == "up") "\u25b2" else "\u25bc"
+
+      div(style = "background:#fafaf7; border-radius:8px; padding:0.75rem; text-align:center;",
+        div(style = paste0("font-size:1.4rem; font-weight:600; color:", col, ";"),
+          icon_char, " ", mult_text),
+        div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;", row$order),
+        div(style = "font-size:0.75rem; color:#999;",
+          comma(row$Historical), " \u2192 ", comma(row$Recent))
+      )
+    })
+
+    div(style = "display:grid; grid-template-columns:repeat(4, 1fr); gap:0.75rem; margin-top:0.75rem;",
+      tagList(cards))
   })
 
   # ===================================================================
-  # THREATENED
+  # THREATENED — with taxonomy filters and DD
   # ===================================================================
+
+  # Threatened tab taxonomy cascade
+  output$threat_phylum_ui <- renderUI({
+    ch <- c("All" = "")
+    if (!is.null(tax_by_order) && !is.null(input$threat_kingdom) && input$threat_kingdom != "") {
+      ph <- tax_by_order |> filter(kingdom == input$threat_kingdom) |> pull(phylum) |> unique() |> sort()
+      ch <- c("All" = "", setNames(ph, ph))
+    }
+    selectInput("threat_phylum", "Phylum", choices = ch, selected = "")
+  })
+  output$threat_class_ui <- renderUI({
+    ch <- c("All" = "")
+    if (!is.null(tax_by_order)) {
+      df <- tax_by_order
+      if (!is.null(input$threat_kingdom) && input$threat_kingdom != "") df <- df |> filter(kingdom == input$threat_kingdom)
+      if (!is.null(input$threat_phylum) && input$threat_phylum != "") df <- df |> filter(phylum == input$threat_phylum)
+      cl <- sort(unique(df$class))
+      ch <- c("All" = "", setNames(cl, cl))
+    }
+    selectInput("threat_class", "Class", choices = ch, selected = "")
+  })
+  output$threat_order_ui <- renderUI({
+    ch <- c("All" = "")
+    if (!is.null(tax_by_order)) {
+      df <- tax_by_order
+      if (!is.null(input$threat_kingdom) && input$threat_kingdom != "") df <- df |> filter(kingdom == input$threat_kingdom)
+      if (!is.null(input$threat_phylum) && input$threat_phylum != "") df <- df |> filter(phylum == input$threat_phylum)
+      if (!is.null(input$threat_class) && input$threat_class != "") df <- df |> filter(class == input$threat_class)
+      ord <- sort(unique(df$order))
+      if (length(ord) <= 100) ch <- c("All" = "", setNames(ord, ord))
+    }
+    selectInput("threat_order", "Order", choices = ch, selected = "")
+  })
+
+  # Helper: filter taxonomic_match_summary by threat tab filters
+  threat_filtered_taxa <- reactive({
+    req(safe_get("taxonomic_match_summary"))
+    ms <- safe_get("taxonomic_match_summary") |> as_tibble()
+    threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
+    if (is.na(threat_col)) return(NULL)
+    ms <- ms |> mutate(threatStatus = .data[[threat_col]]) |>
+      filter(!is.na(threatStatus), threatStatus %in% c("CR", "EN", "VU", "NT", "LC", "DD"))
+    if (!is.null(input$threat_kingdom) && input$threat_kingdom != "" && "kingdom" %in% names(ms))
+      ms <- ms |> filter(kingdom == input$threat_kingdom)
+    if (!is.null(input$threat_phylum) && input$threat_phylum != "" && "phylum" %in% names(ms))
+      ms <- ms |> filter(phylum == input$threat_phylum)
+    if (!is.null(input$threat_class) && input$threat_class != "" && "class" %in% names(ms))
+      ms <- ms |> filter(class == input$threat_class)
+    if (!is.null(input$threat_order) && input$threat_order != "" && "order" %in% names(ms))
+      ms <- ms |> filter(order == input$threat_order)
+    ms
+  })
 
   output$stat_cr <- renderText({
-    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat))
-      comma(sum(tax_by_threat$n_missing[tax_by_threat$threatStatus == "CR"], na.rm = TRUE))
-    else "0"
+    ms <- threat_filtered_taxa()
+    if (!is.null(ms)) comma(sum(!ms$matched_any[ms$threatStatus == "CR"], na.rm = TRUE)) else "0"
   })
   output$stat_en <- renderText({
-    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat))
-      comma(sum(tax_by_threat$n_missing[tax_by_threat$threatStatus == "EN"], na.rm = TRUE))
-    else "0"
+    ms <- threat_filtered_taxa()
+    if (!is.null(ms)) comma(sum(!ms$matched_any[ms$threatStatus == "EN"], na.rm = TRUE)) else "0"
   })
   output$stat_vu <- renderText({
-    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat))
-      comma(sum(tax_by_threat$n_missing[tax_by_threat$threatStatus == "VU"], na.rm = TRUE))
-    else "0"
+    ms <- threat_filtered_taxa()
+    if (!is.null(ms)) comma(sum(!ms$matched_any[ms$threatStatus == "VU"], na.rm = TRUE)) else "0"
   })
   output$stat_nt <- renderText({
-    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat))
-      comma(sum(tax_by_threat$n_missing[tax_by_threat$threatStatus == "NT"], na.rm = TRUE))
-    else "0"
+    ms <- threat_filtered_taxa()
+    if (!is.null(ms)) comma(sum(!ms$matched_any[ms$threatStatus == "NT"], na.rm = TRUE)) else "0"
+  })
+  output$stat_dd <- renderText({
+    ms <- threat_filtered_taxa()
+    if (!is.null(ms)) comma(sum(!ms$matched_any[ms$threatStatus == "DD"], na.rm = TRUE)) else "0"
   })
 
   output$threat_coverage <- renderPlotly({
-    req(tax_by_threat, nrow(tax_by_threat) > 0, "threatStatus" %in% names(tax_by_threat))
-    df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "LC"))
-    if (nrow(df) == 0) return(plotly_empty())
+    ms <- threat_filtered_taxa()
+    if (is.null(ms) || nrow(ms) == 0) return(plotly_empty())
 
-    threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060", NT = pal$sage, LC = pal$sage2)
+    df <- ms |>
+      group_by(threatStatus) |>
+      summarise(n_total = n(), n_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop") |>
+      mutate(pct = round(100 * n_gbif / n_total, 1)) |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT", "LC", "DD"))
 
-    plot_ly(df, x = ~threatStatus, y = ~pct_coverage, type = "bar",
+    threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
+                     NT = pal$sage, LC = pal$sage2, DD = pal$slate)
+
+    plot_ly(df, x = ~threatStatus, y = ~pct, type = "bar",
       marker = list(color = threat_cols[df$threatStatus]),
-      text = ~paste0(round(pct_coverage, 1), "%"), textposition = "auto") |>
+      text = ~paste0(round(pct, 1), "%"), textposition = "auto") |>
       plotly_layout(
         xaxis = list(title = ""),
         yaxis = list(title = "Coverage %", range = c(0, 110)))
   })
 
   output$threat_missing <- renderPlotly({
-    req(tax_by_threat, nrow(tax_by_threat) > 0, "threatStatus" %in% names(tax_by_threat))
-    df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT"))
-    if (nrow(df) == 0) return(plotly_empty())
+    ms <- threat_filtered_taxa()
+    if (is.null(ms) || nrow(ms) == 0) return(plotly_empty())
 
-    threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060", NT = pal$sage)
+    df <- ms |>
+      group_by(threatStatus) |>
+      summarise(n_missing = sum(!matched_any, na.rm = TRUE), .groups = "drop") |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+
+    threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
+                     NT = pal$sage, DD = pal$slate)
 
     plot_ly(df, x = ~threatStatus, y = ~n_missing, type = "bar",
       marker = list(color = threat_cols[df$threatStatus]),
@@ -1468,29 +1746,19 @@ server <- function(input, output, session) {
   })
 
   output$threat_table <- renderDT({
-    # Use priority_taxa_missing (individual missing threatened species)
-    priority_taxa <- safe_get("priority_taxa_missing")
-    if (!is.null(priority_taxa) && nrow(priority_taxa) > 0) {
-      df <- priority_taxa |>
-        filter(threatStatus %in% c("CR", "EN")) |>
+    ms <- threat_filtered_taxa()
+    if (!is.null(ms) && nrow(ms) > 0) {
+      df <- ms |>
+        filter(!matched_any, threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
         select(any_of(c("scientificName", "threatStatus", "kingdom", "phylum",
                          "class", "order", "family"))) |>
-        arrange(factor(threatStatus, levels = c("CR", "EN")), order, family)
+        arrange(factor(threatStatus, levels = c("CR", "EN", "VU", "NT", "DD")), order, family)
     } else {
-      df <- tibble(Message = "No missing CR/EN species found.")
+      df <- tibble(Message = "No missing threatened species found for current filters.")
     }
-
-    # Force categorical columns to use dropdown filters
-    col_names <- names(df)
-    filter_types <- lapply(col_names, function(cn) {
-      if (cn %in% c("threatStatus", "kingdom", "phylum", "class", "order", "family")) "factor"
-      else "character"
-    })
-    # Convert dropdown columns to factor so DT renders them as selects
     for (cn in c("threatStatus", "kingdom", "phylum", "class", "order", "family")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-
     datatable(df, options = list(pageLength = 15, scrollX = TRUE),
       style = "bootstrap4", filter = "top")
   })
@@ -1704,6 +1972,47 @@ server <- function(input, output, session) {
       readr::write_csv(combined, file)
     }
   )
+
+  # ===================================================================
+  # PRIORITIES — Taxonomic Mobilization Targets
+  # ===================================================================
+
+  output$priority_undersampled_orders <- renderPlotly({
+    req(troudet_bias_order)
+    df <- troudet_bias_order |>
+      filter(bias < 0) |>
+      arrange(bias) |>
+      slice_head(n = 15) |>
+      mutate(gap_species = n_known_species - n_in_gbif)
+
+    plot_ly(df, y = ~reorder(order, -bias), x = ~gap_species, type = "bar",
+      orientation = "h", marker = list(color = pal$coral),
+      text = ~paste0(gap_species, " missing"), textposition = "auto",
+      textfont = list(size = 10, color = "#fff"),
+      hovertemplate = "%{y}<br>%{x} species missing from GBIF<extra></extra>") |>
+      plotly_layout(
+        title = list(text = "Most under-sampled orders", font = list(size = 14)),
+        xaxis = list(title = "Species missing from GBIF"),
+        yaxis = list(title = ""))
+  })
+
+  output$priority_undersampled_families <- renderPlotly({
+    req(tax_by_family)
+    df <- tax_by_family |>
+      filter(n_missing > 0) |>
+      arrange(desc(n_missing)) |>
+      slice_head(n = 15)
+
+    plot_ly(df, y = ~reorder(family, n_missing), x = ~n_missing, type = "bar",
+      orientation = "h", marker = list(color = pal$sand),
+      text = ~paste0(n_missing, " missing"), textposition = "auto",
+      textfont = list(size = 10, color = "#fff"),
+      hovertemplate = "%{y}<br>%{x} species missing from GBIF<extra></extra>") |>
+      plotly_layout(
+        title = list(text = "Most under-sampled families", font = list(size = 14)),
+        xaxis = list(title = "Species missing from GBIF"),
+        yaxis = list(title = ""))
+  })
 
   # ===================================================================
   # EXPLORER
