@@ -1436,6 +1436,36 @@
       "Maintainer": "Hadley Wickham <hadley@posit.co>",
       "Repository": "CRAN"
     },
+    "geodata": {
+      "Package": "geodata",
+      "Version": "0.6-6",
+      "Source": "Repository",
+      "Type": "Package",
+      "Title": "Access Geographic Data",
+      "Date": "2025-09-29",
+      "Depends": [
+        "R (>= 3.5.0)",
+        "terra (>= 1.6.41)"
+      ],
+      "Imports": [
+        "rappdirs"
+      ],
+      "Suggests": [
+        "jsonlite",
+        "R.utils",
+        "httr",
+        "archive"
+      ],
+      "Encoding": "UTF-8",
+      "Maintainer": "Robert J. Hijmans <r.hijmans@gmail.com>",
+      "Description": "Functions for downloading of geographic data for use in spatial analysis and mapping. The package facilitates access to climate, crops, elevation, land use, soil, species occurrence, accessibility, administrative boundaries and other data.",
+      "License": "GPL (>= 3)",
+      "BugReports": "https://github.com/rspatial/geodata/issues/",
+      "Authors@R": "c( person(\"Robert J.\", \"Hijmans\", role=c(\"cre\", \"aut\"),   email=\"r.hijmans@gmail.com\", comment=c(ORCID=\"0000-0001-5872-2872\")),\t\t\t person(\"Márcia\", \"Barbosa\", role=\"ctb\", comment=c(ORCID=\"0000-0001-8972-7713\")), person(\"Aniruddha\", \"Ghosh\", role=\"ctb\"), person(\"Alex\", \"Mandel\", role=\"ctb\"))",
+      "NeedsCompilation": "no",
+      "Author": "Robert J. Hijmans [cre, aut] (ORCID: <https://orcid.org/0000-0001-5872-2872>), Márcia Barbosa [ctb] (ORCID: <https://orcid.org/0000-0001-8972-7713>), Aniruddha Ghosh [ctb], Alex Mandel [ctb]",
+      "Repository": "CRAN"
+    },
     "ggplot2": {
       "Package": "ggplot2",
       "Version": "4.0.1",
