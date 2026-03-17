@@ -622,42 +622,69 @@ if (!is.null(family_time_summary)) {
 # Adds temporal splits across spatial, taxonomic, and overview data.
 # Used for: Troudet bias figure, spatial overlay, overview stats,
 #           taxonomic bar stacking, priorities "resolved" view.
-# The reference year is the last full calendar year in the data.
+# The reference period is the last 12 months of data.
+# We use yearmonth (YYYYMM) to define the cutoff precisely.
 
-cli_h2("Computing Last Year (Annual Delta) Data")
+cli_h2("Computing Last 12 Months (Recent Delta) Data")
 
-# Determine the reference year from the data
-last_full_year <- NULL
+# Determine the 12-month cutoff from the data
+recent_cutoff_ym <- NULL
+recent_label <- NULL
 
 if (!is.null(shiny_data$time_summary_10km)) {
-  available_years <- sort(unique(shiny_data$time_summary_10km$year))
-  # Use the most recent year that has data in all 12 months, or simply the max year
-  year_month_counts <- shiny_data$time_summary_10km |>
-    filter(basisofrecord == "all") |>
-    group_by(year) |>
-    summarise(n_months = n_distinct(month), .groups = "drop")
-  # Prefer the latest year with decent coverage (>= 6 months), else max year
-  candidates <- year_month_counts |> filter(n_months >= 6) |> pull(year)
-  last_full_year <- if (length(candidates) > 0) max(candidates) else max(available_years)
+  ts_all <- shiny_data$time_summary_10km |> filter(basisofrecord == "all")
+
+  # Find the latest yearmonth in the data
+  if ("yearmonth" %in% names(ts_all)) {
+    all_ym <- sort(unique(as.integer(gsub("-", "", ts_all$yearmonth))))
+  } else {
+    # Derive from year + month
+    all_ym <- sort(unique(as.integer(paste0(ts_all$year, sprintf("%02d", ts_all$month)))))
+  }
+
+  if (length(all_ym) > 0) {
+    latest_ym <- max(all_ym)
+    latest_year <- as.integer(substr(as.character(latest_ym), 1, 4))
+    latest_month <- as.integer(substr(as.character(latest_ym), 5, 6))
+
+    # 12 months before the latest data point
+    cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-% months(11)
+    recent_cutoff_ym <- as.integer(format(cutoff_date, "%Y%m"))
+
+    # Human-readable label
+    recent_label <- paste0(
+      format(cutoff_date, "%b %Y"), " – ",
+      format(as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")), "%b %Y")
+    )
+  }
 }
 
-if (is.null(last_full_year)) {
-  last_full_year <- year(Sys.Date()) - 1
-  cli_alert_warning("Could not determine last year from data, defaulting to {last_full_year}")
+if (is.null(recent_cutoff_ym)) {
+  # Fallback: use last calendar year
+  recent_cutoff_ym <- as.integer(paste0(year(Sys.Date()) - 1, "01"))
+  recent_label <- paste0(year(Sys.Date()) - 1)
+  cli_alert_warning("Could not determine recent period from data, defaulting to {recent_label}")
 }
 
-shiny_data$last_year <- last_full_year
-cli_alert_info("Reference year for delta analysis: {last_full_year}")
+# Also keep last_full_year for backwards compatibility (used in some Troudet/order computations)
+last_full_year <- as.integer(substr(as.character(recent_cutoff_ym), 1, 4))
 
-# ---- 8b.1  TAXONOMIC: Last-year splits for order/family/class/kingdom ----
-# Add n_in_gbif_last_year and n_new_species_last_year to each summary.
-# This requires going back to the cube data to count occurrences per species
-# in the last year. Since we only have match_summary (species-level) and
-# time_summary (cell-level with yearmonth), we use time_summary to get
-# the overall last-year occurrence count per taxonomic group.
+shiny_data$last_year <- recent_cutoff_ym  # now a yearmonth, not a year
+shiny_data$recent_label <- recent_label
+cli_alert_info("Recent period: {recent_label} (yearmonth cutoff: {recent_cutoff_ym})")
+
+# ---- 8b.1  TAXONOMIC: Recent period splits for order/family/class/kingdom ----
+# Uses yearmonth cutoff for precise 12-month window.
 
 if (!is.null(shiny_data$time_summary_10km)) {
   ts <- shiny_data$time_summary_10km |> filter(basisofrecord == "all")
+
+  # Ensure yearmonth column
+  if (!"yearmonth" %in% names(ts)) {
+    ts <- ts |> mutate(yearmonth = as.integer(paste0(year, sprintf("%02d", month))))
+  } else {
+    ts <- ts |> mutate(yearmonth = as.integer(gsub("-", "", yearmonth)))
+  }
 
   # Total occurrences by year — used for overview stats
   yearly_totals <- ts |>
@@ -669,21 +696,26 @@ if (!is.null(shiny_data$time_summary_10km)) {
     )
   shiny_data$yearly_totals <- yearly_totals
 
-  last_year_occ <- yearly_totals |> filter(year == last_full_year)
-  prior_occ <- yearly_totals |> filter(year < last_full_year) |>
-    summarise(total_occ = sum(total_occ), .groups = "drop")
+  # Overview: recent vs prior using yearmonth cutoff
+  recent_occ <- ts |>
+    filter(yearmonth >= recent_cutoff_ym) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE),
+              n_cells = sum(as.numeric(n_cells), na.rm = TRUE))
+  prior_occ <- ts |>
+    filter(yearmonth < recent_cutoff_ym) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE))
 
   shiny_data$overview_last_year <- list(
-    year = last_full_year,
-    occ_last_year = if (nrow(last_year_occ) > 0) last_year_occ$total_occ[1] else 0,
+    label = recent_label,
+    cutoff_ym = recent_cutoff_ym,
+    occ_last_year = recent_occ$total_occ[1],
     occ_prior = prior_occ$total_occ[1],
-    cells_active_last_year = if (nrow(last_year_occ) > 0) last_year_occ$n_cells[1] else 0
+    cells_active_last_year = recent_occ$n_cells[1]
   )
-  cli_alert_success("Overview last year: {comma(shiny_data$overview_last_year$occ_last_year)} occurrences in {last_full_year}")
+  cli_alert_success("Overview recent: {comma(recent_occ$total_occ[1])} occurrences in {recent_label}")
 }
 
-# ---- 8b.2  SPATIAL: Cells newly covered in last year ----
-# cell_time_summary has both eeacellcode and yearmonth
+# ---- 8b.2  SPATIAL: Cells newly covered in last 12 months ----
 cell_time_path <- here(p_derived, "cell_time_summary_10km.csv")
 cell_time_raw <- safe_read(cell_time_path)
 
@@ -691,10 +723,10 @@ if (!is.null(cell_time_raw)) {
   cts <- cell_time_raw |>
     as_tibble() |>
     filter(basisofrecord == "all") |>
-    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
+    mutate(yearmonth = as.integer(gsub("-", "", yearmonth)))
 
   cell_by_era <- cts |>
-    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    mutate(era = ifelse(yearmonth >= recent_cutoff_ym, "last_year", "prior")) |>
     group_by(eeacellcode, era) |>
     summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
     pivot_wider(names_from = era, values_from = occ, values_fill = 0)
@@ -712,7 +744,7 @@ if (!is.null(cell_time_raw)) {
   shiny_data$cell_last_year <- cell_by_era
   n_newly <- sum(cell_by_era$newly_covered)
   n_active <- sum(cell_by_era$has_last_year_data)
-  cli_alert_success("Spatial last year: {comma(n_newly)} newly covered cells, {comma(n_active)} cells with {last_full_year} data")
+  cli_alert_success("Spatial recent: {comma(n_newly)} newly covered cells, {comma(n_active)} cells active in {recent_label}")
 
   # Add to overview
   if (!is.null(shiny_data$overview_last_year)) {
@@ -722,7 +754,7 @@ if (!is.null(cell_time_raw)) {
   rm(cts, cell_time_raw)
   invisible(gc())
 } else {
-  cli_alert_warning("cell_time_summary_10km.csv not found — spatial last-year data not computed")
+  cli_alert_warning("cell_time_summary_10km.csv not found — spatial recent data not computed")
 }
 
 # ---- 8b.3  PRIORITIES: Resolved cells (were zero, now have data) ----
@@ -731,7 +763,7 @@ if (!is.null(shiny_data$cell_last_year) && !is.null(shiny_data$priority_zero_cel
   resolved <- shiny_data$cell_last_year |>
     filter(eeacellcode %in% zero_codes, last_year > 0)
   shiny_data$priority_resolved_last_year <- resolved
-  cli_alert_success("Priorities: {nrow(resolved)} formerly-zero cells got data in {last_full_year}")
+  cli_alert_success("Priorities: {nrow(resolved)} formerly-zero cells got data in {recent_label}")
 
   if (!is.null(shiny_data$overview_last_year)) {
     shiny_data$overview_last_year$cells_resolved <- nrow(resolved)
@@ -777,7 +809,7 @@ if (!is.null(match_summary) && !is.null(shiny_data$time_summary_10km)) {
     occ_by_class <- order_temporal |>
       as_tibble() |>
       inner_join(order_to_class, by = "order") |>
-      mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+      mutate(era = ifelse(year >= as.integer(substr(as.character(recent_cutoff_ym), 1, 4)), "last_year", "prior")) |>
       group_by(kingdom, phylum, class, era) |>
       summarise(
         occurrences = sum(total_occurrences, na.rm = TRUE),
@@ -816,7 +848,7 @@ if (!is.null(match_summary) && !is.null(shiny_data$time_summary_10km)) {
     occ_by_order <- order_temporal |>
       as_tibble() |>
       inner_join(order_to_class, by = "order") |>
-      mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+      mutate(era = ifelse(year >= as.integer(substr(as.character(recent_cutoff_ym), 1, 4)), "last_year", "prior")) |>
       group_by(kingdom, phylum, class, order, era) |>
       summarise(
         occurrences = sum(total_occurrences, na.rm = TRUE),
@@ -871,7 +903,7 @@ if (!is.null(match_summary) && !is.null(shiny_data$time_summary_10km)) {
         filter(basisofrecord == "all") |>
         mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4))) |>
         inner_join(order_to_family, by = c("order", "family")) |>
-        mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+        mutate(era = ifelse(year >= as.integer(substr(as.character(recent_cutoff_ym), 1, 4)), "last_year", "prior")) |>
         group_by(kingdom, phylum, class, order, family, era) |>
         summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
         pivot_wider(names_from = era, values_from = occurrences, values_fill = 0)
