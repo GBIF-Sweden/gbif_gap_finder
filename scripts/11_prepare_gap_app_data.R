@@ -545,6 +545,30 @@ if (!is.null(time_summary)) {
   cli_alert_success("Time summary 10km: {nrow(shiny_data$time_summary_10km)} rows")
 }
 
+# Order × time summary (for taxonomy-filtered temporal charts)
+order_time_summary <- safe_read(here(p_derived, "order_time_summary_10km.csv"))
+if (!is.null(order_time_summary)) {
+  shiny_data$order_time_summary <- as_tibble(order_time_summary) |>
+    mutate(
+      yearmonth_chr = str_trim(as.character(yearmonth)),
+      year = as.integer(str_sub(yearmonth_chr, 1, 4)),
+      month = as.integer(str_sub(yearmonth_chr, 6, 7))
+    )
+  cli_alert_success("Order time summary 10km: {nrow(shiny_data$order_time_summary)} rows")
+}
+
+# Family × time summary (for family-level temporal filtering)
+family_time_summary <- safe_read(here(p_derived, "family_time_summary_10km.csv"))
+if (!is.null(family_time_summary)) {
+  shiny_data$family_time_summary <- as_tibble(family_time_summary) |>
+    mutate(
+      yearmonth_chr = str_trim(as.character(yearmonth)),
+      year = as.integer(str_sub(yearmonth_chr, 1, 4)),
+      month = as.integer(str_sub(yearmonth_chr, 6, 7))
+    )
+  cli_alert_success("Family time summary 10km: {nrow(shiny_data$family_time_summary)} rows")
+}
+
 # ===========================================================================
 # 8b. "LAST YEAR" DATA LAYER (2025 vs prior)
 # ===========================================================================
@@ -786,6 +810,59 @@ if (!is.null(match_summary) && !is.null(shiny_data$time_summary_10km)) {
 
     shiny_data$troudet_bias_order <- troudet_order
     cli_alert_success("Troudet bias by order: {nrow(troudet_order)} orders")
+
+    # Also compute at family level for drill-down
+    family_time_raw <- safe_read(here(p_derived, "family_time_summary_10km.csv"))
+    if (!is.null(family_time_raw)) {
+      order_to_family <- match_summary |>
+        as_tibble() |>
+        filter(!is.na(family), family != "", !is.na(order), order != "") |>
+        distinct(kingdom, phylum, class, order, family)
+
+      occ_by_family <- family_time_raw |>
+        as_tibble() |>
+        filter(basisofrecord == "all") |>
+        mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4))) |>
+        inner_join(order_to_family, by = c("order", "family")) |>
+        mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+        group_by(kingdom, phylum, class, order, family, era) |>
+        summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+        pivot_wider(names_from = era, values_from = occurrences, values_fill = 0)
+
+      if (!"prior" %in% names(occ_by_family)) occ_by_family$prior <- 0
+      if (!"last_year" %in% names(occ_by_family)) occ_by_family$last_year <- 0
+
+      known_by_family <- match_summary |>
+        as_tibble() |>
+        filter(!is.na(family), family != "") |>
+        group_by(kingdom, phylum, class, order, family) |>
+        summarise(
+          n_known_species = n(),
+          n_in_gbif = sum(matched_any, na.rm = TRUE),
+          .groups = "drop"
+        )
+
+      troudet_family <- known_by_family |>
+        left_join(occ_by_family, by = c("kingdom", "phylum", "class", "order", "family")) |>
+        mutate(
+          prior = replace_na(prior, 0),
+          last_year = replace_na(last_year, 0),
+          total_occ = prior + last_year,
+          total_known = sum(n_known_species),
+          total_occ_all = sum(total_occ),
+          pct_known = n_known_species / total_known,
+          ideal_occ = pct_known * total_occ_all,
+          bias = total_occ - ideal_occ
+        ) |>
+        select(kingdom, phylum, class, order, family,
+               n_known_species, n_in_gbif,
+               occ_prior = prior, occ_last_year = last_year, total_occ,
+               ideal_occ, bias) |>
+        arrange(desc(abs(bias)))
+
+      shiny_data$troudet_bias_family <- troudet_family
+      cli_alert_success("Troudet bias by family: {nrow(troudet_family)} families")
+    }
 
   } else {
     cli_alert_warning("order_temporal_trends.csv not found — Troudet bias data not computed")
