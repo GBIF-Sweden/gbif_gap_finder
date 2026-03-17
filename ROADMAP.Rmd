@@ -40,27 +40,32 @@ The full pipeline runs end-to-end for Sweden:
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Data ingestion (scripts 01–04) | ✅ Complete | EEA grids, Dyntaxa, GBIF cubes |
+| Data ingestion (scripts 01–04) | ✅ Complete | EEA grids, Dyntaxa, GBIF cubes, GADM admin boundaries |
 | Validation (script 05) | ✅ Complete | Automated QA report |
-| Core summaries (scripts 06a, 06b) | ✅ Complete | Cell, time, order, species level |
+| Core summaries (scripts 06a, 06b) | ✅ Complete | Cell, time, order, family, species level |
 | Spatial gaps (script 07) | ✅ Complete | Coverage, hotspots, zero-data cells |
 | Temporal gaps (script 08) | ✅ Complete | Recency, seasonality, trends |
 | Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, 99.8% occurrence coverage |
 | Taxonomic gaps (script 09b) | ✅ Complete | Missing taxa, threat coverage, priorities |
 | Integration (script 10) | ✅ Complete | Combined overview tables |
-| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Dark theme, glassmorphism, interactive |
-| Biodiversity Explorer app (script 12 + Shiny) | ✅ Complete | Species search, maps, phenology |
-| R Markdown reports (analysis 01–07) | ✅ Complete | 7 reports including QA review |
+| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Cascading taxonomy filters, Troudet bias, admin overlays, 12-month window |
+| Biodiversity Explorer app (script 12 + Shiny) | 🔄 In progress | Region selector added; needs UI polish |
+| R Markdown reports (analysis 01–07) | ✅ Complete | 7 reports with consistent palette and admin overlays |
 | targets pipeline | ✅ Complete | Full DAG with `tar_make()` |
-| Configuration system | ✅ Complete | `config.yml` with country-specific templates |
+| Configuration system | ✅ Complete | `config.yml` with country-specific templates + admin boundaries |
 
 ## Key Technical Achievements
 
 - **Taxonomy reconciliation** went from 31% to 99.8% occurrence coverage through
   a 4-tier matching system (accepted names → synonyms → infraspecific collapse → GBIF API)
+- **Troudet-style sampling bias** analysis at class, order, and family levels with auto-drill
+- **Cascading taxonomy filters** (Kingdom→Phylum→Class→Order→Family) across app tabs
+- **Rolling 12-month window** for "recent activity" highlighting, auto-detected from data
+- **Administrative boundaries** from GADM with map overlays and regional filtering
+- **Consistent visual language** across app and reports (categorical breaks, shared palette)
+- **Smart skip-if-exists** in download script — safe to re-run without re-downloading
 - **Integer overflow protection** across all scripts and reports
 - **Grid system abstraction** scaffolded via `CELLCODE_FIELD` config parameter
-- **Defensive coding patterns** for data.table edge cases, empty subsets, API failures
 - **Persistent API caching** for GBIF Species API results
 
 
@@ -78,11 +83,23 @@ The full pipeline runs end-to-end for Sweden:
 
 ## 1.2 Remaining Sweden Work
 
-- [ ] Verify all 7 Rmd reports render cleanly after pipeline rebuild
-- [ ] Review Rmd 04 compatibility with new 09b output columns
-- [ ] Confirm both Shiny apps launch and display correct data
+- [x] Verify all 7 Rmd reports render cleanly after pipeline rebuild
+- [x] Review Rmd 04 compatibility with new 09b output columns
+- [x] Confirm both Shiny apps launch and display correct data
+- [x] Run package dependency audit (`renv::snapshot()`)
+- [x] Cascading taxonomy filters (Kingdom→Phylum→Class→Order→Family) — gap app
+- [x] Troudet-style taxonomic sampling bias figure — gap app + reports
+- [x] Rolling 12-month window for "recent activity" highlighting — app + reports
+- [x] Administrative boundary overlays (GADM) — both apps + reports
+- [x] Download script skip-if-exists for all data sections
+- [x] Consistent categorical color palette across app and reports
+- [x] Data staleness/recency maps in spatial report
+- [ ] SpeciesDistribution.csv integration (native/introduced/invasive scope filtering) — *awaiting red list update*
+- [ ] Explorer app UI polish and regional data filtering
+- [ ] Explorer app Swedish/native language UI (i18n)
+- [ ] PhyloPic taxonomic silhouette icons on charts — *parked for later*
 - [ ] Review Shiny app UX issues (loading spinners, empty states, responsive layout)
-- [ ] Run package dependency audit (`renv::snapshot()`)
+- [ ] 1km grid resolution option — *requires architectural evaluation*
 
 ## 1.3 Code Quality
 
@@ -287,19 +304,27 @@ with a country selector, nightly data refreshes, and consistent branding.
 
 ## Analysis Extensions
 
-- [ ] Sampling bias quantification (accessibility models)
+- [x] Sampling bias quantification (Troudet-style proportional sampling analysis)
 - [ ] Species distribution model coverage gaps
 - [ ] Temporal trend predictions and forecasting
 - [ ] Climate envelope coverage analysis
 - [ ] Cross-country comparison mode
+- [ ] Establishment means filtering (native/introduced/invasive via SpeciesDistribution.csv)
 
 ## App Features
 
+- [x] Administrative boundary overlays on all maps
+- [x] Cascading taxonomy filters across app tabs
+- [x] Troudet-style sampling bias analysis with auto-drill
+- [x] Rolling 12-month activity window
+- [x] Region/municipality selector in Explorer app
+- [ ] PhyloPic taxonomic silhouette icons on charts
 - [ ] PDF report generation from within apps
 - [ ] Data download buttons for all tables and maps
-- [ ] Multi-language support (i18n) — English, Swedish, Norwegian, etc.
+- [ ] Multi-language support (i18n) — Explorer app: Swedish; Gap app: English only
 - [ ] Country comparison view (side-by-side dashboards)
 - [ ] API endpoint for programmatic gap metric access
+- [ ] Native/introduced/invasive species scope filter (pending SpeciesDistribution.csv integration)
 
 ## Community
 
@@ -316,7 +341,8 @@ with a country selector, nightly data refreshes, and consistent branding.
 3. **Data freshness** — How often should analyses be re-run?
 4. **Central hosting** — Will GBIF Secretariat host a multi-country instance?
 5. **Branding** — Should apps be GBIF-branded or node-branded?
-6. **Languages** — Is multi-language support needed from launch?
+6. **1km resolution** — Is sub-10km resolution needed? Major architectural implications for data volume.
+7. **SpeciesDistribution scope** — How to handle native vs introduced vs invasive species across countries with different taxonomy systems?
 
 
 # Timeline
