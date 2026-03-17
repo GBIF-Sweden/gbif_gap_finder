@@ -1346,27 +1346,40 @@ cat("5. **Investigate declining orders** and address data collection gaps\n\n")
 
 ---
 
-# 6. Last Year Highlights
+# 6. Last 12 Months Highlights
 
 ```{r ly-tax-load}
 order_temporal_ly <- safe_read(here(p_integrated, "order_temporal_trends.csv"))
 time_summary_tax <- safe_read(here(p_derived, "time_summary_10km.csv"))
 
-last_full_year <- NULL
+recent_cutoff_ym <- NULL
+recent_label <- NULL
+
 if (!is.null(time_summary_tax)) {
   ts_t <- time_summary_tax |> as_tibble() |>
     filter(basisofrecord == "all") |>
-    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
-  ym_ct <- ts_t |> group_by(year) |>
-    summarise(n_m = n_distinct(str_sub(as.character(yearmonth), 6, 7)), .groups = "drop")
-  cands <- ym_ct |> filter(n_m >= 6) |> pull(year)
-  last_full_year <- if (length(cands) > 0) max(cands) else max(ts_t$year)
+    mutate(yearmonth_int = as.integer(gsub("-", "", yearmonth)))
+
+  all_ym <- sort(unique(ts_t$yearmonth_int))
+  if (length(all_ym) > 0) {
+    latest_ym <- max(all_ym)
+    latest_year <- as.integer(substr(as.character(latest_ym), 1, 4))
+    latest_month <- as.integer(substr(as.character(latest_ym), 5, 6))
+    cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-% months(11)
+    recent_cutoff_ym <- as.integer(format(cutoff_date, "%Y%m"))
+    recent_label <- paste0(format(cutoff_date, "%b %Y"), " – ",
+      format(as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")), "%b %Y"))
+  }
 }
-if (is.null(last_full_year)) last_full_year <- year(Sys.Date()) - 1
-ly_label <- as.character(last_full_year)
+if (is.null(recent_cutoff_ym)) {
+  recent_cutoff_ym <- as.integer(paste0(year(Sys.Date()) - 1, "01"))
+  recent_label <- paste0(year(Sys.Date()) - 1)
+}
+ly_label <- recent_label
+cutoff_year <- as.integer(substr(as.character(recent_cutoff_ym), 1, 4))
 ```
 
-## 6.1 Taxonomic Bias: Last Year Contribution
+## 6.1 Taxonomic Bias: Recent Contribution
 
 ```{r ly-troudet, fig.height=8, fig.width=12}
 if (!is.null(match_summary) && !is.null(order_temporal_ly)) {
@@ -1381,7 +1394,7 @@ if (!is.null(match_summary) && !is.null(order_temporal_ly)) {
 
   occ_cls <- order_temporal_ly |> as_tibble() |>
     inner_join(order_to_class, by = "order") |>
-    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    mutate(era = ifelse(year >= cutoff_year, "last_year", "prior")) |>
     group_by(kingdom, class, era) |>
     summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
     pivot_wider(names_from = era, values_from = occ, values_fill = 0)
@@ -1418,12 +1431,12 @@ if (!is.null(match_summary) && !is.null(order_temporal_ly)) {
 }
 ```
 
-## 6.2 Top Orders by Last Year Activity
+## 6.2 Top Orders by Recent Activity
 
 ```{r ly-orders, fig.height=6, fig.width=12}
 if (!is.null(order_temporal_ly)) {
   ord_ly <- order_temporal_ly |> as_tibble() |>
-    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    mutate(era = ifelse(year >= cutoff_year, "last_year", "prior")) |>
     group_by(order, era) |>
     summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
     pivot_wider(names_from = era, values_from = occ, values_fill = 0)
@@ -1443,7 +1456,7 @@ if (!is.null(order_temporal_ly)) {
     scale_fill_manual(values = c("Prior years" = "#2A9D8F", setNames("#E76F51", ly_label)),
                       name = NULL) +
     scale_x_continuous(labels = comma) +
-    labs(title = paste0("Top 15 Orders by ", ly_label, " Data Volume"),
+    labs(title = paste0("Top 15 Orders by Recent Data Volume (", ly_label, ")"),
          x = "Occurrences", y = NULL) +
     theme(legend.position = "bottom")
 }
