@@ -1346,6 +1346,111 @@ cat("5. **Investigate declining orders** and address data collection gaps\n\n")
 
 ---
 
+# 6. Last Year Highlights
+
+```{r ly-tax-load}
+order_temporal_ly <- safe_read(here(p_integrated, "order_temporal_trends.csv"))
+time_summary_tax <- safe_read(here(p_derived, "time_summary_10km.csv"))
+
+last_full_year <- NULL
+if (!is.null(time_summary_tax)) {
+  ts_t <- time_summary_tax |> as_tibble() |>
+    filter(basisofrecord == "all") |>
+    mutate(year = as.integer(str_sub(as.character(yearmonth), 1, 4)))
+  ym_ct <- ts_t |> group_by(year) |>
+    summarise(n_m = n_distinct(str_sub(as.character(yearmonth), 6, 7)), .groups = "drop")
+  cands <- ym_ct |> filter(n_m >= 6) |> pull(year)
+  last_full_year <- if (length(cands) > 0) max(cands) else max(ts_t$year)
+}
+if (is.null(last_full_year)) last_full_year <- year(Sys.Date()) - 1
+ly_label <- as.character(last_full_year)
+```
+
+## 6.1 Taxonomic Bias: Last Year Contribution
+
+```{r ly-troudet, fig.height=8, fig.width=12}
+if (!is.null(match_summary) && !is.null(order_temporal_ly)) {
+  order_to_class <- match_summary |> as_tibble() |>
+    filter(!is.na(class), class != "", !is.na(order), order != "") |>
+    distinct(kingdom, phylum, class, order)
+
+  known_cls <- match_summary |> as_tibble() |>
+    filter(!is.na(class), class != "") |>
+    group_by(kingdom, class) |>
+    summarise(n_known = n(), .groups = "drop")
+
+  occ_cls <- order_temporal_ly |> as_tibble() |>
+    inner_join(order_to_class, by = "order") |>
+    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    group_by(kingdom, class, era) |>
+    summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occ, values_fill = 0)
+
+  if (!"prior" %in% names(occ_cls)) occ_cls$prior <- 0
+  if (!"last_year" %in% names(occ_cls)) occ_cls$last_year <- 0
+
+  troudet_rpt <- known_cls |>
+    left_join(occ_cls, by = c("kingdom", "class")) |>
+    mutate(prior = replace_na(prior, 0), last_year = replace_na(last_year, 0),
+           total_occ = prior + last_year,
+           total_known = sum(n_known),
+           ideal = (n_known / total_known) * sum(total_occ),
+           bias = total_occ - ideal) |>
+    arrange(desc(abs(bias))) |> slice_head(n = 20)
+
+  troudet_long <- troudet_rpt |>
+    mutate(bias_prior = prior - ideal, bias_ly = last_year) |>
+    select(class, bias_prior, bias_ly) |>
+    pivot_longer(c(bias_prior, bias_ly), names_to = "era", values_to = "value") |>
+    mutate(era = factor(era, levels = c("bias_prior", "bias_ly"),
+                        labels = c("Prior years", ly_label)))
+
+  ggplot(troudet_long, aes(x = value, y = fct_reorder(class, value, .fun = sum), fill = era)) +
+    geom_col(alpha = 0.9) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+    scale_fill_manual(values = c("Prior years" = "#457B9D", setNames("#E76F51", ly_label)),
+                      name = NULL) +
+    scale_x_continuous(labels = comma) +
+    labs(title = "Taxonomic Bias in Occurrence Data",
+         subtitle = paste0("Deviation from proportional sampling | ", ly_label, " contribution highlighted"),
+         x = "Deviation from ideal (occurrences)", y = NULL) +
+    theme(legend.position = "bottom")
+}
+```
+
+## 6.2 Top Orders by Last Year Activity
+
+```{r ly-orders, fig.height=6, fig.width=12}
+if (!is.null(order_temporal_ly)) {
+  ord_ly <- order_temporal_ly |> as_tibble() |>
+    mutate(era = ifelse(year == last_full_year, "last_year", "prior")) |>
+    group_by(order, era) |>
+    summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occ, values_fill = 0)
+
+  if (!"prior" %in% names(ord_ly)) ord_ly$prior <- 0
+  if (!"last_year" %in% names(ord_ly)) ord_ly$last_year <- 0
+
+  top_ord <- ord_ly |> arrange(desc(last_year)) |> slice_head(n = 15)
+
+  top_long <- top_ord |>
+    pivot_longer(c(prior, last_year), names_to = "era", values_to = "occ") |>
+    mutate(era = factor(era, levels = c("prior", "last_year"),
+                        labels = c("Prior years", ly_label)))
+
+  ggplot(top_long, aes(x = occ, y = fct_reorder(order, occ, .fun = sum), fill = era)) +
+    geom_col(alpha = 0.9) +
+    scale_fill_manual(values = c("Prior years" = "#2A9D8F", setNames("#E76F51", ly_label)),
+                      name = NULL) +
+    scale_x_continuous(labels = comma) +
+    labs(title = paste0("Top 15 Orders by ", ly_label, " Data Volume"),
+         x = "Occurrences", y = NULL) +
+    theme(legend.position = "bottom")
+}
+```
+
+---
+
 # Session Info
 
 ```{r session-info}
