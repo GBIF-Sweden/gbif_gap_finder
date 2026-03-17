@@ -11,8 +11,12 @@ This project analyses GBIF occurrence data for a given country to identify:
 - **Spatial gaps** — areas with missing or insufficient sampling coverage
 - **Temporal gaps** — time periods with reduced or absent data collection
 - **Taxonomic gaps** — species groups under-represented in the data
+- **Sampling bias** — Troudet-style analysis of taxonomic representation vs. proportional sampling
+- **Recent activity** — rolling 12-month window highlighting new data contributions
 
 The analysis uses EEA reference grids (10 km and 50 km) with EPSG:3035 (ETRS89-LAEA) projection. Grid systems are configurable for non-European countries.
+
+Administrative boundaries from GADM are optionally downloaded and overlaid on maps for regional context (regions, municipalities).
 
 ## Project Structure
 
@@ -48,6 +52,7 @@ gbif_gap_analysis/
 │   ├── 06_integrated_report.Rmd        # Combined assessment
 │   └── 07_taxonomy_reconciliation_qa.Rmd  # Reconciliation review & overrides
 ├── data_raw/                # Raw input data (not in git)
+│   └── admin/              # GADM administrative boundaries (auto-downloaded)
 ├── data_proc/               # Processed data (derived/, gaps/)
 ├── output/                  # Summary tables and figures
 ├── docs/                    # Metrics definitions and documentation
@@ -125,10 +130,11 @@ source("scripts/12_prepare_explorer_app_data.R")  # GBIF Explorer app
 ## Adapting for Another Country
 
 1. Copy `config.yml` and update the `country`, `taxonomy`, and `redlist` sections
-2. Point `paths` to your raw data directories
-3. Update `files` with your actual file names
-4. Adjust `parameters.crs` if not using EEA grids (EPSG:3035)
-5. Run the pipeline from script 01
+2. Set `admin_boundaries.country_code_iso3` to your country's ISO3 code (e.g. `"ETH"` for Ethiopia)
+3. Point `paths` to your raw data directories
+4. Update `files` with your actual file names
+5. Adjust `parameters.crs` if not using EEA grids (EPSG:3035)
+6. Run the pipeline from script 01 — admin boundaries, grids, taxonomy, and cubes download automatically
 
 See `ROADMAP.md` → Phase 2 for the full abstraction plan.
 
@@ -141,6 +147,12 @@ country:
   code: "SE"
   name: "Sweden"
 
+# Administrative boundaries (optional — for map overlays and regional filtering)
+admin_boundaries:
+  enabled: true
+  country_code_iso3: "SWE"       # ISO 3166-1 alpha-3 (for GADM)
+  levels: [1, 2]                 # 1 = regions, 2 = municipalities
+
 parameters:
   crs: 3035                          # ETRS89-LAEA (EEA standard)
   processing:
@@ -148,20 +160,27 @@ parameters:
     low_memory_mode: false           # Set true for <16 GB RAM
 ```
 
+### Administrative Boundaries
+
+When `admin_boundaries.enabled: true`, script 01 downloads GADM boundary data for the configured country. These are used as map overlays in both the Gap Analysis and Explorer apps, and for regional filtering in the Explorer app. The ISO3 country code is auto-derived from the two-letter code for common countries, or can be set explicitly via `country_code_iso3`.
+
 ## Requirements
 
 - R >= 4.1.0
 - ~16 GB RAM recommended (8 GB minimum with `low_memory_mode: true`)
 - ~50 GB disk space for full pipeline
 
+Key packages: `sf`, `data.table`, `dplyr`, `ggplot2`, `plotly`, `leaflet`, `shiny`, `rgbif`, `geodata` (for admin boundaries). Full dependency list managed via `renv`.
+
 ## Data Sources (Sweden defaults)
 
-| Source | Description | DOI |
-|--------|-------------|-----|
+| Source | Description | DOI/Link |
+|--------|-------------|----------|
 | GBIF Occurrence Cubes | Species data on EEA grids | [10km](https://doi.org/10.15468/dl.wzv3uc), [50km](https://doi.org/10.15468/dl.qyp3uw) |
 | Dyntaxa | Swedish taxonomic backbone | [10.15468/j43wfc](https://doi.org/10.15468/j43wfc) |
 | Swedish Red List | Threat status | [10.15468/jhwkpq](https://doi.org/10.15468/jhwkpq) |
 | EEA Reference Grids | 10 km and 50 km in EPSG:3035 | [EEA GeoNetwork](https://sdi.eea.europa.eu/) |
+| GADM | Administrative boundaries (regions, municipalities) | [gadm.org](https://gadm.org/) |
 
 ## License
 
