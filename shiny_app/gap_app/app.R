@@ -58,6 +58,11 @@ comparison_grids <- safe_get("comparison_grids")
 metadata        <- safe_get("metadata")
 spatial_overview <- safe_get("spatial_overview")
 
+# Administrative boundaries (optional)
+admin_level1     <- safe_get("admin_level1")
+admin_level2     <- safe_get("admin_level2")
+has_admin        <- !is.null(admin_level1) || !is.null(admin_level2)
+
 # New: last year & Troudet data
 cell_last_year       <- safe_get("cell_last_year")
 overview_last_year   <- safe_get("overview_last_year")
@@ -293,6 +298,11 @@ ui <- fluidPage(
                     c("Occurrences", "Data recency",
                       "Species richness", paste0(last_year_label, " additions"))),
                   selected = "occ")),
+              if (has_admin) div(class = "card",
+                div(class = "card-title", icon("border-all"), "Administrative Boundaries"),
+                if (!is.null(admin_level1)) checkboxInput("show_admin1", "Show regions", value = FALSE),
+                if (!is.null(admin_level2)) checkboxInput("show_admin2", "Show municipalities", value = FALSE)
+              ),
               div(class = "card",
                 div(class = "card-title", icon("info-circle"), "Statistics"),
                 tableOutput("spatial_stats")))
@@ -1114,6 +1124,52 @@ server <- function(input, output, session) {
           fillOpacity = 0.7, weight = 0.3, color = "#999",
           popup       = popup_fn) |>
         addLegend("bottomright", pal = occ_pal, values = ~occ_cat, title = "Occurrences")
+    }
+  })
+
+  # Admin boundary overlay (independent observe — doesn't redraw the main map)
+  observe({
+    req(grid_10km)
+    proxy <- leafletProxy("spatial_map")
+    proxy |> clearGroup("admin1") |> clearGroup("admin2")
+
+    if (!is.null(admin_level1) && !is.null(input$show_admin1) && input$show_admin1) {
+      proxy |> addPolygons(
+        data = admin_level1, group = "admin1",
+        fillColor = "transparent", fillOpacity = 0,
+        weight = 2, color = "#333", opacity = 0.6,
+        label = ~admin_name,
+        labelOptions = labelOptions(
+          style = list("font-size" = "12px", "font-weight" = "bold"),
+          direction = "auto"))
+    }
+
+    if (!is.null(admin_level2) && !is.null(input$show_admin2) && input$show_admin2) {
+      proxy |> addPolygons(
+        data = admin_level2, group = "admin2",
+        fillColor = "transparent", fillOpacity = 0,
+        weight = 1, color = "#666", opacity = 0.4,
+        dashArray = "3,3",
+        label = ~admin_name,
+        labelOptions = labelOptions(
+          style = list("font-size" = "11px"),
+          direction = "auto"))
+    }
+  })
+
+  # Also overlay on priority maps
+  observe({
+    if (!is.null(admin_level1) && !is.null(input$show_admin1) && input$show_admin1) {
+      for (map_id in c("zero_map", "stale_map")) {
+        leafletProxy(map_id) |> clearGroup("admin1") |>
+          addPolygons(data = admin_level1, group = "admin1",
+            fillColor = "transparent", fillOpacity = 0,
+            weight = 2, color = "#333", opacity = 0.6,
+            label = ~admin_name)
+      }
+    } else {
+      leafletProxy("zero_map") |> clearGroup("admin1")
+      leafletProxy("stale_map") |> clearGroup("admin1")
     }
   })
 

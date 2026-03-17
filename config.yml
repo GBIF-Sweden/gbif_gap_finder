@@ -21,6 +21,15 @@ country:
   timezone: "Europe/Stockholm"     # Used for Sys.setenv(TZ=...)
 
 # ============================================================================
+# Administrative Boundaries (optional — for map overlays and regional filtering)
+# ============================================================================
+admin_boundaries:
+  enabled: true
+  country_code_iso3: "SWE"         # ISO 3166-1 alpha-3 (for GADM downloads)
+  levels: [1, 2]                   # 1 = regions/län, 2 = municipalities/kommuner
+  force_download: false            # Set true to re-download even if files exist
+
+# ============================================================================
 # National Taxonomy Backbone (primary reference)
 # ============================================================================
 taxonomy:

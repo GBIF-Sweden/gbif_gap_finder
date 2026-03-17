@@ -58,6 +58,17 @@ species_choices <- if (!is.null(species_lookup)) {
 
 country_name <- tryCatch(yaml::read_yaml("../../config.yml")$country$name, error = function(e) "")
 
+# Administrative boundaries and cell lookup (for regional filtering)
+admin_level1     <- safe_get("admin_level1")
+admin_level2     <- safe_get("admin_level2")
+cell_admin       <- safe_get("cell_admin_lookup")
+has_admin        <- !is.null(admin_level1) && !is.null(cell_admin)
+
+# Region choices for dropdown
+region_choices <- if (has_admin && "admin_name_level1" %in% names(cell_admin)) {
+  c("All regions" = "", sort(unique(na.omit(cell_admin$admin_name_level1))))
+} else character(0)
+
 # Palette
 pal <- list(
   sage  = "#6b8f71", sage2 = "#8ab090",
@@ -98,10 +109,18 @@ ui <- fluidPage(
       div(class = "main-subtitle", "Explore species occurrences, distributions, and biodiversity patterns")
     ),
     div(class = "header-stats",
-      if (!is.null(species_lookup)) tagList(
-        span("Species: ", span(class = "header-stat-value", comma(length(species_choices)))),
-        span("Prepared: ", span(class = "header-stat-value",
-          if (!is.null(metadata)) format(metadata$created_at, "%d %b %Y") else "?"))
+      div(style = "display:flex; align-items:center; gap:1.5rem;",
+        if (!is.null(species_lookup)) tagList(
+          span("Species: ", span(class = "header-stat-value", comma(length(species_choices)))),
+          span("Prepared: ", span(class = "header-stat-value",
+            if (!is.null(metadata)) format(metadata$created_at, "%d %b %Y") else "?"))
+        ),
+        if (has_admin) div(style = "display:flex; align-items:center; gap:0.4rem;",
+          span(style = "font-size:0.8rem; color:#6b6b6b;", "Region:"),
+          selectInput("region_filter", NULL,
+            choices = region_choices,
+            selected = "",
+            width = "200px"))
       )
     )
   ),
@@ -261,6 +280,23 @@ ui <- fluidPage(
 # =============================================================================
 
 server <- function(input, output, session) {
+
+  # ---- Region filter: cells in selected admin region ----
+  region_cells <- reactive({
+    if (!has_admin || is.null(input$region_filter) || input$region_filter == "") {
+      return(NULL)  # NULL = no filter, show everything
+    }
+    cell_admin |>
+      filter(admin_name_level1 == input$region_filter) |>
+      pull(eeacellcode)
+  })
+
+  # Helper: filter a cell-level data frame by selected region
+  filter_by_region <- function(df, cell_col = "eeacellcode") {
+    cells <- region_cells()
+    if (is.null(cells)) return(df)
+    df |> filter(.data[[cell_col]] %in% cells)
+  }
 
   # ---- Species search: server-side selectize ----
   updateSelectizeInput(session, "species_search",
@@ -527,6 +563,51 @@ server <- function(input, output, session) {
         addProviderTiles(providers$CartoDB.Positron) |>
         addPolygons(fillColor = "#ddd", fillOpacity = 0.3, weight = 0.3, color = "#bbb",
           layerId = ~eeacellcode)
+    }
+  })
+
+  # Admin overlay + region zoom on cell_map
+  observe({
+    proxy <- leafletProxy("cell_map")
+    proxy |> clearGroup("admin1") |> clearGroup("admin_highlight")
+
+    # Always show admin boundaries if available (light outline)
+    if (!is.null(admin_level1)) {
+      proxy |> addPolygons(
+        data = admin_level1, group = "admin1",
+        fillColor = "transparent", fillOpacity = 0,
+        weight = 1.5, color = "#333", opacity = 0.4,
+        label = ~admin_name,
+        labelOptions = labelOptions(
+          style = list("font-size" = "12px", "font-weight" = "bold"),
+          direction = "auto"))
+    }
+
+    # Highlight selected region
+    sel <- input$region_filter
+    if (!is.null(sel) && sel != "" && !is.null(admin_level1)) {
+      region_sf <- admin_level1 |> filter(admin_name == sel)
+      if (nrow(region_sf) > 0) {
+        bbox <- st_bbox(region_sf)
+        proxy |>
+          addPolygons(data = region_sf, group = "admin_highlight",
+            fillColor = "transparent", fillOpacity = 0,
+            weight = 3, color = pal$coral, opacity = 0.8) |>
+          fitBounds(bbox["xmin"], bbox["ymin"], bbox["xmax"], bbox["ymax"])
+      }
+    }
+  })
+
+  # Also overlay on species_map and threat_stale_map
+  observe({
+    if (!is.null(admin_level1)) {
+      for (map_id in c("species_map", "threat_stale_map")) {
+        leafletProxy(map_id) |> clearGroup("admin1") |>
+          addPolygons(data = admin_level1, group = "admin1",
+            fillColor = "transparent", fillOpacity = 0,
+            weight = 1.5, color = "#333", opacity = 0.3,
+            label = ~admin_name)
+      }
     }
   })
 

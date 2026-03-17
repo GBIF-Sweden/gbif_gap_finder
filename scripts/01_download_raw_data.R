@@ -230,23 +230,30 @@ eea_10km_url <- cfg_get(
   ""
 )
 eea_10km_zip <- here(dir_grids_10km, "grid_10km.zip")
+grid_10km_file <- cfg_get("files.grids.grid10km", "")
 
-cli_alert_info(
-  "Note: EEA grid downloads may require manual intervention."
-)
-cli_alert_info(
- "If automated download fails, see EEA GeoNetwork."
-)
-
-cat("\nAttempt automated download of 10km grid? (y/n): ")
-if (interactive() && tolower(readline()) == "y") {
-  download_file_safely(eea_10km_url, eea_10km_zip)
-  if (file.exists(eea_10km_zip)) {
-    unzip_safely(eea_10km_zip, dir_grids_10km)
-    file.remove(eea_10km_zip)
-  }
+if (grid_10km_file != "" && file.exists(here(dir_grids_10km, grid_10km_file))) {
+  cli_alert_info("10km grid already exists: {.path {grid_10km_file}} — skipping")
+} else if (length(list.files(dir_grids_10km, pattern = "\\.(shp|gpkg)$")) > 0) {
+  cli_alert_info("10km grid files found in {.path {dir_grids_10km}} — skipping")
 } else {
-  cli_alert_info("Skipping \u2014 add files manually if needed")
+  cli_alert_info(
+    "Note: EEA grid downloads may require manual intervention."
+  )
+  cli_alert_info(
+   "If automated download fails, see EEA GeoNetwork."
+  )
+
+  cat("\nAttempt automated download of 10km grid? (y/n): ")
+  if (interactive() && tolower(readline()) == "y") {
+    download_file_safely(eea_10km_url, eea_10km_zip)
+    if (file.exists(eea_10km_zip)) {
+      unzip_safely(eea_10km_zip, dir_grids_10km)
+      file.remove(eea_10km_zip)
+    }
+  } else {
+    cli_alert_info("Skipping — add files manually if needed")
+  }
 }
 
 # 50km grid
@@ -261,11 +268,17 @@ eea_50km_file <- here(
   cfg_get("files.grids.grid50km", "EEA_50km_grid_v2024.gpkg")
 )
 
-cat("\nAttempt automated download of 50km grid? (y/n): ")
-if (interactive() && tolower(readline()) == "y") {
-  download_file_safely(eea_50km_url, eea_50km_file)
+if (file.exists(eea_50km_file)) {
+  cli_alert_info("50km grid already exists: {.path {basename(eea_50km_file)}} — skipping")
+} else if (length(list.files(dir_grids_50km, pattern = "\\.(shp|gpkg)$")) > 0) {
+  cli_alert_info("50km grid files found in {.path {dir_grids_50km}} — skipping")
 } else {
-  cli_alert_info("Skipping \u2014 add files manually if needed")
+  cat("\nAttempt automated download of 50km grid? (y/n): ")
+  if (interactive() && tolower(readline()) == "y") {
+    download_file_safely(eea_50km_url, eea_50km_file)
+  } else {
+    cli_alert_info("Skipping — add files manually if needed")
+  }
 }
 
 # ============================================================================
@@ -281,6 +294,9 @@ redlist_export_url <- cfg_get("redlist.export_url", "")
 if (redlist_dataset_key == "" || redlist_export_url == "") {
   cli_alert_warning("Red list not configured in config.yml — skipping download")
   cli_alert_info("Set redlist.dataset_key and redlist.export_url to enable")
+} else if (length(list.files(dir_redlist, pattern = "\\.(txt|csv)$")) > 0) {
+  cli_alert_info("Red list data already exists in {.path {dir_redlist}} — skipping download")
+  cli_alert_info("Delete files and re-run to force re-download")
 } else {
   cli_alert_info("DOI: {redlist_doi}")
 
@@ -310,30 +326,40 @@ if (taxonomy_dataset_key == "" || taxonomy_export_url == "") {
   ))
 }
 
-cli_alert_info("DOI: {taxonomy_doi}")
+if (length(list.files(dir_taxonomy, pattern = "\\.(txt|csv)$")) > 0) {
+  cli_alert_info("Taxonomy data already exists in {.path {dir_taxonomy}} — skipping download")
+  cli_alert_info("Delete files and re-run to force re-download")
+} else {
+  cli_alert_info("DOI: {taxonomy_doi}")
 
-download_gbif_dataset(
-  dataset_key    = taxonomy_dataset_key,
-  export_url     = taxonomy_export_url,
-  dest_dir       = dir_taxonomy,
-  label          = "national_taxonomy"
-)
+  download_gbif_dataset(
+    dataset_key    = taxonomy_dataset_key,
+    export_url     = taxonomy_export_url,
+    dest_dir       = dir_taxonomy,
+    label          = "national_taxonomy"
+  )
+}
 
 # ============================================================================
 # 4. GBIF Occurrence Cubes
 # ============================================================================
 
-cli_h1("4 \u2014 GBIF Occurrence Cubes")
+cli_h1("4 — GBIF Occurrence Cubes")
 
-cli_alert_info(
- "Downloading pre-computed cubes for {country_name}"
-)
-cli_alert_info(
-  "Split by basisOfRecord at 10km and 50km resolution"
-)
-cli_alert_warning(
-  "Downloads can be large (hundreds of MB)"
-)
+existing_cubes <- list.files(dir_cubes, pattern = "\\.csv$")
+if (length(existing_cubes) >= 2) {
+  cli_alert_info("GBIF cube data already exists: {length(existing_cubes)} CSV files in {.path {dir_cubes}} — skipping")
+  cli_alert_info("Delete files and re-run to force re-download")
+} else {
+  cli_alert_info(
+   "Downloading pre-computed cubes for {country_name}"
+  )
+  cli_alert_info(
+    "Split by basisOfRecord at 10km and 50km resolution"
+  )
+  cli_alert_warning(
+    "Downloads can be large (hundreds of MB)"
+  )
 
 basis_types <- c(
   "occurrence", "observation", "humanObservation",
@@ -395,6 +421,99 @@ if (!interactive() || tolower(readline()) == "y") {
   cli_alert_info("Skipping cube downloads")
   cli_alert_info("Using existing files in {.path {dir_cubes}}")
 }
+}  # end of cubes exists check
+
+# ============================================================================
+# 5. Administrative Boundaries (optional — for map overlays)
+# ============================================================================
+
+cli_h1("5 — Administrative Boundaries (GADM)")
+
+admin_enabled <- tryCatch(cfg_get("admin_boundaries.enabled", FALSE), error = function(e) FALSE)
+
+if (admin_enabled) {
+  if (!requireNamespace("geodata", quietly = TRUE)) {
+    cli_alert_warning("Package {.pkg geodata} not installed. Install with install.packages('geodata')")
+  } else {
+    library(geodata)
+    library(sf)
+
+    dir_admin <- here(dir_data_raw, "admin")
+    dir.create(dir_admin, showWarnings = FALSE, recursive = TRUE)
+
+    # Get ISO3 code
+    iso3 <- tryCatch(cfg_get("admin_boundaries.country_code_iso3", ""), error = function(e) "")
+    if (iso3 == "") {
+      # Derive from ISO2
+      iso2_to_iso3 <- c(
+        "SE" = "SWE", "NO" = "NOR", "FI" = "FIN", "DK" = "DNK",
+        "DE" = "DEU", "NL" = "NLD", "GB" = "GBR", "FR" = "FRA",
+        "ES" = "ESP", "IT" = "ITA", "PT" = "PRT", "AT" = "AUT",
+        "CH" = "CHE", "BE" = "BEL", "PL" = "POL", "CZ" = "CZE",
+        "EE" = "EST", "LV" = "LVA", "LT" = "LTU", "IE" = "IRL",
+        "IS" = "ISL", "ET" = "ETH", "KE" = "KEN", "ZA" = "ZAF",
+        "US" = "USA", "CA" = "CAN", "AU" = "AUS", "NZ" = "NZL",
+        "BR" = "BRA", "MX" = "MEX", "CO" = "COL", "JP" = "JPN",
+        "IN" = "IND", "CN" = "CHN"
+      )
+      iso3 <- iso2_to_iso3[country_code]
+      if (is.na(iso3)) {
+        cli_alert_danger("Cannot determine ISO3 code from '{country_code}'. Set admin_boundaries.country_code_iso3 in config.yml.")
+        iso3 <- NULL
+      }
+    }
+
+    levels <- tryCatch(cfg_get("admin_boundaries.levels", c(1, 2)), error = function(e) c(1, 2))
+    force_dl <- tryCatch(cfg_get("admin_boundaries.force_download", FALSE), error = function(e) FALSE)
+
+    if (!is.null(iso3)) {
+      cli_alert_info("Country: {country_name} ({iso3})")
+      cli_alert_info("Levels: {paste(levels, collapse = ', ')}")
+
+      for (lvl in levels) {
+        out_path <- here(dir_admin, paste0("admin_level", lvl, ".gpkg"))
+
+        if (file.exists(out_path) && !force_dl) {
+          cli_alert_info("Level {lvl} already exists: {basename(out_path)}")
+          log_download(paste("Admin level", lvl, "— already exists, skipped"))
+          next
+        }
+
+        tryCatch({
+          gadm_data <- gadm(country = iso3, level = lvl, path = tempdir(),
+                            version = "4.1", resolution = 1)
+          admin_sf <- st_as_sf(gadm_data)
+
+          # Standardize column names
+          name_col <- paste0("NAME_", lvl)
+          gid_col <- paste0("GID_", lvl)
+          type_col <- paste0("TYPE_", lvl)
+
+          admin_sf <- admin_sf |>
+            mutate(
+              admin_name = if (name_col %in% names(admin_sf)) .data[[name_col]] else NA_character_,
+              admin_code = if (gid_col %in% names(admin_sf)) .data[[gid_col]] else NA_character_,
+              admin_type = if (type_col %in% names(admin_sf)) .data[[type_col]] else NA_character_,
+              admin_level = lvl,
+              country = country_name
+            ) |>
+            st_simplify(dTolerance = if (lvl == 1) 1000 else 500) |>
+            select(admin_name, admin_code, admin_type, admin_level, country) |>
+            st_transform(4326)
+
+          st_write(admin_sf, out_path, delete_dsn = TRUE, quiet = TRUE)
+          cli_alert_success("Level {lvl}: {nrow(admin_sf)} units saved")
+          log_download(paste("Admin level", lvl, ":", nrow(admin_sf), "units downloaded"))
+        }, error = function(e) {
+          cli_alert_danger("Failed to download level {lvl}: {e$message}")
+          log_download(paste("ERROR admin level", lvl, ":", e$message))
+        })
+      }
+    }
+  }
+} else {
+  cli_alert_info("Admin boundaries disabled in config.yml — skipping")
+}
 
 # ============================================================================
 # Summary & Metadata
@@ -436,6 +555,11 @@ metadata <- list(
   cubes = list(
     dir   = dir_cubes,
     files = list.files(dir_cubes, pattern = "\\.csv$")
+  ),
+
+  admin_boundaries = list(
+    dir   = if (exists("dir_admin")) dir_admin else "",
+    files = if (exists("dir_admin")) list.files(dir_admin, pattern = "\\.gpkg$") else character(0)
   )
 )
 
