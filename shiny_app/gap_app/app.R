@@ -1494,22 +1494,64 @@ server <- function(input, output, session) {
   # ===================================================================
 
   output$troudet_bias_chart <- renderPlotly({
-    # Auto-detect drill level based on which filters are active
-    has_order <- !is.null(input$tax_order_filter) && input$tax_order_filter != ""
-    has_class <- !is.null(input$tax_class) && input$tax_class != ""
+    # Clean hierarchical drill:
+    # No filter       → kingdoms
+    # Kingdom selected → phyla in that kingdom
+    # Phylum selected  → classes in that phylum
+    # Class selected   → orders in that class
+    # Order selected   → families in that order
+
+    has_kingdom <- !is.null(input$tax_kingdom) && input$tax_kingdom != ""
     has_phylum <- !is.null(input$tax_phylum) && input$tax_phylum != ""
+    has_class <- !is.null(input$tax_class) && input$tax_class != ""
+    has_order <- !is.null(input$tax_order_filter) && input$tax_order_filter != ""
+    has_family <- !is.null(input$tax_family_filter) && input$tax_family_filter != ""
 
-    # Family level: when drilling into a specific order
-    # Order level: when drilling into class or phylum
-    # Class level: default (no filter or just kingdom)
-    troudet_family <- safe_get("troudet_bias_family")
+    troudet_family_data <- safe_get("troudet_bias_family")
 
-    if (has_order && !is.null(troudet_family)) {
-      df <- apply_tax_filters(troudet_family) |> mutate(label = family)
-    } else if ((has_class || has_phylum) && !is.null(troudet_bias_order)) {
+    if (has_order && !is.null(troudet_family_data)) {
+      # Order selected → show families
+      df <- apply_tax_filters(troudet_family_data) |> mutate(label = family)
+    } else if (has_class && !is.null(troudet_bias_order)) {
+      # Class selected → show orders
       df <- apply_tax_filters(troudet_bias_order) |> mutate(label = order)
-    } else if (!is.null(troudet_bias)) {
+    } else if (has_phylum && !is.null(troudet_bias)) {
+      # Phylum selected → show classes
       df <- apply_tax_filters(troudet_bias) |> mutate(label = class)
+    } else if (has_kingdom && !is.null(troudet_bias)) {
+      # Kingdom selected → aggregate to phyla
+      df <- apply_tax_filters(troudet_bias) |>
+        group_by(kingdom, phylum) |>
+        summarise(
+          n_known_species = sum(n_known_species, na.rm = TRUE),
+          n_in_gbif = sum(n_in_gbif, na.rm = TRUE),
+          occ_prior = sum(occ_prior, na.rm = TRUE),
+          occ_last_year = sum(occ_last_year, na.rm = TRUE),
+          total_occ = sum(total_occ, na.rm = TRUE),
+          .groups = "drop") |>
+        mutate(
+          total_known = sum(n_known_species),
+          ideal_occ = (n_known_species / total_known) * sum(total_occ),
+          bias = total_occ - ideal_occ,
+          label = phylum
+        )
+    } else if (!is.null(troudet_bias)) {
+      # No filter → aggregate to kingdoms
+      df <- troudet_bias |>
+        group_by(kingdom) |>
+        summarise(
+          n_known_species = sum(n_known_species, na.rm = TRUE),
+          n_in_gbif = sum(n_in_gbif, na.rm = TRUE),
+          occ_prior = sum(occ_prior, na.rm = TRUE),
+          occ_last_year = sum(occ_last_year, na.rm = TRUE),
+          total_occ = sum(total_occ, na.rm = TRUE),
+          .groups = "drop") |>
+        mutate(
+          total_known = sum(n_known_species),
+          ideal_occ = (n_known_species / total_known) * sum(total_occ),
+          bias = total_occ - ideal_occ,
+          label = kingdom
+        )
     } else {
       return(plotly_empty() |> plotly_layout())
     }
