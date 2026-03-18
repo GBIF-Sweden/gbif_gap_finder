@@ -45,12 +45,12 @@ The full pipeline runs end-to-end for Sweden:
 | Core summaries (scripts 06a, 06b) | ✅ Complete | Cell, time, order, family, species level |
 | Spatial gaps (script 07) | ✅ Complete | Coverage, hotspots, zero-data cells |
 | Temporal gaps (script 08) | ✅ Complete | Recency, seasonality, trends |
-| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, 99.8% occurrence coverage |
-| Taxonomic gaps (script 09b) | ✅ Complete | Missing taxa, threat coverage, priorities |
+| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, 99.8% occurrence coverage, establishmentMeans |
+| Taxonomic gaps (script 09b) | ✅ Complete | Missing taxa, threat coverage, establishment means coverage |
 | Integration (script 10) | ✅ Complete | Combined overview tables |
-| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Cascading taxonomy filters, Troudet bias, admin overlays, 12-month window |
-| Biodiversity Explorer app (script 12 + Shiny) | 🔄 In progress | Region selector added; needs UI polish |
-| R Markdown reports (analysis 01–07) | ✅ Complete | 7 reports with consistent palette and admin overlays |
+| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Scope filter (native/invasive), Troudet hierarchical drill, priorities with 12-month targets |
+| Biodiversity Explorer app (script 12 + Shiny) | ✅ Complete | i18n (EN/SV), vernacular names, invasive species tab, scope filters |
+| R Markdown reports (analysis 01–08) | ✅ Complete | 8 reports including establishment means analysis |
 | targets pipeline | ✅ Complete | Full DAG with `tar_make()` |
 | Configuration system | ✅ Complete | `config.yml` with country-specific templates + admin boundaries |
 
@@ -58,10 +58,13 @@ The full pipeline runs end-to-end for Sweden:
 
 - **Taxonomy reconciliation** went from 31% to 99.8% occurrence coverage through
   a 4-tier matching system (accepted names → synonyms → infraspecific collapse → GBIF API)
-- **Troudet-style sampling bias** analysis at class, order, and family levels with auto-drill
+- **Establishment means integration** — native/introduced/invasive scope filtering across both apps, Troudet bias by scope, invasive species tab, Rmd report
+- **Troudet-style sampling bias** analysis at class, order, and family levels with hierarchical auto-drill (kingdom→phylum→class→order→family)
 - **Cascading taxonomy filters** (Kingdom→Phylum→Class→Order→Family) across app tabs
 - **Rolling 12-month window** for "recent activity" highlighting, auto-detected from data
 - **Administrative boundaries** from GADM with map overlays and regional filtering
+- **Swedish/English i18n** in the Explorer app with vernacular species names from Dyntaxa
+- **Goal-oriented priorities** with concrete recommended actions and 12-month targets
 - **Consistent visual language** across app and reports (categorical breaks, shared palette)
 - **Smart skip-if-exists** in download script — safe to re-run without re-downloading
 - **Integer overflow protection** across all scripts and reports
@@ -94,9 +97,15 @@ The full pipeline runs end-to-end for Sweden:
 - [x] Download script skip-if-exists for all data sections
 - [x] Consistent categorical color palette across app and reports
 - [x] Data staleness/recency maps in spatial report
-- [ ] SpeciesDistribution.csv integration (native/introduced/invasive scope filtering) — *awaiting red list update*
-- [ ] Explorer app UI polish and regional data filtering
-- [ ] Explorer app Swedish/native language UI (i18n)
+- [x] SpeciesDistribution.csv integration (native/introduced/invasive scope filtering)
+- [x] Explorer app UI polish and regional data filtering
+- [x] Explorer app Swedish/native language UI (i18n)
+- [x] Invasive species tab in Explorer app
+- [x] Scope filter on taxonomic + threatened tabs (both apps)
+- [x] Priorities tab rewrite with goal-oriented actions + 12-month targets
+- [x] Establishment means R Markdown report (08)
+- [ ] Red list update (new version expected — re-run from 09a)
+- [ ] Download script improvements
 - [ ] PhyloPic taxonomic silhouette icons on charts — *parked for later*
 - [ ] Review Shiny app UX issues (loading spinners, empty states, responsive layout)
 - [ ] 1km grid resolution option — *requires architectural evaluation*

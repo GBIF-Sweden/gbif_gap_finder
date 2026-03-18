@@ -1,0 +1,476 @@
+---
+title: "Establishment Means Analysis"
+subtitle: "Native, Introduced, and Invasive Species in GBIF"
+author: "GBIF Gap Analysis Pipeline"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    theme: flatly
+    code_folding: hide
+params:
+  config_file: "config.yml"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 6, dpi = 120
+)
+
+library(here)
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(sf)
+library(knitr)
+library(kableExtra)
+library(lubridate)
+
+source(here("scripts", "00_setup.R"))
+
+# Paths
+p_gaps <- here(p_data_proc, "gaps")
+
+# Load data
+match_summary <- fread(here(p_gaps, "taxonomic_match_summary.csv"))
+grid_10km <- st_read(here(p_data_proc, "grids_10km.gpkg"), quiet = TRUE) |>
+  rename(eeacellcode = CELLCODE)
+
+# Admin boundaries (optional)
+admin_path1 <- here("data_raw", "admin", "admin_level1.gpkg")
+admin_sf <- if (file.exists(admin_path1)) st_read(admin_path1, quiet = TRUE) else NULL
+
+# Cell-admin lookup (for regional analysis, optional)
+cell_admin <- NULL
+gap_data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+if (file.exists(gap_data_path)) {
+  gd <- readRDS(gap_data_path)
+  if ("cell_admin_lookup" %in% names(gd)) cell_admin <- gd$cell_admin_lookup
+  rm(gd); gc()
+}
+
+# Check if establishment means data is available
+has_estab <- "establishmentMeans" %in% names(match_summary)
+has_occ_status <- "occurrenceStatus" %in% names(match_summary)
+
+# Colour palette (matching gap app)
+pal <- list(
+  sage  = "#6b8f71", sage2 = "#8ab090",
+  slate = "#5c7a99", slate2 = "#7d9ab5",
+  sand  = "#c4a882", sand2  = "#d4c0a0",
+  coral = "#c47a6c", coral2 = "#d9a090",
+  plum  = "#8b6d8f"
+)
+
+estab_colors <- c(
+  native = pal$sage, introduced = pal$sand, invasive = pal$coral,
+  naturalised = pal$slate, uncertain = pal$plum, `NA` = "#ccc"
+)
+
+theme_gap <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(color = "#666", size = 11),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+```
+
+# Overview
+
+This report analyses the **establishment means** (native, introduced, invasive, naturalised, uncertain) and **occurrence status** (present, absent, doubtful, irregular) of species in the national taxonomy backbone and their representation in GBIF.
+
+Understanding these categories is essential for:
+
+- Correctly interpreting gap analysis results (absent species should not count as "missing")
+- Prioritising monitoring of native species vs tracking invasive spread
+- Aligning with CBD Kunming-Montreal Global Biodiversity Framework targets (especially Target 6 on invasive species)
+
+```{r overview_table}
+if (has_estab) {
+  estab_summary <- match_summary[, .(
+    species = .N,
+    in_gbif = sum(matched_any, na.rm = TRUE),
+    missing = sum(!matched_any, na.rm = TRUE),
+    coverage_pct = round(100 * sum(matched_any) / .N, 1),
+    total_occ = sum(as.numeric(gbif_total_occ), na.rm = TRUE)
+  ), by = establishmentMeans][order(-species)]
+
+  estab_summary[is.na(establishmentMeans), establishmentMeans := "(unclassified)"]
+
+  kable(estab_summary,
+    col.names = c("Establishment Means", "Species in Backbone", "In GBIF", "Missing", "Coverage %", "Total Occurrences"),
+    format.args = list(big.mark = ","),
+    caption = "Species coverage by establishment means") |>
+    kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+} else {
+  cat("*Establishment means data not available in the current backbone.*")
+}
+```
+
+```{r occ_status_table}
+if (has_occ_status) {
+  occ_summary <- match_summary[, .(
+    species = .N,
+    in_gbif = sum(matched_any, na.rm = TRUE),
+    missing = sum(!matched_any, na.rm = TRUE),
+    coverage_pct = round(100 * sum(matched_any) / .N, 1)
+  ), by = occurrenceStatus][order(-species)]
+
+  occ_summary[is.na(occurrenceStatus) | occurrenceStatus == "", occurrenceStatus := "(unclassified)"]
+
+  kable(occ_summary,
+    col.names = c("Occurrence Status", "Species", "In GBIF", "Missing", "Coverage %"),
+    format.args = list(big.mark = ","),
+    caption = "Species coverage by occurrence status") |>
+    kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+}
+```
+
+# 1. Coverage by Establishment Means
+
+```{r coverage_chart, fig.height=5}
+if (has_estab) {
+  df <- match_summary[, .(
+    n_total = .N,
+    n_gbif = sum(matched_any, na.rm = TRUE)
+  ), by = establishmentMeans]
+  df[is.na(establishmentMeans), establishmentMeans := "(unclassified)"]
+  df[, pct := round(100 * n_gbif / n_total, 1)]
+  df[, estab_label := paste0(establishmentMeans, "\n(n=", comma(n_total), ")")]
+
+  ggplot(df, aes(x = reorder(estab_label, pct), y = pct, fill = establishmentMeans)) +
+    geom_col(width = 0.7) +
+    geom_text(aes(label = paste0(pct, "%")), hjust = -0.1, size = 4) +
+    scale_fill_manual(values = estab_colors, guide = "none") +
+    coord_flip(ylim = c(0, 105)) +
+    labs(title = "GBIF Coverage by Establishment Means",
+         subtitle = "Percentage of backbone species with at least one GBIF occurrence record",
+         x = NULL, y = "Coverage (%)") +
+    theme_gap
+}
+```
+
+The large gap in coverage for **unclassified species** (those without establishment means in the backbone) is a key finding. These `r if(has_estab) comma(match_summary[is.na(establishmentMeans) | establishmentMeans == "", .N])` species are mostly higher taxa (genera, families) or species with unknown origin. They inflate the overall gap numbers significantly.
+
+**Key insight:** When filtering to **native present species only**, GBIF coverage rises from `r round(100 * sum(match_summary$matched_any) / nrow(match_summary), 1)`% to `r if(has_estab) round(100 * sum(match_summary[establishmentMeans == "native" & occurrenceStatus == "present"]$matched_any) / nrow(match_summary[establishmentMeans == "native" & occurrenceStatus == "present"]), 1)`%.
+
+# 2. Cross-tabulation: Establishment Means × Occurrence Status
+
+```{r cross_table}
+if (has_estab && has_occ_status) {
+  cross <- match_summary[, .N, by = .(establishmentMeans, occurrenceStatus)]
+  cross[is.na(establishmentMeans), establishmentMeans := "(unclassified)"]
+  cross[is.na(occurrenceStatus) | occurrenceStatus == "", occurrenceStatus := "(unclassified)"]
+
+  cross_wide <- dcast(cross, establishmentMeans ~ occurrenceStatus, value.var = "N", fill = 0)
+
+  kable(cross_wide,
+    format.args = list(big.mark = ","),
+    caption = "Species count: Establishment Means × Occurrence Status") |>
+    kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+}
+```
+
+# 3. Establishment Means × Threat Status
+
+```{r threat_cross}
+if (has_estab && "threatStatus" %in% names(match_summary)) {
+  threat_estab <- match_summary[
+    threatStatus %in% c("CR", "EN", "VU", "NT", "DD"),
+    .N,
+    by = .(establishmentMeans, threatStatus)
+  ]
+  threat_estab[is.na(establishmentMeans), establishmentMeans := "(unclassified)"]
+  threat_estab[, threatStatus := factor(threatStatus, levels = c("CR", "EN", "VU", "NT", "DD"))]
+
+  ggplot(threat_estab, aes(x = threatStatus, y = N, fill = establishmentMeans)) +
+    geom_col(position = "stack") +
+    scale_fill_manual(values = estab_colors, name = "Establishment") +
+    labs(title = "Threatened Species by Establishment Means",
+         subtitle = "How many threatened species are native vs introduced vs invasive?",
+         x = "Threat Status", y = "Number of species") +
+    theme_gap
+}
+```
+
+```{r threat_estab_table}
+if (has_estab && "threatStatus" %in% names(match_summary)) {
+  te_summary <- match_summary[
+    threatStatus %in% c("CR", "EN", "VU", "NT", "DD"),
+    .(n_species = .N, n_in_gbif = sum(matched_any), pct_coverage = round(100 * sum(matched_any) / .N, 1)),
+    by = .(establishmentMeans, threatStatus)
+  ]
+  te_summary[is.na(establishmentMeans), establishmentMeans := "(unclassified)"]
+  setorder(te_summary, threatStatus, -n_species)
+
+  kable(te_summary,
+    col.names = c("Establishment", "Threat", "Species", "In GBIF", "Coverage %"),
+    format.args = list(big.mark = ","),
+    caption = "Threatened species coverage by establishment means and threat status") |>
+    kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+}
+```
+
+# 4. Taxonomic Representation: Native vs Invasive
+
+```{r tax_representation, fig.height=8}
+if (has_estab) {
+  # Compare species richness by kingdom for native vs invasive
+  tax_comp <- match_summary[
+    establishmentMeans %in% c("native", "introduced", "invasive") & !is.na(kingdom),
+    .(n_species = .N, n_in_gbif = sum(matched_any, na.rm = TRUE)),
+    by = .(kingdom, establishmentMeans)
+  ]
+
+  ggplot(tax_comp, aes(x = reorder(kingdom, n_species), y = n_species, fill = establishmentMeans)) +
+    geom_col(position = "dodge", width = 0.7) +
+    scale_fill_manual(values = estab_colors, name = "Establishment") +
+    coord_flip() +
+    labs(title = "Species Richness by Kingdom and Establishment Means",
+         subtitle = "How are native, introduced, and invasive species distributed across kingdoms?",
+         x = NULL, y = "Number of species") +
+    theme_gap
+}
+```
+
+```{r class_top_invasive, fig.height=7}
+if (has_estab) {
+  # Top classes by invasive species count
+  inv_by_class <- match_summary[
+    establishmentMeans == "invasive" & !is.na(class),
+    .(n_invasive = .N, n_in_gbif = sum(matched_any)),
+    by = class
+  ][order(-n_invasive)][1:min(20, .N)]
+
+  ggplot(inv_by_class, aes(x = reorder(class, n_invasive), y = n_invasive)) +
+    geom_col(fill = pal$coral, width = 0.7) +
+    geom_text(aes(label = n_invasive), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    labs(title = "Top Classes by Number of Invasive Species",
+         subtitle = "Which taxonomic classes have the most invasive species in the backbone?",
+         x = NULL, y = "Invasive species") +
+    theme_gap
+}
+```
+
+# 5. Sampling Bias: Native vs Invasive
+
+Are invasive species over-represented or under-represented in GBIF relative to their species richness?
+
+```{r troudet_estab, fig.height=4}
+if (has_estab) {
+  # Troudet-style analysis by establishment means
+  troudet_estab <- match_summary[
+    establishmentMeans %in% c("native", "introduced", "invasive", "naturalised"),
+    .(n_species = .N, total_occ = sum(as.numeric(gbif_total_occ), na.rm = TRUE)),
+    by = establishmentMeans
+  ]
+  troudet_estab[, total_species := sum(n_species)]
+  troudet_estab[, total_occ_all := sum(total_occ)]
+  troudet_estab[, pct_species := round(100 * n_species / total_species, 1)]
+  troudet_estab[, pct_occ := round(100 * total_occ / total_occ_all, 1)]
+  troudet_estab[, ideal_occ := (n_species / total_species) * total_occ_all]
+  troudet_estab[, bias := total_occ - ideal_occ]
+
+  # Paired bar chart: % of species vs % of occurrences
+  plot_df <- troudet_estab |>
+    select(establishmentMeans, pct_species, pct_occ) |>
+    pivot_longer(cols = c(pct_species, pct_occ), names_to = "metric", values_to = "pct") |>
+    mutate(metric = ifelse(metric == "pct_species", "% of species", "% of occurrences"))
+
+  ggplot(plot_df, aes(x = establishmentMeans, y = pct, fill = metric)) +
+    geom_col(position = "dodge", width = 0.6) +
+    scale_fill_manual(values = c("% of species" = pal$slate, "% of occurrences" = pal$sage), name = NULL) +
+    labs(title = "Sampling Bias by Establishment Means",
+         subtitle = "If sampling were proportional, species % and occurrence % would match",
+         x = NULL, y = "Percentage") +
+    theme_gap
+}
+```
+
+```{r troudet_table}
+if (has_estab) {
+  kable(troudet_estab[, .(establishmentMeans, n_species, total_occ, pct_species, pct_occ,
+                            bias = round(bias))],
+    col.names = c("Establishment", "Species", "Occurrences", "% Species", "% Occurrences", "Bias (occ)"),
+    format.args = list(big.mark = ","),
+    caption = "Troudet-style sampling bias by establishment means") |>
+    kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+}
+```
+
+# 6. Spatial Distribution of Invasive Species
+
+```{r invasive_map, fig.height=8}
+if (has_estab) {
+  # Load cell_species_index from explorer app data (has it pre-built)
+  explorer_data_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
+  gap_data_path_local <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+  
+  csi <- NULL
+  if (file.exists(explorer_data_path)) {
+    ed <- readRDS(explorer_data_path)
+    if ("cell_species_index" %in% names(ed)) csi <- as.data.table(ed$cell_species_index)
+    if ("species_lookup" %in% names(ed)) sl <- as.data.table(ed$species_lookup)
+    rm(ed); gc()
+  } else if (file.exists(gap_data_path_local)) {
+    gd <- readRDS(gap_data_path_local)
+    if ("cell_species_index" %in% names(gd)) csi <- as.data.table(gd$cell_species_index)
+    rm(gd); gc()
+  }
+  
+  if (!is.null(csi)) {
+    # Get invasive species names from match_summary
+    inv_species <- match_summary[establishmentMeans == "invasive" & matched_any == TRUE, scientificName]
+    
+    # cell_species_index uses GBIF species names — match through species_lookup if available
+    if (exists("sl") && !is.null(sl) && "establishmentMeans" %in% names(sl)) {
+      inv_gbif_names <- sl[establishmentMeans == "invasive", species]
+    } else {
+      inv_gbif_names <- inv_species
+    }
+    
+    inv_cells <- csi[species %in% inv_gbif_names,
+      .(n_invasive = uniqueN(species), occ_invasive = sum(as.numeric(occurrences), na.rm = TRUE)),
+      by = eeacellcode]
+    
+    rm(csi); gc()
+    
+    if (nrow(inv_cells) > 0) {
+      map_sf <- grid_10km |>
+        left_join(inv_cells, by = "eeacellcode") |>
+        mutate(n_invasive = replace_na(n_invasive, 0))
+      
+      map_sf <- map_sf |>
+        mutate(inv_cat = case_when(
+          n_invasive == 0 ~ "None",
+          n_invasive <= 1 ~ "1",
+          n_invasive <= 5 ~ "2\u20135",
+          n_invasive <= 10 ~ "6\u201310",
+          TRUE ~ ">10"
+        ), inv_cat = factor(inv_cat, levels = c("None", "1", "2\u20135", "6\u201310", ">10")))
+      
+      inv_cat_colors <- c("None" = "#f0f0f0", "1" = pal$sand, "2\u20135" = pal$coral,
+                           "6\u201310" = "#b03020", ">10" = "#8b2020")
+      
+      p <- ggplot(map_sf) +
+        geom_sf(aes(fill = inv_cat), color = NA) +
+        scale_fill_manual(values = inv_cat_colors, name = "Invasive species") +
+        labs(title = "Spatial Distribution of Invasive Species",
+             subtitle = "Number of invasive species recorded per 10 km grid cell") +
+        theme_gap +
+        theme(axis.text = element_blank(), axis.ticks = element_blank())
+      
+      if (!is.null(admin_sf)) {
+        p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+      }
+      print(p)
+    } else {
+      cat("*No spatial data available for invasive species.*")
+    }
+  } else {
+    cat("*Cell-species index not available. Run script 12 to generate explorer app data.*")
+  }
+}
+```
+
+# 7. Native Species: Coverage Gaps by Order
+
+```{r native_gaps_order, fig.height=8}
+if (has_estab) {
+  native_by_order <- match_summary[
+    establishmentMeans == "native" & occurrenceStatus == "present" & !is.na(order),
+    .(n_species = .N, n_in_gbif = sum(matched_any), n_missing = sum(!matched_any),
+      pct_coverage = round(100 * sum(matched_any) / .N, 1)),
+    by = order
+  ][order(-n_missing)][1:min(25, .N)]
+
+  ggplot(native_by_order, aes(x = reorder(order, n_missing), y = n_missing)) +
+    geom_col(fill = pal$sage, width = 0.7) +
+    geom_text(aes(label = paste0(n_missing, " (", pct_coverage, "%)")), hjust = -0.1, size = 3) +
+    coord_flip() +
+    labs(title = "Native Species Missing from GBIF — Top Orders",
+         subtitle = "Number missing (coverage %) for native, present species",
+         x = NULL, y = "Native species missing from GBIF") +
+    theme_gap
+}
+```
+
+# 8. Invasive Species: Monitoring Gaps
+
+```{r invasive_missing, fig.height=6}
+if (has_estab) {
+  inv_missing <- match_summary[
+    establishmentMeans == "invasive" & !matched_any,
+    .(scientificName, kingdom, class, order, family, threatStatus, occurrenceStatus)
+  ]
+
+  if (nrow(inv_missing) > 0) {
+    cat(paste0("**", nrow(inv_missing), " invasive species** in the backbone have no GBIF records.\n\n"))
+
+    inv_missing_by_class <- inv_missing[!is.na(class), .N, by = class][order(-N)]
+
+    ggplot(inv_missing_by_class[1:min(15, .N)],
+           aes(x = reorder(class, N), y = N)) +
+      geom_col(fill = pal$coral, width = 0.7) +
+      coord_flip() +
+      labs(title = "Invasive Species Missing from GBIF — by Class",
+           x = NULL, y = "Missing invasive species") +
+      theme_gap
+  } else {
+    cat("All invasive species in the backbone have at least one GBIF record.")
+  }
+}
+```
+
+```{r invasive_missing_table}
+if (has_estab && nrow(inv_missing) > 0) {
+  kable(inv_missing[1:min(50, nrow(inv_missing))],
+    caption = paste0("Invasive species missing from GBIF (showing first ",
+                      min(50, nrow(inv_missing)), " of ", nrow(inv_missing), ")")) |>
+    kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE, font_size = 11)
+}
+```
+
+# 9. Summary and Recommendations
+
+```{r summary_stats}
+if (has_estab) {
+  n_native <- match_summary[establishmentMeans == "native", .N]
+  n_native_present <- match_summary[establishmentMeans == "native" & occurrenceStatus == "present", .N]
+  n_native_cov <- round(100 * match_summary[establishmentMeans == "native" & occurrenceStatus == "present", sum(matched_any)] / n_native_present, 1)
+  n_invasive <- match_summary[establishmentMeans == "invasive", .N]
+  n_invasive_cov <- round(100 * match_summary[establishmentMeans == "invasive", sum(matched_any)] / n_invasive, 1)
+  n_invasive_missing <- match_summary[establishmentMeans == "invasive" & !matched_any, .N]
+  n_unclassified <- match_summary[is.na(establishmentMeans) | establishmentMeans == "", .N]
+}
+```
+
+`r if(has_estab) paste0("**Key findings:**")`
+
+`r if(has_estab) paste0("- **", comma(n_native_present), "** native present species — ", n_native_cov, "% have GBIF records")`
+
+`r if(has_estab) paste0("- **", comma(n_invasive), "** invasive species — ", n_invasive_cov, "% have GBIF records, **", n_invasive_missing, "** lack any data")`
+
+`r if(has_estab) paste0("- **", comma(n_unclassified), "** species lack establishment means classification — these inflate gap numbers (only 6% have GBIF records)")`
+
+**Recommendations:**
+
+1. **Use scoped metrics:** When reporting coverage statistics, filter to "native present" species for conservation-relevant numbers. The overall 48% coverage figure is misleading because it includes absent, doubtful, and unclassified species.
+
+2. **Monitor invasive species:** `r if(has_estab) n_invasive_missing` invasive species have no GBIF occurrence data. These represent blind spots for invasion monitoring and should be prioritised for targeted surveys.
+
+3. **Classify unknown species:** `r if(has_estab) comma(n_unclassified)` species lack establishment means. Improving this classification in the national backbone would immediately improve the precision of gap analysis results.
+
+4. **Align with CBD Target 6:** Track the rate of invasive species establishment using GBIF occurrence data. The spatial map in Section 6 provides a baseline for monitoring invasive spread over time.
+
+---
+
+*Report generated by the gbifgaps pipeline. See `ROADMAP.md` for development plans.*
