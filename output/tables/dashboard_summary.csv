@@ -1,2 +1,2 @@
 cells_10km_total,cells_10km_with_data,cells_10km_zero,cells_10km_pct_coverage,cells_50km_total,cells_50km_with_data,cells_50km_zero,cells_50km_pct_coverage,year_min,year_max,year_span,total_occurrences,median_staleness_months_10km,pct_stale_1y_10km,pct_stale_5y_10km,taxa_in_reference,taxa_in_gbif,taxa_missing,taxa_pct_coverage,threatened_in_reference,threatened_in_gbif,threatened_missing,n_priority_taxa,n_zero_coverage_cells,n_low_coverage_cells,analysis_date,n_basis_types
-6988,6284,704,89.9,336,332,4,98.8,1646,2025,380,134239874,5,36.3,23.6,110010,53150,56860,48.3,4,4195,206,206,708,710,2026-02-15,9
+6988,6284,704,89.9,336,332,4,98.8,1646,2025,380,134239874,5,36.3,23.6,110010,53150,56860,48.3,4,4195,206,206,708,710,2026-03-18,9
