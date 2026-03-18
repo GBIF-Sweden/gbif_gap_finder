@@ -99,6 +99,7 @@ admin_level1       <- safe_get("admin_level1")
 admin_level2       <- safe_get("admin_level2")
 cell_admin         <- safe_get("cell_admin_lookup")
 has_admin          <- !is.null(admin_level1) && !is.null(cell_admin)
+match_summary_full <- safe_get("taxonomic_match_summary")
 
 if (!is.null(cell_species_index) && !is.data.table(cell_species_index)) {
   cell_species_index <- as.data.table(cell_species_index)
@@ -127,6 +128,16 @@ country_name <- tryCatch(yaml::read_yaml("../../config.yml")$country$name, error
 region_choices <- if (has_admin) {
   c("All regions" = "", sort(unique(na.omit(cell_admin$admin_name_level1))))
 } else character(0)
+
+# Establishment means / scope
+has_establishment <- !is.null(species_lookup) && "establishmentMeans" %in% names(species_lookup)
+scope_choices <- c("All species" = "all")
+if (has_establishment) {
+  scope_choices <- c(scope_choices,
+    "Native" = "native",
+    "Introduced" = "introduced",
+    "Invasive" = "invasive")
+}
 
 species_time_map <- safe_get("species_time_map")
 if (!is.null(species_time_map) && !is.data.table(species_time_map)) {
@@ -249,6 +260,8 @@ ui <- fluidPage(
               selectInput("tax_phylum", "Phylum", choices = "All", selected = "All"),
               selectInput("tax_class", "Class", choices = "All", selected = "All"),
               selectInput("tax_order", "Order", choices = "All", selected = "All"),
+              if (has_establishment) selectInput("tax_scope", "Scope",
+                choices = scope_choices, selected = "all"),
               hr(), uiOutput("tax_summary"))),
             column(9,
               div(class = "card",
@@ -278,6 +291,9 @@ ui <- fluidPage(
             div(class = "stat-box", div(class = "stat-value plum", textOutput("stat_dd2", inline = TRUE)),
               div(class = "stat-label", "DD = Data Deficient"))
           ),
+          if (has_establishment) div(class = "filter-section",
+            fluidRow(column(3, selectInput("threat_scope", "Scope",
+              choices = scope_choices, selected = "all")))),
           fluidRow(
             column(6, div(class = "card",
               div(class = "card-title", icon("chart-bar"), "GBIF Coverage by Threat Level"),
@@ -291,6 +307,29 @@ ui <- fluidPage(
               div(class = "card-title", icon("table"), "All Threatened Species"),
               downloadButton("download_threatened", "Download CSV", class = "btn-download")),
             DTOutput("threatened_table"))
+        )
+      ),
+
+      # === INVASIVE SPECIES ===
+      if (has_establishment) tabPanel(
+        title = tagList(icon("bug"), "Invasive Species"),
+        value = "invasive",
+        div(style = "padding: 1.25rem 0;",
+          uiOutput("invasive_stats"),
+          fluidRow(
+            column(7, div(class = "card",
+              div(class = "card-title", icon("map"), "Invasive Species Distribution"),
+              leafletOutput("invasive_map", height = "450px"))),
+            column(5, div(class = "card",
+              div(class = "card-title", icon("chart-line"), "Invasive Species Records Over Time"),
+              plotlyOutput("invasive_trend", height = "200px")),
+              div(class = "card",
+                div(class = "card-title", icon("chart-bar"), "Top Invasive Species by Records"),
+                plotlyOutput("invasive_top_chart", height = "240px")))
+          ),
+          div(class = "card",
+            div(class = "card-title", icon("table"), "All Invasive Species"),
+            DTOutput("invasive_table"))
         )
       )
     ),
@@ -434,6 +473,14 @@ server <- function(input, output, session) {
     HTML(paste0(
       '<div class="species-header"><div class="species-name">', sp$species, '</div> ', threat_html, '</div>',
       if (!is.null(vn_sv)) paste0('<div style="font-size:1rem;color:#6b6b6b;font-style:italic;">', vn_sv, '</div>') else '',
+      if ("establishmentMeans" %in% names(sp) && !is.na(sp$establishmentMeans) && sp$establishmentMeans != "")
+        paste0('<div style="margin:0.3rem 0;"><span style="display:inline-block;padding:2px 10px;border-radius:4px;font-size:0.8rem;font-weight:500;',
+          'background:', switch(sp$establishmentMeans,
+            native = "rgba(107,143,113,0.15);color:#4a7050",
+            introduced = "rgba(196,168,130,0.2);color:#8a7040",
+            invasive = "rgba(196,122,108,0.2);color:#a04030",
+            "rgba(150,150,150,0.15);color:#666"),
+          ';">', sp$establishmentMeans, '</span></div>') else '',
       '<div class="species-meta">',
         '<strong>', t("kingdom"), ':</strong> ', sp$kingdom %||% "\u2014", '<br>',
         '<strong>', t("phylum"), ':</strong> ', sp$phylum %||% "\u2014", '<br>',
@@ -705,12 +752,12 @@ server <- function(input, output, session) {
   output$cell_species_table <- renderDT({
     df <- cell_species_reactive(); req(df)
     df <- as_tibble(df) |>
-      left_join(species_lookup |> select(any_of(c("species","order","family","threatStatus","vernacular_sv"))), by = "species")
+      left_join(species_lookup |> select(any_of(c("species","order","family","threatStatus","vernacular_sv","establishmentMeans"))), by = "species")
     if (lang() == "sv" && "vernacular_sv" %in% names(df))
-      df <- df |> select(any_of(c("vernacular_sv","species","occurrences","order","family","threatStatus")))
+      df <- df |> select(any_of(c("vernacular_sv","species","occurrences","establishmentMeans","order","family","threatStatus")))
     else
-      df <- df |> select(any_of(c("species","occurrences","order","family","threatStatus")))
-    for (cn in c("order","family","threatStatus")) if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
+      df <- df |> select(any_of(c("species","occurrences","establishmentMeans","order","family","threatStatus")))
+    for (cn in c("order","family","threatStatus","establishmentMeans")) if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     datatable(df, options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"), style = "bootstrap4", filter = "top")
   }, server = TRUE)
 
@@ -734,6 +781,13 @@ server <- function(input, output, session) {
     updateSelectInput(session, "tax_order", choices = c("All", sort(unique(na.omit(df$order))))) })
 
   tax_filtered <- reactive({ req(species_lookup); df <- species_lookup
+    # Apply scope filter
+    scope <- input$tax_scope
+    if (!is.null(scope) && scope != "all" && "establishmentMeans" %in% names(df)) {
+      if (scope == "native") df <- df |> filter(establishmentMeans == "native")
+      else if (scope == "introduced") df <- df |> filter(establishmentMeans %in% c("introduced", "naturalised"))
+      else if (scope == "invasive") df <- df |> filter(establishmentMeans == "invasive")
+    }
     if (!is.null(input$tax_kingdom) && input$tax_kingdom != "All") df <- df |> filter(kingdom == input$tax_kingdom)
     if (!is.null(input$tax_phylum) && input$tax_phylum != "All") df <- df |> filter(phylum == input$tax_phylum)
     if (!is.null(input$tax_class) && input$tax_class != "All") df <- df |> filter(class == input$tax_class)
@@ -785,8 +839,15 @@ server <- function(input, output, session) {
   threatened_species <- reactive({
     req(species_lookup)
     if (!"threatStatus" %in% names(species_lookup)) return(tibble())
-    species_lookup |> filter(threatStatus %in% c("CR","EN","VU","NT","DD")) |>
-      arrange(factor(threatStatus, levels = c("CR","EN","VU","NT","DD")), desc(total_occurrences))
+    df <- species_lookup |> filter(threatStatus %in% c("CR","EN","VU","NT","DD"))
+    # Apply scope filter
+    scope <- input$threat_scope
+    if (!is.null(scope) && scope != "all" && "establishmentMeans" %in% names(df)) {
+      if (scope == "native") df <- df |> filter(establishmentMeans == "native")
+      else if (scope == "introduced") df <- df |> filter(establishmentMeans %in% c("introduced", "naturalised"))
+      else if (scope == "invasive") df <- df |> filter(establishmentMeans == "invasive")
+    }
+    df |> arrange(factor(threatStatus, levels = c("CR","EN","VU","NT","DD")), desc(total_occurrences))
   })
 
   output$stat_cr2 <- renderText({ df <- threatened_species(); comma(sum(df$threatStatus == "CR")) })
@@ -837,16 +898,150 @@ server <- function(input, output, session) {
   output$threatened_table <- renderDT({
     df <- threatened_species()
     if (lang() == "sv" && has_vernacular)
-      df <- df |> select(any_of(c("vernacular_sv","species","threatStatus","kingdom","phylum","class","order","family","total_occurrences","n_cells")))
+      df <- df |> select(any_of(c("vernacular_sv","species","threatStatus","establishmentMeans","kingdom","phylum","class","order","family","total_occurrences","n_cells")))
     else
-      df <- df |> select(any_of(c("species","threatStatus","kingdom","phylum","class","order","family","total_occurrences","n_cells")))
-    for (cn in c("threatStatus","kingdom","phylum","class","order","family")) if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
+      df <- df |> select(any_of(c("species","threatStatus","establishmentMeans","kingdom","phylum","class","order","family","total_occurrences","n_cells")))
+    for (cn in c("threatStatus","establishmentMeans","kingdom","phylum","class","order","family")) if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     datatable(df, options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"), style = "bootstrap4", filter = "top")
   }, server = TRUE)
 
   output$download_threatened <- downloadHandler(
     filename = function() paste0("threatened_species_", Sys.Date(), ".csv"),
     content = function(file) readr::write_csv(threatened_species(), file))
+
+  # =================================================================
+  # INVASIVE SPECIES TAB
+  # =================================================================
+
+  invasive_species <- reactive({
+    req(species_lookup)
+    if (!"establishmentMeans" %in% names(species_lookup)) return(tibble())
+    species_lookup |> filter(establishmentMeans == "invasive") |>
+      arrange(desc(total_occurrences))
+  })
+
+  output$invasive_stats <- renderUI({
+    inv <- invasive_species()
+    if (nrow(inv) == 0) return(NULL)
+    n_total <- nrow(inv)
+    n_in_gbif <- sum(inv$total_occurrences > 0, na.rm = TRUE)
+    n_threatened <- sum(inv$threatStatus %in% c("CR","EN","VU","NT"), na.rm = TRUE)
+    total_occ <- sum(inv$total_occurrences, na.rm = TRUE)
+
+    div(class = "stat-grid", style = "grid-template-columns: repeat(4, 1fr);",
+      div(class = "stat-box",
+        div(class = "stat-value coral", comma(n_total)),
+        div(class = "stat-label", "Invasive Species")),
+      div(class = "stat-box",
+        div(class = "stat-value sage", comma(n_in_gbif)),
+        div(class = "stat-label", "With GBIF Records")),
+      div(class = "stat-box",
+        div(class = "stat-value sand", comma(total_occ)),
+        div(class = "stat-label", "Total Occurrences")),
+      div(class = "stat-box",
+        div(class = "stat-value plum", comma(n_threatened)),
+        div(class = "stat-label", "Also Threatened"))
+    )
+  })
+
+  output$invasive_map <- renderLeaflet({
+    req(grid_10km, cell_species_index, species_lookup)
+    inv <- invasive_species()
+    if (nrow(inv) == 0) return(leaflet() |> addProviderTiles(providers$CartoDB.Positron) |> setView(16, 63, 5))
+
+    inv_species <- inv$species
+    inv_cells <- cell_species_index[species %in% inv_species,
+      .(n_invasive = uniqueN(species), occ_invasive = sum(as.numeric(occurrences), na.rm = TRUE)),
+      by = eeacellcode]
+
+    map_sf <- grid_10km |> inner_join(inv_cells, by = "eeacellcode") |>
+      mutate(cat = case_when(
+        n_invasive <= 1 ~ "1",
+        n_invasive <= 5 ~ "2\u20135",
+        n_invasive <= 10 ~ "6\u201310",
+        TRUE ~ ">10"),
+        cat = factor(cat, levels = c("1", "2\u20135", "6\u201310", ">10")))
+
+    inv_pal <- colorFactor(
+      palette = c(pal$sand, pal$coral, "#b03020", "#8b2020"),
+      domain = levels(map_sf$cat), na.color = "#ddd")
+
+    m <- leaflet(map_sf) |>
+      addProviderTiles(providers$CartoDB.Positron) |>
+      addPolygons(fillColor = ~inv_pal(cat), fillOpacity = 0.7, weight = 0.3, color = "#bbb",
+        popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
+          "<br><strong>Invasive species:</strong> ", n_invasive,
+          "<br><strong>Occurrences:</strong> ", comma(occ_invasive))) |>
+      addLegend("bottomright", pal = inv_pal, values = ~cat, title = "Invasive species")
+
+    if (!is.null(admin_level1))
+      m <- m |> addPolygons(data = admin_level1, group = "admin1",
+        fillColor = "transparent", fillOpacity = 0,
+        weight = 1.5, color = "#333", opacity = 0.3, label = ~admin_name)
+    m
+  })
+
+  output$invasive_trend <- renderPlotly({
+    req(species_lookup, cell_species_index)
+    inv <- invasive_species()
+    if (nrow(inv) == 0) return(plotly_empty() |> plotly_layout())
+
+    # Use species_time_map to get temporal data for invasive species
+    if (!is.null(species_time_map)) {
+      inv_time_files <- species_time_map[species %in% inv$species]
+      if (nrow(inv_time_files) > 0) {
+        # Sample up to 50 files to keep it fast
+        files_to_read <- unique(inv_time_files$time_filepath)
+        if (length(files_to_read) > 50) files_to_read <- files_to_read[1:50]
+        inv_time <- rbindlist(lapply(files_to_read, function(f) {
+          if (!file.exists(f)) return(NULL)
+          dt <- fread(f, select = c("species", "basisofrecord", "grid", "yearmonth", "occurrences"))
+          dt <- dt[species %in% inv$species & basisofrecord == "all" & grid == "grid10km"]
+          dt[, year := as.integer(substr(as.character(yearmonth), 1, 4))]
+          dt[year >= 1980, .(occ = sum(as.numeric(occurrences), na.rm = TRUE)), by = year]
+        }))
+        if (nrow(inv_time) > 0) {
+          inv_time <- inv_time[, .(occ = sum(occ)), by = year]
+          setorder(inv_time, year)
+          return(plot_ly(inv_time, x = ~year, y = ~occ, type = "scatter", mode = "lines+markers",
+            line = list(color = pal$coral, width = 2), marker = list(color = pal$coral, size = 3),
+            fill = "tozeroy", fillcolor = "rgba(196,122,108,0.15)",
+            hovertemplate = "%{x}: %{y:,.0f}<extra></extra>") |>
+            plotly_layout(xaxis = list(title = ""), yaxis = list(title = t("occurrences"))))
+        }
+      }
+    }
+    plotly_empty() |> plotly_layout()
+  })
+
+  output$invasive_top_chart <- renderPlotly({
+    inv <- invasive_species()
+    if (nrow(inv) == 0) return(plotly_empty() |> plotly_layout())
+    df <- inv |> slice_head(n = 15)
+
+    # Use vernacular names in Swedish mode
+    if (lang() == "sv" && has_vernacular && "vernacular_sv" %in% names(df)) {
+      df <- df |> mutate(label = ifelse(!is.na(vernacular_sv), vernacular_sv, species))
+    } else {
+      df <- df |> mutate(label = species)
+    }
+
+    plot_ly(df, y = ~reorder(label, total_occurrences), x = ~total_occurrences,
+      type = "bar", orientation = "h",
+      marker = list(color = pal$coral),
+      hovertemplate = "<b>%{y}</b><br>%{x:,} occurrences<extra></extra>") |>
+      plotly_layout(xaxis = list(title = t("occurrences")), yaxis = list(title = ""))
+  })
+
+  output$invasive_table <- renderDT({
+    inv <- invasive_species()
+    if (lang() == "sv" && has_vernacular)
+      inv <- inv |> select(any_of(c("vernacular_sv","species","kingdom","class","order","family","threatStatus","total_occurrences","n_cells")))
+    else
+      inv <- inv |> select(any_of(c("species","kingdom","class","order","family","threatStatus","total_occurrences","n_cells")))
+    for (cn in c("kingdom","class","order","family","threatStatus")) if (cn %in% names(inv)) inv[[cn]] <- as.factor(inv[[cn]])
+    datatable(inv, options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"), style = "bootstrap4", filter = "top")
+  }, server = TRUE)
 }
 
 shinyApp(ui = ui, server = server)
