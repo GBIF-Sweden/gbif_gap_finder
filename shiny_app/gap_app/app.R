@@ -75,6 +75,22 @@ family_time_summary  <- safe_get("family_time_summary")
 last_year_ref        <- safe_get("last_year")  # now a yearmonth cutoff, e.g. 202504
 recent_label_stored  <- safe_get("recent_label")  # e.g. "Apr 2025 – Mar 2026"
 
+# Establishment means / scope data
+match_summary_full   <- safe_get("taxonomic_match_summary")
+tax_by_establishment <- safe_get("tax_by_establishment")
+has_establishment    <- !is.null(match_summary_full) &&
+                        "establishmentMeans" %in% names(match_summary_full)
+
+# Build scope choices
+scope_choices <- c("All species" = "all")
+if (has_establishment) {
+  scope_choices <- c(scope_choices,
+    "Present only" = "present",
+    "Native (present)" = "native_present",
+    "Introduced (present)" = "introduced_present",
+    "Invasive" = "invasive")
+}
+
 # Derived
 basis_types   <- if (!is.null(spatial_gaps)) sort(unique(spatial_gaps$basisofrecord)) else "all"
 basis_types_no_all <- basis_types[basis_types != "all"]
@@ -253,6 +269,16 @@ ui <- fluidPage(
             )
           ),
 
+          # Establishment means breakdown (if available)
+          if (has_establishment) div(class = "card",
+            div(class = "card-title", icon("seedling"), "Species by Establishment Means"),
+            div(class = "info-note",
+              "Coverage breakdown by origin. ",
+              em("Unclassified"), " species (no establishment means in the backbone) ",
+              "inflate gap numbers — use the Scope filter in the Taxonomic tab to focus on native or introduced species."),
+            plotlyOutput("overview_establishment", height = "220px")
+          ),
+
           # Last year highlight row
           div(class = "card", style = "margin-bottom: 1rem;",
             div(class = "card-title", icon("calendar-plus"),
@@ -413,7 +439,7 @@ ui <- fluidPage(
         value = "taxonomic",
         div(style = "padding: 1.25rem 0;",
 
-          # Cascading taxonomy filters — now includes Family
+          # Cascading taxonomy filters — now includes Family + Scope
           div(class = "filter-section",
             fluidRow(
               column(2,
@@ -434,10 +460,24 @@ ui <- fluidPage(
                 div(class = "filter-label", "Family"),
                 uiOutput("tax_family_filter_ui")),
               column(2,
+                if (has_establishment) tagList(
+                  div(class = "filter-label", "Scope"),
+                  selectInput("tax_scope", NULL,
+                    choices = scope_choices, selected = "all")
+                ) else tagList(
+                  div(class = "filter-label", "Last Year"),
+                  checkboxInput("tax_show_last_year", paste0("Highlight ", last_year_label),
+                    value = FALSE)
+                ))
+            ),
+            if (has_establishment) fluidRow(
+              column(10),
+              column(2,
                 div(class = "filter-label", "Last Year"),
                 checkboxInput("tax_show_last_year", paste0("Highlight ", last_year_label),
                   value = FALSE))
-            )),
+            )
+          ),
 
           # Troudet-style bias figure
           div(class = "card",
@@ -496,11 +536,15 @@ ui <- fluidPage(
           ),
           div(class = "filter-section",
             fluidRow(
-              column(3, selectInput("threat_kingdom", "Kingdom",
+              column(2, selectInput("threat_kingdom", "Kingdom",
                 choices = c("All" = "", kingdom_choices), selected = "")),
-              column(3, uiOutput("threat_phylum_ui")),
-              column(3, uiOutput("threat_class_ui")),
-              column(3, uiOutput("threat_order_ui"))
+              column(2, uiOutput("threat_phylum_ui")),
+              column(2, uiOutput("threat_class_ui")),
+              column(2, uiOutput("threat_order_ui")),
+              column(2,
+                if (has_establishment) selectInput("threat_scope", "Scope",
+                  choices = scope_choices, selected = "all")
+              )
             )),
           fluidRow(
             column(6, div(class = "card",
@@ -528,33 +572,37 @@ ui <- fluidPage(
         title = tagList(icon("bullseye"), "Priorities"),
         value = "priorities",
         div(style = "padding: 1.25rem 0;",
-          div(class = "stat-grid", style = "grid-template-columns: repeat(4, 1fr);",
-            div(class = "stat-box",
-              div(class = "stat-value coral", textOutput("stat_zero", inline = TRUE)),
-              div(class = "stat-label", "Zero Coverage Cells")),
-            div(class = "stat-box",
-              div(class = "stat-value sand", textOutput("stat_stale", inline = TRUE)),
-              div(class = "stat-label", "Stale Cells (>5 yrs)")),
-            div(class = "stat-box",
-              div(class = "stat-value plum", textOutput("stat_taxa", inline = TRUE)),
-              div(class = "stat-label", "Priority Taxa (CR/EN)")),
-            div(class = "stat-box",
-              div(class = "stat-value sage", textOutput("stat_resolved", inline = TRUE)),
-              div(class = "stat-label", paste0("Resolved in ", last_year_label)))
-          ),
+
+          # Recommended Actions — one card per gap dimension
           div(class = "card",
             div(class = "card-title", icon("tasks"), "Recommended Actions"),
-            uiOutput("action_table")),
+            div(class = "info-note",
+              "Concrete goals derived from the gap analysis. Each action targets a specific dimension ",
+              "of data completeness with measurable outcomes."),
+            uiOutput("action_goals")),
+
+          # Next 12 Months — based on last 12 months performance
+          div(class = "card",
+            div(class = "card-title", icon("chart-line"),
+              paste0("Next 12 Months — Based on ", last_year_label, " Performance")),
+            div(class = "info-note",
+              "What was achieved in the last 12 months, and what could be targeted next. ",
+              "Targets are set at 1.5\u00d7 the recent rate to encourage growth."),
+            uiOutput("next_12_months")),
+
+          # Export
           div(class = "card",
             div(style = "display:flex; align-items:center; justify-content:space-between;",
               div(
                 div(class = "card-title", icon("download"), "Export Action Plan"),
                 div(style = "font-size:0.85rem; color:#6b6b6b;",
-                  "Download all priority items as a single CSV: zero-coverage cells, stale cells, and missing threatened species.")),
+                  "Download all priority items as a single CSV.")),
               div(style = "padding-left:1rem;",
                 downloadButton("download_action_plan", "Download CSV",
                   class = "btn-download", style = "white-space:nowrap;"))
             )),
+
+          # Maps: zero coverage + stale cells
           fluidRow(
             column(6, div(class = "card",
               div(class = "card-title", icon("map-marker-alt"), "Zero Coverage Cells"),
@@ -572,9 +620,7 @@ ui <- fluidPage(
           div(class = "card",
             div(class = "card-title", icon("seedling"), "Taxonomic Mobilization Targets"),
             div(class = "info-note",
-              "Orders and families with the largest gap between known species and GBIF coverage. ",
-              "These groups should be prioritized for targeted data mobilization, ",
-              "specimen digitization, and citizen science campaigns."),
+              "Orders and families with the largest gap between known species and GBIF coverage."),
             fluidRow(
               column(6, plotlyOutput("priority_undersampled_orders", height = "380px")),
               column(6, plotlyOutput("priority_undersampled_families", height = "380px"))
@@ -994,6 +1040,38 @@ server <- function(input, output, session) {
       plotly_layout(
         xaxis = list(title = "", dtick = 20),
         yaxis = list(title = "Occurrences per decade"))
+  })
+
+  # Establishment means overview chart
+  output$overview_establishment <- renderPlotly({
+    req(tax_by_establishment)
+    df <- tax_by_establishment |>
+      mutate(
+        label = case_when(
+          is.na(establishmentMeans) | establishmentMeans == "" ~ "Unclassified",
+          establishmentMeans == "native" ~ "Native",
+          establishmentMeans == "introduced" ~ "Introduced",
+          establishmentMeans == "invasive" ~ "Invasive",
+          establishmentMeans == "naturalised" ~ "Naturalised",
+          establishmentMeans == "uncertain" ~ "Uncertain",
+          TRUE ~ establishmentMeans
+        ),
+        label = factor(label, levels = c("Native", "Introduced", "Invasive",
+                                          "Naturalised", "Uncertain", "Unclassified"))
+      ) |>
+      arrange(label)
+
+    estab_colors <- c(Native = pal$sage, Introduced = pal$sand, Invasive = pal$coral,
+                       Naturalised = pal$slate, Uncertain = pal$plum, Unclassified = "#ccc")
+
+    plot_ly(df, x = ~label, y = ~pct_coverage, type = "bar",
+      marker = list(color = estab_colors[as.character(df$label)]),
+      text = ~paste0(pct_coverage, "% (", comma(n_in_gbif), " / ", comma(n_ref_total), ")"),
+      textposition = "auto", textfont = list(size = 11, color = "#fff"),
+      hovertemplate = "<b>%{x}</b><br>%{text}<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = ""),
+        yaxis = list(title = "GBIF Coverage (%)", range = c(0, 105)))
   })
 
   # ===================================================================
@@ -1470,6 +1548,99 @@ server <- function(input, output, session) {
   })
 
   # Helper: apply cascading filters to a data frame (now includes family)
+  # ---- Scope filter: filter match_summary by establishment means ----
+  scoped_match_summary <- reactive({
+    req(match_summary_full)
+    ms <- match_summary_full |> as_tibble()
+    scope <- input$tax_scope
+    if (is.null(scope) || scope == "all") return(ms)
+
+    if (scope == "present") {
+      ms <- ms |> filter(occurrenceStatus == "present" | is.na(occurrenceStatus) | occurrenceStatus == "")
+    } else if (scope == "native_present") {
+      ms <- ms |> filter(establishmentMeans == "native", occurrenceStatus == "present")
+    } else if (scope == "introduced_present") {
+      ms <- ms |> filter(establishmentMeans %in% c("introduced", "naturalised"),
+                          occurrenceStatus == "present")
+    } else if (scope == "invasive") {
+      ms <- ms |> filter(establishmentMeans == "invasive")
+    }
+    ms
+  })
+
+  # ---- Recompute Troudet from scoped match_summary ----
+  scoped_troudet_class <- reactive({
+    ms <- scoped_match_summary()
+    req(nrow(ms) > 0)
+    ms |>
+      filter(!is.na(class), class != "") |>
+      group_by(kingdom, phylum, class) |>
+      summarise(n_known_species = n(), n_in_gbif = sum(matched_any, na.rm = TRUE),
+                total_occ = sum(gbif_total_occ, na.rm = TRUE), .groups = "drop") |>
+      mutate(total_known = sum(n_known_species), total_occ_all = sum(total_occ),
+             ideal_occ = (n_known_species / total_known) * total_occ_all,
+             bias = total_occ - ideal_occ,
+             occ_prior = total_occ, occ_last_year = 0)
+  })
+
+  scoped_troudet_order <- reactive({
+    ms <- scoped_match_summary()
+    req(nrow(ms) > 0)
+    ms |>
+      filter(!is.na(order), order != "") |>
+      group_by(kingdom, phylum, class, order) |>
+      summarise(n_known_species = n(), n_in_gbif = sum(matched_any, na.rm = TRUE),
+                total_occ = sum(gbif_total_occ, na.rm = TRUE), .groups = "drop") |>
+      mutate(total_known = sum(n_known_species), total_occ_all = sum(total_occ),
+             ideal_occ = (n_known_species / total_known) * total_occ_all,
+             bias = total_occ - ideal_occ,
+             occ_prior = total_occ, occ_last_year = 0)
+  })
+
+  scoped_troudet_family <- reactive({
+    ms <- scoped_match_summary()
+    req(nrow(ms) > 0)
+    ms |>
+      filter(!is.na(family), family != "") |>
+      group_by(kingdom, phylum, class, order, family) |>
+      summarise(n_known_species = n(), n_in_gbif = sum(matched_any, na.rm = TRUE),
+                total_occ = sum(gbif_total_occ, na.rm = TRUE), .groups = "drop") |>
+      mutate(total_known = sum(n_known_species), total_occ_all = sum(total_occ),
+             ideal_occ = (n_known_species / total_known) * total_occ_all,
+             bias = total_occ - ideal_occ,
+             occ_prior = total_occ, occ_last_year = 0)
+  })
+
+  # ---- Recompute tax_by_order / tax_by_family from scoped data ----
+  scoped_tax_by_order <- reactive({
+    ms <- scoped_match_summary()
+    req(nrow(ms) > 0)
+    ms |>
+      filter(!is.na(order), order != "") |>
+      group_by(kingdom, phylum, class, order) |>
+      summarise(n_taxa = n(), n_in_gbif = sum(matched_any, na.rm = TRUE),
+                n_missing = n_taxa - n_in_gbif,
+                pct_coverage = round(100 * n_in_gbif / n_taxa, 1), .groups = "drop") |>
+      arrange(desc(n_taxa))
+  })
+
+  scoped_tax_by_family <- reactive({
+    ms <- scoped_match_summary()
+    req(nrow(ms) > 0)
+    ms |>
+      filter(!is.na(family), family != "") |>
+      group_by(kingdom, phylum, class, order, family) |>
+      summarise(n_taxa = n(), n_in_gbif = sum(matched_any, na.rm = TRUE),
+                n_missing = n_taxa - n_in_gbif,
+                pct_coverage = round(100 * n_in_gbif / n_taxa, 1), .groups = "drop") |>
+      arrange(desc(n_taxa))
+  })
+
+  # Helper: choose pre-computed or scoped data
+  use_scope <- reactive({
+    !is.null(input$tax_scope) && input$tax_scope != "all"
+  })
+
   apply_tax_filters <- function(df) {
     if (!is.null(input$tax_kingdom) && input$tax_kingdom != "" && "kingdom" %in% names(df)) {
       df <- df |> filter(kingdom == input$tax_kingdom)
@@ -1507,20 +1678,22 @@ server <- function(input, output, session) {
     has_order <- !is.null(input$tax_order_filter) && input$tax_order_filter != ""
     has_family <- !is.null(input$tax_family_filter) && input$tax_family_filter != ""
 
-    troudet_family_data <- safe_get("troudet_bias_family")
+    # Choose data source: scoped (on-the-fly) or pre-computed
+    scoped <- use_scope()
 
-    if (has_order && !is.null(troudet_family_data)) {
-      # Order selected → show families
-      df <- apply_tax_filters(troudet_family_data) |> mutate(label = family)
-    } else if (has_class && !is.null(troudet_bias_order)) {
-      # Class selected → show orders
-      df <- apply_tax_filters(troudet_bias_order) |> mutate(label = order)
-    } else if (has_phylum && !is.null(troudet_bias)) {
-      # Phylum selected → show classes
-      df <- apply_tax_filters(troudet_bias) |> mutate(label = class)
-    } else if (has_kingdom && !is.null(troudet_bias)) {
+    t_family <- if (scoped) scoped_troudet_family() else safe_get("troudet_bias_family")
+    t_order  <- if (scoped) scoped_troudet_order()  else troudet_bias_order
+    t_class  <- if (scoped) scoped_troudet_class()  else troudet_bias
+
+    if (has_order && !is.null(t_family)) {
+      df <- apply_tax_filters(t_family) |> mutate(label = family)
+    } else if (has_class && !is.null(t_order)) {
+      df <- apply_tax_filters(t_order) |> mutate(label = order)
+    } else if (has_phylum && !is.null(t_class)) {
+      df <- apply_tax_filters(t_class) |> mutate(label = class)
+    } else if (has_kingdom && !is.null(t_class)) {
       # Kingdom selected → aggregate to phyla
-      df <- apply_tax_filters(troudet_bias) |>
+      df <- apply_tax_filters(t_class) |>
         group_by(kingdom, phylum) |>
         summarise(
           n_known_species = sum(n_known_species, na.rm = TRUE),
@@ -1535,9 +1708,9 @@ server <- function(input, output, session) {
           bias = total_occ - ideal_occ,
           label = phylum
         )
-    } else if (!is.null(troudet_bias)) {
+    } else if (!is.null(t_class)) {
       # No filter → aggregate to kingdoms
-      df <- troudet_bias |>
+      df <- t_class |>
         group_by(kingdom) |>
         summarise(
           n_known_species = sum(n_known_species, na.rm = TRUE),
@@ -1614,9 +1787,10 @@ server <- function(input, output, session) {
   # ===================================================================
 
   output$tax_order <- renderPlotly({
-    req(tax_by_order)
+    tbo <- if (use_scope()) scoped_tax_by_order() else tax_by_order
+    req(tbo)
 
-    df <- apply_tax_filters(tax_by_order) |>
+    df <- apply_tax_filters(tbo) |>
       filter(!is.na(order)) |>
       arrange(desc(n_taxa)) |>
       slice_head(n = 40) |>
@@ -1655,9 +1829,10 @@ server <- function(input, output, session) {
   })
 
   output$tax_family <- renderPlotly({
-    req(tax_by_family)
+    tbf <- if (use_scope()) scoped_tax_by_family() else tax_by_family
+    req(tbf)
 
-    df <- apply_tax_filters(tax_by_family) |>
+    df <- apply_tax_filters(tbf) |>
       filter(!is.na(family)) |>
       arrange(desc(n_taxa)) |>
       slice_head(n = 40) |>
@@ -1769,7 +1944,7 @@ server <- function(input, output, session) {
     selectInput("threat_order", "Order", choices = ch, selected = "")
   })
 
-  # Helper: filter taxonomic_match_summary by threat tab filters
+  # Helper: filter taxonomic_match_summary by threat tab filters + scope
   threat_filtered_taxa <- reactive({
     req(safe_get("taxonomic_match_summary"))
     ms <- safe_get("taxonomic_match_summary") |> as_tibble()
@@ -1777,6 +1952,21 @@ server <- function(input, output, session) {
     if (is.na(threat_col)) return(NULL)
     ms <- ms |> mutate(threatStatus = .data[[threat_col]]) |>
       filter(!is.na(threatStatus), threatStatus %in% c("CR", "EN", "VU", "NT", "LC", "DD"))
+
+    # Apply scope filter
+    scope <- input$threat_scope
+    if (!is.null(scope) && scope != "all" && "establishmentMeans" %in% names(ms)) {
+      if (scope == "present") {
+        ms <- ms |> filter(occurrenceStatus == "present" | is.na(occurrenceStatus) | occurrenceStatus == "")
+      } else if (scope == "native_present") {
+        ms <- ms |> filter(establishmentMeans == "native", occurrenceStatus == "present")
+      } else if (scope == "introduced_present") {
+        ms <- ms |> filter(establishmentMeans %in% c("introduced", "naturalised"), occurrenceStatus == "present")
+      } else if (scope == "invasive") {
+        ms <- ms |> filter(establishmentMeans == "invasive")
+      }
+    }
+
     if (!is.null(input$threat_kingdom) && input$threat_kingdom != "" && "kingdom" %in% names(ms))
       ms <- ms |> filter(kingdom == input$threat_kingdom)
     if (!is.null(input$threat_phylum) && input$threat_phylum != "" && "phylum" %in% names(ms))
@@ -1813,41 +2003,105 @@ server <- function(input, output, session) {
     ms <- threat_filtered_taxa()
     if (is.null(ms) || nrow(ms) == 0) return(plotly_empty())
 
-    df <- ms |>
-      group_by(threatStatus) |>
-      summarise(n_total = n(), n_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop") |>
-      mutate(pct = round(100 * n_gbif / n_total, 1)) |>
-      filter(threatStatus %in% c("CR", "EN", "VU", "NT", "LC", "DD"))
+    has_estab <- "establishmentMeans" %in% names(ms)
+    scope <- input$threat_scope
 
-    threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
-                     NT = pal$sage, LC = pal$sage2, DD = pal$slate)
+    if (has_estab && (is.null(scope) || scope == "all")) {
+      # Stacked bars: native vs introduced vs invasive within each threat level
+      df <- ms |>
+        mutate(estab = case_when(
+          establishmentMeans == "native" ~ "Native",
+          establishmentMeans %in% c("introduced", "naturalised") ~ "Introduced",
+          establishmentMeans == "invasive" ~ "Invasive",
+          establishmentMeans == "uncertain" ~ "Uncertain",
+          TRUE ~ "Unclassified"
+        )) |>
+        group_by(threatStatus, estab) |>
+        summarise(n_total = n(), n_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop") |>
+        mutate(pct = round(100 * n_gbif / n_total, 1)) |>
+        filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
 
-    plot_ly(df, x = ~threatStatus, y = ~pct, type = "bar",
-      marker = list(color = threat_cols[df$threatStatus]),
-      text = ~paste0(round(pct, 1), "%"), textposition = "auto") |>
-      plotly_layout(
-        xaxis = list(title = ""),
-        yaxis = list(title = "Coverage %", range = c(0, 110)))
+      estab_cols <- c(Native = pal$sage, Introduced = pal$sand, Invasive = pal$coral,
+                       Uncertain = pal$slate, Unclassified = "#ccc")
+
+      plot_ly(df, x = ~threatStatus, y = ~n_total, color = ~estab, type = "bar",
+        colors = estab_cols,
+        text = ~paste0(estab, ": ", n_total, " (", pct, "% in GBIF)"),
+        hovertemplate = "%{text}<extra></extra>") |>
+        plotly_layout(
+          barmode = "stack",
+          xaxis = list(title = ""),
+          yaxis = list(title = "Species count"),
+          legend = list(orientation = "h", y = -0.15))
+    } else {
+      # Simple bars (when scope is filtered — already one establishment category)
+      df <- ms |>
+        group_by(threatStatus) |>
+        summarise(n_total = n(), n_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop") |>
+        mutate(pct = round(100 * n_gbif / n_total, 1)) |>
+        filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+
+      threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
+                       NT = pal$sage, LC = pal$sage2, DD = pal$slate)
+
+      plot_ly(df, x = ~threatStatus, y = ~pct, type = "bar",
+        marker = list(color = threat_cols[df$threatStatus]),
+        text = ~paste0(round(pct, 1), "%"), textposition = "auto") |>
+        plotly_layout(
+          xaxis = list(title = ""),
+          yaxis = list(title = "Coverage %", range = c(0, 110)))
+    }
   })
 
   output$threat_missing <- renderPlotly({
     ms <- threat_filtered_taxa()
     if (is.null(ms) || nrow(ms) == 0) return(plotly_empty())
 
-    df <- ms |>
-      group_by(threatStatus) |>
-      summarise(n_missing = sum(!matched_any, na.rm = TRUE), .groups = "drop") |>
-      filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+    has_estab <- "establishmentMeans" %in% names(ms)
+    scope <- input$threat_scope
 
-    threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
-                     NT = pal$sage, DD = pal$slate)
+    if (has_estab && (is.null(scope) || scope == "all")) {
+      # Stacked by establishment means
+      df <- ms |>
+        filter(!matched_any) |>
+        mutate(estab = case_when(
+          establishmentMeans == "native" ~ "Native",
+          establishmentMeans %in% c("introduced", "naturalised") ~ "Introduced",
+          establishmentMeans == "invasive" ~ "Invasive",
+          establishmentMeans == "uncertain" ~ "Uncertain",
+          TRUE ~ "Unclassified"
+        )) |>
+        group_by(threatStatus, estab) |>
+        summarise(n_missing = n(), .groups = "drop") |>
+        filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
 
-    plot_ly(df, x = ~threatStatus, y = ~n_missing, type = "bar",
-      marker = list(color = threat_cols[df$threatStatus]),
-      text = ~comma(n_missing), textposition = "auto") |>
-      plotly_layout(
-        xaxis = list(title = ""),
-        yaxis = list(title = "Missing taxa"))
+      estab_cols <- c(Native = pal$sage, Introduced = pal$sand, Invasive = pal$coral,
+                       Uncertain = pal$slate, Unclassified = "#ccc")
+
+      plot_ly(df, x = ~threatStatus, y = ~n_missing, color = ~estab, type = "bar",
+        colors = estab_cols,
+        hovertemplate = "%{x}: %{y} missing (%{fullData.name})<extra></extra>") |>
+        plotly_layout(
+          barmode = "stack",
+          xaxis = list(title = ""),
+          yaxis = list(title = "Missing taxa"),
+          legend = list(orientation = "h", y = -0.15))
+    } else {
+      df <- ms |>
+        group_by(threatStatus) |>
+        summarise(n_missing = sum(!matched_any, na.rm = TRUE), .groups = "drop") |>
+        filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+
+      threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
+                       NT = pal$sage, DD = pal$slate)
+
+      plot_ly(df, x = ~threatStatus, y = ~n_missing, type = "bar",
+        marker = list(color = threat_cols[df$threatStatus]),
+        text = ~comma(n_missing), textposition = "auto") |>
+        plotly_layout(
+          xaxis = list(title = ""),
+          yaxis = list(title = "Missing taxa"))
+    }
   })
 
   output$threat_table <- renderDT({
@@ -1855,13 +2109,13 @@ server <- function(input, output, session) {
     if (!is.null(ms) && nrow(ms) > 0) {
       df <- ms |>
         filter(!matched_any, threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
-        select(any_of(c("scientificName", "threatStatus", "kingdom", "phylum",
-                         "class", "order", "family"))) |>
+        select(any_of(c("scientificName", "threatStatus", "establishmentMeans",
+                         "kingdom", "phylum", "class", "order", "family"))) |>
         arrange(factor(threatStatus, levels = c("CR", "EN", "VU", "NT", "DD")), order, family)
     } else {
       df <- tibble(Message = "No missing threatened species found for current filters.")
     }
-    for (cn in c("threatStatus", "kingdom", "phylum", "class", "order", "family")) {
+    for (cn in c("threatStatus", "establishmentMeans", "kingdom", "phylum", "class", "order", "family")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
     datatable(df, options = list(pageLength = 15, scrollX = TRUE),
@@ -1889,53 +2143,184 @@ server <- function(input, output, session) {
     if (!is.null(priority_resolved)) comma(nrow(priority_resolved)) else "0"
   })
 
-  output$action_table <- renderUI({
+  # ---- Recommended Actions (goal-oriented) ----
+  output$action_goals <- renderUI({
     n_zero  <- if (!is.null(priority_zero) && nrow(priority_zero) > 0) nrow(priority_zero) else {
-      # Fallback: derive from dashboard
       if (!is.null(dashboard)) dashboard$n_zero_coverage_cells[1] else 0
     }
     n_stale <- if (!is.null(priority_stale)) nrow(priority_stale) else 0
-    n_taxa  <- if (!is.null(dashboard)) dashboard$n_priority_taxa[1] else 0
+    n_taxa_missing <- if (!is.null(dashboard)) dashboard$n_priority_taxa[1] else 0
 
-    HTML(paste0('
-      <table style="width:100%; border-collapse:separate; border-spacing:0 0.6rem;">
-        <tr>
-          <td style="width:100px; vertical-align:middle;">
-            <span class="priority-badge priority-high" style="font-size:0.85rem; padding:0.4rem 1rem;">HIGH</span></td>
-          <td style="vertical-align:middle; font-size:1.15rem; padding:0.75rem 0.5rem;">
-            Survey zero-coverage grid cells</td>
-          <td style="text-align:right; vertical-align:middle; padding:0.75rem 0.5rem;
-                     color:', pal$sage, '; font-family:IBM Plex Mono,monospace; font-size:1.3rem; font-weight:500;">
-            ', comma(n_zero), ' cells</td>
-        </tr>
-        <tr>
-          <td style="vertical-align:middle;">
-            <span class="priority-badge priority-high" style="font-size:0.85rem; padding:0.4rem 1rem;">HIGH</span></td>
-          <td style="vertical-align:middle; font-size:1.15rem; padding:0.75rem 0.5rem;">
-            Monitor CR and EN species lacking GBIF records</td>
-          <td style="text-align:right; vertical-align:middle; padding:0.75rem 0.5rem;
-                     color:', pal$sage, '; font-family:IBM Plex Mono,monospace; font-size:1.3rem; font-weight:500;">
-            ', comma(n_taxa), ' species</td>
-        </tr>
-        <tr>
-          <td style="vertical-align:middle;">
-            <span class="priority-badge priority-medium" style="font-size:0.85rem; padding:0.4rem 1rem;">MED</span></td>
-          <td style="vertical-align:middle; font-size:1.15rem; padding:0.75rem 0.5rem;">
-            Re-survey cells with &gt;5 years since last observation</td>
-          <td style="text-align:right; vertical-align:middle; padding:0.75rem 0.5rem;
-                     color:', pal$sage, '; font-family:IBM Plex Mono,monospace; font-size:1.3rem; font-weight:500;">
-            ', comma(n_stale), ' cells</td>
-        </tr>
-        <tr>
-          <td style="vertical-align:middle;">
-            <span class="priority-badge priority-low" style="font-size:0.85rem; padding:0.4rem 1rem;">LOW</span></td>
-          <td style="vertical-align:middle; font-size:1.15rem; padding:0.75rem 0.5rem;">
-            Expand citizen science programs to low-coverage regions</td>
-          <td style="text-align:right; vertical-align:middle; padding:0.75rem 0.5rem;
-                     color:', pal$muted, '; font-size:1.1rem;">
-            Ongoing</td>
-        </tr>
-      </table>'))
+    # Threatened missing (CR + EN specifically)
+    n_cr_en <- 0
+    if (!is.null(match_summary_full)) {
+      ms <- match_summary_full |> as_tibble()
+      threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
+      if (!is.na(threat_col)) {
+        n_cr_en <- ms |> filter(.data[[threat_col]] %in% c("CR", "EN"), !matched_any) |> nrow()
+      }
+    }
+
+    # Native species gap
+    native_gap <- ""
+    invasive_gap <- ""
+    if (has_establishment && !is.null(match_summary_full)) {
+      ms <- match_summary_full |> as_tibble()
+      native_stats <- ms |> filter(establishmentMeans == "native")
+      invasive_stats <- ms |> filter(establishmentMeans == "invasive")
+      n_native_missing <- sum(!native_stats$matched_any, na.rm = TRUE)
+      n_native_total <- nrow(native_stats)
+      native_cov <- if (n_native_total > 0) round(100 * sum(native_stats$matched_any) / n_native_total, 1) else 0
+      n_invasive_no_recent <- 0
+      if (!is.null(cell_recency)) {
+        # Invasive species in cells with stale data
+        n_invasive_total <- nrow(invasive_stats)
+        n_invasive_in_gbif <- sum(invasive_stats$matched_any, na.rm = TRUE)
+        n_invasive_missing <- n_invasive_total - n_invasive_in_gbif
+      } else {
+        n_invasive_total <- nrow(invasive_stats)
+        n_invasive_missing <- sum(!invasive_stats$matched_any, na.rm = TRUE)
+      }
+    }
+
+    # Build goal cards
+    goal_style <- "display:flex; align-items:flex-start; gap:1rem; padding:0.75rem 0; border-bottom:1px solid #eee;"
+    icon_style <- "font-size:1.5rem; min-width:2rem; text-align:center; padding-top:0.2rem;"
+    num_style <- "font-family:'IBM Plex Mono',monospace; font-size:1.2rem; font-weight:600;"
+
+    goals <- tagList(
+      # Spatial
+      div(style = goal_style,
+        div(style = paste0(icon_style, " color:", pal$coral, ";"), icon("map")),
+        div(style = "flex:1;",
+          div(style = "font-size:1.05rem; font-weight:500;", "Spatial: Fill zero-coverage cells"),
+          div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+            span(style = paste0(num_style, " color:", pal$coral, ";"), comma(n_zero)),
+            " grid cells have never been surveyed. Target these for new field campaigns or citizen science events.")),
+      ),
+      # Temporal
+      div(style = goal_style,
+        div(style = paste0(icon_style, " color:", pal$sand, ";"), icon("clock")),
+        div(style = "flex:1;",
+          div(style = "font-size:1.05rem; font-weight:500;", "Temporal: Resurvey stale cells"),
+          div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+            span(style = paste0(num_style, " color:", pal$sand, ";"), comma(n_stale)),
+            " cells have not been surveyed in over 5 years. Prioritise cells with historically high diversity for resurvey.")),
+      ),
+      # Taxonomic
+      div(style = goal_style,
+        div(style = paste0(icon_style, " color:", pal$plum, ";"), icon("leaf")),
+        div(style = "flex:1;",
+          div(style = "font-size:1.05rem; font-weight:500;", "Taxonomic: Close species coverage gaps"),
+          div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+            span(style = paste0(num_style, " color:", pal$plum, ";"), comma(n_taxa_missing)),
+            " species in the national backbone have no GBIF records. Focus on under-sampled orders and families shown below.")),
+      ),
+      # Threatened
+      div(style = goal_style,
+        div(style = paste0(icon_style, " color:", pal$coral, ";"), icon("exclamation-triangle")),
+        div(style = "flex:1;",
+          div(style = "font-size:1.05rem; font-weight:500;", "Threatened: Monitor CR and EN species"),
+          div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+            span(style = paste0(num_style, " color:", pal$coral, ";"), comma(n_cr_en)),
+            " critically endangered or endangered species lack any GBIF occurrence data. These are the highest priority for targeted surveys.")),
+      )
+    )
+
+    # Native/invasive goal (only if data available)
+    if (has_establishment && !is.null(match_summary_full)) {
+      goals <- tagList(goals,
+        div(style = paste0(goal_style, " border-bottom:none;"),
+          div(style = paste0(icon_style, " color:", pal$sage, ";"), icon("seedling")),
+          div(style = "flex:1;",
+            div(style = "font-size:1.05rem; font-weight:500;", "Native species: Improve baseline coverage"),
+            div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+              "Native species coverage is ",
+              span(style = paste0(num_style, " color:", pal$sage, ";"), paste0(native_cov, "%")),
+              " (", comma(n_native_missing), " native species missing). ",
+              if (n_invasive_missing > 0) paste0(comma(n_invasive_missing),
+                " of ", comma(n_invasive_total), " known invasive species also lack GBIF data — monitor for spread detection.")
+              else "All known invasive species have GBIF records."
+            ))
+        )
+      )
+    }
+
+    goals
+  })
+
+  # ---- Next 12 Months targets ----
+  output$next_12_months <- renderUI({
+    # What was achieved in the last 12 months
+    ly_occ <- if (!is.null(overview_last_year)) overview_last_year$occ_last_year else 0
+    ly_cells <- if (!is.null(overview_last_year)) overview_last_year$cells_active_last_year else 0
+    ly_new_cells <- if (!is.null(overview_last_year)) overview_last_year$cells_newly_covered else 0
+    ly_resolved <- if (!is.null(priority_resolved)) nrow(priority_resolved) else 0
+
+    # Compute species added in last 12 months (approximate from match_summary)
+    ly_species <- 0
+    if (!is.null(match_summary_full)) {
+      # Species with any occurrence in the recent period — approximate from total
+      # Use overview data if available
+      ly_species <- if (!is.null(overview_last_year$species_last_year))
+        overview_last_year$species_last_year else round(ly_occ / 50)  # rough estimate
+    }
+
+    # Targets: 1.5× what was achieved (aspirational but grounded)
+    target_mult <- 1.5
+    target_new_cells <- ceiling(ly_new_cells * target_mult)
+    target_resolved <- ceiling(max(ly_resolved, 5) * target_mult)
+
+    n_zero <- if (!is.null(priority_zero)) nrow(priority_zero) else 0
+    n_stale <- if (!is.null(priority_stale)) nrow(priority_stale) else 0
+    n_cr_en <- 0
+    if (!is.null(match_summary_full)) {
+      ms <- match_summary_full |> as_tibble()
+      threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
+      if (!is.na(threat_col))
+        n_cr_en <- ms |> filter(.data[[threat_col]] %in% c("CR", "EN"), !matched_any) |> nrow()
+    }
+
+    row_style <- "display:flex; align-items:center; padding:0.6rem 0; border-bottom:1px solid #f0f0f0;"
+    label_style <- "flex:2; font-size:0.95rem;"
+    achieved_style <- "flex:1; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:1.05rem;"
+    target_style <- "flex:1; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:1.05rem; font-weight:600;"
+    header_style <- "display:flex; padding:0.4rem 0; border-bottom:2px solid #ddd; margin-bottom:0.25rem;"
+
+    tagList(
+      div(style = header_style,
+        div(style = paste0(label_style, " font-weight:600;"), "Metric"),
+        div(style = paste0(achieved_style, " font-weight:600; color:", pal$slate, ";"), paste0("Achieved (", last_year_label, ")")),
+        div(style = paste0(target_style, " font-weight:600; color:", pal$sage, ";"), "Next 12 Months Target")
+      ),
+      div(style = row_style,
+        div(style = label_style, "New occurrence records"),
+        div(style = achieved_style, comma(ly_occ)),
+        div(style = paste0(target_style, " color:", pal$sage, ";"), paste0(comma(ceiling(ly_occ * target_mult)), "+"))
+      ),
+      div(style = row_style,
+        div(style = label_style, "Cells with active recording"),
+        div(style = achieved_style, comma(ly_cells)),
+        div(style = paste0(target_style, " color:", pal$sage, ";"), paste0(comma(ceiling(ly_cells * target_mult)), "+"))
+      ),
+      div(style = row_style,
+        div(style = label_style, "Newly covered cells (previously zero)"),
+        div(style = achieved_style, comma(ly_new_cells)),
+        div(style = paste0(target_style, " color:", pal$sage, ";"),
+          paste0(comma(target_new_cells), " / ", comma(n_zero), " remaining"))
+      ),
+      div(style = row_style,
+        div(style = label_style, "Priority zero-cells resolved"),
+        div(style = achieved_style, comma(ly_resolved)),
+        div(style = paste0(target_style, " color:", pal$sage, ";"), comma(target_resolved))
+      ),
+      div(style = paste0(row_style, " border-bottom:none;"),
+        div(style = label_style, "CR/EN species with new records"),
+        div(style = achieved_style, "\u2014"),
+        div(style = paste0(target_style, " color:", pal$coral, ";"),
+          paste0("Target: ", comma(min(n_cr_en, 20)), " of ", comma(n_cr_en), " missing"))
+      )
+    )
   })
 
   # Zero coverage map
