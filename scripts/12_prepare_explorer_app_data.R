@@ -95,7 +95,8 @@ if (length(species_summary_files) > 0) {
   if (!is.na(match_summary_path) && file.exists(match_summary_path)) {
     ms <- fread(match_summary_path)
     ms_cols <- intersect(
-      c("scientificName", "kingdom", "phylum", "class", "order", "family", "threatStatus"),
+      c("scientificName", "kingdom", "phylum", "class", "order", "family", "threatStatus",
+        "establishmentMeans", "occurrenceStatus"),
       names(ms)
     )
     ms <- ms[, ..ms_cols]
