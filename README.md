@@ -12,6 +12,7 @@ This project analyses GBIF occurrence data for a given country to identify:
 - **Temporal gaps** — time periods with reduced or absent data collection
 - **Taxonomic gaps** — species groups under-represented in the data
 - **Sampling bias** — Troudet-style analysis of taxonomic representation vs. proportional sampling
+- **Establishment means** — native, introduced, and invasive species scope filtering and monitoring
 - **Recent activity** — rolling 12-month window highlighting new data contributions
 
 The analysis uses EEA reference grids (10 km and 50 km) with EPSG:3035 (ETRS89-LAEA) projection. Grid systems are configurable for non-European countries.
@@ -50,7 +51,8 @@ gbif_gap_analysis/
 │   ├── 04_taxonomic_gaps.Rmd           # Taxonomic gap analysis
 │   ├── 05_basis_of_record_report.Rmd    # Basis of record analysis
 │   ├── 06_integrated_report.Rmd        # Combined assessment
-│   └── 07_taxonomy_reconciliation_qa.Rmd  # Reconciliation review & overrides
+│   ├── 07_taxonomy_reconciliation_qa.Rmd  # Reconciliation review & overrides
+│   └── 08_establishment_means.Rmd      # Native vs invasive species analysis
 ├── data_raw/                # Raw input data (not in git)
 │   └── admin/              # GADM administrative boundaries (auto-downloaded)
 ├── data_proc/               # Processed data (derived/, gaps/)
