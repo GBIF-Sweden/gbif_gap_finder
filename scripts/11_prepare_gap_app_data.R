@@ -369,6 +369,40 @@ if (!is.null(tax_by_rank)) {
   cli_alert_success("Taxonomic by rank loaded")
 }
 
+# Coverage by establishment means (for scope filter)
+if (!is.null(match_summary) && "establishmentMeans" %in% names(match_summary)) {
+  estab_coverage <- match_summary |>
+    as_tibble() |>
+    group_by(establishmentMeans) |>
+    summarise(
+      n_ref_total = n(),
+      n_in_gbif = sum(matched_any, na.rm = TRUE),
+      n_missing = n_ref_total - n_in_gbif,
+      pct_coverage = round(100 * n_in_gbif / n_ref_total, 2),
+      .groups = "drop"
+    ) |>
+    arrange(desc(n_ref_total))
+  shiny_data$tax_by_establishment <- estab_coverage
+  cli_alert_success("Coverage by establishment means: {nrow(estab_coverage)} categories")
+}
+
+# Coverage by occurrence status (for scope filter)
+if (!is.null(match_summary) && "occurrenceStatus" %in% names(match_summary)) {
+  occ_status_coverage <- match_summary |>
+    as_tibble() |>
+    group_by(occurrenceStatus) |>
+    summarise(
+      n_ref_total = n(),
+      n_in_gbif = sum(matched_any, na.rm = TRUE),
+      n_missing = n_ref_total - n_in_gbif,
+      pct_coverage = round(100 * n_in_gbif / n_ref_total, 2),
+      .groups = "drop"
+    ) |>
+    arrange(desc(n_ref_total))
+  shiny_data$tax_by_occurrence_status <- occ_status_coverage
+  cli_alert_success("Coverage by occurrence status: {nrow(occ_status_coverage)} categories")
+}
+
 # Gaps by order — derive from match_summary to ensure hierarchy columns
 # (Pre-computed CSVs may lack kingdom/phylum/class needed for cascading filters)
 tax_by_order_file <- safe_read(here(p_tables, "overview_taxonomic_gaps_by_order.csv"))

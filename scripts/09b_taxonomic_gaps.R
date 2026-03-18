@@ -146,7 +146,8 @@ for (col in c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")) {
 # Select working columns
 keep_cols <- intersect(
   c("taxonID", "scientificName", "name_std", "taxonRank", "threatStatus",
-    "kingdom", "phylum", "class", "order", "family", "genus"),
+    "kingdom", "phylum", "class", "order", "family", "genus",
+    "establishmentMeans", "occurrenceStatus"),
   names(tax_accepted)
 )
 tax_clean <- tax_accepted[, ..keep_cols]
@@ -274,6 +275,40 @@ rank_threat_summary <- match_summary[, .(
   n_missing    = sum(!matched_any),
   pct_coverage = round(100 * sum(matched_any) / .N, 2)
 ), by = .(taxonRank, threatStatus)]
+
+
+# ===========================================================================
+# COVERAGE BY ESTABLISHMENT MEANS
+# ===========================================================================
+
+if ("establishmentMeans" %in% names(match_summary)) {
+  cli_h2("Coverage by Establishment Means")
+
+  estab_summary <- match_summary[, .(
+    n_ref_total  = .N,
+    n_in_gbif    = sum(matched_any),
+    n_missing    = sum(!matched_any),
+    pct_coverage = round(100 * sum(matched_any) / .N, 2)
+  ), by = establishmentMeans]
+  setorder(estab_summary, -n_ref_total)
+  print(estab_summary)
+
+  # Occurrence status summary
+  if ("occurrenceStatus" %in% names(match_summary)) {
+    occ_status_summary <- match_summary[, .(
+      n_ref_total  = .N,
+      n_in_gbif    = sum(matched_any),
+      n_missing    = sum(!matched_any),
+      pct_coverage = round(100 * sum(matched_any) / .N, 2)
+    ), by = occurrenceStatus]
+    setorder(occ_status_summary, -n_ref_total)
+    cli_alert_info("Coverage by occurrence status:")
+    print(occ_status_summary)
+  }
+} else {
+  cli_alert_info("No establishmentMeans column — skipping establishment means summary")
+  estab_summary <- NULL
+}
 
 
 # ===========================================================================
@@ -546,6 +581,13 @@ write_gap_file(missing_threatened, "taxonomic_missing_threatened.csv")
 write_gap_file(rank_summary, "taxonomic_coverage_by_rank.csv")
 write_gap_file(threat_summary, "taxonomic_coverage_by_threat.csv")
 write_gap_file(rank_threat_summary, "taxonomic_gap_summary.csv")
+
+if (!is.null(estab_summary)) {
+  write_gap_file(estab_summary, "taxonomic_coverage_by_establishment.csv")
+}
+if (exists("occ_status_summary") && !is.null(occ_status_summary)) {
+  write_gap_file(occ_status_summary, "taxonomic_coverage_by_occurrence_status.csv")
+}
 
 if (nrow(basis_coverage) > 0) {
   write_gap_file(basis_coverage, "taxonomic_coverage_by_basis.csv")
