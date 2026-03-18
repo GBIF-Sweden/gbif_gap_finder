@@ -119,6 +119,53 @@ if (length(species_summary_files) > 0) {
   explorer_data$species_lookup <- as_tibble(species_lookup)
   cli_alert_success("Species lookup: {scales::comma(nrow(species_lookup))} unique species")
 
+  # ---- Add Swedish vernacular names from Dyntaxa ----
+  vn_path <- here(raw_taxonomy_dir, "VernacularName.csv")
+  tx_path <- here(raw_taxonomy_dir, "Taxon.csv")
+
+  if (file.exists(vn_path) && file.exists(tx_path)) {
+    cli_alert_info("Adding Swedish vernacular names...")
+    vn <- fread(vn_path)
+    tx <- fread(tx_path, select = c("taxonId", "scientificName"))
+
+    # Filter to Swedish preferred names
+    vn_sv <- vn[language == "sv" & isPreferredName == TRUE, .(taxonId, vernacularName)]
+    # If no preferred, take first Swedish name
+    vn_sv_fallback <- vn[language == "sv", .(taxonId, vernacularName)]
+    vn_sv_fallback <- vn_sv_fallback[!duplicated(taxonId)]
+
+    # Join to get scientific name
+    vn_joined <- merge(vn_sv, tx, by = "taxonId", all.x = TRUE)
+    if (nrow(vn_joined) == 0) {
+      vn_joined <- merge(vn_sv_fallback, tx, by = "taxonId", all.x = TRUE)
+    }
+    vn_joined <- vn_joined[!is.na(scientificName) & scientificName != ""]
+    vn_joined <- vn_joined[!duplicated(scientificName)]
+
+    # Merge into species_lookup
+    sl <- as.data.table(explorer_data$species_lookup)
+    vn_lookup <- setNames(vn_joined$vernacularName, vn_joined$scientificName)
+    sl[, vernacular_sv := unname(vn_lookup[species])]
+    n_matched <- sum(!is.na(sl$vernacular_sv))
+    cli_alert_success("Swedish names matched: {scales::comma(n_matched)} / {scales::comma(nrow(sl))} species")
+
+    # Also add English names if available
+    vn_en <- vn[language == "en" & isPreferredName == TRUE, .(taxonId, vernacularName)]
+    if (nrow(vn_en) == 0) vn_en <- vn[language == "en"][!duplicated(taxonId), .(taxonId, vernacularName)]
+    vn_en_joined <- merge(vn_en, tx, by = "taxonId", all.x = TRUE)
+    vn_en_joined <- vn_en_joined[!is.na(scientificName)][!duplicated(scientificName)]
+    vn_en_lookup <- setNames(vn_en_joined$vernacularName, vn_en_joined$scientificName)
+    sl[, vernacular_en := unname(vn_en_lookup[species])]
+    n_en <- sum(!is.na(sl$vernacular_en))
+    cli_alert_info("English names matched: {scales::comma(n_en)} / {scales::comma(nrow(sl))} species")
+
+    explorer_data$species_lookup <- as_tibble(sl)
+    rm(vn, tx, vn_sv, vn_sv_fallback, vn_joined, vn_en, vn_en_joined, sl)
+    gc()
+  } else {
+    cli_alert_warning("VernacularName.csv or Taxon.csv not found — skipping vernacular names")
+  }
+
 } else {
   cli_abort(c(
     "No species summary files found in {.path {p_derived}}",
