@@ -51,6 +51,7 @@ required_packages <- c(
   "kableExtra",
   "gt",
   "DT",
+  "shinyWidgets",
 
   # Reporting
   "rmarkdown",
