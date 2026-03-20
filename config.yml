@@ -36,8 +36,9 @@ taxonomy:
   name: "Dyntaxa"
   dataset_key: "de8934f4-a136-481c-a87a-b0b202b80a31"
   doi: "https://doi.org/10.15468/j43wfc"
-  export_url: "https://ipt.gbif.se/archive.do?r=dyntaxa&v=1.2"
-  version: "1.2"
+  # export_url: "https://ipt.gbif.se/archive.do?r=dyntaxa&v=1.2"
+  # version: "1.2"
+  export_url: https://api.artdatabanken.se/taxonservice/v1/DarwinCore/Download?subscription-key=4b068709e7f2427d9fc76bf42d8e2b57
 
 # ============================================================================
 # National Red List (optional — threat status enrichment)
@@ -46,7 +47,8 @@ redlist:
   enabled: true
   dataset_key: "fab88965-e69d-4491-a04d-e3198b626e52"
   doi: "https://doi.org/10.15468/jhwkpq"
-  export_url: "https://ipt.gbif.se/archive.do?r=swedish-red-list&v=1.8"
+  # export_url: "https://ipt.gbif.se/archive.do?r=swedish-red-list&v=1.8"
+  export_url: "https://www.gbif.se/ipt/archive.do?r=swedishredlist2020"
 
 # ============================================================================
 # GBIF Occurrence Cubes
