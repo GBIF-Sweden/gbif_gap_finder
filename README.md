@@ -174,6 +174,34 @@ When `admin_boundaries.enabled: true`, script 01 downloads GADM boundary data fo
 
 Key packages: `sf`, `data.table`, `dplyr`, `ggplot2`, `plotly`, `leaflet`, `shiny`, `rgbif`, `geodata` (for admin boundaries). Full dependency list managed via `renv`.
 
+## Docker
+
+Build the Gap Analysis app image:
+
+```bash
+docker build -f shiny_app/gap_app/Dockerfile.gap_app -t gbif-gap-app .
+```
+
+Run the Gap Analysis app:
+
+```bash
+docker run --rm -p 3838:3838 gbif-gap-app
+```
+
+Build the GBIF Explorer image:
+
+```bash
+docker build -f shiny_app/gbif_explorer/Dockerfile.gbif_explorer -t gbif-explorer .
+```
+
+Run the GBIF Explorer app:
+
+```bash
+docker run --rm -p 3838:3838 gbif-explorer
+```
+
+These images expect the app bundle files to already exist in the repo, especially `shiny_app/gap_app/data/shiny_data.rds` and `shiny_app/gbif_explorer/data/shiny_data.rds`.
+
 ## Data Sources (Sweden defaults)
 
 | Source | Description | DOI/Link |
