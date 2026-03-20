@@ -1,0 +1,72 @@
+FROM rocker/r-ver:4.5.2 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV RENV_CONFIG_PAK_ENABLED=FALSE
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake \
+    g++ \
+    gdal-bin \
+    libcurl4-openssl-dev \
+    libfontconfig1-dev \
+    libfribidi-dev \
+    libfreetype6-dev \
+    libgdal-dev \
+    libgeos-dev \
+    libglpk-dev \
+    libharfbuzz-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libproj-dev \
+    libssl-dev \
+    libtiff5-dev \
+    libudunits2-dev \
+    libxml2-dev \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN R -q -e "install.packages('renv', repos = 'https://packagemanager.posit.co/cran/latest')"
+
+WORKDIR /opt/project
+
+COPY renv.lock ./renv.lock
+
+RUN R -q -e "renv::consent(provided = TRUE); renv::restore(lockfile = 'renv.lock', library = '/usr/local/lib/R/site-library', prompt = FALSE)"
+
+FROM rocker/r-ver:4.5.2
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcurl4 \
+    libfontconfig1 \
+    libfribidi0 \
+    libfreetype6 \
+    libgdal-dev \
+    libgeos-dev \
+    libglpk40 \
+    libharfbuzz0b \
+    libjpeg-dev \
+    libpng16-16 \
+    libproj-dev \
+    libssl3 \
+    libtiff6 \
+    libudunits2-0 \
+    libxml2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/R/site-library /usr/local/lib/R/site-library
+
+WORKDIR /opt/project
+
+# Keep the original relative path structure so ../../config.yml still resolves.
+COPY config.yml ./config.yml
+COPY shiny_app/gbif_explorer/app.R ./shiny_app/gbif_explorer/app.R
+COPY shiny_app/gbif_explorer/data/shiny_data.rds ./shiny_app/gbif_explorer/data/shiny_data.rds
+COPY shiny_app/gbif_explorer/www/styles.css ./shiny_app/gbif_explorer/www/styles.css
+
+EXPOSE 3838
+
+WORKDIR /opt/project/shiny_app/gbif_explorer
+
+CMD ["R", "-q", "-e", "options(shiny.host = '0.0.0.0', shiny.port = 3838); shiny::runApp('.')"]
