@@ -1,0 +1,109 @@
+# configs/config_template.yml
+# ============================================================================
+# gbifgaps — Project Configuration Template
+# ============================================================================
+# Copy this file to configs/config_{CC}.yml (e.g. config_NO.yml)
+# Fill in all TODO items, then run:
+#   Sys.setenv(GBIFGAPS_COUNTRY = "CC")
+#   source("scripts/00_setup.R")
+#   source("scripts/01_download_raw_data.R")
+#
+# Data: data/{CC}/raw/ and data/{CC}/proc/
+# Grids: data/shared/grids/ (shared across European countries)
+# ============================================================================
+
+# ============================================================================
+# Country Identification
+# ============================================================================
+country:
+  code: ""                           # TODO: ISO 3166-1 alpha-2 (e.g. "NO")
+  name: ""                           # TODO: e.g. "Norway"
+  gbif_country_code: ""              # TODO: same as code
+  timezone: ""                       # TODO: e.g. "Europe/Oslo"
+
+# ============================================================================
+# Administrative Boundaries (optional)
+# ============================================================================
+admin_boundaries:
+  enabled: true
+  country_code_iso3: ""              # TODO: ISO 3166-1 alpha-3 (e.g. "NOR")
+  levels: [1, 2]
+  force_download: false
+
+# ============================================================================
+# National Taxonomy Backbone
+# ============================================================================
+# Find your national checklist: https://www.gbif.org/dataset/search?type=CHECKLIST
+taxonomy:
+  name: ""                           # TODO: e.g. "Nortaxa"
+  dataset_key: ""                    # TODO: GBIF dataset UUID
+  doi: ""                            # TODO: dataset DOI
+  export_url: ""                     # TODO: DwC-A download URL
+
+# ============================================================================
+# National Red List (optional)
+# ============================================================================
+# Set enabled: false if no red list DwC-A is available
+redlist:
+  enabled: false                     # TODO: set true if available
+  dataset_key: ""                    # TODO: GBIF dataset UUID
+  doi: ""                            # TODO: dataset DOI
+  export_url: ""                     # TODO: DwC-A download URL
+
+# ============================================================================
+# GBIF Occurrence Cubes (SQL API)
+# ============================================================================
+# Download via https://www.gbif.org/occurrence/download/sql
+# Script 01 prints the SQL query for your country.
+# Unzip and place CSVs in data/{CC}/raw/cubes/
+cubes:
+  source: "sql_api"
+  grid10km:
+    download_key: null               # filled after download
+    doi: null
+  grid50km:
+    download_key: null
+    doi: null
+
+# ============================================================================
+# Files
+# ============================================================================
+files:
+  grids:
+    grid10km: "Grid_ETRS89-LAEA_10K.shp"                     # Europe-wide, in data/shared/grids/
+    grid50km: "EEA_50km_grid_v2024.gpkg"    # in data/shared/grids/
+
+  cubes:
+    grid10km: "cube_10km.csv"
+    grid50km: "cube_50km.csv"
+
+  taxonomy:
+    taxonomy_taxon: "Taxon.csv"      # TODO: verify — may be taxon.txt
+    taxonomy_distr: "Distribution.csv"  # TODO: verify — may be SpeciesDistribution.csv
+
+  redlist:
+    redlist_taxon: "taxon.txt"       # TODO: verify after download
+    redlist_distr: "distribution.txt"
+
+# ============================================================================
+# Analysis Parameters
+# ============================================================================
+parameters:
+  crs: 3035                          # ETRS89-LAEA (EEA standard)
+                                     # Change for non-European countries
+
+  spatial:
+    quantile_thresholds: [0.05, 0.10, 0.25]
+
+  temporal:
+    stale_months_12: 12
+    stale_months_60: 60
+
+  taxonomic:
+    min_occurrences: 10
+    min_cells: 5
+
+  processing:
+    large_order_threshold: 500000
+    low_memory_mode: false
+    make_species_cell_time: true
