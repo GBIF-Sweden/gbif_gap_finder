@@ -71,12 +71,12 @@ cubes:
 # ============================================================================
 files:
   grids:
-    grid10km: "se_10km.shp"
-    grid50km: "EEA_50km_grid_v2024.gpkg"
+    grid10km: "Grid_ETRS89-LAEA_10K.shp"                 # in data/shared/grids/
+    grid50km: "EEA_50km_grid_v2024.gpkg"    # in data/shared/grids/
 
   cubes:
-    grid10km: "cube_10km.parquet"      # new: single parquet file
-    grid50km: "cube_50km.parquet"
+    grid10km: "cube_10km.csv"
+    grid50km: "cube_50km.csv"
 
   taxonomy:
     taxonomy_taxon: "Taxon.csv"
