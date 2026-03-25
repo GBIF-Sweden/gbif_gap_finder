@@ -5,11 +5,11 @@
 # This script identifies temporal gaps in GBIF occurrence data:
 #
 # INPUTS:
-#   - data_proc/derived/time_summary_*.csv (from 06a)
-#   - data_proc/derived/family_time_summary_*.csv (from 06a)
-#   - data_proc/cubes/*.fst (for cell-level recency)
+#   - data/{CC}/proc/derived/time_summary_*.csv (from 06a)
+#   - data/{CC}/proc/derived/family_time_summary_*.csv (from 06a)
+#   - data/{CC}/proc/cubes/*.parquet (for cell-level recency)
 #
-# OUTPUTS (in data_proc/gaps/):
+# OUTPUTS (in data/{CC}/proc/gaps/):
 #   National trends:
 #     - temporal_overview_year_*.csv      Annual totals
 #     - temporal_overview_month_*.csv     Monthly totals (seasonal patterns)
@@ -48,6 +48,7 @@ library(lubridate)
 library(data.table)
 library(glue)
 library(cli)
+library(arrow)
 
 source(here("scripts", "00_setup.R"))
 
@@ -72,13 +73,38 @@ cli_alert_info("Staleness thresholds: {STALE_12M} months, {STALE_60M} months")
 # HELPER FUNCTIONS
 # ===========================================================================
 
-#' Parse yearmonth string to Date
+#' Parse yearmonth to Date
+#' Handles: "2025-01" (string), 202501 (6-digit int), 20251 (5-digit int)
 parse_yearmonth <- function(x) {
   x_chr <- str_trim(as.character(x))
-  valid <- str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
-  
   out <- rep(as.Date(NA), length(x_chr))
-  out[valid] <- as.Date(paste0(x_chr[valid], "-01"))
+  
+  # Skip NAs and empty strings
+  valid_input <- !is.na(x_chr) & x_chr != "" & x_chr != "NA"
+  if (!any(valid_input)) return(out)
+  
+  # Format: "2025-01"
+  fmt_dash <- valid_input & str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
+  if (any(fmt_dash)) {
+    out[fmt_dash] <- as.Date(paste0(x_chr[fmt_dash], "-01"))
+  }
+  
+  # Format: "202501" (6 digits)
+  fmt6 <- valid_input & !fmt_dash & str_detect(x_chr, "^[0-9]{6}$")
+  if (any(fmt6)) {
+    yr <- substr(x_chr[fmt6], 1, 4)
+    mo <- substr(x_chr[fmt6], 5, 6)
+    out[fmt6] <- as.Date(paste0(yr, "-", mo, "-01"))
+  }
+  
+  # Format: "20251" (5 digits — single-digit month)
+  fmt5 <- valid_input & !fmt_dash & !fmt6 & str_detect(x_chr, "^[0-9]{5}$")
+  if (any(fmt5)) {
+    yr <- substr(x_chr[fmt5], 1, 4)
+    mo <- substr(x_chr[fmt5], 5, 5)
+    out[fmt5] <- as.Date(paste0(yr, "-0", mo, "-01"))
+  }
+  
   out
 }
 
@@ -116,19 +142,16 @@ read_time_summary <- function(filename) {
   dt
 }
 
-#' Read fst columns
-read_fst_cols <- function(path, cols) {
-  meta <- fst::metadata_fst(path)
-  available <- meta$columnNames
-  cols_to_read <- intersect(cols, available)
-  
-  if (!("occurrences" %in% available)) {
-    cli_abort("Column 'occurrences' missing in: {.path {basename(path)}}")
+#' Read columns from a parquet cube file
+read_cube_cols <- function(path, cols) {
+  ds <- arrow::open_dataset(path)
+  available <- intersect(cols, names(ds$schema))
+  dt <- as.data.table(ds |> dplyr::select(dplyr::all_of(available)) |> dplyr::collect())
+  # Create yearmonth if needed
+  if (all(c("year", "month") %in% names(dt)) && !"yearmonth" %in% names(dt)) {
+    dt[, yearmonth := year * 100L + as.integer(month)]
   }
-  
-  df <- fst::read_fst(path, columns = cols_to_read)
-  setDT(df)
-  df
+  dt
 }
 
 #' Enrich temporal data with derived fields
@@ -321,103 +344,56 @@ compute_cell_recency <- function(grid_label, cubes_dir) {
   
   cli_alert_info("Processing {grid_label} cubes...")
   
-  cube_files <- list.files(cubes_dir, pattern = "\\.fst$", full.names = TRUE)
+  # Find parquet file for this grid
+  grid_suffix <- str_extract(grid_label, "\\d+km")
+  parquet_file <- list.files(cubes_dir, pattern = glue(".*{grid_suffix}.*\\.parquet$"), full.names = TRUE)
   
-  if (length(cube_files) == 0) {
-    cli_alert_warning("No cube files found in: {.path {cubes_dir}}")
+  if (length(parquet_file) == 0) {
+    cli_alert_warning("No parquet file found for {grid_label} in {.path {cubes_dir}}")
     return(NULL)
   }
   
-  cols <- c("grid", "basisofrecord", "eeacellcode", "yearmonth", "occurrences")
-  parts <- list()
+  parquet_file <- parquet_file[1]
+  cli_alert_info("Reading: {basename(parquet_file)}")
   
-  cli_progress_bar("Reading cubes", total = length(cube_files), clear = FALSE)
+  cols <- c("basisofrecord", "eeacellcode", "year", "month", "occurrences")
+  dt <- read_cube_cols(parquet_file, cols)
   
-  for (f in cube_files) {
-    cli_progress_update()
-    
-    dt <- read_fst_cols(f, cols)
-    
-    if (!("grid" %in% names(dt))) {
-      rm(dt)
-      next
-    }
-    
-    dt <- dt[grid == grid_label]
-    
-    if (nrow(dt) == 0) {
-      rm(dt)
-      next
-    }
-    
-    required <- c("eeacellcode", "yearmonth", "occurrences", "basisofrecord")
-    if (!all(required %in% names(dt))) {
-      rm(dt)
-      next
-    }
-    
-    dt <- dt[as.numeric(occurrences) > 0]
-    
-    if (nrow(dt) == 0) {
-      rm(dt)
-      next
-    }
-    
-    dt[, ym := parse_yearmonth(yearmonth)]
-    dt <- dt[!is.na(ym)]
-    
-    if (nrow(dt) == 0) {
-      rm(dt)
-      next
-    }
-    
-    # Per basis
-    tmp_basis <- dt[, .(
-      last_ym = max(ym, na.rm = TRUE),
-      first_ym = min(ym, na.rm = TRUE),
-      n_observations = .N,
-      total_occurrences = safe_sum(occurrences),
-      n_unique_months = uniqueN(ym)
-    ), by = .(grid, basisofrecord, eeacellcode)]
-    
-    # All basis combined
-    tmp_all <- dt[, .(
-      last_ym = max(ym, na.rm = TRUE),
-      first_ym = min(ym, na.rm = TRUE),
-      n_observations = .N,
-      total_occurrences = safe_sum(occurrences),
-      n_unique_months = uniqueN(ym)
-    ), by = .(grid, eeacellcode)]
-    tmp_all[, basisofrecord := "all"]
-    
-    parts[[length(parts) + 1]] <- rbindlist(
-      list(tmp_basis, tmp_all), 
-      use.names = TRUE, 
-      fill = TRUE
-    )
-    
-    rm(dt)
-    invisible(gc())
-  }
+  dt <- dt[as.numeric(occurrences) > 0]
+  dt[, ym := parse_yearmonth(yearmonth)]
+  dt <- dt[!is.na(ym)]
   
-  cli_progress_done()
-  
-  if (length(parts) == 0) {
-    cli_alert_warning("No recency data produced for {grid_label}")
+  if (nrow(dt) == 0) {
+    cli_alert_warning("No recency data for {grid_label}")
     return(NULL)
   }
   
-  # Combine all parts
-  out <- rbindlist(parts, use.names = TRUE, fill = TRUE)
+  cli_alert_info("{scales::comma(nrow(dt))} rows with valid dates")
   
-  # Aggregate across files
-  out <- out[, .(
-    last_ym = max(last_ym, na.rm = TRUE),
-    first_ym = min(first_ym, na.rm = TRUE),
-    n_observations = sum(n_observations),
-    total_occurrences = safe_sum(total_occurrences),
-    n_unique_months = sum(n_unique_months)
-  ), by = .(grid, basisofrecord, eeacellcode)]
+  # Per basis
+  tmp_basis <- dt[, .(
+    last_ym = max(ym, na.rm = TRUE),
+    first_ym = min(ym, na.rm = TRUE),
+    n_observations = .N,
+    total_occurrences = safe_sum(occurrences),
+    n_unique_months = uniqueN(ym)
+  ), by = .(basisofrecord, eeacellcode)]
+  tmp_basis[, grid := grid_label]
+  
+  # All basis combined
+  tmp_all <- dt[, .(
+    last_ym = max(ym, na.rm = TRUE),
+    first_ym = min(ym, na.rm = TRUE),
+    n_observations = .N,
+    total_occurrences = safe_sum(occurrences),
+    n_unique_months = uniqueN(ym)
+  ), by = .(eeacellcode)]
+  tmp_all[, basisofrecord := "all"]
+  tmp_all[, grid := grid_label]
+  
+  out <- rbindlist(list(tmp_basis, tmp_all), use.names = TRUE, fill = TRUE)
+  
+  rm(dt, tmp_basis, tmp_all); gc()
   
   # Calculate derived metrics
   today <- Sys.Date()

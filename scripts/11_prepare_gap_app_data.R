@@ -619,9 +619,9 @@ time_summary <- safe_read(here(p_derived, "time_summary_10km.csv"))
 if (!is.null(time_summary)) {
   shiny_data$time_summary_10km <- as_tibble(time_summary) |>
     mutate(
-      yearmonth_chr = str_trim(as.character(yearmonth)),
-      year = as.integer(str_sub(yearmonth_chr, 1, 4)),
-      month = as.integer(str_sub(yearmonth_chr, 6, 7))
+      yearmonth = as.integer(gsub("-", "", as.character(yearmonth))),
+      year = as.integer(substr(as.character(yearmonth), 1, 4)),
+      month = as.integer(substr(as.character(yearmonth), 5, 6))
     )
   cli_alert_success("Time summary 10km: {nrow(shiny_data$time_summary_10km)} rows")
 }
@@ -631,9 +631,9 @@ order_time_summary <- safe_read(here(p_derived, "order_time_summary_10km.csv"))
 if (!is.null(order_time_summary)) {
   shiny_data$order_time_summary <- as_tibble(order_time_summary) |>
     mutate(
-      yearmonth_chr = str_trim(as.character(yearmonth)),
-      year = as.integer(str_sub(yearmonth_chr, 1, 4)),
-      month = as.integer(str_sub(yearmonth_chr, 6, 7))
+      yearmonth = as.integer(gsub("-", "", as.character(yearmonth))),
+      year = as.integer(substr(as.character(yearmonth), 1, 4)),
+      month = as.integer(substr(as.character(yearmonth), 5, 6))
     )
   cli_alert_success("Order time summary 10km: {nrow(shiny_data$order_time_summary)} rows")
 }
@@ -643,9 +643,9 @@ family_time_summary <- safe_read(here(p_derived, "family_time_summary_10km.csv")
 if (!is.null(family_time_summary)) {
   shiny_data$family_time_summary <- as_tibble(family_time_summary) |>
     mutate(
-      yearmonth_chr = str_trim(as.character(yearmonth)),
-      year = as.integer(str_sub(yearmonth_chr, 1, 4)),
-      month = as.integer(str_sub(yearmonth_chr, 6, 7))
+      yearmonth = as.integer(gsub("-", "", as.character(yearmonth))),
+      year = as.integer(substr(as.character(yearmonth), 1, 4)),
+      month = as.integer(substr(as.character(yearmonth), 5, 6))
     )
   cli_alert_success("Family time summary 10km: {nrow(shiny_data$family_time_summary)} rows")
 }
@@ -746,7 +746,7 @@ if (!is.null(shiny_data$time_summary_10km)) {
     occ_prior = prior_occ$total_occ[1],
     cells_active_last_year = recent_occ$n_cells[1]
   )
-  cli_alert_success("Overview recent: {comma(recent_occ$total_occ[1])} occurrences in {recent_label}")
+  cli_alert_success("Overview recent: {scales::comma(recent_occ$total_occ[1])} occurrences in {recent_label}")
 }
 
 # ---- 8b.2  SPATIAL: Cells newly covered in last 12 months ----
@@ -778,7 +778,7 @@ if (!is.null(cell_time_raw)) {
   shiny_data$cell_last_year <- cell_by_era
   n_newly <- sum(cell_by_era$newly_covered)
   n_active <- sum(cell_by_era$has_last_year_data)
-  cli_alert_success("Spatial recent: {comma(n_newly)} newly covered cells, {comma(n_active)} cells active in {recent_label}")
+  cli_alert_success("Spatial recent: {scales::comma(n_newly)} newly covered cells, {scales::comma(n_active)} cells active in {recent_label}")
 
   # Add to overview
   if (!is.null(shiny_data$overview_last_year)) {
@@ -1054,6 +1054,55 @@ shiny_data$metadata <- list(
   has_troudet = !is.null(shiny_data$troudet_bias),
   last_year = if (!is.null(shiny_data$last_year)) shiny_data$last_year else NA
 )
+
+# ===========================================================================
+# 9b. PUBLISHER DATA (NEW)
+# ===========================================================================
+
+cli_h2("Loading Publisher Data")
+
+publisher_summary_path <- here(p_derived, "publisher_summary_10km.csv")
+publisher_cell_path <- here(p_derived, "publisher_cell_dependency_10km.csv")
+published_time_path <- here(p_derived, "published_time_summary_10km.csv")
+
+if (file.exists(publisher_summary_path)) {
+  shiny_data$publisher_summary <- as_tibble(fread(publisher_summary_path))
+  cli_alert_success("Publisher summary: {nrow(shiny_data$publisher_summary)} publishers")
+} else {
+  cli_alert_info("No publisher summary found — run 06a with publisher phase enabled")
+}
+
+if (file.exists(publisher_cell_path)) {
+  shiny_data$publisher_cell_dependency <- as_tibble(fread(publisher_cell_path))
+  n_single <- sum(shiny_data$publisher_cell_dependency$n_publishers == 1)
+  cli_alert_success("Publisher cell dependency: {n_single} single-publisher cells")
+}
+
+if (file.exists(published_time_path)) {
+  pub_time <- as_tibble(fread(published_time_path))
+  # Create yearmonth_published for the "published to GBIF" timeline
+  if (all(c("year_published", "month_published") %in% names(pub_time))) {
+    pub_time <- pub_time |>
+      mutate(
+        yearmonth_published = as.integer(paste0(year_published, sprintf("%02d", month_published)))
+      )
+  }
+  shiny_data$published_time_summary <- pub_time
+  cli_alert_success("Published time summary: {nrow(pub_time)} rows")
+
+  # Compute "published in last 12 months" vs "observed in last 12 months"
+  if (!is.null(recent_cutoff_ym) && "yearmonth_published" %in% names(pub_time)) {
+    published_recent <- pub_time |>
+      filter(yearmonth_published >= recent_cutoff_ym) |>
+      summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE))
+
+    shiny_data$overview_last_year$occ_published_last_year <- published_recent$total_occ[1]
+    cli_alert_success("Published in recent period: {scales::comma(published_recent$total_occ[1])} occurrences")
+    cli_alert_info("  vs observed in recent period: {scales::comma(shiny_data$overview_last_year$occ_last_year)}")
+  }
+} else {
+  cli_alert_info("No published time summary found")
+}
 
 # ===========================================================================
 # 10. SAVE BUNDLE
