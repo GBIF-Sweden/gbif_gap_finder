@@ -3,20 +3,20 @@
 # EEA Grid Ingestion & Standardisation
 # ============================================================================
 # Purpose:
-#   Read EEA grid shapefiles (10km and 50km), standardise CRS and
-#   geometry types, validate/repair geometries, and write processed
-#   GeoPackage files to data_proc/.
+#   Read EEA grid files (10km and 50km) from data/shared/grids/,
+#   standardise CRS and geometry types, clip to country extent using
+#   the GBIF cube cell codes, and write processed GeoPackages.
 #
 # Inputs:
-#   - data_raw/eea_grid_10km/<shapefile>
-#   - data_raw/eea_grid_50km/<geopackage>
-#   (paths configurable via config.yml)
+#   - data/shared/grids/Grid_ETRS89-LAEA_10K.shp (Europe-wide 10km)
+#   - data/shared/grids/EEA_50km_grid_v2024.gpkg  (Europe-wide 50km)
+#   - data/{CC}/raw/cubes/cube_10km.csv (to determine country cells)
 #
 # Outputs:
-#   - data_proc/grids_10km.gpkg
-#   - data_proc/grids_50km.gpkg
+#   - data/{CC}/proc/grids_10km.gpkg (country-clipped)
+#   - data/{CC}/proc/grids_50km.gpkg (country-clipped)
 #
-# Dependencies: scripts/00_setup.R, sf, dplyr, purrr
+# Dependencies: scripts/00_setup.R, sf, dplyr, data.table
 # ============================================================================
 
 library(here)
@@ -24,7 +24,7 @@ library(sf)
 library(dplyr)
 library(purrr)
 library(cli)
-library(glue)
+library(data.table)
 
 source(here("scripts", "00_setup.R"))
 
@@ -32,106 +32,100 @@ source(here("scripts", "00_setup.R"))
 # Configuration
 # ============================================================================
 
-dir_grid_10km <- here(cfg_get(
-  "paths.grid_10km_dir", "data_raw/eea_grid_10km"
-))
-dir_grid_50km <- here(cfg_get(
-  "paths.grid_50km_dir", "data_raw/eea_grid_50km"
-))
-dir_data_proc <- here(cfg_get("paths.data_proc", "data_proc"))
-
-file_grid_10km <- cfg_get(
-  "files.grids.grid10km", ""
-)
-file_grid_50km <- cfg_get(
-  "files.grids.grid50km", "EEA_50km_grid_v2024.gpkg"
-)
+file_grid_10km <- cfg_get("files.grids.grid10km", "Grid_ETRS89-LAEA_10K.shp")
+file_grid_50km <- cfg_get("files.grids.grid50km", "EEA_50km_grid_v2024.gpkg")
 
 grid_configs <- list(
   grid10km = list(
-    dir    = dir_grid_10km,
-    file   = file_grid_10km,
-    output = file.path(dir_data_proc, "grids_10km.gpkg")
+    file   = file.path(raw_grid_dir, file_grid_10km),
+    output = file.path(p_data_proc, "grids_10km.gpkg")
   ),
   grid50km = list(
-    dir    = dir_grid_50km,
-    file   = file_grid_50km,
-    output = file.path(dir_data_proc, "grids_50km.gpkg")
+    file   = file.path(raw_grid_dir, file_grid_50km),
+    output = file.path(p_data_proc, "grids_50km.gpkg")
   )
 )
 
-# Target CRS (EPSG code, not a file path)
 target_crs <- cfg_get("parameters.crs", CRS_ETRS89_LAEA)
 
-# Validate config
-purrr::walk(grid_configs, \(gc) {
-  if (is.null(gc$dir) || is.null(gc$file)) {
-    cli_abort("Missing grid configuration in config.yml")
+# ============================================================================
+# Determine country cell codes from cube data
+# ============================================================================
+# The Europe-wide grid has ~100k+ cells. We clip to only the cells
+# that appear in this country's GBIF cube data.
+
+cli_h2("Determining Country Cell Codes")
+
+cube_10km_file <- cfg_get("files.cubes.grid10km", "cube_10km.csv")
+cube_10km_path <- here(raw_gbif_cube_dir, cube_10km_file)
+
+# Also check for parquet
+cube_10km_parquet <- here(raw_gbif_cube_dir, sub("\\.(csv|tsv)$", ".parquet", cube_10km_file))
+
+country_cells_10km <- NULL
+if (file.exists(cube_10km_parquet) && requireNamespace("arrow", quietly = TRUE)) {
+  cli_alert_info("Reading cell codes from parquet: {basename(cube_10km_parquet)}")
+  country_cells_10km <- arrow::open_dataset(cube_10km_parquet) |>
+    dplyr::distinct(eeacellcode) |>
+    dplyr::collect() |>
+    dplyr::pull(eeacellcode)
+} else if (file.exists(cube_10km_path)) {
+  cli_alert_info("Reading cell codes from CSV: {basename(cube_10km_path)}")
+  country_cells_10km <- unique(fread(cube_10km_path, select = "eeacellcode")$eeacellcode)
+}
+
+if (!is.null(country_cells_10km)) {
+  country_cells_10km <- country_cells_10km[country_cells_10km != "" & !is.na(country_cells_10km)]
+  cli_alert_success("Found {scales::comma(length(country_cells_10km))} unique cells for {COUNTRY_CODE}")
+} else {
+  cli_alert_warning("No cube data found — will keep all grid cells (no clipping)")
+}
+
+# Derive 50km cell codes from 10km codes (first 9 characters: "50kmE123N456" pattern)
+# EEA 10km code format: 10kmE1234N5678 → 50km parent: extract E/N at 50km resolution
+country_cells_50km <- NULL
+if (!is.null(country_cells_10km)) {
+  # Parse 10km cell codes to get 50km parents
+  # 10km format: "10kmExxxxNyyyy" → extract Exxxx and Nyyyy, round down
+  parse_10km <- function(codes) {
+    e_vals <- as.integer(sub(".*E(\\d+)N.*", "\\1", codes))
+    n_vals <- as.integer(sub(".*N(\\d+)$", "\\1", codes))
+    # 50km cells: round down to nearest 50
+    e50 <- (e_vals %/% 5) * 5
+    n50 <- (n_vals %/% 5) * 5
+    unique(paste0("50kmE", e50, "N", n50))
   }
-})
+  country_cells_50km <- parse_10km(country_cells_10km)
+  cli_alert_info("Derived {length(country_cells_50km)} unique 50km parent cells")
+}
 
 # ============================================================================
 # Helper Functions
 # ============================================================================
 
-#' Read a spatial file with error handling
-#'
-#' @param path Full path to the spatial file
-#' @return An sf object
 read_grid_safe <- function(path) {
-  if (!file.exists(path)) {
-    cli_abort("Grid file not found: {.path {path}}")
-  }
-
-  cli_alert_info("Reading: {.path {path}}")
-
-  tryCatch(
-    st_read(path, quiet = TRUE),
-    error = function(e) {
-      cli_abort("Failed to read grid file: {e$message}")
-    }
-  )
+  if (!file.exists(path)) cli_abort("Grid file not found: {.path {path}}")
+  cli_alert_info("Reading: {.path {basename(path)}}")
+  tryCatch(st_read(path, quiet = TRUE),
+    error = function(e) cli_abort("Failed to read: {e$message}"))
 }
 
-#' Standardise grid CRS and geometry type
-#'
-#' Transforms to the project CRS (default EPSG:3035 for EEA),
-#' converts MULTISURFACE geometries to MULTIPOLYGON, and
-#' validates/repairs invalid geometries.
-#'
-#' @param grid  An sf object with grid geometries
-#' @param crs   Target EPSG code (default: project CRS)
-#' @return A standardised sf object
 standardize_grid <- function(grid, crs = target_crs) {
+  if (is.na(st_crs(grid))) cli_abort("Grid has no CRS")
 
-  if (is.na(st_crs(grid))) {
-    cli_abort("Input grid has no CRS defined")
-  }
-
-  cli_alert_info("Original CRS: {st_crs(grid)$input}")
-
-  # Transform to target CRS
-  if (!is.na(st_crs(grid)$epsg) && st_crs(grid)$epsg == crs) {
-    cli_alert_success("Already in target CRS: EPSG:{crs}")
-  } else {
+  # Transform CRS
+  if (is.na(st_crs(grid)$epsg) || st_crs(grid)$epsg != crs) {
     grid <- st_transform(grid, crs)
     st_crs(grid) <- crs
-    cli_alert_success("Transformed to: EPSG:{crs}")
   }
+  cli_alert_info("CRS: EPSG:{crs}")
 
-  # Temporarily disable s2 for planar operations
-  old_s2 <- sf_use_s2()
-  sf_use_s2(FALSE)
-  on.exit(sf_use_s2(old_s2))
+  # Disable s2 for planar operations
+  old_s2 <- sf_use_s2(); sf_use_s2(FALSE); on.exit(sf_use_s2(old_s2))
 
-  # Check and convert geometry types
+  # Fix geometry types
   geom_types <- unique(st_geometry_type(grid))
-  cli_alert_info(
-    "Geometry types: {paste(geom_types, collapse = ', ')}"
-  )
-
   if (any(geom_types == "MULTISURFACE")) {
-    cli_alert_info("Converting MULTISURFACE geometries...")
     grid <- grid |>
       st_cast("GEOMETRYCOLLECTION", warn = FALSE) |>
       st_collection_extract("POLYGON", warn = FALSE) |>
@@ -140,28 +134,12 @@ standardize_grid <- function(grid, crs = target_crs) {
     grid <- st_cast(grid, "MULTIPOLYGON", warn = FALSE)
   }
 
-  # Validate and repair geometries
+  # Validate geometries
   invalid_count <- sum(!st_is_valid(grid))
-
   if (invalid_count > 0) {
-    cli_alert_warning(
-      "Found {invalid_count} invalid geometries \u2014 repairing"
-    )
-    grid <- tryCatch(
-      st_make_valid(grid),
-      error = function(e) {
-        cli_alert_warning(
-          "st_make_valid failed; using buffer(0)"
-        )
-        st_buffer(grid, 0)
-      }
-    )
+    cli_alert_warning("Repairing {invalid_count} invalid geometries")
+    grid <- tryCatch(st_make_valid(grid), error = function(e) st_buffer(grid, 0))
   }
-
-  final_types <- unique(st_geometry_type(grid))
-  cli_alert_success(
-    "Final geometry: {paste(final_types, collapse = ', ')}"
-  )
 
   grid
 }
@@ -170,38 +148,55 @@ standardize_grid <- function(grid, crs = target_crs) {
 # Process Grids
 # ============================================================================
 
-cli_h2("Processing EEA Grids")
+cli_h2("Processing EEA Grids for {COUNTRY_CODE}")
 
-grids_processed <- purrr::map(grid_configs, \(gc) {
-  grid_path <- file.path(gc$dir, gc$file)
+grids_processed <- list()
 
-  grid <- read_grid_safe(grid_path) |>
-    standardize_grid()
+for (grid_name in names(grid_configs)) {
+  gc <- grid_configs[[grid_name]]
+  cli_h3("{grid_name}")
 
-  cli_alert_info("Writing to: {.path {gc$output}}")
+  grid <- read_grid_safe(gc$file) |> standardize_grid()
+
+  # Standardise cell code column name
+  grid <- standardise_cellcode(grid)
+
+  # Clip to country extent
+  if (grid_name == "grid10km" && !is.null(country_cells_10km)) {
+    n_before <- nrow(grid)
+    grid <- grid |> filter(eeacellcode %in% country_cells_10km)
+    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells")
+  } else if (grid_name == "grid50km" && !is.null(country_cells_50km)) {
+    n_before <- nrow(grid)
+    grid <- grid |> filter(eeacellcode %in% country_cells_50km)
+    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells")
+  } else if (grid_name == "grid50km" && !is.null(country_cells_10km)) {
+    # Fallback: clip 50km grid using 10km grid extent
+    cli_alert_info("Clipping 50km grid by 10km extent")
+    if ("grid10km" %in% names(grids_processed)) {
+      bbox_10km <- st_bbox(grids_processed$grid10km) |> st_as_sfc()
+      n_before <- nrow(grid)
+      grid <- grid[st_intersects(grid, bbox_10km, sparse = FALSE)[, 1], ]
+      cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells")
+    }
+  }
+
+  cli_alert_info("Writing: {.path {basename(gc$output)}}")
   st_write(grid, gc$output, delete_dsn = TRUE, quiet = TRUE)
+  cli_alert_success("{nrow(grid)} cells")
 
-  cli_alert_success(
-    "Processed {nrow(grid)} cells ({ncol(grid)} attributes)"
-  )
-
-  grid
-})
+  grids_processed[[grid_name]] <- grid
+}
 
 # ============================================================================
 # Summary
 # ============================================================================
 
-cli_h2("Ingestion Summary")
-
-summary_table <- tibble::tibble(
-  grid         = names(grid_configs),
-  n_cells      = purrr::map_int(grids_processed, nrow),
-  n_attributes = purrr::map_int(grids_processed, ncol),
-  output_file  = purrr::map_chr(grid_configs, "output")
-)
-
-print(summary_table)
+cli_h2("Grid Summary")
+for (nm in names(grids_processed)) {
+  g <- grids_processed[[nm]]
+  cli_alert_success("{nm}: {scales::comma(nrow(g))} cells, {ncol(g)} attributes")
+}
 
 cli_alert_success("Grid ingestion complete!")
 cli_alert_info("Next: source('scripts/03_ingest_taxonomy.R')")

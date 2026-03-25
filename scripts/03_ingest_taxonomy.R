@@ -9,22 +9,16 @@
 #   analysis scripts.
 #
 # Inputs:
-#   - National taxonomy backbone files (e.g., Taxon.csv +
-#     SpeciesDistribution.csv), configured via config.yml
-#   - National red list files (e.g., taxon.txt + distribution.txt),
-#     optional, configured via config.yml
+#   - data/{CC}/raw/taxonomy/ (Taxon.csv + SpeciesDistribution.csv)
+#   - data/{CC}/raw/redlist/  (taxon.txt + distribution.txt, optional)
 #
-# Outputs (in data_proc/):
-#   - <taxonomy>_taxon_current.rds       Processed taxonomy
-#   - <taxonomy>_distribution_current.rds Processed distribution
-#   - redlist_taxon_current.rds       Red list taxonomy (if available)
-#   - redlist_distribution_current.rds Red list distribution
-#   - taxa_reference_current.rds         Unified reference (main output)
-#   - taxonomy_backbone.csv               CSV copy for inspection
-#
-# Output columns for threat status:
-#   - threatStatus_backbone  From the national taxonomy distribution
-#   - threatStatus_redlist  From the national red list distribution
+# Outputs (in data/{CC}/proc/):
+#   - <taxonomy>_taxon_current.rds
+#   - <taxonomy>_distribution_current.rds
+#   - redlist_taxon_current.rds
+#   - redlist_distribution_current.rds
+#   - taxa_reference_current.rds (main output)
+#   - taxonomy_backbone.csv
 #
 # Dependencies: scripts/00_setup.R, readr, dplyr, stringr, purrr
 # ============================================================================
@@ -43,10 +37,10 @@ source(here("scripts", "00_setup.R"))
 # Configuration
 # ============================================================================
 
-# Directories
+# Directories (from globals.R — already country-aware)
 dir_taxonomy   <- here(raw_taxonomy_dir)
 dir_redlist    <- here(raw_redlist_dir)
-dir_data_proc  <- here(cfg_get("paths.data_proc", "data_proc"))
+dir_data_proc  <- here(p_data_proc)
 
 # National taxonomy input files (PRIMARY BACKBONE)
 file_taxonomy_taxon <- cfg_get(
@@ -828,4 +822,4 @@ if (redlist_available) {
 cli_alert_info(
   "Output: {.path {output_files$taxa_reference}}"
 )
-cli_alert_info("Next: source('scripts/04_ingest_gbif_cubes.R')")
+cli_alert_info("Next: source('scripts/04_convert_cubes_parquet.R')")
