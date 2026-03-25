@@ -4,8 +4,9 @@
 # ============================================================================
 # Purpose:
 #   Central configuration loader for the GBIF gap analysis pipeline.
-#   Defines directory paths, CRS constants, config helpers, and
-#   shared utility functions used by all downstream scripts.
+#   All paths are derived from the country code in the config file.
+#   Scripts, R functions, Rmd templates, and Shiny apps are shared
+#   across countries — only the data directories differ.
 #
 # Sourced by: scripts/00_setup.R (and transitively by every script)
 #
@@ -25,25 +26,34 @@ library(cli)
 
 #' Read YAML configuration file
 #'
-#' @param path Path to config.yml (default: project root)
-#' @return List of configuration values, or empty list if not found
-read_config <- function(path = here("config.yml")) {
-  if (!file.exists(path)) {
-    cli_alert_warning(
-      "config.yml not found at: {.path {path}}"
-    )
-    cli_alert_info("Using default paths")
-    return(list())
+#' Searches for config in this order:
+#'   1. configs/config_{GBIFGAPS_COUNTRY}.yml (env var override)
+#'   2. configs/config_SE.yml (default)
+#'   3. config.yml (legacy, project root)
+#'
+#' @return List of configuration values
+read_config <- function() {
+  # Check for environment variable override
+  country_env <- Sys.getenv("GBIFGAPS_COUNTRY", "")
+
+  candidates <- c(
+    if (nchar(country_env) > 0) here("configs", paste0("config_", country_env, ".yml")),
+    here("configs", "config_SE.yml"),
+    here("config.yml")  # legacy fallback
+  )
+
+  for (path in candidates) {
+    if (file.exists(path)) {
+      if (!requireNamespace("yaml", quietly = TRUE)) {
+        cli_abort("Package {.pkg yaml} is required to read config")
+      }
+      cli_alert_info("Config: {.path {path}}")
+      return(yaml::read_yaml(path))
+    }
   }
 
-  if (!requireNamespace("yaml", quietly = TRUE)) {
-    cli_abort(c(
-      "Package {.pkg yaml} is required to read config.yml",
-      "i" = "Install with: {.code install.packages('yaml')}"
-    ))
-  }
-
-  yaml::read_yaml(path)
+  cli_alert_warning("No config file found — using defaults")
+  return(list())
 }
 
 # Load configuration at source time
@@ -54,10 +64,6 @@ cfg <- read_config()
 #' @param name Dotted key path (e.g., "paths.data_proc")
 #' @param default Value returned when key is missing
 #' @return Configuration value or `default`
-#'
-#' @examples
-#' cfg_get("parameters.crs", 3035)
-#' cfg_get("paths.data_raw", "data_raw")
 cfg_get <- function(name, default = NULL) {
   keys   <- strsplit(name, ".", fixed = TRUE)[[1]]
   result <- cfg
@@ -81,77 +87,61 @@ options(stringsAsFactors = FALSE)
 # Timezone: configurable per country (default UTC)
 Sys.setenv(TZ = cfg_get("country.timezone", "UTC"))
 
-# ============================================================================
-# Project Paths
-# ============================================================================
+# Country code — used to derive all data paths
+COUNTRY_CODE <- cfg_get("country.code", "SE")
 
-# Top-level directories
+# ============================================================================
+# Project Paths — Country-Aware
+# ============================================================================
+# Shared code directories (not country-specific)
 p_root     <- here()
 p_R        <- here("R")
 p_scripts  <- here("scripts")
 p_analysis <- here("analysis")
+p_docs     <- here("docs")
+p_configs  <- here("configs")
 
-p_data_raw  <- here("data_raw")
-p_data_proc <- here("data_proc")
-p_output    <- here("output")
-p_docs      <- here("docs")
-p_logs      <- here("logs")
+# Country-specific data directories
+p_data     <- here("data", COUNTRY_CODE)
+p_data_raw <- here("data", COUNTRY_CODE, "raw")
+p_data_proc <- here("data", COUNTRY_CODE, "proc")
+p_output   <- here("data", COUNTRY_CODE, "output")
+p_logs     <- here("logs")
 
 # Derived data paths (from scripts 06a/06b)
-p_derived   <- here("data_proc", "derived")
-p_by_order  <- here("data_proc", "derived", "by_order")
-p_by_family <- here("data_proc", "derived", "by_family")
+p_derived   <- here(p_data_proc, "derived")
+p_by_order  <- here(p_data_proc, "derived", "by_order")
+p_by_family <- here(p_data_proc, "derived", "by_family")
 
 # Gap analysis paths (from scripts 07-09)
-p_gaps <- here("data_proc", "gaps")
+p_gaps <- here(p_data_proc, "gaps")
 
 # Output paths (from script 10)
-p_tables     <- here("output", "tables")
-p_integrated <- here("output", "tables", "integrated")
+p_tables     <- here(p_output, "tables")
+p_integrated <- here(p_output, "tables", "integrated")
 
 # ============================================================================
 # Coordinate Reference System
 # ============================================================================
 
-# Default CRS for EEA grids: ETRS89-LAEA Europe (EPSG:3035)
-# Override in config.yml via parameters.crs for non-EEA grids
 CRS_PROJECT     <- cfg_get("parameters.crs", 3035)
 CRS_LAEA        <- 3035
 CRS_ETRS89_LAEA <- 3035
 
-# Configure sf package defaults
 if (requireNamespace("sf", quietly = TRUE)) {
   sf::sf_use_s2(TRUE)
 }
 
 # ============================================================================
-# Raw Data Directories (from config.yml with fallback defaults)
+# Raw Data Directories (derived from country path)
 # ============================================================================
 
-raw_gbif_cube_dir <- cfg_get(
-  "paths.gbif_cube_dir",
-  here(p_data_raw, "gbif_occurrence_cubes")
-)
-
-raw_grid_10km_dir <- cfg_get(
-  "paths.grid_10km_dir",
-  here(p_data_raw, "eea_grid_10km")
-)
-
-raw_grid_50km_dir <- cfg_get(
-  "paths.grid_50km_dir",
-  here(p_data_raw, "eea_grid_50km")
-)
-
-raw_redlist_dir <- cfg_get(
-  "paths.redlist_dir",
-  here(p_data_raw, "redlist")
-)
-
-raw_taxonomy_dir <- cfg_get(
-  "paths.taxonomy_dir",
-  here(p_data_raw, "taxonomy")
-)
+raw_gbif_cube_dir <- cfg_get("paths.gbif_cube_dir", here(p_data_raw, "cubes"))
+raw_grid_10km_dir <- cfg_get("paths.grid_10km_dir", here(p_data_raw, "grids"))
+raw_grid_50km_dir <- cfg_get("paths.grid_50km_dir", here(p_data_raw, "grids"))
+raw_redlist_dir   <- cfg_get("paths.redlist_dir",   here(p_data_raw, "redlist"))
+raw_taxonomy_dir  <- cfg_get("paths.taxonomy_dir",  here(p_data_raw, "taxonomy"))
+raw_admin_dir     <- cfg_get("paths.admin_dir",     here(p_data_raw, "admin"))
 
 # ============================================================================
 # Processed Output Paths
@@ -164,17 +154,10 @@ out_grid_50km_gpkg  <- here(p_data_proc, "grids_50km.gpkg")
 # Utility Functions
 # ============================================================================
 
-#' Get current timestamp in standard format
-#'
-#' @return Character string "YYYY-MM-DD HH:MM:SS"
 timestamp <- function() {
   format(Sys.time(), "%Y-%m-%d %H:%M:%S")
 }
 
-#' Log message with timestamp (legacy compatibility)
-#'
-#' @param ... Message components to paste
-#' @note Prefer cli functions for new code
 log_msg <- function(...) {
   cli_alert_info(paste0(..., collapse = ""))
 }
@@ -183,35 +166,17 @@ log_msg <- function(...) {
 # Grid Helper Functions
 # ============================================================================
 
-#' Guess which column contains the grid cell code
-#'
-#' Examines column names using a priority system:
-#'   1. Fields matching both "eea" and "code" (most specific)
-#'   2. Fields matching both "cell" and "code"
-#'   3. Any field with keywords: eea, cell, code, grid
-#'
-#' @param field_names Character vector of column names
-#' @return The best-matching field name, or `NA_character_`
-#'
-#' @examples
-#' guess_cellcode_field(c("FID", "CELLCODE", "Shape_Area"))
-#' # "CELLCODE"
-#' guess_cellcode_field(c("id", "eea_cell_code", "geometry"))
-#' # "eea_cell_code"
 guess_cellcode_field <- function(field_names) {
   names_lower <- stringr::str_to_lower(field_names)
 
-  # Priority 1: both "eea" and "code"
   idx <- stringr::str_detect(names_lower, "eea") &
     stringr::str_detect(names_lower, "code")
   if (any(idx)) return(field_names[which(idx)[1]])
 
-  # Priority 2: both "cell" and "code"
   idx <- stringr::str_detect(names_lower, "cell") &
     stringr::str_detect(names_lower, "code")
   if (any(idx)) return(field_names[which(idx)[1]])
 
-  # Priority 3: any relevant keyword
   idx <- stringr::str_detect(names_lower, "eea|cell|code|grid")
   if (any(idx)) return(field_names[which(idx)[1]])
 
@@ -219,58 +184,45 @@ guess_cellcode_field <- function(field_names) {
 }
 
 #' Standardise grid cell code column to 'eeacellcode'
-#'
-#' Renames the detected cell code column for consistency across
-#' the pipeline. Works with both data.table and data.frame objects.
-#'
-#' @param dt A data.table or data.frame with a cell code column
-#' @return The same object with standardised column name
-standardize_cellcode <- function(dt) {
-  current_name <- guess_cellcode_field(names(dt))
-
-  if (!is.na(current_name) && current_name != "eeacellcode") {
-    if (inherits(dt, "data.table")) {
-      data.table::setnames(dt, current_name, "eeacellcode")
-    } else {
-      names(dt)[names(dt) == current_name] <- "eeacellcode"
-    }
+standardise_cellcode <- function(df) {
+  if ("eeacellcode" %in% names(df)) return(df)
+  field <- guess_cellcode_field(names(df))
+  if (is.na(field)) {
+    cli_alert_warning("Could not detect cell code column")
+    return(df)
   }
-
-  dt
+  cli_alert_info("Renaming {.field {field}} → eeacellcode")
+  if (inherits(df, "data.table")) {
+    data.table::setnames(df, field, "eeacellcode")
+  } else {
+    names(df)[names(df) == field] <- "eeacellcode"
+  }
+  df
 }
 
 # ============================================================================
-# Directory Helpers
+# Directory Validation
 # ============================================================================
 
-#' Check whether a raw-data directory exists (non-blocking)
-#'
-#' @param path Directory path
-#' @param label Human-readable label for messages
 check_raw_dir <- function(path, label) {
-  if (!dir.exists(path)) {
-    cli_alert_warning(
-      "{label} directory not found: {.path {path}}"
-    )
+  if (dir.exists(path)) {
+    cli_alert_info("{label}: {.path {path}}")
+  } else {
+    cli_alert_warning("{label}: {.path {path}} (not found — will be created on first run)")
   }
 }
 
-# Quietly check all expected raw data directories
-suppressMessages({
-  check_raw_dir(raw_gbif_cube_dir, "GBIF cube")
-  check_raw_dir(raw_grid_10km_dir, "10km grid")
-  check_raw_dir(raw_grid_50km_dir, "50km grid")
-  check_raw_dir(raw_redlist_dir,   "National red list")
-  check_raw_dir(raw_taxonomy_dir,  "National taxonomy")
-})
+# Print country at load time (setup.R handles the detailed path listing)
+cli_alert_info("Country: {cfg_get('country.name', COUNTRY_CODE)} ({COUNTRY_CODE})")
 
 #' Create all derived/output directories if they don't exist
-#'
-#' @return Invisible NULL
 ensure_dirs <- function() {
   dirs <- c(
+    p_data_raw, p_data_proc, p_output,
     p_derived, p_by_order, p_by_family,
-    p_gaps, p_tables, p_integrated
+    p_gaps, p_tables, p_integrated,
+    raw_gbif_cube_dir, raw_grid_10km_dir, raw_grid_50km_dir,
+    raw_redlist_dir, raw_taxonomy_dir, raw_admin_dir
   )
   for (d in dirs) {
     if (!dir.exists(d)) {
@@ -283,89 +235,53 @@ ensure_dirs <- function() {
 # ============================================================================
 # tar_render() Placeholders
 # ============================================================================
-# tarchetypes::tar_render() scans Rmd chunk options at plan-definition time.
-# Some Rmds use eval=has_threat_data or eval=!is.null(grid10) in chunk headers.
-# These are properly defined inside the Rmds at render time, but tar_render()
-# needs them to exist when scanning. Defining them here (before _targets.R is
-# parsed) avoids spurious error messages at startup.
 has_threat_data <- TRUE
 grid10          <- NULL
 
 # ============================================================================
 # Schema Validators
 # ============================================================================
-# These validators ensure that outputs from producer scripts match what
-# consumer scripts expect. They catch column renames, type changes, and
-# missing fields early — before they cause cryptic errors downstream.
-#
-# Called by: scripts/09a (reconciliation), scripts/09b (gap tables)
-# ============================================================================
 
-#' Validate a data frame against a schema
-#'
-#' @param dt        Data frame or data.table to validate
-#' @param schema    Named list: name -> list(required, type)
-#' @param label     Human-readable name for error messages
-#' @return Invisible TRUE if valid, otherwise stops
 validate_schema <- function(dt, schema, label = "dataset") {
-
   if (is.null(dt)) {
     cli_alert_danger("Validation failed: {label} is NULL")
     stop(paste0("Schema validation failed: ", label, " is NULL"), call. = FALSE)
   }
-
   if (nrow(dt) == 0) {
     cli_alert_warning("Validation warning: {label} has 0 rows")
   }
-
   col_names <- names(dt)
   issues <- character(0)
-
   for (col in names(schema)) {
     spec     <- schema[[col]]
     required <- isTRUE(spec$required)
-
     if (!col %in% col_names) {
-      if (required) {
-        issues <- c(issues, paste0("Missing required column: ", col))
-      }
+      if (required) issues <- c(issues, paste0("Missing required column: ", col))
       next
     }
-
-    # Type check
     if (!is.null(spec$type) && col %in% col_names) {
       actual <- class(dt[[col]])[1]
       ok <- actual %in% spec$type ||
         (any(spec$type == "numeric")   && actual %in% c("numeric", "integer", "double")) ||
         (any(spec$type == "character") && actual %in% c("character", "factor"))
       if (!ok) {
-        issues <- c(issues, paste0(
-          col, ": expected ", paste(spec$type, collapse = "/"), " but got ", actual
-        ))
+        issues <- c(issues, paste0(col, ": expected ", paste(spec$type, collapse = "/"), " but got ", actual))
       }
     }
   }
-
   if (length(issues) > 0) {
     cli_alert_danger("Schema validation failed for {label}:")
     for (issue in issues) cli_alert_warning("  {issue}")
-    stop(
-      paste0("Schema validation failed for ", label, ":\n",
-             paste("  -", issues, collapse = "\n")),
-      call. = FALSE
-    )
+    stop(paste0("Schema validation failed for ", label, ":\n",
+                paste("  -", issues, collapse = "\n")), call. = FALSE)
   }
-
   n_required <- sum(vapply(schema, function(s) isTRUE(s$required), logical(1)))
   n_present  <- sum(names(schema) %in% col_names)
-  cli_alert_success(
-    "Schema OK: {label} ({n_present}/{length(schema)} columns, {scales::comma(nrow(dt))} rows)"
-  )
+  cli_alert_success("Schema OK: {label} ({n_present}/{length(schema)} columns, {scales::comma(nrow(dt))} rows)")
   invisible(TRUE)
 }
 
-# --- Reconciliation (09a output) -------------------------------------------
-# Consumed by: 09b
+# --- Schema definitions (unchanged) ---
 schema_reconciliation <- list(
   specieskey              = list(required = TRUE,  type = "numeric"),
   species                 = list(required = TRUE,  type = "character"),
@@ -384,13 +300,8 @@ schema_reconciliation <- list(
   threatStatus_backbone   = list(required = FALSE, type = "character"),
   threatStatus_redlist    = list(required = FALSE, type = "character")
 )
+validate_reconciliation <- function(dt) validate_schema(dt, schema_reconciliation, "reconciliation (09a)")
 
-validate_reconciliation <- function(dt) {
-  validate_schema(dt, schema_reconciliation, "reconciliation (09a)")
-}
-
-# --- Taxonomic match summary (09b output) ----------------------------------
-# Consumed by: 10, 11, 12, Rmd reports
 schema_match_summary <- list(
   taxonID          = list(required = TRUE,  type = "character"),
   scientificName   = list(required = TRUE,  type = "character"),
@@ -407,13 +318,8 @@ schema_match_summary <- list(
   best_match_tier  = list(required = FALSE, type = "character"),
   gbif_specieskeys = list(required = FALSE, type = "character")
 )
+validate_match_summary <- function(dt) validate_schema(dt, schema_match_summary, "taxonomic_match_summary (09b)")
 
-validate_match_summary <- function(dt) {
-  validate_schema(dt, schema_match_summary, "taxonomic_match_summary (09b)")
-}
-
-# --- Missing threatened taxa (09b output) ----------------------------------
-# Consumed by: 10, 11
 schema_missing_threatened <- list(
   taxonID        = list(required = TRUE,  type = "character"),
   scientificName = list(required = TRUE,  type = "character"),
@@ -425,13 +331,8 @@ schema_missing_threatened <- list(
   order          = list(required = FALSE, type = "character"),
   family         = list(required = FALSE, type = "character")
 )
+validate_missing_threatened <- function(dt) validate_schema(dt, schema_missing_threatened, "missing_threatened (09b)")
 
-validate_missing_threatened <- function(dt) {
-  validate_schema(dt, schema_missing_threatened, "missing_threatened (09b)")
-}
-
-# --- Coverage by rank (09b output) -----------------------------------------
-# Consumed by: 10, 11
 schema_coverage_by_rank <- list(
   taxonRank    = list(required = TRUE, type = "character"),
   n_ref_total  = list(required = TRUE, type = "numeric"),
@@ -439,13 +340,8 @@ schema_coverage_by_rank <- list(
   pct_coverage = list(required = TRUE, type = "numeric"),
   n_missing    = list(required = TRUE, type = "numeric")
 )
+validate_coverage_by_rank <- function(dt) validate_schema(dt, schema_coverage_by_rank, "coverage_by_rank (09b)")
 
-validate_coverage_by_rank <- function(dt) {
-  validate_schema(dt, schema_coverage_by_rank, "coverage_by_rank (09b)")
-}
-
-# --- Coverage by threat status (09b output) --------------------------------
-# Consumed by: 10
 schema_coverage_by_threat <- list(
   threatStatus = list(required = TRUE, type = "character"),
   n_ref_total  = list(required = TRUE, type = "numeric"),
@@ -453,13 +349,8 @@ schema_coverage_by_threat <- list(
   pct_coverage = list(required = TRUE, type = "numeric"),
   n_missing    = list(required = TRUE, type = "numeric")
 )
+validate_coverage_by_threat <- function(dt) validate_schema(dt, schema_coverage_by_threat, "coverage_by_threat (09b)")
 
-validate_coverage_by_threat <- function(dt) {
-  validate_schema(dt, schema_coverage_by_threat, "coverage_by_threat (09b)")
-}
-
-# --- Spatial coverage per taxon (09b output) -------------------------------
-# Consumed by: 10
 schema_spatial_coverage <- list(
   taxonID        = list(required = TRUE,  type = "character"),
   scientificName = list(required = TRUE,  type = "character"),
@@ -473,7 +364,4 @@ schema_spatial_coverage <- list(
   family         = list(required = FALSE, type = "character"),
   order          = list(required = FALSE, type = "character")
 )
-
-validate_spatial_coverage <- function(dt) {
-  validate_schema(dt, schema_spatial_coverage, "spatial_coverage (09b)")
-}
+validate_spatial_coverage <- function(dt) validate_schema(dt, schema_spatial_coverage, "spatial_coverage (09b)")
