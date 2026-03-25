@@ -8,10 +8,10 @@
 #   and low-coverage metrics at configurable quantile thresholds.
 #
 # Inputs:
-#   - data_proc/derived/cell_summary_*.csv  (from 06a)
-#   - data_proc/grids_*.gpkg               (from 02)
+#   - data/{CC}/proc/derived/cell_summary_*.csv  (from 06a)
+#   - data/{CC}/proc/grids_*.gpkg               (from 02)
 #
-# Outputs (in data_proc/gaps/):
+# Outputs (in data/{CC}/proc/gaps/):
 #   - spatial_gaps_10km.csv              Cell-level gap metrics
 #   - spatial_gaps_50km.csv
 #   - spatial_thresholds_by_basis.csv    Quantile thresholds per basis

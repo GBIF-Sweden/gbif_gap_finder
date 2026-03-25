@@ -97,12 +97,22 @@ write_table <- function(dt, filename) {
   cli_alert_success("{filename}: {scales::comma(nrow(dt))} rows")
 }
 
-#' Extract year from yearmonth string (defensive, returns NA for malformed)
+#' Extract year from yearmonth (handles both "2025-01" and 202501 formats)
 parse_year <- function(x) {
   x_chr <- str_trim(as.character(x))
-  valid <- str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
   out <- rep(NA_integer_, length(x_chr))
-  out[valid] <- as.integer(str_sub(x_chr[valid], 1, 4))
+  
+  # Skip NAs
+  not_na <- !is.na(x_chr) & x_chr != "" & x_chr != "NA"
+  
+  # "2025-01" format
+  valid_dash <- not_na & str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
+  out[valid_dash] <- as.integer(str_sub(x_chr[valid_dash], 1, 4))
+  
+  # 202501 integer format
+  valid_int <- not_na & !valid_dash & str_detect(x_chr, "^[0-9]{5,6}$")
+  out[valid_int] <- as.integer(substr(x_chr[valid_int], 1, 4))
+  
   out
 }
 
@@ -450,11 +460,11 @@ if (!is.null(order_time_10)) {
   write_integrated(order_trends, "order_temporal_trends.csv")
   
   # Order summary across all time
-  order_summary <- order_time_copy[basisofrecord == "all", .(
+  order_summary <- order_time_copy[basisofrecord == "all" & !is.na(year), .(
     total_occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
-    n_years = uniqueN(year),
-    first_year = min(year, na.rm = TRUE),
-    last_year = max(year, na.rm = TRUE)
+    n_years = as.double(uniqueN(year)),
+    first_year = as.double(min(year, na.rm = TRUE)),
+    last_year = as.double(max(year, na.rm = TRUE))
   ), by = .(grid, order)]
   
   setorder(order_summary, -total_occurrences)
@@ -472,11 +482,11 @@ if (!is.null(family_time_10)) {
   family_time_copy <- copy(family_time_10)
   family_time_copy[, year := parse_year(yearmonth)]
   
-  family_summary <- family_time_copy[basisofrecord == "all", .(
+  family_summary <- family_time_copy[basisofrecord == "all" & !is.na(year), .(
     total_occurrences = sum(as.numeric(occurrences), na.rm = TRUE),
-    n_years = uniqueN(year),
-    first_year = min(year, na.rm = TRUE),
-    last_year = max(year, na.rm = TRUE)
+    n_years = as.double(uniqueN(year)),
+    first_year = as.double(min(year, na.rm = TRUE)),
+    last_year = as.double(max(year, na.rm = TRUE))
   ), by = .(grid, order, family)]
   
   setorder(family_summary, order, -total_occurrences)
