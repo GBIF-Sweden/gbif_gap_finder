@@ -12,7 +12,7 @@
 #   3. Create the directory structure
 #   4. Record session info for reproducibility
 #
-# Inputs:  R/packages.R, R/globals.R, config.yml
+# Inputs:  R/packages.R, R/globals.R, configs/config_{CC}.yml
 # Outputs: logs/session_<timestamp>.txt
 # ============================================================================
 
@@ -20,7 +20,6 @@
 if (!requireNamespace("here", quietly = TRUE)) {
   install.packages("here")
 }
-
 library(here)
 library(purrr)
 library(glue)
@@ -31,7 +30,6 @@ source(here("R", "packages.R"))
 
 # Check for missing packages ------------------------------------------------
 missing_pkgs <- check_packages()
-
 if (length(missing_pkgs) > 0) {
   cli_alert_warning(
     "Missing packages detected: {.pkg {missing_pkgs}}"
@@ -52,28 +50,21 @@ country_name <- cfg_get("country.name", "(not set)")
 cli_h2("Project: GBIF Gap Analysis \u2014 {country_name}")
 
 cli_dl(c(
-  "GBIF cube"          = raw_gbif_cube_dir,
-  "Grid 10km"          = raw_grid_10km_dir,
-
-  "Grid 50km"          = raw_grid_50km_dir,
-  "National red list"  = raw_redlist_dir,
-  "National taxonomy"  = raw_taxonomy_dir
+  "Data directory"     = p_data,
+  "Cubes"              = raw_gbif_cube_dir,
+  "Grids"              = raw_grid_10km_dir,
+  "Taxonomy"           = raw_taxonomy_dir,
+  "Red list"           = raw_redlist_dir,
+  "Admin boundaries"   = raw_admin_dir
 ))
 
 # Grid abstraction ---------------------------------------------------------
-# These constants enable the pipeline to work with different grid systems
-# (EEA grids for Europe, ISEA3H for non-European countries, etc.)
-# Scripts should use CELLCODE_FIELD instead of hardcoding "eeacellcode".
-# Migration note: 141 references to "eeacellcode" across scripts, apps,
-# and reports will be migrated script-by-script when deploying to a
-# non-EEA country. See: grep -rn "eeacellcode" scripts/ shiny_app/ analysis/
 CELLCODE_FIELD  <- cfg_get("parameters.grid.cellcode_field", "eeacellcode")
 GRID_PREFIX     <- cfg_get("parameters.grid.grid_prefix", "EEA")
 GRID_RESOLUTIONS <- cfg_get("parameters.grid.resolutions", c(10, 50))
 
 # Ensure required directories exist -----------------------------------------
 required_dirs <- c(p_logs, p_data_proc, p_output)
-
 purrr::walk(required_dirs, \(d) {
   if (!dir.exists(d)) {
     dir.create(d, recursive = TRUE, showWarnings = FALSE)
@@ -104,7 +95,6 @@ cli_alert_success("Session log: {.path {session_file}}")
 
 # Check renv status ---------------------------------------------------------
 renv_lock <- here("renv.lock")
-
 if (!file.exists(renv_lock)) {
   cli_alert_warning(
     "renv.lock not found. Initialise with {.code renv::init()}"

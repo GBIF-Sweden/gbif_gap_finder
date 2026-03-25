@@ -1,6 +1,0 @@
-taxonRank,n_ref_total,n_in_gbif,n_missing,pct_coverage,n_grid10,n_grid50,pct_grid10,pct_grid50
-species,10893,5690,5203,52.24,5690,5690,52.24,52.24
-subspecies,264,205,59,77.65,205,205,77.65,77.65
-variety,39,24,15,61.54,24,24,61.54,61.54
-speciesAggregate,38,12,26,31.58,12,12,31.58,31.58
-unranked,6,5,1,83.33,5,5,83.33,83.33

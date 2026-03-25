@@ -21,14 +21,9 @@ output/**
 logs/**
 !logs/.gitkeep
 
-# Raw data (too large for git)
-data_raw/**
-!data_raw/.gitkeep
-!data_raw/README.md
-
-# Processed data (regenerated from scripts)
-data_proc/**
-!data_proc/.gitkeep
+# Data (too large for git)
+data/**
+!data/.gitkeep
 
 # Temporary working files
 temporary/
