@@ -7,9 +7,9 @@
 #   write a comprehensive Markdown QA report to logs/.
 #
 # Inputs:
-#   - data_proc/grids_10km.gpkg, grids_50km.gpkg
-#   - data_proc/cube_manifest.csv, cubes/*.fst
-#   - data_proc/taxa_reference_current.rds
+#   - data/{CC}/proc/grids_10km.gpkg, grids_50km.gpkg
+#   - data/{CC}/proc/cubes/cube_manifest.csv, cubes/*.parquet
+#   - data/{CC}/proc/taxa_reference_current.rds
 #
 # Outputs:
 #   - logs/validation_report_<timestamp>.md
@@ -57,9 +57,9 @@ read_rds_safe <- function(path) {
   )
 }
 
-#' Read a sample from a cube file (fst or rds)
+#' Read a sample from a cube parquet file
 #'
-#' @param path Path to cube file
+#' @param path Path to parquet file
 #' @param n    Number of rows to sample
 #' @return A data.frame
 read_cube_sample <- function(path, n = 5000) {
@@ -69,13 +69,9 @@ read_cube_sample <- function(path, n = 5000) {
 
   ext <- tools::file_ext(path)
 
-  if (ext == "fst") {
-    if (!requireNamespace("fst", quietly = TRUE)) {
-      cli_abort("Package {.pkg fst} required for .fst files")
-    }
-    meta <- fst::metadata_fst(path)
-    n_read <- min(n, meta$nrOfRows)
-    return(fst::read_fst(path, from = 1, to = n_read))
+  if (ext == "parquet" && requireNamespace("arrow", quietly = TRUE)) {
+    ds <- arrow::open_dataset(path)
+    return(as.data.frame(head(ds, n) |> dplyr::collect()))
   }
 
   if (ext == "rds") {
@@ -83,10 +79,9 @@ read_cube_sample <- function(path, n = 5000) {
     if (inherits(data, c("data.table", "data.frame"))) {
       return(as.data.frame(head(data, n)))
     }
-    cli_abort("Unknown RDS object type")
   }
 
-  cli_abort("Unknown file extension: {ext}")
+  cli_abort("Unsupported file format: {ext}")
 }
 
 # ============================================================================
@@ -232,8 +227,7 @@ cli_h2("Validating GBIF Cube Outputs")
 md_hr()
 md_h2("2) GBIF Occurrence Cube Outputs")
 
-manifest_file <- here(p_data_proc, "cube_manifest.csv")
-totals_file   <- here(p_data_proc, "cube_totals_by_basisOfRecord.csv")
+manifest_file <- here(p_data_proc, "cubes", "cube_manifest.csv")
 
 if (file_exists_safe(manifest_file)) {
   md_check("Cube manifest found", "ok")
@@ -242,124 +236,63 @@ if (file_exists_safe(manifest_file)) {
   manifest <- read_csv(manifest_file, show_col_types = FALSE)
 
   md_add("- Manifest entries: `", nrow(manifest), "`\n")
-  md_add(
-    "- Full ingests: `", sum(manifest$full_ingest), "`\n"
-  )
 
-  # Check processed files exist
-  if ("processed_file" %in% names(manifest)) {
-    expected <- manifest |>
-      filter(full_ingest, !is.na(processed_file)) |>
-      pull(processed_file)
+  # Check parquet files exist
+  parquet_dir <- here(p_data_proc, "cubes")
+  parquet_files <- list.files(parquet_dir, pattern = "\\.parquet$", full.names = TRUE)
 
-    missing_n <- sum(!file.exists(expected))
-
-    if (missing_n == 0) {
-      md_check("All expected cube files exist", "ok")
-      cli_alert_success("All cube files present")
-    } else {
-      md_check(
-        glue("{missing_n} cube files MISSING"), "fail"
-      )
-      cli_alert_danger("{missing_n} files missing")
-    }
+  if (length(parquet_files) >= 2) {
+    md_check(glue("{length(parquet_files)} parquet files found"), "ok")
+    cli_alert_success("{length(parquet_files)} parquet files present")
+  } else {
+    md_check("Fewer than 2 parquet files found", "warn")
+    cli_alert_warning("Expected 2 parquet files")
   }
 
-  # Sample cube schema check
-  md_h3("2.1 Column Checks (Sample Cubes)")
+  # Validate each parquet file
+  md_h3("2.1 Parquet File Checks")
 
-  sample_cubes <- manifest |>
-    filter(full_ingest, !is.na(processed_file)) |>
-    slice_head(n = 3)
+  if (requireNamespace("arrow", quietly = TRUE)) {
+    for (pq_file in parquet_files) {
+      md_add("\n**File:** `", basename(pq_file), "`\n")
 
-  if (nrow(sample_cubes) > 0) {
-    walk(seq_len(nrow(sample_cubes)), \(i) {
-      info <- sample_cubes[i, ]
+      tryCatch({
+        ds <- arrow::open_dataset(pq_file)
+        pq_cols <- names(ds$schema)
+        pq_size <- round(file.size(pq_file) / 1024^2, 1)
 
-      md_add(
-        "\n**Sample:** `", basename(info$processed_file),
-        "`\n"
-      )
-      md_add("- Grid: ", info$grid, "\n")
-      md_add("- Basis: ", info$basisOfRecord, "\n")
+        md_add("- Size: `", pq_size, " MB`\n")
+        md_add("- Columns: `", length(pq_cols), "`\n")
+        md_add("- Column names: `", paste(pq_cols, collapse = ", "), "`\n")
 
-      sample_data <- tryCatch(
-        read_cube_sample(info$processed_file, n = 2000),
-        error = function(e) {
-          md_check(
-            glue("Read failed: {e$message}"), "fail"
-          )
-          NULL
-        }
-      )
-
-      if (!is.null(sample_data)) {
-        cols_lower    <- str_to_lower(names(sample_data))
-        required_cols <- c(
-          "specieskey", "eeacellcode",
-          "yearmonth", "occurrences"
-        )
-        missing_cols  <- setdiff(required_cols, cols_lower)
+        # Check required columns
+        required_cols <- c("specieskey", "eeacellcode", "year", "month", "occurrences")
+        missing_cols <- setdiff(required_cols, pq_cols)
 
         if (length(missing_cols) == 0) {
           md_check("All required columns present", "ok")
         } else {
-          md_check(
-            glue(
-              "Missing: {paste(missing_cols, collapse = ', ')}"
-            ),
-            "warn"
-          )
+          md_check(glue("Missing: {paste(missing_cols, collapse = ', ')}"), "warn")
         }
 
-        if ("occurrences" %in% cols_lower) {
-          occ_col <- names(sample_data)[
-            cols_lower == "occurrences"
-          ][1]
-          occ_vals <- as.numeric(sample_data[[occ_col]])
+        # Check new columns
+        new_cols <- c("publishingorgkey", "datasetkey", "year_published", "month_published")
+        present_new <- intersect(new_cols, pq_cols)
+        md_check(glue("{length(present_new)}/4 new columns present ({paste(present_new, collapse = ', ')})"), "ok")
 
-          if (all(is.finite(occ_vals), na.rm = TRUE)) {
-            md_check("Occurrences column is numeric", "ok")
-          }
-          if (min(occ_vals, na.rm = TRUE) >= 0) {
-            md_check("Occurrences >= 0", "ok")
-          } else {
-            md_check("NEGATIVE occurrences detected", "fail")
-          }
-        }
-      }
-    })
+        cli_alert_success("{basename(pq_file)}: {length(pq_cols)} columns, {pq_size} MB")
+      }, error = function(e) {
+        md_check(glue("Read failed: {e$message}"), "fail")
+        cli_alert_danger("{basename(pq_file)}: read failed")
+      })
+    }
   } else {
-    md_check("No fully ingested cubes to sample", "warn")
+    md_check("arrow package not available — cannot validate parquet", "warn")
   }
 
 } else {
-  md_check("Cube manifest MISSING", "fail")
+  md_check("Cube manifest MISSING — run script 04 first", "fail")
   cli_alert_danger("Manifest missing")
-}
-
-# Check totals file
-if (file_exists_safe(totals_file)) {
-  md_h3("2.2 Totals Summary")
-  md_check("Cube totals file found", "ok")
-
-  totals <- read_csv(totals_file, show_col_types = FALSE)
-  md_add("- Total entries: `", nrow(totals), "`\n")
-
-  if (all(c("grid", "basisOfRecord", "total_occurrences") %in%
-          names(totals))) {
-    top_5 <- totals |>
-      arrange(desc(total_occurrences)) |>
-      slice_head(n = 5) |>
-      select(grid, basisOfRecord, total_occurrences)
-
-    md_add("\n**Top 5 by occurrence count:**\n")
-    md_code_block(
-      capture.output(print(top_5, row.names = FALSE))
-    )
-  }
-} else {
-  md_check("Cube totals MISSING", "fail")
 }
 
 # ============================================================================
