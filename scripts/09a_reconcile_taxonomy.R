@@ -17,15 +17,15 @@
 #   Tier 4 -- GBIF Species API (for remaining unmatched, cached)
 #
 # Inputs:
-#   - data_proc/derived/by_order/species_summary/*_10km.csv  (GBIF species)
-#   - data_proc/derived/by_family/species_summary/*_10km.csv
-#   - data_proc/taxa_reference_current.rds                   (backbone)
+#   - data/{CC}/proc/derived/by_order/species_summary/*_10km.csv  (GBIF species)
+#   - data/{CC}/proc/derived/by_family/species_summary/*_10km.csv
+#   - data/{CC}/proc/taxa_reference_current.rds                   (backbone)
 #
 # Outputs:
-#   - data_proc/taxonomic_reconciliation.rds       Main lookup table
-#   - data_proc/gbif_name_cache.rds                Cached GBIF API responses
-#   - data_proc/gaps/taxonomic_match_table.csv      Reconciliation as CSV
-#   - data_proc/gaps/taxonomic_reconciliation_summary.csv  Tier-level summary
+#   - data/{CC}/proc/taxonomic_reconciliation.rds       Main lookup table
+#   - data/{CC}/proc/gbif_name_cache.rds                Cached GBIF API responses
+#   - data/{CC}/proc/gaps/taxonomic_match_table.csv      Reconciliation as CSV
+#   - data/{CC}/proc/gaps/taxonomic_reconciliation_summary.csv  Tier-level summary
 #
 # Dependencies: data.table, stringr, here, cli, httr2 (optional, for Tier 4)
 # ============================================================================

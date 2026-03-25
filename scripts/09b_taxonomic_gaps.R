@@ -11,14 +11,14 @@
 #   - 09a_reconcile_taxonomy.R must have been run (produces reconciliation)
 #
 # INPUTS:
-#   - data_proc/taxonomic_reconciliation.rds  (from 09a)
-#   - data_proc/taxa_reference_current.rds    (from 03)
-#   - data_proc/derived/by_order/species_cell_*.csv  (from 06b)
-#   - data_proc/derived/by_family/species_cell_*.csv (from 06b)
-#   - data_proc/derived/by_order/species_summary_*.csv  (from 06b)
-#   - data_proc/derived/by_family/species_summary_*.csv (from 06b)
+#   - data/{CC}/proc/taxonomic_reconciliation.rds  (from 09a)
+#   - data/{CC}/proc/taxa_reference_current.rds    (from 03)
+#   - data/{CC}/proc/derived/by_order/species_cell_*.csv  (from 06b)
+#   - data/{CC}/proc/derived/by_family/species_cell_*.csv (from 06b)
+#   - data/{CC}/proc/derived/by_order/species_summary_*.csv  (from 06b)
+#   - data/{CC}/proc/derived/by_family/species_summary_*.csv (from 06b)
 #
-# OUTPUTS (in data_proc/gaps/):
+# OUTPUTS (in data/{CC}/proc/gaps/):
 #   Missing taxa:
 #     - taxonomic_missing_taxa.csv           All backbone taxa not in GBIF
 #     - taxonomic_missing_threatened.csv     Threatened backbone taxa not in GBIF
