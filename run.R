@@ -9,7 +9,7 @@
 #   source("run.R")
 #   status()         # Check pipeline progress
 #   run_all()        # Full pipeline
-#   launch_app()     # Start Shiny dashboard
+#   launch_gap_app() # Start Gap Analysis app
 
 library(targets)
 library(here)
@@ -28,7 +28,7 @@ cat("
 |    tar_make()           Run the full pipeline                      |
 |    tar_visnetwork()     Visualise the pipeline graph               |
 |    tar_progress()       Check pipeline status                      |
-|    tar_read(name)       Read a target's cached result              |
+|    tar_read(name)       Read a cached result                       |
 |                                                                    |
 |  Phase-specific runs:                                              |
 |                                                                    |
@@ -37,13 +37,14 @@ cat("
 |    run_phase_3()        Derived summaries                          |
 |    run_phase_4()        Gap analysis (spatial, temporal, taxonomic) |
 |    run_phase_5()        Integrated overview                        |
-|    run_gap_app_prep()      Prepare data for Gap Analysis app              |
-|    run_explorer_app_prep() Prepare data for GBIF Explorer app             |
+|    run_gap_app_prep()      Prepare data for Gap Analysis app       |
+|    run_explorer_app_prep() Prepare data for GBIF Explorer app      |
 |    run_reports()        Render all R Markdown reports               |
 |                                                                    |
-|  Shiny app:                                                        |
+|  Shiny apps:                                                       |
 |                                                                    |
-|    launch_app()         Launch the Shiny dashboard                 |
+|    launch_gap_app()     Launch the Gap Analysis app                |
+|    launch_explorer_app() Launch the GBIF Explorer app              |
 |                                                                    |
 +--------------------------------------------------------------------+
 ")
@@ -54,7 +55,7 @@ cat("
 
 #' Run Phase 1: Data Ingestion (scripts 02-04)
 run_phase_1 <- function() {
-  tar_make(names = c(grids, taxa_reference, cube_manifest))
+  tar_make(names = c(grids, taxa_reference, cube_parquet))
 }
 
 #' Run Phase 2: Validation (script 05)
@@ -69,7 +70,7 @@ run_phase_3 <- function() {
 
 #' Run Phase 4: Gap Analysis (scripts 07, 08, 09a, 09b)
 run_phase_4 <- function() {
-  tar_make(names = c(spatial_gaps, temporal_gaps, taxonomic_reconciliation, taxonomic_gaps))
+  tar_make(names = c(spatial_gaps, temporal_gaps, reconcile_taxonomy, taxonomic_gaps))
 }
 
 #' Run Phase 5: Integrated Overview (script 10)
@@ -96,19 +97,18 @@ run_reports <- function() {
     report_taxonomic_gaps,
     report_basis_of_record,
     report_integrated,
-    report_taxonomy_qa
+    report_reconciliation_qa,
+    report_establishment_means
   ))
 }
 
 #' Launch the Gap Analysis app
 launch_gap_app <- function() {
   gap_data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
-
   if (!file.exists(gap_data_path)) {
     cat("\u26a0\ufe0f  Gap app data not found. Preparing first...\n")
     run_gap_app_prep()
   }
-
   cat("\U0001f680 Launching Gap Analysis app...\n")
   shiny::runApp(here("shiny_app", "gap_app"))
 }
@@ -116,12 +116,10 @@ launch_gap_app <- function() {
 #' Launch the GBIF Explorer app
 launch_explorer_app <- function() {
   explorer_data_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
-
   if (!file.exists(explorer_data_path)) {
     cat("\u26a0\ufe0f  Explorer app data not found. Preparing first...\n")
     run_explorer_app_prep()
   }
-
   cat("\U0001f680 Launching GBIF Explorer app...\n")
   shiny::runApp(here("shiny_app", "gbif_explorer"))
 }
@@ -135,53 +133,42 @@ run_all <- function() {
 
 #' Check pipeline status
 status <- function() {
+  source(here("scripts", "00_setup.R"))
+
   cat("\n\U0001f4ca Pipeline Status:\n\n")
   print(tar_progress())
 
   cat("\n\U0001f4c1 Output Summary:\n")
 
-  manifest_path <- here("data_proc", "cube_manifest.csv")
+  manifest_path <- here(p_data_proc, "cubes", "cube_manifest.csv")
   if (file.exists(manifest_path)) {
-    manifest <- readr::read_csv(
-      manifest_path, show_col_types = FALSE
-    )
-    cat("  Cube files ingested:", nrow(manifest), "\n")
+    manifest <- readr::read_csv(manifest_path, show_col_types = FALSE)
+    cat("  Parquet cubes:", nrow(manifest), "\n")
   }
 
-  gaps_dir <- here("data_proc", "gaps")
+  gaps_dir <- here(p_data_proc, "gaps")
   if (dir.exists(gaps_dir)) {
     gap_files <- list.files(gaps_dir, pattern = "\\.csv$")
     cat("  Gap analysis files:", length(gap_files), "\n")
   }
 
-  tables_dir <- here("output", "tables")
+  tables_dir <- here(p_output, "tables")
   if (dir.exists(tables_dir)) {
-    table_files <- list.files(
-      tables_dir, pattern = "\\.csv$", recursive = TRUE
-    )
+    table_files <- list.files(tables_dir, pattern = "\\.csv$", recursive = TRUE)
     cat("  Overview tables:", length(table_files), "\n")
   }
 
   gap_app_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
-  cat(
-    "  Gap app data ready:",
-    ifelse(file.exists(gap_app_path), "Yes", "No"), "\n"
-  )
+  cat("  Gap app data ready:", ifelse(file.exists(gap_app_path), "Yes", "No"), "\n")
 
   explorer_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
-  cat(
-    "  Explorer app data ready:",
-    ifelse(file.exists(explorer_path), "Yes", "No"), "\n"
-  )
+  cat("  Explorer app data ready:", ifelse(file.exists(explorer_path), "Yes", "No"), "\n")
 }
 
 #' Destroy all cached targets and rebuild from scratch
 rebuild <- function() {
-  cat(
-    "\u26a0\ufe0f  This will delete all cached targets and rebuild.\n"
-  )
+  cat("\u26a0\ufe0f  This will delete all cached targets and rebuild.\n")
   cat("Continue? (y/n): ")
-
   if (interactive() && tolower(readline()) == "y") {
     tar_destroy()
     tar_make()
@@ -190,7 +177,4 @@ rebuild <- function() {
   }
 }
 
-# Show hint on load
-cat(
-  "\nRun status() to check progress, or tar_make() to run.\n\n"
-)
+cat("\nRun status() to check progress, or tar_make() to run.\n\n")
