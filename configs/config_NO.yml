@@ -1,0 +1,107 @@
+# configs/config_NO.yml
+# ============================================================================
+# gbifgaps — Norway
+# ============================================================================
+# To run:
+#   Sys.setenv(GBIFGAPS_COUNTRY = "NO")
+#   source("scripts/00_setup.R")
+#   source("scripts/01_download_raw_data.R")
+#
+# Data: data/NO/raw/ and data/NO/proc/
+# Grids: data/shared/grids/ (shared across European countries)
+# ============================================================================
+
+# ============================================================================
+# Country Identification
+# ============================================================================
+country:
+  code: "NO"
+  name: "Norway"
+  gbif_country_code: "NO"
+  timezone: "Europe/Oslo"
+
+# ============================================================================
+# Administrative Boundaries
+# ============================================================================
+admin_boundaries:
+  enabled: true
+  country_code_iso3: "NOR"
+  levels: [1, 2]
+  force_download: false
+
+# ============================================================================
+# National Taxonomy Backbone
+# ============================================================================
+# Nortaxa — Artsnavnebasen (Norwegian Species Nomenclature Database)
+# https://www.gbif.org/dataset/a6c6cead-b5ce-4a4e-8cf5-1542ba708dec
+taxonomy:
+  name: "Nortaxa"
+  dataset_key: "a6c6cead-b5ce-4a4e-8cf5-1542ba708dec"
+  doi: "https://doi.org/10.15468/4dd3tf"
+  export_url: "https://ipt.artsdatabanken.no/archive.do?r=artsnavnebase"
+
+# ============================================================================
+# National Red List
+# ============================================================================
+# Norwegian Red List 2015
+# https://www.gbif.org/dataset/4f1047ac-a19d-41a8-98eb-d968b2548b53
+# Note: 2021 red list exists but not yet on GBIF as DwC-A.
+redlist:
+  enabled: true
+  dataset_key: "4f1047ac-a19d-41a8-98eb-d968b2548b53"
+  doi: "https://doi.org/10.15468/mx9gdc"
+  export_url: "https://ipt.gbif.no/archive.do?r=redlist-norway"
+
+# ============================================================================
+# GBIF Occurrence Cubes (SQL API)
+# ============================================================================
+cubes:
+  source: "sql_api"
+  grid10km:
+    download_key: null
+    doi: null
+  grid50km:
+    download_key: null
+    doi: null
+
+# ============================================================================
+# Files
+# ============================================================================
+files:
+  grids:
+    grid10km: "Grid_ETRS89-LAEA_10K.shp"                 # in data/shared/grids/
+    grid50km: "EEA_50km_grid_v2024.gpkg"    # in data/shared/grids/
+
+  cubes:
+    grid10km: "cube_10km.csv"
+    grid50km: "cube_50km.csv"
+
+  taxonomy:
+    taxonomy_taxon: "taxon.txt"
+    taxonomy_distr: "distribution.txt"
+
+  redlist:
+    redlist_taxon: "taxon.txt"
+    redlist_distr: "distribution.txt"
+
+# ============================================================================
+# Analysis Parameters
+# ============================================================================
+parameters:
+  crs: 3035
+
+  spatial:
+    quantile_thresholds: [0.05, 0.10, 0.25]
+
+  temporal:
+    stale_months_12: 12
+    stale_months_60: 60
+
+  taxonomic:
+    min_occurrences: 10
+    min_cells: 5
+
+  processing:
+    large_order_threshold: 500000
+    low_memory_mode: false
+    make_species_cell_time: true

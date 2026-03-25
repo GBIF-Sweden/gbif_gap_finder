@@ -52,7 +52,7 @@ cli_h2("Project: GBIF Gap Analysis \u2014 {country_name}")
 cli_dl(c(
   "Data directory"     = p_data,
   "Cubes"              = raw_gbif_cube_dir,
-  "Grids"              = raw_grid_10km_dir,
+  "Grids (shared)"     = raw_grid_dir,
   "Taxonomy"           = raw_taxonomy_dir,
   "Red list"           = raw_redlist_dir,
   "Admin boundaries"   = raw_admin_dir
