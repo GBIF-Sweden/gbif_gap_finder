@@ -557,6 +557,101 @@ if (!"threatStatus_redlist" %in% names(taxa_reference)) {
   cli_alert_info("Added empty threatStatus_redlist column")
 }
 
+# 3.3b Enrich with invasive species status ----------------------------------
+
+cli_h2("Enriching with Invasive Species Status")
+
+dir_invasives   <- here(raw_invasives_dir)
+invasives_enabled_flag <- cfg_get("invasives.enabled", FALSE)
+
+# Input files for invasive species checklist
+file_invasives_taxon <- cfg_get("files.invasives.invasives_taxon", "taxon.txt")
+file_invasives_distr <- cfg_get("files.invasives.invasives_distr", "distribution.txt")
+
+invasives_taxon_path <- file.path(dir_invasives, file_invasives_taxon)
+invasives_distr_path <- file.path(dir_invasives, file_invasives_distr)
+
+invasives_available <- invasives_enabled_flag &&
+  file.exists(invasives_taxon_path)
+
+if (invasives_available) {
+
+  cli_alert_info("Reading invasive species checklist")
+
+  invasives_taxon <- read_table_safe(invasives_taxon_path) |>
+    rename_to_dwc()
+
+  cli_alert_success(
+    "Invasive species checklist: {scales::comma(nrow(invasives_taxon))} rows"
+  )
+
+  # Optionally read distribution for establishment means
+  if (file.exists(invasives_distr_path)) {
+    invasives_distr <- read_table_safe(invasives_distr_path) |>
+      rename_to_dwc()
+
+    # Join distribution onto taxonomy
+    inv_join_key <- case_when(
+      "taxonID" %in% names(invasives_taxon) &
+        "taxonID" %in% names(invasives_distr) ~ "taxonID",
+      "id" %in% names(invasives_taxon) &
+        "id" %in% names(invasives_distr) ~ "id",
+      TRUE ~ NA_character_
+    )
+
+    if (!is.na(inv_join_key)) {
+      inv_distr_cols <- c(inv_join_key, "establishmentMeans",
+                          "occurrenceStatus", "threatStatus") |>
+        intersect(names(invasives_distr))
+      invasives_taxon <- invasives_taxon |>
+        left_join(
+          invasives_distr |> select(all_of(inv_distr_cols)),
+          by = inv_join_key
+        )
+    }
+  }
+
+  # Create invasive species lookup by scientificName
+  invasive_lookup <- invasives_taxon |>
+    filter(!is.na(scientificName)) |>
+    select(scientificName) |>
+    distinct(scientificName) |>
+    mutate(is_invasive = TRUE)
+
+  cli_alert_info(
+    "Invasive species lookup: {scales::comma(nrow(invasive_lookup))} taxa"
+  )
+
+  # Join to taxa_reference
+  taxa_reference <- taxa_reference |>
+    left_join(invasive_lookup, by = "scientificName") |>
+    mutate(is_invasive = replace_na(is_invasive, FALSE))
+
+  n_invasive_matched <- sum(taxa_reference$is_invasive, na.rm = TRUE)
+  cli_alert_success(
+    "Matched: {scales::comma(n_invasive_matched)} taxa flagged as invasive"
+  )
+
+} else {
+  cli_alert_info("Invasive species checklist not configured or not found \u2014 skipping")
+  taxa_reference <- taxa_reference |>
+    mutate(is_invasive = FALSE)
+}
+
+# 3.3c Add in_dyntaxa flag (all taxa in this reference ARE in Dyntaxa) ------
+
+cli_h2("Adding in_dyntaxa Flag")
+
+taxa_reference <- taxa_reference |>
+  mutate(in_dyntaxa = TRUE)
+
+cli_alert_info(
+  "All {scales::comma(nrow(taxa_reference))} taxa in the reference marked in_dyntaxa = TRUE"
+)
+cli_alert_info(
+  "GBIF species NOT in this reference will be marked in_dyntaxa = FALSE in script 09a"
+)
+
 # Taxonomic status summary
 if ("taxonomicStatus" %in% names(taxa_reference)) {
   status_summary <- taxa_reference |>
@@ -622,6 +717,7 @@ core_columns <- c(
   "country", "countryCode", "occurrenceStatus",
   "establishmentMeans",
   "threatStatus_backbone", "threatStatus_redlist",
+  "is_invasive", "in_dyntaxa",
 
   # Metadata
   "taxonomic_backbone", "backbone_version", "backbone_doi",

@@ -13,7 +13,7 @@
 #   tar_read(name)          Read a cached result
 #
 # Pipeline phases:
-#   1. Ingestion    — scripts 02, 03, 04
+#   1. Ingestion    — scripts 01, 02, 03, 04
 #   2. Validation   — script 05
 #   3. Summaries    — scripts 06a, 06b
 #   4. Gap Analysis — scripts 07, 08, 09a, 09b
@@ -52,6 +52,18 @@ list(
   # Phase 1: Data Ingestion
   # ==========================================================================
 
+  # 1.0 Download raw data — taxonomy, red list, invasives, admin (script 01)
+  tar_target(
+    raw_data,
+    {
+      source(here("scripts", "01_download_raw_data.R"), local = TRUE)
+      metadata_path <- here(p_data_raw, "download_metadata.json")
+      stopifnot(file.exists(metadata_path))
+      metadata_path
+    },
+    format = "file"
+  ),
+
   # 1.1 Ingest EEA grids (script 02)
   tar_target(
     grids,
@@ -67,10 +79,11 @@ list(
     format = "file"
   ),
 
-  # 1.2 Ingest taxonomy backbone + red list (script 03)
+  # 1.2 Ingest taxonomy backbone + red list + invasives (script 03)
   tar_target(
     taxa_reference,
     {
+      raw_data  # depends on download step
       source(here("scripts", "03_ingest_taxonomy.R"), local = TRUE)
       output_files <- c(
         here(p_data_proc, "taxa_reference_current.rds"),

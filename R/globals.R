@@ -139,11 +139,12 @@ if (requireNamespace("sf", quietly = TRUE)) {
 # Raw Data Directories (derived from country path)
 # ============================================================================
 
-raw_gbif_cube_dir <- cfg_get("paths.gbif_cube_dir", here(p_data_raw, "cubes"))
-raw_grid_dir      <- cfg_get("paths.grid_dir",      here("data", "shared", "grids"))
-raw_redlist_dir   <- cfg_get("paths.redlist_dir",    here(p_data_raw, "redlist"))
-raw_taxonomy_dir  <- cfg_get("paths.taxonomy_dir",   here(p_data_raw, "taxonomy"))
-raw_admin_dir     <- cfg_get("paths.admin_dir",      here(p_data_raw, "admin"))
+raw_gbif_cube_dir  <- cfg_get("paths.gbif_cube_dir",  here(p_data_raw, "cubes"))
+raw_grid_dir       <- cfg_get("paths.grid_dir",       here("data", "shared", "grids"))
+raw_redlist_dir    <- cfg_get("paths.redlist_dir",     here(p_data_raw, "redlist"))
+raw_taxonomy_dir   <- cfg_get("paths.taxonomy_dir",    here(p_data_raw, "taxonomy"))
+raw_invasives_dir  <- cfg_get("paths.invasives_dir",   here(p_data_raw, "invasives"))
+raw_admin_dir      <- cfg_get("paths.admin_dir",       here(p_data_raw, "admin"))
 
 # ============================================================================
 # Processed Output Paths
@@ -273,7 +274,8 @@ ensure_dirs <- function() {
     p_derived, p_by_order, p_by_family,
     p_gaps, p_tables, p_integrated,
     raw_gbif_cube_dir, raw_grid_dir,
-    raw_redlist_dir, raw_taxonomy_dir, raw_admin_dir
+    raw_redlist_dir, raw_taxonomy_dir,
+    raw_invasives_dir, raw_admin_dir
   )
   for (d in dirs) {
     if (!dir.exists(d)) {

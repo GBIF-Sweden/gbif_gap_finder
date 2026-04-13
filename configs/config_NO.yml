@@ -45,12 +45,24 @@ taxonomy:
 # ============================================================================
 # Norwegian Red List 2015
 # https://www.gbif.org/dataset/4f1047ac-a19d-41a8-98eb-d968b2548b53
-# Note: 2021 red list exists but not yet on GBIF as DwC-A.
 redlist:
   enabled: true
   dataset_key: "4f1047ac-a19d-41a8-98eb-d968b2548b53"
   doi: "https://doi.org/10.15468/mx9gdc"
   export_url: "https://ipt.gbif.no/archive.do?r=redlist-norway"
+
+# ============================================================================
+# National Invasive Species Registry (optional)
+# ============================================================================
+# Norway: No national invasive species checklist currently on GBIF as DwC-A.
+# Set enabled: true and fill in dataset details when available.
+# Search: https://www.gbif.org/dataset/search?q=invasive&publishingCountry=NO&type=CHECKLIST
+invasives:
+  enabled: false
+  dataset_key: ""
+  doi: ""
+  export_url: ""
+  name: ""
 
 # ============================================================================
 # GBIF Occurrence Cubes (SQL API)
@@ -69,8 +81,8 @@ cubes:
 # ============================================================================
 files:
   grids:
-    grid10km: "Grid_ETRS89-LAEA_10K.shp"                 # in data/shared/grids/
-    grid50km: "EEA_50km_grid_v2024.gpkg"    # in data/shared/grids/
+    grid10km: "Grid_ETRS89-LAEA_10K.shp"
+    grid50km: "EEA_50km_grid_v2024.gpkg"
 
   cubes:
     grid10km: "cube_10km.csv"
@@ -83,6 +95,10 @@ files:
   redlist:
     redlist_taxon: "taxon.txt"
     redlist_distr: "distribution.txt"
+
+  invasives:
+    invasives_taxon: "taxon.txt"
+    invasives_distr: "distribution.txt"
 
 # ============================================================================
 # Analysis Parameters
