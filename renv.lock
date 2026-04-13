@@ -1422,79 +1422,6 @@
       "Maintainer": "Gábor Csárdi <csardi.gabor@gmail.com>",
       "Repository": "CRAN"
     },
-    "fst": {
-      "Package": "fst",
-      "Version": "0.9.8",
-      "Source": "Repository",
-      "Type": "Package",
-      "Title": "Lightning Fast Serialization of Data Frames",
-      "Description": "Multithreaded serialization of compressed data frames using the 'fst' format. The 'fst' format allows for full random access of stored data and a wide range of compression settings using the LZ4 and ZSTD compressors.",
-      "Date": "2022-02-07",
-      "Authors@R": "person(\"Mark\", \"Klik\", email = \"markklik@gmail.com\", role = c(\"aut\", \"cre\", \"cph\"))",
-      "Depends": [
-        "R (>= 3.0.0)"
-      ],
-      "Imports": [
-        "fstcore",
-        "Rcpp"
-      ],
-      "LinkingTo": [
-        "Rcpp",
-        "fstcore"
-      ],
-      "SystemRequirements": "little-endian platform",
-      "RoxygenNote": "7.1.2",
-      "Suggests": [
-        "testthat",
-        "bit64",
-        "data.table",
-        "lintr",
-        "nanotime",
-        "crayon"
-      ],
-      "License": "AGPL-3 | file LICENSE",
-      "Encoding": "UTF-8",
-      "URL": "http://www.fstpackage.org",
-      "BugReports": "https://github.com/fstpackage/fst/issues",
-      "NeedsCompilation": "yes",
-      "Author": "Mark Klik [aut, cre, cph]",
-      "Maintainer": "Mark Klik <markklik@gmail.com>",
-      "Repository": "CRAN"
-    },
-    "fstcore": {
-      "Package": "fstcore",
-      "Version": "0.10.0",
-      "Source": "Repository",
-      "Type": "Package",
-      "Title": "R Bindings to the 'Fstlib' Library",
-      "Description": "The 'fstlib' library provides multithreaded serialization of compressed data frames using the 'fst' format. The 'fst' format allows for random access of stored data and compression with the 'LZ4' and 'ZSTD' compressors.",
-      "Date": "2025-02-10",
-      "Authors@R": "c(person(given = \"Mark\", family = \"Klik\", role = c(\"aut\", \"cre\", \"cph\"), email = \"markklik@gmail.com\", comment = \"Mark Klik is author of the fstcore package and author and copyright holder of the bundled 'fstlib' code\"), person(given = \"Yuta\", family = \"Mori\", role = c(\"ctb\", \"cph\"), comment = \"Yuta Mori is author and copyright holder of the bundled 'libdivsufsort-lite' code, part of 'ZSTD'\"), person(given = \"Przemyslaw\", family = \"Skibinski\", role = c(\"ctb\", \"cph\"), comment = \"Przemyslaw Skibinski is author and copyright holder of the bundled price functions, part of 'ZSTD'\"), person(given = \"Tino\", family = \"Reichardt\", role = c(\"ctb\", \"cph\"), comment = \"Tino Reichardt is author and copyright holder of bundled sources from the 'zstdmt' library, part of 'ZSTD'\"), person(given = \"Yann\", family = \"Collet\", role = c(\"ctb\", \"cph\"), comment = \"Yann Collet is author of the bundled 'LZ4' and 'ZSTD' code and copyright holder of 'LZ4'\"), person(given = \"Facebook, Inc.\", role = \"cph\", comment = \"Bundled 'ZSTD' code\"))",
-      "Depends": [
-        "R (>= 3.0.0)"
-      ],
-      "Imports": [
-        "Rcpp"
-      ],
-      "LinkingTo": [
-        "Rcpp"
-      ],
-      "SystemRequirements": "little-endian platform",
-      "RoxygenNote": "7.3.2",
-      "Suggests": [
-        "testthat",
-        "lintr"
-      ],
-      "License": "MPL-2.0 | file LICENSE",
-      "Encoding": "UTF-8",
-      "Copyright": "This package includes sources from the LZ4 library owned by Yann Collet, sources of the ZSTD library owned by Facebook, Inc., sources of the libdivsufsort-lite library owned by Yuta Mori and sources of the fstlib library owned by Mark Klik",
-      "URL": "https://www.fstpackage.org/fstcore/",
-      "BugReports": "https://github.com/fstpackage/fst/issues",
-      "NeedsCompilation": "yes",
-      "Author": "Mark Klik [aut, cre, cph] (Mark Klik is author of the fstcore package and author and copyright holder of the bundled 'fstlib' code), Yuta Mori [ctb, cph] (Yuta Mori is author and copyright holder of the bundled 'libdivsufsort-lite' code, part of 'ZSTD'), Przemyslaw Skibinski [ctb, cph] (Przemyslaw Skibinski is author and copyright holder of the bundled price functions, part of 'ZSTD'), Tino Reichardt [ctb, cph] (Tino Reichardt is author and copyright holder of bundled sources from the 'zstdmt' library, part of 'ZSTD'), Yann Collet [ctb, cph] (Yann Collet is author of the bundled 'LZ4' and 'ZSTD' code and copyright holder of 'LZ4'), Facebook, Inc. [cph] (Bundled 'ZSTD' code)",
-      "Maintainer": "Mark Klik <markklik@gmail.com>",
-      "Repository": "CRAN"
-    },
     "generics": {
       "Package": "generics",
       "Version": "0.1.4",
@@ -3489,57 +3416,7 @@
     "renv": {
       "Package": "renv",
       "Version": "1.1.6",
-      "Source": "Repository",
-      "Type": "Package",
-      "Title": "Project Environments",
-      "Authors@R": "c( person(\"Kevin\", \"Ushey\", role = c(\"aut\", \"cre\"), email = \"kevin@rstudio.com\", comment = c(ORCID = \"0000-0003-2880-7407\")), person(\"Hadley\", \"Wickham\", role = c(\"aut\"), email = \"hadley@rstudio.com\", comment = c(ORCID = \"0000-0003-4757-117X\")), person(\"Posit Software, PBC\", role = c(\"cph\", \"fnd\")) )",
-      "Description": "A dependency management toolkit for R. Using 'renv', you can create and manage project-local R libraries, save the state of these libraries to a 'lockfile', and later restore your library as required. Together, these tools can help make your projects more isolated, portable, and reproducible.",
-      "License": "MIT + file LICENSE",
-      "URL": "https://rstudio.github.io/renv/, https://github.com/rstudio/renv",
-      "BugReports": "https://github.com/rstudio/renv/issues",
-      "Imports": [
-        "utils"
-      ],
-      "Suggests": [
-        "BiocManager",
-        "cli",
-        "compiler",
-        "covr",
-        "cpp11",
-        "curl",
-        "devtools",
-        "generics",
-        "gitcreds",
-        "jsonlite",
-        "jsonvalidate",
-        "knitr",
-        "miniUI",
-        "modules",
-        "packrat",
-        "pak",
-        "R6",
-        "remotes",
-        "reticulate",
-        "rmarkdown",
-        "rstudioapi",
-        "shiny",
-        "testthat",
-        "uuid",
-        "waldo",
-        "yaml",
-        "webfakes"
-      ],
-      "Encoding": "UTF-8",
-      "RoxygenNote": "7.3.3",
-      "VignetteBuilder": "knitr",
-      "Config/Needs/website": "tidyverse/tidytemplate",
-      "Config/testthat/edition": "3",
-      "Config/testthat/parallel": "true",
-      "Config/testthat/start-first": "bioconductor,python,install,restore,snapshot,retrieve,remotes",
-      "NeedsCompilation": "no",
-      "Author": "Kevin Ushey [aut, cre] (ORCID: <https://orcid.org/0000-0003-2880-7407>), Hadley Wickham [aut] (ORCID: <https://orcid.org/0000-0003-4757-117X>), Posit Software, PBC [cph, fnd]",
-      "Maintainer": "Kevin Ushey <kevin@rstudio.com>",
-      "Repository": "CRAN"
+      "Source": "Repository"
     },
     "rgbif": {
       "Package": "rgbif",

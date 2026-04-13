@@ -41,10 +41,7 @@ cli_h1("Preparing Data for Shiny App (Script 11)")
 # CONFIGURATION
 # ===========================================================================
 
-p_gaps <- here(p_data_proc, "gaps")
-p_tables <- here(p_output, "tables")
-p_integrated <- here(p_output, "tables", "integrated")
-p_derived <- here(p_data_proc, "derived")
+# p_gaps, p_tables, p_integrated, p_derived are defined in R/globals.R
 
 # Output path - gap analysis app data folder
 shiny_output_dir <- here("shiny_app", "gap_app", "data")
@@ -131,7 +128,7 @@ if (file.exists(grid_50km_path)) {
 }
 
 # Administrative boundaries (optional — from GADM via 00b script)
-admin_dir <- here("data_raw", "admin")
+admin_dir <- here(raw_admin_dir)
 for (lvl in c(1, 2)) {
   admin_path <- here(admin_dir, paste0("admin_level", lvl, ".gpkg"))
   if (file.exists(admin_path)) {
@@ -700,9 +697,6 @@ if (is.null(recent_cutoff_ym)) {
   cli_alert_warning("Could not determine recent period from data, defaulting to {recent_label}")
 }
 
-# Also keep last_full_year for backwards compatibility (used in some Troudet/order computations)
-last_full_year <- as.integer(substr(as.character(recent_cutoff_ym), 1, 4))
-
 shiny_data$last_year <- recent_cutoff_ym  # now a yearmonth, not a year
 shiny_data$recent_label <- recent_label
 cli_alert_info("Recent period: {recent_label} (yearmonth cutoff: {recent_cutoff_ym})")
@@ -789,6 +783,30 @@ if (!is.null(cell_time_raw)) {
   invisible(gc())
 } else {
   cli_alert_warning("cell_time_summary_10km.csv not found — spatial recent data not computed")
+}
+
+# ---- 8b.2b  SPATIAL: Cells with data PUBLISHED to GBIF in last 12 months ----
+cube_10km_parquet <- here(p_data_proc, "cubes", "cube_10km.parquet")
+if (file.exists(cube_10km_parquet) && requireNamespace("arrow", quietly = TRUE) && !is.null(recent_cutoff_ym)) {
+  cli_alert_info("Computing cell-level published data from parquet...")
+  pub_cell_dt <- as.data.table(
+    arrow::open_dataset(cube_10km_parquet) |>
+      dplyr::select(eeacellcode, year_published, month_published, occurrences) |>
+      dplyr::collect()
+  )
+  pub_cell_dt[, yearmonth_pub := as.integer(year_published) * 100L + as.integer(month_published)]
+
+  cell_pub <- pub_cell_dt[, .(
+    pub_last_year = sum(as.numeric(occurrences[!is.na(yearmonth_pub) & yearmonth_pub >= recent_cutoff_ym]), na.rm = TRUE),
+    pub_prior = sum(as.numeric(occurrences[is.na(yearmonth_pub) | yearmonth_pub < recent_cutoff_ym]), na.rm = TRUE)
+  ), by = eeacellcode]
+
+  shiny_data$cell_published_last_year <- as_tibble(cell_pub)
+  n_pub_active <- sum(cell_pub$pub_last_year > 0)
+  cli_alert_success("Cells with published data in recent period: {scales::comma(n_pub_active)}")
+  rm(pub_cell_dt, cell_pub); gc()
+} else {
+  cli_alert_info("Parquet cube not found — cell-level published data not computed")
 }
 
 # ---- 8b.3  PRIORITIES: Resolved cells (were zero, now have data) ----
@@ -980,6 +998,69 @@ if (!is.null(match_summary) && !is.null(shiny_data$time_summary_10km)) {
   } else {
     cli_alert_warning("order_temporal_trends.csv not found — Troudet bias data not computed")
   }
+
+  # --- Published (mobilised) last 12 months by class/order/family ---
+  # Read directly from parquet cube to get year_published × order breakdowns
+  cli_h3("Computing Published (Mobilised) Last 12 Months by Taxonomy")
+
+  cube_10km_parquet <- here(p_data_proc, "cubes", "cube_10km.parquet")
+  if (file.exists(cube_10km_parquet) && requireNamespace("arrow", quietly = TRUE)) {
+    pub_dt <- as.data.table(
+      arrow::open_dataset(cube_10km_parquet) |>
+        dplyr::select(specieskey, species, kingdom, phylum, class, order, family,
+                      year_published, month_published, occurrences) |>
+        dplyr::collect()
+    )
+    pub_dt[, yearmonth_pub := as.integer(year_published) * 100L + as.integer(month_published)]
+    pub_dt[is.na(order) | order == "", order := "Unplaced"]
+    pub_dt[is.na(family) | family == "", family := "Unplaced"]
+
+    # Published by class
+    pub_by_class <- pub_dt[, .(
+      pub_last_year = sum(as.numeric(occurrences[yearmonth_pub >= recent_cutoff_ym]), na.rm = TRUE),
+      pub_prior = sum(as.numeric(occurrences[yearmonth_pub < recent_cutoff_ym]), na.rm = TRUE)
+    ), by = .(kingdom, phylum, class)]
+
+    if (!is.null(shiny_data$troudet_bias)) {
+      shiny_data$troudet_bias <- shiny_data$troudet_bias |>
+        left_join(pub_by_class, by = c("kingdom", "phylum", "class")) |>
+        mutate(pub_last_year = replace_na(pub_last_year, 0),
+               pub_prior = replace_na(pub_prior, 0))
+      cli_alert_success("Troudet bias (class): added pub_last_year column")
+    }
+
+    # Published by order
+    pub_by_order <- pub_dt[, .(
+      pub_last_year = sum(as.numeric(occurrences[yearmonth_pub >= recent_cutoff_ym]), na.rm = TRUE),
+      pub_prior = sum(as.numeric(occurrences[yearmonth_pub < recent_cutoff_ym]), na.rm = TRUE)
+    ), by = .(kingdom, phylum, class, order)]
+
+    if (!is.null(shiny_data$troudet_bias_order)) {
+      shiny_data$troudet_bias_order <- shiny_data$troudet_bias_order |>
+        left_join(pub_by_order, by = c("kingdom", "phylum", "class", "order")) |>
+        mutate(pub_last_year = replace_na(pub_last_year, 0),
+               pub_prior = replace_na(pub_prior, 0))
+      cli_alert_success("Troudet bias (order): added pub_last_year column")
+    }
+
+    # Published by family
+    pub_by_family <- pub_dt[, .(
+      pub_last_year = sum(as.numeric(occurrences[yearmonth_pub >= recent_cutoff_ym]), na.rm = TRUE),
+      pub_prior = sum(as.numeric(occurrences[yearmonth_pub < recent_cutoff_ym]), na.rm = TRUE)
+    ), by = .(kingdom, phylum, class, order, family)]
+
+    if (!is.null(shiny_data$troudet_bias_family)) {
+      shiny_data$troudet_bias_family <- shiny_data$troudet_bias_family |>
+        left_join(pub_by_family, by = c("kingdom", "phylum", "class", "order", "family")) |>
+        mutate(pub_last_year = replace_na(pub_last_year, 0),
+               pub_prior = replace_na(pub_prior, 0))
+      cli_alert_success("Troudet bias (family): added pub_last_year column")
+    }
+
+    rm(pub_dt); gc()
+  } else {
+    cli_alert_info("Parquet cube not found — published-by-taxonomy not computed")
+  }
 } else {
   cli_alert_warning("Cannot compute Troudet data (need match_summary + time_summary)")
 }
@@ -993,8 +1074,13 @@ if (!is.null(match_summary) && !is.null(shiny_data$time_summary_10km)) {
 cli_h2("Adding Last-Year Occurrence Splits to Taxonomic Summaries")
 
 if (!is.null(shiny_data$troudet_bias_order) && !is.null(shiny_data$tax_by_order)) {
-  order_occ <- shiny_data$troudet_bias_order |>
-    select(kingdom, phylum, class, order, occ_prior, occ_last_year, total_occ)
+  # Select observed AND published last-year columns (pub columns may not exist if parquet wasn't available)
+  avail_cols <- intersect(
+    c("kingdom", "phylum", "class", "order", "occ_prior", "occ_last_year", "total_occ",
+      "pub_last_year", "pub_prior"),
+    names(shiny_data$troudet_bias_order)
+  )
+  order_occ <- shiny_data$troudet_bias_order |> select(all_of(avail_cols))
 
   shiny_data$tax_by_order <- shiny_data$tax_by_order |>
     left_join(order_occ, by = intersect(names(shiny_data$tax_by_order), names(order_occ))) |>
@@ -1003,24 +1089,13 @@ if (!is.null(shiny_data$troudet_bias_order) && !is.null(shiny_data$tax_by_order)
       occ_last_year = replace_na(occ_last_year, 0),
       total_occ = replace_na(total_occ, 0)
     )
-  cli_alert_success("tax_by_order now includes occ_prior / occ_last_year columns")
-}
-
-# For family level, aggregate from order temporal if possible
-if (!is.null(match_summary) && !is.null(shiny_data$tax_by_family)) {
-  order_temporal_raw <- safe_read(here(p_integrated, "order_temporal_trends.csv"))
-  if (!is.null(order_temporal_raw)) {
-    order_to_family <- match_summary |>
-      as_tibble() |>
-      filter(!is.na(family), family != "", !is.na(order), order != "") |>
-      distinct(kingdom, phylum, class, order, family)
-
-    # Note: order_temporal is at order level, so family-level occ splits
-    # are approximate (split evenly or by species count within the order).
-    # For now, we just join what's available at the order level.
-    # A proper family-level temporal breakdown would need family in the cubes.
-    cli_alert_info("Family-level last-year splits: using order-level approximation")
+  # Also fill pub columns if they were joined
+  if ("pub_last_year" %in% names(shiny_data$tax_by_order)) {
+    shiny_data$tax_by_order <- shiny_data$tax_by_order |>
+      mutate(pub_last_year = replace_na(pub_last_year, 0),
+             pub_prior = replace_na(pub_prior, 0))
   }
+  cli_alert_success("tax_by_order now includes occ + pub last-year columns")
 }
 
 # ===========================================================================

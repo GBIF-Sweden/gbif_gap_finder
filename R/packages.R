@@ -33,11 +33,9 @@ required_packages <- c(
 
   # High-performance data manipulation (used in cube processing)
   "data.table",
-  "fst",
 
   # Spatial
   "sf",
-  "terra",
 
   # Visualisation
   "ggplot2",
