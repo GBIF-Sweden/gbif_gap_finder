@@ -75,11 +75,35 @@ family_time_summary  <- safe_get("family_time_summary")
 last_year_ref        <- safe_get("last_year")  # now a yearmonth cutoff, e.g. 202504
 recent_label_stored  <- safe_get("recent_label")  # e.g. "Apr 2025 – Mar 2026"
 
+# Dyntaxa-filtered versions (for scope toggle)
+dyntaxa_time_summary        <- safe_get("dyntaxa_time_summary")
+dyntaxa_order_time_summary  <- safe_get("dyntaxa_order_time_summary")
+dyntaxa_family_time_summary <- safe_get("dyntaxa_family_time_summary")
+dyntaxa_cell_summary        <- safe_get("dyntaxa_cell_summary")
+dyntaxa_cell_recency        <- safe_get("dyntaxa_cell_recency")
+dyntaxa_spatial_gaps         <- safe_get("dyntaxa_spatial_gaps")
+
 # Establishment means / scope data
 match_summary_full   <- safe_get("taxonomic_match_summary")
 tax_by_establishment <- safe_get("tax_by_establishment")
 has_establishment    <- !is.null(match_summary_full) &&
                         "establishmentMeans" %in% names(match_summary_full)
+
+# Dyntaxa scope / invasive species data
+species_scope_lookup  <- safe_get("species_scope_lookup")
+tax_by_invasive       <- safe_get("tax_by_invasive")
+kingdom_cell_recency  <- safe_get("kingdom_cell_recency")
+tax_cell_recency      <- safe_get("tax_cell_recency")
+has_dyntaxa_scope     <- !is.null(species_scope_lookup) &&
+                         "in_dyntaxa" %in% names(species_scope_lookup)
+has_kingdom_recency   <- !is.null(kingdom_cell_recency)
+has_tax_cell_recency  <- !is.null(tax_cell_recency) &&
+                         "class" %in% names(tax_cell_recency)
+
+# Kingdom choices for spatial filter
+spatial_kingdom_choices <- if (has_kingdom_recency) {
+  c("All kingdoms" = "", sort(unique(kingdom_cell_recency$kingdom)))
+} else character(0)
 
 # Build scope choices
 scope_choices <- c("All species" = "all")
@@ -150,7 +174,7 @@ plotly_layout <- function(p, ...) {
   ), args))
   
   # Apply reduced toolbar to every plotly chart
-  p |> config(
+  p |> plotly::config(
     displayModeBar = TRUE,
     modeBarButtonsToRemove = c(
       "zoom2d", "pan2d", "lasso2d", "select2d", "autoScale2d",
@@ -208,7 +232,15 @@ ui <- fluidPage(
           selectInput("basis_filter", NULL,
             choices = basis_types,
             selected = "all",
-            width = "180px"))
+            width = "180px")),
+        if (has_dyntaxa_scope) div(style = "display:flex; align-items:center; gap:0.4rem;",
+          span(style = "font-size:0.8rem; color:#6b6b6b;", "Scope:"),
+          selectInput("dyntaxa_scope", NULL,
+            choices = c(
+              "Dyntaxa species (gap analysis)" = "dyntaxa",
+              "All GBIF Sweden (overview)" = "all_gbif"),
+            selected = "dyntaxa",
+            width = "240px"))
       )
     )
   ),
@@ -369,6 +401,29 @@ ui <- fluidPage(
         title = tagList(icon("map"), "Spatial"),
         value = "spatial",
         div(style = "padding: 1.25rem 0;",
+
+          # About section (expandable)
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--sage);",
+            actionLink("spatial_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.spatial_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+                p("This tab shows how biodiversity observations are distributed across Sweden's ",
+                  "10 km grid cells. Each cell is coloured by the selected metric: total occurrences, ",
+                  "data recency (how recently each cell was surveyed), species richness, or observations ",
+                  "from the last 12 months."),
+                p("Use the ", tags$strong("Kingdom filter"), " to isolate specific taxonomic groups. ",
+                  "Bird observations dominate Swedish GBIF data, so filtering to non-Aves groups ",
+                  "can reveal sampling gaps that are otherwise hidden."),
+                p(tags$strong("Data recency"), " shows how stale each cell's most recent observation is. ",
+                  "Red cells have not been surveyed in over 10 years and should be prioritised for resurvey.")
+              )
+            )
+          ),
+
           fluidRow(
             column(8, div(class = "card",
               div(class = "card-title", icon("globe-europe"), "Geographic Coverage"),
@@ -382,7 +437,13 @@ ui <- fluidPage(
                     c("Occurrences", "Data recency", "Species richness",
                       paste0("Observed (", last_year_label, ")"),
                       paste0("Published (", last_year_label, ")"))),
-                  selected = "occ")),
+                  selected = "occ"),
+                if (has_kingdom_recency) tagList(
+                  tags$hr(style = "margin: 0.5rem 0; border-color: #eee;"),
+                  div(class = "filter-label", "Taxonomic filter"),
+                  uiOutput("spatial_kingdom_filter_ui"),
+                  uiOutput("spatial_class_filter_ui")
+                )),
               if (has_admin) div(class = "card",
                 div(class = "card-title", icon("border-all"), "Administrative Boundaries"),
                 if (!is.null(admin_level1)) checkboxInput("show_admin1", "Show regions", value = TRUE),
@@ -410,6 +471,30 @@ ui <- fluidPage(
         title = tagList(icon("clock"), "Temporal"),
         value = "temporal",
         div(style = "padding: 1.25rem 0;",
+
+          # About section (expandable)
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--slate);",
+            actionLink("temporal_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.temporal_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+                p("This tab shows when biodiversity observations were made. The ", tags$strong("historical trend"),
+                  " shows total occurrences per year; the ", tags$strong("seasonal pattern"),
+                  " reveals monthly collection biases."),
+                p("The ", tags$strong("heatmap"), " shows year \u00d7 month intensity. ",
+                  "Switch between log scale (better for spotting patterns across orders of magnitude) ",
+                  "and linear scale (better for comparing absolute numbers). ",
+                  "Use the taxonomic filters above to isolate specific groups."),
+                p("The sharp increase in recent decades is largely driven by citizen science ",
+                  "(especially Artportalen/iNaturalist). Filtering by kingdom or order can ",
+                  "reveal which groups are driving temporal trends.")
+              )
+            )
+          ),
+
           div(class = "filter-section",
             fluidRow(
               column(2,
@@ -443,7 +528,12 @@ ui <- fluidPage(
           ),
           fluidRow(
             column(12, div(class = "card",
-              div(class = "card-title", icon("th"), "Year \u00d7 Month Heatmap"),
+              div(style = "display:flex; align-items:center; justify-content:space-between;",
+                div(class = "card-title", icon("th"), "Year \u00d7 Month Heatmap"),
+                radioButtons("heatmap_scale", NULL,
+                  choices = c("Log scale" = "log", "Linear" = "linear", "Binned" = "binned"),
+                  selected = "log", inline = TRUE)
+              ),
               plotlyOutput("temporal_heatmap", height = "350px")))
           )
         )
@@ -456,6 +546,29 @@ ui <- fluidPage(
         title = tagList(icon("layer-group"), "Basis of Record"),
         value = "basis_tab",
         div(style = "padding: 1.25rem 0;",
+
+          # About section (expandable)
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--sand);",
+            actionLink("basis_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.basis_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+                p("Each GBIF occurrence record has a ", tags$strong("basis of record"),
+                  " describing how the observation was made. The main types are: ",
+                  tags$em("Human Observation"), " (field sightings, citizen science), ",
+                  tags$em("Preserved Specimen"), " (museum/herbarium collections), and ",
+                  tags$em("Machine Observation"), " (camera traps, acoustic sensors)."),
+                p("Understanding the mix of record types matters for gap analysis: ",
+                  "preserved specimens provide voucher evidence but are spatially biased toward collection expeditions; ",
+                  "human observations offer broader spatial coverage but may lack verification. ",
+                  "The temporal trends show how citizen science has dramatically increased data volume since ~2010.")
+              )
+            )
+          ),
+
           uiOutput("basis_stat_boxes"),
           fluidRow(
             column(6, div(class = "card",
@@ -490,6 +603,34 @@ ui <- fluidPage(
         title = tagList(icon("leaf"), "Taxonomic"),
         value = "taxonomic",
         div(style = "padding: 1.25rem 0;",
+
+          # About section (expandable)
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--sand);",
+            actionLink("taxonomic_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.taxonomic_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+                p("This tab compares GBIF occurrence data against the national taxonomy backbone (Dyntaxa). ",
+                  "For each taxonomic group, it shows how many known species have GBIF records and ",
+                  "how sampling effort is distributed across groups."),
+                p("The ", tags$strong("Taxonomic Bias"), " chart (Troudet-style) reveals whether groups are ",
+                  "over- or under-represented relative to their known species richness. ",
+                  "If a group has 10% of all known species but only 1% of all occurrences, it is under-sampled."),
+                p("Use the ", tags$strong("Scope filter"), " to focus on native, introduced, or invasive species. ",
+                  "The ", tags$strong("Last 12 Months"), " toggle highlights recent sampling effort, ",
+                  "showing whether recent data collection is addressing historical biases or reinforcing them."),
+                p(tags$strong("Note:"), " Gap metrics are only meaningful when the Dyntaxa scope is active. ",
+                  "When viewing 'All GBIF Sweden', completeness percentages are not shown because there is no ",
+                  "reference checklist to measure against for non-Dyntaxa taxa.")
+              )
+            )
+          ),
+
+          # Scope info banner (shown when in All GBIF mode)
+          uiOutput("scope_info_banner"),
 
           # Cascading taxonomy filters
           div(class = "filter-section",
@@ -582,6 +723,28 @@ ui <- fluidPage(
         title = tagList(icon("exclamation-triangle"), "Threatened"),
         value = "threatened",
         div(style = "padding: 1.25rem 0;",
+
+          # About section (expandable)
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--coral);",
+            actionLink("threatened_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.threatened_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+                p("This tab shows coverage of species on the ", tags$strong("Swedish Red List"),
+                  " — the national assessment of extinction risk. Categories range from ",
+                  tags$strong("CR"), " (Critically Endangered, highest risk) through ",
+                  tags$strong("DD"), " (Data Deficient, insufficient information to assess)."),
+                p("A species is 'missing' if it appears on the Red List but has no matching GBIF occurrence records. ",
+                  "Missing CR and EN species are the highest conservation data priorities — ",
+                  "without occurrence data, it is impossible to track population trends or model habitat suitability."),
+                p("Use the taxonomic filters to identify which groups have the largest gaps in threatened species coverage.")
+              )
+            )
+          ),
+
           div(class = "stat-grid", style = "grid-template-columns: repeat(5, 1fr);",
             div(class = "stat-box",
               div(class = "stat-value coral", textOutput("stat_cr", inline = TRUE)),
@@ -638,6 +801,26 @@ ui <- fluidPage(
         value = "publishers",
         div(style = "padding: 1.25rem 0;",
 
+          # About section (expandable)
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--plum);",
+            actionLink("publisher_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.publisher_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+                p("This tab shows which organisations contribute occurrence data to GBIF for this country. ",
+                  "Understanding publisher composition helps assess data infrastructure resilience."),
+                p(tags$strong("Single-publisher cells"), " are geographically fragile: if that organisation stops contributing, ",
+                  "the cell loses all coverage. A healthy data infrastructure has multiple publishers per cell."),
+                p("The ", tags$strong("Published to GBIF Over Time"), " chart shows when records were ",
+                  tags$em("added to GBIF"), " (mobilisation date), not when they were observed. ",
+                  "This reveals the pace of data mobilisation and whether it is accelerating or stalling.")
+              )
+            )
+          ),
+
           # Publisher stats
           div(class = "stat-grid", style = "grid-template-columns: repeat(4, 1fr);",
             div(class = "stat-box",
@@ -692,6 +875,27 @@ ui <- fluidPage(
         title = tagList(icon("bullseye"), "Priorities"),
         value = "priorities",
         div(style = "padding: 1.25rem 0;",
+
+          # About section (expandable)
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--coral);",
+            actionLink("priorities_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.priorities_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+                p("This tab synthesises findings from the spatial, temporal, and taxonomic analyses into ",
+                  tags$strong("actionable priorities"), " for data mobilisation."),
+                p(tags$strong("Zero-coverage cells"), " have never been surveyed and are the highest spatial priority. ",
+                  tags$strong("Stale cells"), " have data older than 5 years and need resurvey to track change. ",
+                  tags$strong("Missing threatened species"), " (CR/EN) lack any GBIF records and are ",
+                  "critical for conservation assessment."),
+                p("The ", tags$strong("Next 12 Months"), " section projects realistic targets based on recent performance, ",
+                  "setting goals at 1.5\u00d7 the rate achieved in the last 12 months.")
+              )
+            )
+          ),
 
           # Recommended Actions — one card per gap dimension
           div(class = "card",
@@ -811,6 +1015,29 @@ server <- function(input, output, session) {
     if (is.null(b) || b == "") "all" else b
   })
 
+  # Dyntaxa scope reactive: TRUE = gap analysis mode, FALSE = all GBIF overview
+  dyntaxa_mode <- reactive({
+    scope <- input$dyntaxa_scope
+    is.null(scope) || scope == "dyntaxa"
+  })
+
+  # Info banner when in "All GBIF" mode (shown at top of relevant tabs)
+  output$scope_info_banner <- renderUI({
+    if (!dyntaxa_mode()) {
+      div(class = "card", style = "margin-bottom: 1rem; background: #fff8e1; border-left: 4px solid #f0ad4e;",
+        div(style = "display:flex; align-items:center; gap:0.5rem; padding: 0.5rem 0;",
+          icon("info-circle", style = "color: #f0ad4e; font-size: 1.2rem;"),
+          div(style = "font-size: 0.9rem; color: #6b6b6b;",
+            tags$strong("All GBIF Sweden mode:"),
+            " Showing all occurrence data including taxa outside the Dyntaxa backbone. ",
+            "Gap analysis metrics (completeness %, missing species) require the Dyntaxa scope ",
+            "and are not shown in this view."
+          )
+        )
+      )
+    }
+  })
+
   # ===================================================================
   # TEMPORAL — with taxonomy filters via order_temporal
   # ===================================================================
@@ -895,30 +1122,38 @@ server <- function(input, output, session) {
     input$temp_family
   })
 
-  # Temporal data: use family_time_summary if family filter active,
-  # order_time_summary if order/class/phylum/kingdom active, else time_summary
+  # Temporal data: use Dyntaxa-filtered versions when scope toggle is active.
+  # Within each scope, use family_time_summary if family filter active,
+  # order_time_summary if order/class/phylum/kingdom active, else time_summary.
   temp_data <- reactive({
     sel_family <- temp_filtered_families()
     orders <- temp_filtered_orders()
     has_tax_filter <- !is.null(input$temp_kingdom) && input$temp_kingdom != ""
 
-    if (!is.null(sel_family) && !is.null(family_time_summary)) {
+    # Select data source based on Dyntaxa scope toggle
+    use_dyntaxa <- dyntaxa_mode()
+
+    ts       <- if (use_dyntaxa && !is.null(dyntaxa_time_summary)) dyntaxa_time_summary else time_summary
+    ots      <- if (use_dyntaxa && !is.null(dyntaxa_order_time_summary)) dyntaxa_order_time_summary else order_time_summary
+    fts      <- if (use_dyntaxa && !is.null(dyntaxa_family_time_summary)) dyntaxa_family_time_summary else family_time_summary
+
+    if (!is.null(sel_family) && !is.null(fts)) {
       # Family-level filtering
-      family_time_summary |>
+      fts |>
         filter(basisofrecord == "all",
                family == sel_family,
                year >= input$year_range[1],
                year <= input$year_range[2])
-    } else if (has_tax_filter && !is.null(order_time_summary) && !is.null(orders)) {
+    } else if (has_tax_filter && !is.null(ots) && !is.null(orders)) {
       # Order-level filtering
-      order_time_summary |>
+      ots |>
         filter(basisofrecord == "all",
                order %in% orders,
                year >= input$year_range[1],
                year <= input$year_range[2])
     } else {
-      req(time_summary)
-      time_summary |>
+      req(ts)
+      ts |>
         filter(basisofrecord == basis_selected(),
                year >= input$year_range[1],
                year <= input$year_range[2])
@@ -970,16 +1205,71 @@ server <- function(input, output, session) {
           showarrow = FALSE, xref = "paper", yref = "paper", x = 0.5, y = 0.5))))
     }
 
+    # Scale selection
+    scale_mode <- if (!is.null(input$heatmap_scale)) input$heatmap_scale else "log"
+
     heatmap_cs <- list(
       list(0, "#f6f5f1"), list(0.25, "#c8dbc6"),
       list(0.5, pal$sage), list(0.75, pal$sand),
       list(1, pal$coral))
-    plot_ly(hm, x = ~month, y = ~year, z = ~log_occ, type = "heatmap",
-      colorscale = heatmap_cs,
-      hovertemplate = "Year: %{y}<br>Month: %{x}<br>log10(occ): %{z:.1f}<extra></extra>") |>
-      plotly_layout(
-        xaxis = list(title = "", ticktext = month.abb, tickvals = 1:12),
-        yaxis = list(title = ""))
+
+    if (scale_mode == "binned") {
+      # Categorical bins like the spatial histogram
+      hm <- hm |> mutate(
+        occ_bin = case_when(
+          occ == 0 ~ 0L,
+          occ <= 10 ~ 1L,
+          occ <= 100 ~ 2L,
+          occ <= 1000 ~ 3L,
+          occ <= 10000 ~ 4L,
+          occ <= 100000 ~ 5L,
+          TRUE ~ 6L
+        ),
+        occ_label = case_when(
+          occ == 0 ~ "0",
+          occ <= 10 ~ "1–10",
+          occ <= 100 ~ "11–100",
+          occ <= 1000 ~ "101–1K",
+          occ <= 10000 ~ "1K–10K",
+          occ <= 100000 ~ "10K–100K",
+          TRUE ~ ">100K"
+        )
+      )
+
+      # Discrete colorscale mapped to bin integers 0–6
+      binned_cs <- list(
+        list(0, "#f6f5f1"), list(0.167, "#e8ede9"),
+        list(0.333, "#c8dbc6"), list(0.5, pal$sage),
+        list(0.667, pal$sand), list(0.833, pal$coral),
+        list(1, "#3d4f6a"))
+
+      p <- plot_ly(hm, x = ~month, y = ~year, z = ~occ_bin, type = "heatmap",
+        colorscale = binned_cs, customdata = ~occ_label,
+        zmin = 0, zmax = 6,
+        hovertemplate = "Year: %{y}<br>Month: %{x}<br>%{customdata} occurrences<extra></extra>",
+        colorbar = list(
+          title = "Occurrences",
+          tickvals = c(0, 1, 2, 3, 4, 5, 6),
+          ticktext = c("0", "1–10", "11–100", "101–1K", "1K–10K", "10K–100K", ">100K")
+        ))
+
+    } else if (scale_mode == "linear") {
+      p <- plot_ly(hm, x = ~month, y = ~year, z = ~occ, type = "heatmap",
+        colorscale = heatmap_cs,
+        hovertemplate = "Year: %{y}<br>Month: %{x}<br>Occurrences: %{z:,.0f}<extra></extra>",
+        colorbar = list(title = "Occurrences"))
+
+    } else {
+      # Log scale (default)
+      p <- plot_ly(hm, x = ~month, y = ~year, z = ~log_occ, type = "heatmap",
+        colorscale = heatmap_cs, customdata = ~occ,
+        hovertemplate = "Year: %{y}<br>Month: %{x}<br>Occurrences: %{customdata:,.0f}<extra></extra>",
+        colorbar = list(title = "log10(occ)"))
+    }
+
+    p |> plotly_layout(
+      xaxis = list(title = "", ticktext = month.abb, tickvals = 1:12),
+      yaxis = list(title = ""))
   })
 
   # ===================================================================
@@ -1211,15 +1501,83 @@ server <- function(input, output, session) {
       setView(lng = 16, lat = 63, zoom = 5)
   })
 
-  # Reactive map update when map_var or basis changes
+  # Spatial kingdom filter — filtered by Dyntaxa scope when active
+  output$spatial_kingdom_filter_ui <- renderUI({
+    kingdoms <- if (has_kingdom_recency) {
+      sort(unique(kingdom_cell_recency$kingdom))
+    } else character(0)
+
+    # Filter to Dyntaxa kingdoms when in Dyntaxa mode
+    if (dyntaxa_mode() && has_dyntaxa_scope) {
+      dyntaxa_kingdoms <- species_scope_lookup |>
+        filter(in_dyntaxa == TRUE, !is.na(kingdom), kingdom != "") |>
+        pull(kingdom) |> unique()
+      kingdoms <- intersect(kingdoms, dyntaxa_kingdoms)
+    }
+
+    ch <- c("All kingdoms" = "", setNames(sort(kingdoms), sort(kingdoms)))
+    selectInput("spatial_kingdom_filter", "Kingdom", choices = ch, selected = "")
+  })
+
+  # Spatial class filter — cascading from kingdom selection, filtered by Dyntaxa scope
+  output$spatial_class_filter_ui <- renderUI({
+    ch <- c("All classes" = "")
+    if (has_tax_cell_recency &&
+        !is.null(input$spatial_kingdom_filter) &&
+        input$spatial_kingdom_filter != "") {
+      classes <- tax_cell_recency |>
+        filter(kingdom == input$spatial_kingdom_filter, class != "Unplaced") |>
+        pull(class) |> unique() |> sort()
+
+      # Filter to Dyntaxa classes when in Dyntaxa mode
+      if (dyntaxa_mode() && has_dyntaxa_scope) {
+        dyntaxa_classes <- species_scope_lookup |>
+          filter(in_dyntaxa == TRUE,
+                 kingdom == input$spatial_kingdom_filter,
+                 !is.na(class), class != "") |>
+          pull(class) |> unique()
+        classes <- intersect(classes, dyntaxa_classes)
+      }
+
+      ch <- c("All classes" = "", setNames(sort(classes), sort(classes)))
+    }
+    selectInput("spatial_class_filter", "Class", choices = ch, selected = "")
+  })
+
+  # Reactive map update when map_var, basis, or taxonomy filter changes
   observe({
     req(grid_10km, spatial_gaps, input$map_var)
 
-    sf_base <- spatial_gaps |> filter(basisofrecord == basis_selected())
+    # Select data source based on Dyntaxa scope toggle
+    use_dyntaxa <- dyntaxa_mode()
+    active_spatial   <- if (use_dyntaxa && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    active_recency   <- if (use_dyntaxa && !is.null(dyntaxa_cell_recency)) dyntaxa_cell_recency else cell_recency
 
-    if (input$map_var == "stale" && !is.null(cell_recency)) {
-      rec <- cell_recency |> filter(basisofrecord == basis_selected()) |>
-        select(eeacellcode, staleness_months)
+    sf_base <- active_spatial |> filter(basisofrecord == basis_selected())
+
+    # Taxonomy filter state
+    kingdom_filter_active <- !is.null(input$spatial_kingdom_filter) &&
+                             input$spatial_kingdom_filter != ""
+    class_filter_active <- !is.null(input$spatial_class_filter) &&
+                           input$spatial_class_filter != ""
+
+    if (input$map_var == "stale") {
+      # Use class-level recency if class filter is active
+      if (class_filter_active && has_tax_cell_recency) {
+        rec <- tax_cell_recency |>
+          filter(kingdom == input$spatial_kingdom_filter,
+                 class == input$spatial_class_filter) |>
+          select(eeacellcode, staleness_months)
+      } else if (kingdom_filter_active && has_kingdom_recency) {
+        rec <- kingdom_cell_recency |>
+          filter(kingdom == input$spatial_kingdom_filter) |>
+          select(eeacellcode, staleness_months)
+      } else if (!is.null(active_recency)) {
+        rec <- active_recency |> filter(basisofrecord == basis_selected()) |>
+          select(eeacellcode, staleness_months)
+      } else {
+        return()
+      }
       map_sf <- grid_10km |> left_join(rec, by = "eeacellcode")
       # Categorical staleness: much more meaningful than raw months
       map_sf <- map_sf |>
@@ -1234,9 +1592,15 @@ server <- function(input, output, session) {
         stale_cat = factor(stale_cat, levels = c(
           "< 1 year", "1–3 years", "3–5 years", "5–10 years", "> 10 years", "No data")))
       stale_pal <- colorFactor(
-        palette = c("#2A9D8F", "#6b8f71", pal$sand, pal$coral, "#8b2020", "#ddd"),
+        palette = c("#4a9ba5", "#6b8f71", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
         domain = levels(map_sf$stale_cat), na.color = "#ddd")
-      legend_title <- "Data recency"
+      legend_title <- if (class_filter_active) {
+        paste0("Data recency (", input$spatial_class_filter, ")")
+      } else if (kingdom_filter_active) {
+        paste0("Data recency (", input$spatial_kingdom_filter, ")")
+      } else {
+        "Data recency"
+      }
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Staleness: ",
                           ifelse(is.na(staleness_months), "No data",
                                  paste0(round(staleness_months / 12, 1), " years")))
@@ -1264,7 +1628,7 @@ server <- function(input, output, session) {
         sp_cat = factor(sp_cat, levels = c(
           "1–10", "11–100", "101–1,000", "> 1,000", "No data")))
       sp_pal <- colorFactor(
-        palette = c("#2A9D8F", "#6b8f71", pal$sand, pal$coral, "#ddd"),
+        palette = c("#4a9ba5", "#6b8f71", pal$sand, pal$coral, "#ddd"),
         domain = levels(map_sf$sp_cat), na.color = "#ddd")
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Species: ", comma(n_species))
 
@@ -1333,7 +1697,7 @@ server <- function(input, output, session) {
           pub_cat = factor(pub_cat, levels = c("1–100", "101–1K", "1K–10K", "> 10K", "None")))
 
         pub_pal <- colorFactor(
-          palette = c("#2A9D8F", pal$sage, pal$sand, pal$plum, "#e0dfda"),
+          palette = c("#4a9ba5", pal$sage, pal$sand, pal$plum, "#e0dfda"),
           domain = levels(map_sf$pub_cat), na.color = "#e0dfda")
 
         leafletProxy("spatial_map", data = map_sf) |>
@@ -1364,7 +1728,7 @@ server <- function(input, output, session) {
         occ_cat = factor(occ_cat, levels = c(
           "1–100", "101–1,000", "1,001–10,000", "10,001–100,000", "> 100,000", "No data")))
       occ_pal <- colorFactor(
-        palette = c("#2A9D8F", "#6b8f71", pal$sand, pal$coral, "#8b2020", "#ddd"),
+        palette = c("#4a9ba5", "#6b8f71", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
         domain = levels(map_sf$occ_cat), na.color = "#ddd")
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Occurrences: ", comma(occurrences))
 
@@ -1426,7 +1790,8 @@ server <- function(input, output, session) {
 
   output$spatial_stats <- renderTable({
     req(spatial_gaps)
-    sf <- spatial_gaps |> filter(basisofrecord == basis_selected())
+    active_sg <- if (dyntaxa_mode() && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    sf <- active_sg |> filter(basisofrecord == basis_selected())
     tibble(
       Metric = c("Total 10km Cells", "Cells with Data", "Coverage",
                   "Total Occurrences", "Median per Cell"),
@@ -2445,15 +2810,25 @@ server <- function(input, output, session) {
   output$pub_time_chart <- renderPlotly({
     req(published_time)
     df <- published_time |>
-      filter(!is.na(year_published) & year_published >= 2000) |>
+      mutate(year_published = as.integer(year_published)) |>
+      filter(!is.na(year_published),
+             year_published >= 2000,
+             year_published <= year(Sys.Date()) + 1) |>
       group_by(year_published) |>
-      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+      arrange(year_published)
+
+    if (nrow(df) == 0) {
+      return(plotly_empty() |> plotly_layout(
+        annotations = list(list(text = "No published time data available",
+          showarrow = FALSE, xref = "paper", yref = "paper", x = 0.5, y = 0.5))))
+    }
 
     plot_ly(df, x = ~year_published, y = ~occ, type = "bar",
       marker = list(color = pal$plum),
       hovertemplate = "%{x}: %{y:,.0f} records<extra></extra>") |>
       plotly_layout(
-        xaxis = list(title = "Year Published to GBIF"),
+        xaxis = list(title = "Year Published to GBIF", dtick = 1),
         yaxis = list(title = "Occurrences"))
   })
 
@@ -2746,7 +3121,7 @@ server <- function(input, output, session) {
     yrs <- stale_sf$years_stale
 
     pal_stale <- colorNumeric(
-      palette = c(pal$sand, pal$coral, "#8b2020"),
+      palette = c(pal$sand, pal$coral, "#3d4f6a"),
       domain = yrs,
       na.color = "#ccc")
 

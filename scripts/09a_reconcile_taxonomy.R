@@ -608,6 +608,7 @@ cli_h2("Enriching with higher taxonomy from matched backbone taxa")
 taxa_hier_cols <- intersect(
   c("taxonID", "taxonRank", "kingdom", "phylum", "class", "order", "family",
     "threatStatus_backbone", "threatStatus_redlist",
+    "is_invasive", "in_dyntaxa",
     "establishmentMeans", "occurrenceStatus"),
   names(accepted_taxa)
 )
@@ -626,6 +627,28 @@ if (length(taxa_hier_cols) > 1) {
 } else {
   cli_alert_info("No higher taxonomy columns available to add")
 }
+
+# Set in_dyntaxa: TRUE for matched species, FALSE for unmatched
+# (The flag from the backbone is TRUE for all backbone taxa; here we also need
+#  to set it for GBIF species based on whether they matched the backbone.)
+if ("in_dyntaxa" %in% names(recon)) {
+  recon[match_tier == "unmatched", in_dyntaxa := FALSE]
+  recon[is.na(in_dyntaxa), in_dyntaxa := FALSE]
+} else {
+  recon[, in_dyntaxa := match_tier != "unmatched"]
+}
+
+# Ensure is_invasive column exists (FALSE for unmatched/non-invasive)
+if (!"is_invasive" %in% names(recon)) {
+  recon[, is_invasive := FALSE]
+} else {
+  recon[is.na(is_invasive), is_invasive := FALSE]
+}
+
+n_in_dyntaxa <- sum(recon$in_dyntaxa)
+n_invasive   <- sum(recon$is_invasive)
+cli_alert_info("in_dyntaxa: {scales::comma(n_in_dyntaxa)} / {scales::comma(nrow(recon))}")
+cli_alert_info("is_invasive: {scales::comma(n_invasive)} species flagged")
 
 
 # ============================================================================

@@ -84,8 +84,17 @@ download_gbif_dataset <- function(dataset_key, export_url, dest_dir, label) {
     return(invisible(TRUE))
   }
 
-  dataset_info <- tryCatch(rgbif::datasets(uuid = dataset_key), error = function(e) NULL)
-  if (!is.null(dataset_info)) cli_alert_success("Dataset: {dataset_info$data$title}")
+  dataset_info <- tryCatch({
+    if (packageVersion("rgbif") >= "3.7.9") {
+      rgbif::dataset_get(dataset_key)
+    } else {
+      rgbif::datasets(uuid = dataset_key)
+    }
+  }, error = function(e) NULL)
+  if (!is.null(dataset_info)) {
+    title <- dataset_info$title %||% dataset_info$data$title %||% "(unknown)"
+    cli_alert_success("Dataset: {title}")
+  }
 
   zip_path <- file.path(dest_dir, paste0(label, "_dwca.zip"))
   ok <- download_file_safely(export_url, zip_path)
@@ -157,6 +166,30 @@ if (!redlist_enabled || redlist_key == "" || redlist_url == "") {
 } else {
   cli_alert_info("DOI: {redlist_doi}")
   download_gbif_dataset(redlist_key, redlist_url, raw_redlist_dir, "red_list")
+}
+
+# ============================================================================
+# 3b. National Invasive Species Registry (optional)
+# ============================================================================
+
+cli_h1("3b \u2014 National Invasive Species Registry")
+
+invasives_enabled <- cfg_get("invasives.enabled", FALSE)
+invasives_key <- cfg_get("invasives.dataset_key", "")
+invasives_url <- cfg_get("invasives.export_url", "")
+invasives_doi <- cfg_get("invasives.doi", "")
+
+# raw_invasives_dir is defined in R/globals.R — provide fallback if not yet updated
+if (!exists("raw_invasives_dir")) {
+  raw_invasives_dir <- here(p_data_raw, "invasives")
+}
+
+if (!invasives_enabled || invasives_key == "" || invasives_url == "") {
+  cli_alert_info("Invasive species registry not configured or disabled \u2014 skipping")
+} else {
+  dir.create(raw_invasives_dir, showWarnings = FALSE, recursive = TRUE)
+  cli_alert_info("DOI: {invasives_doi}")
+  download_gbif_dataset(invasives_key, invasives_url, raw_invasives_dir, "invasives")
 }
 
 # ============================================================================
@@ -278,6 +311,11 @@ metadata <- list(
   grids = list(dir = raw_grid_dir, files = list.files(raw_grid_dir, pattern = "\\.(shp|gpkg)$", recursive = TRUE)),
   taxonomy = list(doi = taxonomy_doi, files = list.files(raw_taxonomy_dir, pattern = "\\.(txt|csv)$")),
   redlist = list(doi = redlist_doi, files = list.files(raw_redlist_dir, pattern = "\\.(txt|csv)$")),
+  invasives = list(
+    doi = if (exists("invasives_doi")) invasives_doi else "",
+    files = if (exists("raw_invasives_dir") && dir.exists(raw_invasives_dir))
+      list.files(raw_invasives_dir, pattern = "\\.(txt|csv)$") else character(0)
+  ),
   cubes = list.files(raw_gbif_cube_dir, pattern = "\\.(csv|parquet)$"),
   admin = list.files(raw_admin_dir, pattern = "\\.gpkg$")
 )
@@ -287,6 +325,7 @@ checks <- c(
   `Grids (shared)` = length(metadata$grids$files) > 0,
   Taxonomy = length(metadata$taxonomy$files) > 0,
   `Red list` = !redlist_enabled || length(metadata$redlist$files) > 0,
+  Invasives = !invasives_enabled || length(metadata$invasives$files) > 0,
   Cubes = length(metadata$cubes) >= 2,
   Admin = !admin_enabled || length(metadata$admin) > 0
 )

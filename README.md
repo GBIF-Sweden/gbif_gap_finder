@@ -8,11 +8,13 @@ Systematic analysis of spatial, temporal, and taxonomic gaps in national biodive
 
 This project analyses GBIF occurrence data for a given country to identify:
 
-- **Spatial gaps** — areas with missing or insufficient sampling coverage
-- **Temporal gaps** — time periods with reduced or absent data collection
-- **Taxonomic gaps** — species groups under-represented in the data
+- **Spatial gaps** — areas with missing or insufficient sampling coverage, filterable by taxonomic group
+- **Temporal gaps** — time periods with reduced or absent data collection, with log/linear heatmap views
+- **Taxonomic gaps** — species groups under-represented in the data, measured against a national taxonomy backbone
 - **Sampling bias** — Troudet-style analysis of taxonomic representation vs. proportional sampling
+- **Invasive species** — integration of national invasive species registries with occurrence data
 - **Establishment means** — native, introduced, and invasive species scope filtering and monitoring
+- **Dyntaxa/All GBIF scope** — toggle between gap analysis (against national backbone) and full GBIF overview
 - **Publisher analysis** — which organisations contribute data, single-publisher dependency
 - **Recent activity** — rolling 12-month window: observations dated vs published to GBIF
 
@@ -33,7 +35,7 @@ gbifgaps/
 │   ├── 00_setup.R                         # Environment setup
 │   ├── 01_download_raw_data.R             # Download from GBIF/EEA/GADM
 │   ├── 02_ingest_grids.R                  # Process + clip EEA grids
-│   ├── 03_ingest_taxonomy.R               # National taxonomy + red list
+│   ├── 03_ingest_taxonomy.R               # National taxonomy + red list + invasives
 │   ├── 04_convert_cubes_parquet.R         # CSV → parquet conversion
 │   ├── 05_validate_inputs.R               # QA checks → Markdown report
 │   ├── 06a_make_core_summaries.R          # Cell/time/order/publisher summaries
@@ -50,7 +52,7 @@ gbifgaps/
 │   ├── shared/
 │   │   └── grids/               # EEA grids (Europe-wide, shared)
 │   ├── SE/
-│   │   ├── raw/                 # Raw downloads (cubes, taxonomy, redlist, admin)
+│   │   ├── raw/                 # Raw downloads (cubes, taxonomy, redlist, invasives, admin)
 │   │   ├── proc/                # Processed data (parquet, derived, gaps)
 │   │   ├── output/              # Summary tables
 │   │   └── data_sources.Rmd     # Data provenance documentation
@@ -67,7 +69,7 @@ gbifgaps/
 
 ### 1. Configure
 
-Copy `configs/config_template.yml` to `configs/config_SE.yml` (or your country code) and fill in the taxonomy, red list, and admin boundary settings.
+Copy `configs/config_template.yml` to `configs/config_SE.yml` (or your country code) and fill in the taxonomy, red list, invasive species, and admin boundary settings.
 
 ### 2. Setup
 
@@ -78,7 +80,7 @@ source("scripts/00_setup.R")
 ### 3. Download Data
 
 ```r
-# Download taxonomy, red list, admin boundaries
+# Download taxonomy, red list, invasive species registry, admin boundaries
 source("scripts/01_download_raw_data.R")
 
 # GBIF cubes: download via SQL API (instructions printed by script 01)
@@ -89,7 +91,7 @@ source("scripts/01_download_raw_data.R")
 
 ```r
 source("scripts/02_ingest_grids.R")            # Clip grids to country
-source("scripts/03_ingest_taxonomy.R")          # Process taxonomy + red list
+source("scripts/03_ingest_taxonomy.R")          # Process taxonomy + red list + invasives
 source("scripts/04_convert_cubes_parquet.R")    # CSV → parquet
 source("scripts/05_validate_inputs.R")          # QA checks
 source("scripts/06a_make_core_summaries.R")     # Core + publisher summaries
@@ -109,6 +111,24 @@ Or use `targets`:
 source("run.R")
 tar_make()
 ```
+
+## Data Sources
+
+The pipeline integrates four national data sources (all configured in `configs/config_{CC}.yml`):
+
+| Source | Purpose | Sweden Example |
+|--------|---------|----------------|
+| National taxonomy backbone | Reference species pool for gap analysis | [Dyntaxa](https://doi.org/10.15468/j43wfc) |
+| National red list | Threat status (CR, EN, VU, NT, DD) | [Swedish Red List](https://doi.org/10.15468/jhwkpq) |
+| Invasive species registry | `is_invasive` flag on species | [Swedish Invasive Species](https://doi.org/10.15468/yxfse8) |
+| GBIF occurrence cubes | Aggregated occurrence data per grid cell | [SQL API](https://www.gbif.org/occurrence/download/sql) |
+
+Additional shared data:
+
+| Source | Description |
+|--------|-------------|
+| EEA Reference Grids | 10km + 50km, Europe-wide, EPSG:3035 |
+| GADM | Administrative boundaries |
 
 ## GBIF Occurrence Cubes
 
@@ -131,10 +151,26 @@ GROUP BY ...
 
 Submit at https://www.gbif.org/occurrence/download/sql. Script 01 prints the full query for your country.
 
+## Taxonomy Architecture
+
+The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as the primary reference for gap analysis. Every GBIF species is matched to the backbone through a 4-tier reconciliation process:
+
+- **Tier 1** — Direct accepted name match
+- **Tier 2** — Synonym resolution via backbone
+- **Tier 3** — Infraspecific collapse (subspecies → species)
+- **Tier 4** — GBIF Species API lookup
+
+Each species receives two key flags:
+
+- `in_dyntaxa` — whether the species is in the national backbone (gap metrics only apply to these)
+- `is_invasive` — whether the species appears on the national invasive species registry
+
+The Gap Analysis app provides a **scope toggle**: "Dyntaxa species (gap analysis)" shows completeness metrics against the backbone, while "All GBIF Sweden (overview)" shows all occurrence data without gap metrics.
+
 ## Adapting for Another Country
 
 1. Copy `configs/config_template.yml` to `configs/config_{CC}.yml`
-2. Fill in taxonomy, red list, and admin boundary settings
+2. Fill in taxonomy, red list, and invasive species settings (all optional except taxonomy)
 3. Set your country: `Sys.setenv(GBIFGAPS_COUNTRY = "CC")`
 4. Download cubes via GBIF SQL API (change `countrycode` in the query)
 5. Place EEA grids in `data/shared/grids/` (shared, one-time download)
@@ -144,22 +180,13 @@ Submit at https://www.gbif.org/occurrence/download/sql. Script 01 prints the ful
 
 | Phase | Scripts | Description | Runtime |
 |-------|---------|-------------|---------|
-| Ingestion | 01–04 | Download, process, convert to parquet | ~30 min |
+| Download | 01 | Taxonomy, red list, invasives, admin boundaries | ~5 min |
+| Ingestion | 02–04 | Grids, taxonomy processing, CSV → parquet | ~30 min |
 | Validation | 05 | QA checks | ~2 min |
 | Summaries | 06a, 06b | Core + species summaries | ~45 min |
 | Gap Analysis | 07–09b | Spatial, temporal, taxonomic gaps | ~30 min |
 | Integration | 10 | Overview tables | ~5 min |
 | App Prep | 11, 12 | Shiny data bundles | ~15 min |
-
-## Data Sources (Sweden)
-
-| Source | Description | DOI |
-|--------|-------------|-----|
-| GBIF SQL Cubes | 10km: 49M rows, 50km: 26M rows | [10km](https://doi.org/10.15468/dl.g45z9f), [50km](https://doi.org/10.15468/dl.2vhxkh) |
-| Dyntaxa | Swedish taxonomic backbone (~110k taxa) | [10.15468/j43wfc](https://doi.org/10.15468/j43wfc) |
-| Swedish Red List | Threat status (v1.9) | [10.15468/jhwkpq](https://doi.org/10.15468/jhwkpq) |
-| EEA Reference Grids | 10km + 50km, Europe-wide, EPSG:3035 | [EEA](https://sdi.eea.europa.eu/) |
-| GADM | Administrative boundaries | [gadm.org](https://gadm.org/) |
 
 ## Requirements
 

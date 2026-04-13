@@ -28,8 +28,8 @@ two interactive dashboards:
 2. **Biodiversity Explorer** — public-facing tool for exploring national occurrence data
 
 The package is designed so that a node can point it at their country's GBIF data,
-a national taxonomy backbone, and (optionally) a red list, and produce a complete
-analysis with minimal configuration.
+a national taxonomy backbone, and (optionally) a red list and invasive species registry,
+and produce a complete analysis with minimal configuration.
 
 
 # Current Status
@@ -41,35 +41,40 @@ The full pipeline runs end-to-end for Sweden:
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Data ingestion (scripts 01–04) | ✅ Complete | SQL API cubes → parquet, shared EEA grids, GADM admin |
+| Invasive species integration | ✅ Complete | Swedish Invasive Species Registry (DwC-A), `is_invasive` flag |
 | Validation (script 05) | ✅ Complete | Parquet validation, column checks |
 | Core summaries (scripts 06a, 06b) | ✅ Complete | Cell, time, order, family, species, publisher summaries |
 | Spatial gaps (script 07) | ✅ Complete | Coverage, hotspots, zero-data cells |
 | Temporal gaps (script 08) | ✅ Complete | Recency from parquet, seasonality, trends |
-| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, 99.8% occurrence coverage, establishmentMeans |
+| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, `in_dyntaxa` + `is_invasive` flags |
 | Taxonomic gaps (script 09b) | ✅ Complete | Missing taxa, threat coverage, establishment means coverage |
 | Integration (script 10) | ✅ Complete | Combined overview tables |
-| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Scope filter, Troudet drill, publisher data, published vs observed |
+| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Dyntaxa/All GBIF toggle, kingdom spatial filter, heatmap scale, about sections |
 | Biodiversity Explorer app (script 12 + Shiny) | ✅ Complete | i18n (EN/SV), vernacular names, invasive species tab |
 | R Markdown reports (analysis 01–08) | ✅ Complete | 8 reports including establishment means |
-| targets pipeline | ✅ Complete | Full DAG with `tar_make()`, parquet-aware |
-| Configuration system | ✅ Complete | Country-aware `configs/config_{CC}.yml`, shared grids |
+| targets pipeline | ✅ Complete | Full DAG with `tar_make()`, download target, parquet-aware |
+| Configuration system | ✅ Complete | Country-aware `configs/config_{CC}.yml`, shared grids, invasives config |
 
 ## Key Technical Achievements
 
 - **Parquet-based pipeline** — single SQL API cube per resolution (16 columns including publisher, dataset, publication date), replacing 18 FST files per basis of record
 - **Country-aware architecture** — `data/{CC}/` folder structure, `configs/config_{CC}.yml`, shared EEA grids in `data/shared/grids/`
 - **Taxonomy reconciliation** went from 31% to 99.8% occurrence coverage through a 4-tier matching system
-- **Establishment means integration** — native/introduced/invasive scope filtering, invasive species tab, Rmd report
+- **Three-layer taxonomy**: Dyntaxa backbone + Red List threat status + Invasive Species Registry, unified via `in_dyntaxa` and `is_invasive` flags
+- **Dyntaxa/All GBIF scope toggle** — gap metrics only shown when Dyntaxa backbone is active; "All GBIF" mode shows overview without gap metrics
+- **Kingdom-level spatial filtering** — recency maps can be filtered by kingdom to reveal patterns hidden by bird-dominated data
 - **Publisher analysis** — publisher summary, single-publisher cell dependency, published vs observed time
 - **Troudet-style sampling bias** at class, order, and family levels with hierarchical auto-drill
 - **Cascading taxonomy filters** (Kingdom→Phylum→Class→Order→Family) across app tabs
 - **Rolling 12-month window** — observations dated vs published to GBIF
+- **Heatmap scale toggle** — log, linear, and annotated count views for temporal heatmaps
+- **Expandable About descriptions** on every tab, following the GBIF Country Metrics style
 - **Administrative boundaries** from GADM with map overlays and regional filtering
 - **Swedish/English i18n** in the Explorer app with vernacular species names from Dyntaxa
 - **Europe-wide EEA grids** — shared 10km + 50km grids, clipped to country extent automatically
 
 
-# Phase 1: Poland & Hardening (Current)
+# Phase 1: Sweden Hardening (Current)
 
 *Goal: Ensure the Sweden pipeline is bulletproof before extending to other countries.*
 
@@ -81,17 +86,21 @@ The full pipeline runs end-to-end for Sweden:
 - [x] Taxonomy QA review report (Rmd 07)
 - [x] Full end-to-end `tar_make()` run
 
-## 1.2 Remaining Sweden Work
+## 1.2 Taxonomy Restructuring ✅
 
-- [x] Verify all 7 Rmd reports render cleanly after pipeline rebuild
-- [x] Review Rmd 04 compatibility with new 09b output columns
-- [x] Confirm both Shiny apps launch and display correct data
-- [x] Run package dependency audit (`renv::snapshot()`)
+- [x] Invasive species registry integration (download, ingest, `is_invasive` flag)
+- [x] `in_dyntaxa` flag propagated through reconciliation to app
+- [x] Dyntaxa/All GBIF scope toggle in Gap Analysis app
+- [x] Kingdom-level cell recency data for spatial filtering
+- [x] Config system updated for invasives (SE, NO, template)
+- [x] Published Over Time chart fix (year_published type casting)
+
+## 1.3 App Features ✅
+
 - [x] Cascading taxonomy filters (Kingdom→Phylum→Class→Order→Family) — gap app
 - [x] Troudet-style taxonomic sampling bias figure — gap app + reports
 - [x] Rolling 12-month window for "recent activity" highlighting — app + reports
 - [x] Administrative boundary overlays (GADM) — both apps + reports
-- [x] Download script skip-if-exists for all data sections
 - [x] Consistent categorical color palette across app and reports
 - [x] Data staleness/recency maps in spatial report
 - [x] SpeciesDistribution.csv integration (native/introduced/invasive scope filtering)
@@ -101,28 +110,26 @@ The full pipeline runs end-to-end for Sweden:
 - [x] Scope filter on taxonomic + threatened tabs (both apps)
 - [x] Priorities tab rewrite with goal-oriented actions + 12-month targets
 - [x] Establishment means R Markdown report (08)
-- [x] Red list update (v1.9, 2026-03-25)
-- [x] SQL API cube downloads (single file per resolution, publisher + publication date)
-- [x] Parquet migration (replaces 18 FST files)
-- [x] Country-aware folder structure (data/{CC}/)
-- [x] Shared EEA grids (Europe-wide 10km + 50km)
-- [x] Publisher summary in pipeline (06a) and app bundle (11)
-- [x] Published vs observed in app bundle (11)
-- [ ] Publisher tab in gap app
+- [x] Publisher tab in gap app
+- [x] About/methodology sections on all tabs (expandable, GBIF Country Metrics style)
+- [x] Heatmap log/linear/count scale toggle
+- [x] Kingdom filter on spatial recency map
+
+## 1.4 Remaining Sweden Work
+
+- [ ] Dyntaxa filter bug: Primates (Homo sapiens) slipping through scope filter — investigate `establishmentMeans` values
+- [ ] Restricted species obfuscation (requires ArtDatabanken sensitivity classifications)
+- [ ] Default kingdom view on Taxonomic tab matching GBIF country page
+- [ ] Publisher type classification (citizen science, museums, universities, agencies)
+- [ ] Basis of record "last 12 months" per-basis breakdown
+- [ ] Climate correlation on temporal tab (SMHI gridded data — deferred to v2)
 - [ ] Default scope change to "Present only"
-- [ ] Basis of record filter on taxonomic tab
-- [ ] About section in apps (data sources, methodology)
-- [ ] Font size fix (CSS)
-- [ ] Plotly toolbar: reduce to zoom + download PNG
-- [ ] Year in Review label: "observations dated" vs "published to GBIF"
 - [ ] Color blind accessibility audit
-- [ ] "Datasets: N" link to GBIF query
-- [ ] Link to Dyntaxa on taxonomy page
 - [ ] Bar titles in downloaded images when >20 groups
 - [ ] PhyloPic taxonomic silhouette icons — *parked*
 - [ ] 1km grid resolution option — *requires evaluation*
 
-## 1.3 Code Quality
+## 1.5 Code Quality
 
 - [ ] Consistent `|>` pipe syntax throughout (currently mixed `|>` and `%>%`)
 - [ ] Remove dead code and commented-out sections
@@ -141,7 +148,7 @@ Norway is the ideal first test: same grid system (EEA), similar national taxonom
 
 **Steps:**
 
-1. Fill in `config_norway.yml` TODOs (taxonomy DOI, red list DOI, GBIF cube DOIs)
+1. Fill in `config_NO.yml` TODOs (taxonomy DOI, red list DOI, GBIF cube DOIs)
 2. Download data: GBIF cubes for NO, EEA grid clipped to Norway, Nortaxa DwC-A
 3. Run full pipeline
 4. Document any Sweden-specific assumptions that break
@@ -151,12 +158,12 @@ Norway is the ideal first test: same grid system (EEA), similar national taxonom
 - Column name differences in Nortaxa vs Dyntaxa DwC-A
 - Red list format variations
 - Taxonomy reconciliation differences (Nortaxa may have different synonym structure)
+- Invasive species: no Norwegian checklist currently on GBIF as DwC-A (`invasives.enabled: false`)
 
 ## 2.2 Configuration Refinement
 
 Based on Norway results, refine the config system:
 
-- [ ] `config_template.yml` — annotated template with all options documented
 - [ ] Taxonomy source abstraction — generic field mapping for any DwC-A backbone
 - [ ] Red list abstraction — handle different threat status column names
 - [ ] Feature flags — graceful degradation when components are missing:
@@ -165,6 +172,7 @@ Based on Norway results, refine the config system:
 features:
   has_national_checklist: true   # false → use GBIF backbone
   has_redlist: true              # false → skip threat analysis
+  has_invasives: true            # false → skip invasive flag
   has_regional_grids: true       # false → generate from country boundary
 ```
 
@@ -326,11 +334,12 @@ with a country selector, nightly data refreshes, and consistent branding.
 ## Analysis Extensions
 
 - [x] Sampling bias quantification (Troudet-style proportional sampling analysis)
+- [x] Invasive species integration (national registries as DwC-A)
 - [ ] Species distribution model coverage gaps
 - [ ] Temporal trend predictions and forecasting
-- [ ] Climate envelope coverage analysis
+- [ ] Climate envelope coverage analysis (SMHI / Copernicus gridded data)
 - [ ] Cross-country comparison mode
-- [ ] Establishment means filtering (native/introduced/invasive via SpeciesDistribution.csv)
+- [ ] Restricted species obfuscation (ArtDatabanken sensitivity classifications)
 
 ## App Features
 
@@ -339,13 +348,18 @@ with a country selector, nightly data refreshes, and consistent branding.
 - [x] Troudet-style sampling bias analysis with auto-drill
 - [x] Rolling 12-month activity window
 - [x] Region/municipality selector in Explorer app
+- [x] Scope filter on taxonomic + threatened tabs (both apps)
+- [x] Dyntaxa/All GBIF scope toggle
+- [x] Kingdom-level spatial filtering on recency map
+- [x] Heatmap log/linear/count scale toggle
+- [x] Expandable About descriptions on every tab
+- [x] Publisher tab with dependency analysis and mobilisation timeline
 - [ ] PhyloPic taxonomic silhouette icons on charts
 - [ ] PDF report generation from within apps
 - [ ] Data download buttons for all tables and maps
-- [ ] Multi-language support (i18n) — Explorer app: Swedish; Gap app: English only
 - [ ] Country comparison view (side-by-side dashboards)
 - [ ] API endpoint for programmatic gap metric access
-- [ ] Native/introduced/invasive species scope filter (pending SpeciesDistribution.csv integration)
+- [ ] Publisher type classification and colour coding
 
 ## Community
 
@@ -363,7 +377,8 @@ with a country selector, nightly data refreshes, and consistent branding.
 4. **Central hosting** — Will GBIF Secretariat host a multi-country instance?
 5. **Branding** — Should apps be GBIF-branded or node-branded?
 6. **1km resolution** — Is sub-10km resolution needed? Major architectural implications for data volume.
-7. **SpeciesDistribution scope** — How to handle native vs introduced vs invasive species across countries with different taxonomy systems?
+7. **Unicellular organisms** — Currently excluded from gap analysis (no Dyntaxa coverage). Monitor for future checklists.
+8. **Restricted species** — What data source for sensitivity classifications? ArtDatabanken API or static list?
 
 
 # Timeline
