@@ -40,7 +40,6 @@
 
 library(here)
 library(dplyr)
-library(tidyr)
 library(readr)
 library(purrr)
 library(stringr)
@@ -56,9 +55,7 @@ source(here("scripts", "00_setup.R"))
 # CONFIGURATION
 # ===========================================================================
 
-p_derived <- here(p_data_proc, "derived")
-p_cubes <- here(p_data_proc, "cubes")
-p_gaps <- here(p_data_proc, "gaps")
+# p_derived, p_cubes, p_gaps are defined in R/globals.R
 
 dir.create(p_gaps, showWarnings = FALSE, recursive = TRUE)
 
@@ -73,45 +70,7 @@ cli_alert_info("Staleness thresholds: {STALE_12M} months, {STALE_60M} months")
 # HELPER FUNCTIONS
 # ===========================================================================
 
-#' Parse yearmonth to Date
-#' Handles: "2025-01" (string), 202501 (6-digit int), 20251 (5-digit int)
-parse_yearmonth <- function(x) {
-  x_chr <- str_trim(as.character(x))
-  out <- rep(as.Date(NA), length(x_chr))
-  
-  # Skip NAs and empty strings
-  valid_input <- !is.na(x_chr) & x_chr != "" & x_chr != "NA"
-  if (!any(valid_input)) return(out)
-  
-  # Format: "2025-01"
-  fmt_dash <- valid_input & str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
-  if (any(fmt_dash)) {
-    out[fmt_dash] <- as.Date(paste0(x_chr[fmt_dash], "-01"))
-  }
-  
-  # Format: "202501" (6 digits)
-  fmt6 <- valid_input & !fmt_dash & str_detect(x_chr, "^[0-9]{6}$")
-  if (any(fmt6)) {
-    yr <- substr(x_chr[fmt6], 1, 4)
-    mo <- substr(x_chr[fmt6], 5, 6)
-    out[fmt6] <- as.Date(paste0(yr, "-", mo, "-01"))
-  }
-  
-  # Format: "20251" (5 digits — single-digit month)
-  fmt5 <- valid_input & !fmt_dash & !fmt6 & str_detect(x_chr, "^[0-9]{5}$")
-  if (any(fmt5)) {
-    yr <- substr(x_chr[fmt5], 1, 4)
-    mo <- substr(x_chr[fmt5], 5, 5)
-    out[fmt5] <- as.Date(paste0(yr, "-0", mo, "-01"))
-  }
-  
-  out
-}
-
-#' Safe sum
-safe_sum <- function(x) {
-  sum(as.numeric(x), na.rm = TRUE)
-}
+# parse_yearmonth and safe_sum are defined in R/globals.R
 
 #' Read time summary safely
 read_time_summary <- function(filename) {

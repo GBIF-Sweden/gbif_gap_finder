@@ -28,7 +28,6 @@ library(purrr)
 library(stringr)
 library(data.table)
 library(cli)
-library(lubridate)
 
 source(here("scripts", "00_setup.R"))
 
@@ -38,11 +37,7 @@ source(here("scripts", "00_setup.R"))
 
 cli_h1("Integrated Gap Overview (Script 10)")
 
-p_gaps <- here(p_data_proc, "gaps")
-p_derived <- here(p_data_proc, "derived")
-p_output <- here(cfg_get("paths.output", "output"))
-p_tables <- here(p_output, "tables")
-p_integrated <- here(p_output, "tables", "integrated")
+# p_gaps, p_derived, p_tables, p_integrated are defined in R/globals.R
 
 # Create directories
 dir.create(p_tables, showWarnings = FALSE, recursive = TRUE)
@@ -97,24 +92,7 @@ write_table <- function(dt, filename) {
   cli_alert_success("{filename}: {scales::comma(nrow(dt))} rows")
 }
 
-#' Extract year from yearmonth (handles both "2025-01" and 202501 formats)
-parse_year <- function(x) {
-  x_chr <- str_trim(as.character(x))
-  out <- rep(NA_integer_, length(x_chr))
-  
-  # Skip NAs
-  not_na <- !is.na(x_chr) & x_chr != "" & x_chr != "NA"
-  
-  # "2025-01" format
-  valid_dash <- not_na & str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
-  out[valid_dash] <- as.integer(str_sub(x_chr[valid_dash], 1, 4))
-  
-  # 202501 integer format
-  valid_int <- not_na & !valid_dash & str_detect(x_chr, "^[0-9]{5,6}$")
-  out[valid_int] <- as.integer(substr(x_chr[valid_int], 1, 4))
-  
-  out
-}
+# parse_year is defined in R/globals.R
 
 # ===========================================================================
 # LOAD ALL GAP OUTPUTS
@@ -125,7 +103,6 @@ cli_h2("Loading Gap Analysis Outputs")
 # --- Spatial ---
 spatial_10 <- safe_read_gap("spatial_gaps_10km.csv")
 spatial_50 <- safe_read_gap("spatial_gaps_50km.csv")
-spatial_summary_basis <- safe_read_gap("spatial_summary_by_basis.csv")
 spatial_summary_grid <- safe_read_gap("spatial_summary_by_grid.csv")
 spatial_thresholds <- safe_read_gap("spatial_thresholds_by_basis.csv")
 spatial_zero_cells <- safe_read_gap("spatial_zero_coverage_cells.csv")
@@ -136,25 +113,17 @@ temporal_year_10 <- safe_read_gap("temporal_overview_year_10km.csv")
 temporal_year_50 <- safe_read_gap("temporal_overview_year_50km.csv")
 temporal_month_10 <- safe_read_gap("temporal_overview_month_10km.csv")
 temporal_month_50 <- safe_read_gap("temporal_overview_month_50km.csv")
-temporal_year_basis_10 <- safe_read_gap("temporal_year_by_basis_10km.csv")
-temporal_year_basis_50 <- safe_read_gap("temporal_year_by_basis_50km.csv")
-temporal_month_basis_10 <- safe_read_gap("temporal_month_by_basis_10km.csv")
-temporal_month_basis_50 <- safe_read_gap("temporal_month_by_basis_50km.csv")
 temporal_year_month_10 <- safe_read_gap("temporal_year_month_10km.csv")
 temporal_year_month_50 <- safe_read_gap("temporal_year_month_50km.csv")
 temporal_decade_10 <- safe_read_gap("temporal_decade_summary_10km.csv")
 temporal_decade_50 <- safe_read_gap("temporal_decade_summary_50km.csv")
 temporal_year_complete_10 <- safe_read_gap("temporal_year_completeness_10km.csv")
 temporal_year_complete_50 <- safe_read_gap("temporal_year_completeness_50km.csv")
-temporal_month_complete_10 <- safe_read_gap("temporal_month_completeness_10km.csv")
-temporal_month_complete_50 <- safe_read_gap("temporal_month_completeness_50km.csv")
-temporal_gap_years <- safe_read_gap("temporal_gap_years_detail.csv")
 temporal_gap_years_summary <- safe_read_gap("temporal_gap_years_summary.csv")
 temporal_sampling_freq <- safe_read_gap("temporal_sampling_frequency_summary.csv")
 recency_10 <- safe_read_gap("cell_recency_10km.csv")
 recency_50 <- safe_read_gap("cell_recency_50km.csv")
 temporal_family_10 <- safe_read_gap("temporal_year_by_family_10km.csv")
-temporal_family_50 <- safe_read_gap("temporal_year_by_family_50km.csv")
 
 # --- Taxonomic ---
 tax_coverage_rank <- safe_read_gap("taxonomic_coverage_by_rank.csv")
@@ -163,7 +132,6 @@ tax_coverage_basis <- safe_read_gap("taxonomic_coverage_by_basis.csv")
 tax_gap_summary <- safe_read_gap("taxonomic_gap_summary.csv")
 tax_gaps_family <- safe_read_gap("taxonomic_gaps_by_family.csv")
 tax_gaps_order <- safe_read_gap("taxonomic_gaps_by_order.csv")
-tax_match_summary <- safe_read_gap("taxonomic_match_summary.csv")
 tax_spatial <- safe_read_gap("taxonomic_spatial_coverage.csv")
 tax_threatened_spatial <- safe_read_gap("taxonomic_threatened_spatial_coverage.csv")
 tax_priority <- safe_read_gap("taxonomic_priority_taxa.csv")
@@ -175,16 +143,9 @@ cli_alert_success("Gap files loaded")
 # --- Derived summaries (from 06a/06b) ---
 cli_h2("Loading Derived Summaries")
 
-cell_summary_10 <- safe_read_derived("cell_summary_10km.csv")
-cell_summary_50 <- safe_read_derived("cell_summary_50km.csv")
-time_summary_10 <- safe_read_derived("time_summary_10km.csv")
-time_summary_50 <- safe_read_derived("time_summary_50km.csv")
 order_cell_10 <- safe_read_derived("order_cell_summary_10km.csv")
-order_cell_50 <- safe_read_derived("order_cell_summary_50km.csv")
 order_time_10 <- safe_read_derived("order_time_summary_10km.csv")
-order_time_50 <- safe_read_derived("order_time_summary_50km.csv")
 family_time_10 <- safe_read_derived("family_time_summary_10km.csv")
-family_time_50 <- safe_read_derived("family_time_summary_50km.csv")
 
 cli_alert_success("Derived summaries loaded")
 

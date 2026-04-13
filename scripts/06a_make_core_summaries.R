@@ -36,6 +36,7 @@ library(glue)
 library(cli)
 library(sf)
 library(arrow)
+library(httr)
 
 source(here("scripts", "00_setup.R"))
 
@@ -49,16 +50,14 @@ MAKE_CELL_TIME       <- TRUE
 MAKE_ORDER_SUMMARIES <- TRUE
 MAKE_PUBLISHER_SUMMARY <- TRUE
 
-p_cubes   <- here(p_data_proc, "cubes")
-p_derived <- here(p_data_proc, "derived")
+# p_cubes, p_derived are defined in R/globals.R
 dir.create(p_derived, showWarnings = FALSE, recursive = TRUE)
 
 # ============================================================================
 # Helper Functions
 # ============================================================================
 
-safe_sum <- function(x) sum(as.numeric(x), na.rm = TRUE)
-safe_max <- function(x) { if (all(is.na(x))) NA_real_ else max(as.numeric(x), na.rm = TRUE) }
+# safe_sum and safe_max are defined in R/globals.R
 
 #' Read a parquet cube into data.table, adding yearmonth and grid columns
 read_cube <- function(parquet_path, cols = NULL, grid_label = NULL) {
@@ -84,30 +83,6 @@ read_cube <- function(parquet_path, cols = NULL, grid_label = NULL) {
   if ("family" %in% names(dt)) dt[is.na(family) | family == "", family := "Unplaced"]
 
   dt
-}
-
-#' Add "all" basis rows to a summary
-add_all_basis <- function(dt, group_cols, agg_exprs) {
-  group_no_basis <- setdiff(group_cols, "basisofrecord")
-  all_dt <- dt[, lapply(.SD, safe_sum), by = group_no_basis, .SDcols = intersect(c("occurrences"), names(dt))]
-
-  # Handle n_species etc. with max instead of sum
-  for (col in intersect(c("n_species", "n_families", "n_cells", "n_publishers", "n_datasets"), names(dt))) {
-    vals <- dt[, .(v = safe_max(get(col))), by = group_no_basis]
-    all_dt <- merge(all_dt, vals, by = group_no_basis, all.x = TRUE)
-    setnames(all_dt, "v", col)
-  }
-
-  all_dt[, basisofrecord := "all"]
-  rbindlist(list(dt, all_dt), use.names = TRUE, fill = TRUE)
-}
-
-#' Write grid-specific output
-write_grid_output <- function(dt, grid_value, out_dir, filename) {
-  subset <- if ("grid" %in% names(dt)) dt[grid == grid_value] else dt
-  if (nrow(subset) == 0) return(invisible(NULL))
-  fwrite(subset, here(out_dir, filename))
-  cli_alert_success("{filename}: {scales::comma(nrow(subset))} rows")
 }
 
 # ============================================================================
@@ -381,6 +356,68 @@ if (MAKE_PUBLISHER_SUMMARY) {
     }
 
     rm(dt, pub_dt, pub_cell); gc()
+  }
+
+  # Resolve publisher UUIDs to names via GBIF Registry API (cached)
+  cli_h3("Resolving Publisher Names")
+
+  publisher_cache_path <- here(p_data_proc, "publisher_name_cache.rds")
+  publisher_cache <- if (file.exists(publisher_cache_path)) readRDS(publisher_cache_path) else list()
+
+  # Read the 10km summary (has all publishers)
+  pub_10km_path <- here(p_derived, "publisher_summary_10km.csv")
+  if (file.exists(pub_10km_path)) {
+    pub_all <- fread(pub_10km_path)
+    uuids <- unique(pub_all$publishingorgkey)
+    uuids <- uuids[!is.na(uuids) & uuids != ""]
+    new_uuids <- setdiff(uuids, names(publisher_cache))
+
+    if (length(new_uuids) > 0) {
+      cli_alert_info("Querying GBIF for {length(new_uuids)} new publisher names...")
+      for (i in seq_along(new_uuids)) {
+        uuid <- new_uuids[i]
+        tryCatch({
+          resp <- httr::GET(paste0("https://api.gbif.org/v1/organization/", uuid))
+          if (httr::status_code(resp) == 200) {
+            info <- httr::content(resp, as = "parsed")
+            publisher_cache[[uuid]] <- list(
+              title = info$title %||% NA_character_,
+              country = info$country %||% NA_character_
+            )
+          } else {
+            publisher_cache[[uuid]] <- list(title = NA_character_, country = NA_character_)
+          }
+        }, error = function(e) {
+          publisher_cache[[uuid]] <<- list(title = NA_character_, country = NA_character_)
+        })
+        if (i %% 50 == 0) cli_alert_info("  {i}/{length(new_uuids)} resolved")
+        Sys.sleep(0.1)  # Be nice to the API
+      }
+      saveRDS(publisher_cache, publisher_cache_path)
+      cli_alert_success("Cached {length(publisher_cache)} publisher names")
+    } else {
+      cli_alert_info("All {length(uuids)} publishers already cached")
+    }
+
+    # Create publisher lookup table
+    pub_names <- data.table(
+      publishingorgkey = names(publisher_cache),
+      publisher_name = vapply(publisher_cache, function(x) x$title %||% NA_character_, character(1)),
+      publisher_country = vapply(publisher_cache, function(x) x$country %||% NA_character_, character(1))
+    )
+    fwrite(pub_names, here(p_derived, "publisher_names.csv"))
+    cli_alert_success("publisher_names.csv: {nrow(pub_names)} names")
+
+    # Enrich publisher summaries with names
+    for (grid_suffix in c("10km", "50km")) {
+      summary_path <- here(p_derived, glue("publisher_summary_{grid_suffix}.csv"))
+      if (file.exists(summary_path)) {
+        ps <- fread(summary_path)
+        ps <- merge(ps, pub_names, by = "publishingorgkey", all.x = TRUE)
+        fwrite(ps, summary_path)
+      }
+    }
+    cli_alert_success("Publisher summaries enriched with names")
   }
 }
 

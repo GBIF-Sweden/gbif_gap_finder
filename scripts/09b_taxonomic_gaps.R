@@ -50,7 +50,7 @@ timer_start <- Sys.time()
 # CONFIGURATION
 # ===========================================================================
 
-p_derived <- here(p_data_proc, "derived")
+# p_derived is defined in R/globals.R
 p_gaps    <- here(p_data_proc, cfg_get("gaps.dir", "gaps"))
 dir.create(p_gaps, showWarnings = FALSE, recursive = TRUE)
 

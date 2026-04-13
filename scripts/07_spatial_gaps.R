@@ -30,9 +30,6 @@
 
 library(here)
 library(dplyr)
-library(tidyr)
-library(readr)
-library(purrr)
 library(stringr)
 library(data.table)
 library(sf)
@@ -45,8 +42,7 @@ source(here("scripts", "00_setup.R"))
 # Configuration
 # ============================================================================
 
-p_derived <- here(p_data_proc, "derived")
-p_gaps    <- here(p_data_proc, "gaps")
+# p_derived and p_gaps are defined in R/globals.R
 
 dir.create(p_gaps, showWarnings = FALSE, recursive = TRUE)
 
@@ -147,9 +143,6 @@ filter_coarse_grid_to_country <- function(
 
   unique(as.character(coarse_grid[[code_field]][intersects]))
 }
-
-# Backward-compatible alias
-filter_coarse_grid_to_country <- filter_coarse_grid_to_country
 
 #' Create complete cell universe (all cells × all basis types)
 make_cell_universe <- function(cell_data, all_cellcodes) {
