@@ -40,12 +40,24 @@ redlist:
   export_url: "https://www.gbif.se/ipt/archive.do?r=swedishredlist2020"
 
 # ============================================================================
+# National Invasive Species Registry
+# ============================================================================
+# Swedish registry of invasive alien species
+# https://www.gbif.org/dataset/c1a61294-6195-4055-9b22-a2e48e5e16d7
+invasives:
+  enabled: true
+  dataset_key: "c1a61294-6195-4055-9b22-a2e48e5e16d7"
+  doi: "https://doi.org/10.15468/yxfse8"
+  export_url: "https://www.gbif.se/ipt/archive.do?r=invasivespecies"
+  name: "Swedish Invasive Species Registry"
+
+# ============================================================================
 # GBIF Occurrence Cubes (SQL API downloads)
 # ============================================================================
 cubes:
-  source: "sql_api"                    # "sql_api" (new) or "doi" (legacy)
+  source: "sql_api"
   grid10km:
-    download_key: null                 # filled after download
+    download_key: null
     doi: null
   grid50km:
     download_key: null
@@ -60,10 +72,9 @@ cubes:
 #
 # paths:
 #   gbif_cube_dir: "data/SE/raw/cubes"
-#   grid_10km_dir: "data/SE/raw/grids"
-#   grid_50km_dir: "data/SE/raw/grids"
 #   taxonomy_dir:  "data/SE/raw/taxonomy"
 #   redlist_dir:   "data/SE/raw/redlist"
+#   invasives_dir: "data/SE/raw/invasives"
 #   admin_dir:     "data/SE/raw/admin"
 
 # ============================================================================
@@ -71,8 +82,8 @@ cubes:
 # ============================================================================
 files:
   grids:
-    grid10km: "Grid_ETRS89-LAEA_10K.shp"                 # in data/shared/grids/
-    grid50km: "EEA_50km_grid_v2024.gpkg"    # in data/shared/grids/
+    grid10km: "Grid_ETRS89-LAEA_10K.shp"
+    grid50km: "EEA_50km_grid_v2024.gpkg"
 
   cubes:
     grid10km: "cube_10km.csv"
@@ -85,6 +96,10 @@ files:
   redlist:
     redlist_taxon: "taxon.txt"
     redlist_distr: "distribution.txt"
+
+  invasives:
+    invasives_taxon: "taxon.txt"
+    invasives_distr: "distribution.txt"
 
 # ============================================================================
 # Derived Summaries

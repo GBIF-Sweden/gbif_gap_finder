@@ -51,6 +51,19 @@ redlist:
   export_url: ""                     # TODO: DwC-A download URL
 
 # ============================================================================
+# National Invasive Species Registry (optional)
+# ============================================================================
+# Set enabled: false if no invasive species checklist is available as DwC-A.
+# Search for your country's checklist:
+#   https://www.gbif.org/dataset/search?q=invasive&publishingCountry={CC}&type=CHECKLIST
+invasives:
+  enabled: false                     # TODO: set true if available
+  dataset_key: ""                    # TODO: GBIF dataset UUID
+  doi: ""                            # TODO: dataset DOI
+  export_url: ""                     # TODO: DwC-A download URL (IPT archive)
+  name: ""                           # TODO: e.g. "National Invasive Species Registry"
+
+# ============================================================================
 # GBIF Occurrence Cubes (SQL API)
 # ============================================================================
 # Download via https://www.gbif.org/occurrence/download/sql
@@ -66,12 +79,25 @@ cubes:
     doi: null
 
 # ============================================================================
+# Paths (optional overrides)
+# ============================================================================
+# Uncomment only if you need non-standard locations.
+# Otherwise globals.R derives paths from data/{country_code}/raw/.
+#
+# paths:
+#   gbif_cube_dir: "data/{CC}/raw/cubes"
+#   taxonomy_dir:  "data/{CC}/raw/taxonomy"
+#   redlist_dir:   "data/{CC}/raw/redlist"
+#   invasives_dir: "data/{CC}/raw/invasives"
+#   admin_dir:     "data/{CC}/raw/admin"
+
+# ============================================================================
 # Files
 # ============================================================================
 files:
   grids:
-    grid10km: "Grid_ETRS89-LAEA_10K.shp"                     # Europe-wide, in data/shared/grids/
-    grid50km: "EEA_50km_grid_v2024.gpkg"    # in data/shared/grids/
+    grid10km: "Grid_ETRS89-LAEA_10K.shp"
+    grid50km: "EEA_50km_grid_v2024.gpkg"
 
   cubes:
     grid10km: "cube_10km.csv"
@@ -84,6 +110,10 @@ files:
   redlist:
     redlist_taxon: "taxon.txt"       # TODO: verify after download
     redlist_distr: "distribution.txt"
+
+  invasives:
+    invasives_taxon: "taxon.txt"     # TODO: verify after download
+    invasives_distr: "distribution.txt"
 
 # ============================================================================
 # Analysis Parameters

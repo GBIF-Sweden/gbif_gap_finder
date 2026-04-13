@@ -147,7 +147,8 @@ for (col in c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")) {
 keep_cols <- intersect(
   c("taxonID", "scientificName", "name_std", "taxonRank", "threatStatus",
     "kingdom", "phylum", "class", "order", "family", "genus",
-    "establishmentMeans", "occurrenceStatus"),
+    "establishmentMeans", "occurrenceStatus",
+    "is_invasive", "in_dyntaxa"),
   names(tax_accepted)
 )
 tax_clean <- tax_accepted[, ..keep_cols]

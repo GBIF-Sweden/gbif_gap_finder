@@ -400,6 +400,43 @@ if (!is.null(match_summary) && "occurrenceStatus" %in% names(match_summary)) {
   cli_alert_success("Coverage by occurrence status: {nrow(occ_status_coverage)} categories")
 }
 
+# Coverage by invasive status (for scope filter)
+if (!is.null(match_summary) && "is_invasive" %in% names(match_summary)) {
+  invasive_coverage <- match_summary |>
+    as_tibble() |>
+    group_by(is_invasive) |>
+    summarise(
+      n_ref_total = n(),
+      n_in_gbif = sum(matched_any, na.rm = TRUE),
+      n_missing = n_ref_total - n_in_gbif,
+      pct_coverage = round(100 * n_in_gbif / n_ref_total, 2),
+      .groups = "drop"
+    )
+  shiny_data$tax_by_invasive <- invasive_coverage
+  n_inv <- sum(match_summary$is_invasive, na.rm = TRUE)
+  cli_alert_success("Invasive species in backbone: {scales::comma(n_inv)}")
+} else {
+  cli_alert_info("No is_invasive column in match_summary")
+}
+
+# Dyntaxa scope summary (for the global toggle)
+if (!is.null(match_summary) && "in_dyntaxa" %in% names(match_summary)) {
+  dyntaxa_coverage <- match_summary |>
+    as_tibble() |>
+    group_by(in_dyntaxa) |>
+    summarise(
+      n_taxa = n(),
+      n_in_gbif = sum(matched_any, na.rm = TRUE),
+      .groups = "drop"
+    )
+  shiny_data$dyntaxa_scope <- dyntaxa_coverage
+  n_dyntaxa <- sum(match_summary$in_dyntaxa, na.rm = TRUE)
+  n_all <- nrow(match_summary)
+  cli_alert_success("Dyntaxa scope: {scales::comma(n_dyntaxa)} in Dyntaxa / {scales::comma(n_all)} total")
+} else {
+  cli_alert_info("No in_dyntaxa column in match_summary — toggle will not be available")
+}
+
 # Gaps by order — derive from match_summary to ensure hierarchy columns
 # (Pre-computed CSVs may lack kingdom/phylum/class needed for cascading filters)
 tax_by_order_file <- safe_read(here(p_tables, "overview_taxonomic_gaps_by_order.csv"))
@@ -503,6 +540,279 @@ if (!is.null(match_summary) && "class" %in% names(match_summary)) {
   
   shiny_data$tax_by_class <- class_coverage
   cli_alert_success("Taxonomic by class: {nrow(class_coverage)} classes")
+}
+
+# ===========================================================================
+# 5b. RECONCILIATION TABLE (specieskey → Dyntaxa mapping)
+# ===========================================================================
+# Load the full reconciliation table for the Dyntaxa/All GBIF toggle.
+# This lets the app filter all occurrence data by in_dyntaxa at runtime.
+
+cli_h2("Loading Reconciliation Table")
+
+recon_path <- here(p_data_proc, "taxonomic_reconciliation.rds")
+if (file.exists(recon_path)) {
+  recon_full <- as_tibble(readRDS(recon_path))
+
+  # Create a lightweight lookup: specieskey → in_dyntaxa, is_invasive, kingdom
+  recon_cols <- intersect(
+    c("specieskey", "in_dyntaxa", "is_invasive", "kingdom", "phylum",
+      "class", "order", "family", "match_tier"),
+    names(recon_full)
+  )
+
+  shiny_data$species_scope_lookup <- recon_full |>
+    select(all_of(recon_cols)) |>
+    mutate(
+      in_dyntaxa = replace_na(in_dyntaxa, FALSE),
+      is_invasive = replace_na(is_invasive, FALSE)
+    )
+  cli_alert_success(
+    "Species scope lookup: {scales::comma(nrow(shiny_data$species_scope_lookup))} species"
+  )
+  cli_alert_info(
+    "  in_dyntaxa: {scales::comma(sum(shiny_data$species_scope_lookup$in_dyntaxa))}"
+  )
+  cli_alert_info(
+    "  is_invasive: {scales::comma(sum(shiny_data$species_scope_lookup$is_invasive))}"
+  )
+  rm(recon_full); gc()
+} else {
+  cli_alert_warning("Reconciliation table not found — Dyntaxa toggle not available")
+}
+
+# ===========================================================================
+# 5c. TAXONOMIC CELL RECENCY (for spatial tab taxonomic filter)
+# ===========================================================================
+# Build a per-class recency map so users can filter by kingdom, class, or
+# exclude specific groups (e.g. Aves). Grouped by eeacellcode × kingdom × class.
+# Uses the parquet cube directly.
+
+cli_h2("Computing Taxonomic Cell Recency (Kingdom × Class)")
+
+cube_10km_parquet <- here(p_data_proc, "cubes", "cube_10km.parquet")
+if (file.exists(cube_10km_parquet) && requireNamespace("arrow", quietly = TRUE)) {
+  tax_cell_dt <- as.data.table(
+    arrow::open_dataset(cube_10km_parquet) |>
+      dplyr::filter(!is.na(kingdom), kingdom != "") |>
+      dplyr::select(eeacellcode, kingdom, class, year, month, occurrences) |>
+      dplyr::collect()
+  )
+
+  # Clean class column
+  tax_cell_dt[is.na(class) | class == "", class := "Unplaced"]
+
+  # Coerce year/month to numeric upfront to avoid type inconsistencies
+  tax_cell_dt[, `:=`(
+    year_num  = as.numeric(year),
+    month_num = as.numeric(month),
+    occ_num   = as.numeric(occurrences)
+  )]
+  tax_cell_dt[, yearmonth_num := fifelse(
+    !is.na(year_num) & !is.na(month_num),
+    year_num * 100 + month_num,
+    NA_real_
+  )]
+
+  # Compute recency per kingdom × class × cell
+  tax_cell_recency <- tax_cell_dt[, .(
+    total_occ     = sum(occ_num, na.rm = TRUE),
+    max_year      = ifelse(all(is.na(year_num)), NA_real_, max(year_num, na.rm = TRUE)),
+    max_yearmonth = ifelse(all(is.na(yearmonth_num)), NA_real_, max(yearmonth_num, na.rm = TRUE))
+  ), by = .(eeacellcode, kingdom, class)]
+
+  # Compute staleness in months from latest data point
+  global_max_ym <- max(tax_cell_dt$yearmonth_num, na.rm = TRUE)
+  if (!is.infinite(global_max_ym) && !is.na(global_max_ym)) {
+    latest_date <- as.Date(paste0(
+      substr(as.character(as.integer(global_max_ym)), 1, 4), "-",
+      substr(as.character(as.integer(global_max_ym)), 5, 6), "-01"
+    ))
+    tax_cell_recency[, staleness_months := {
+      cell_ym <- as.integer(max_yearmonth)
+      cell_date <- as.Date(paste0(
+        substr(as.character(cell_ym), 1, 4), "-",
+        substr(as.character(cell_ym), 5, 6), "-01"
+      ))
+      as.numeric(difftime(latest_date, cell_date, units = "days")) / 30.44
+    }]
+    tax_cell_recency[is.na(max_yearmonth), staleness_months := NA_real_]
+  }
+
+  shiny_data$tax_cell_recency <- as_tibble(tax_cell_recency)
+  kingdoms_found <- unique(tax_cell_recency$kingdom)
+  classes_found <- length(unique(tax_cell_recency$class))
+  cli_alert_success(
+    "Taxonomic cell recency: {scales::comma(nrow(tax_cell_recency))} rows, {length(kingdoms_found)} kingdoms, {classes_found} classes"
+  )
+  cli_alert_info("  Kingdoms: {paste(kingdoms_found, collapse = ', ')}")
+
+  # Also create a kingdom-only aggregate (for backward compat / kingdom-only filter)
+  shiny_data$kingdom_cell_recency <- tax_cell_recency |>
+    as_tibble() |>
+    group_by(eeacellcode, kingdom) |>
+    summarise(
+      total_occ = sum(total_occ, na.rm = TRUE),
+      max_year = ifelse(all(is.na(max_year)), NA_real_, max(max_year, na.rm = TRUE)),
+      max_yearmonth = ifelse(all(is.na(max_yearmonth)), NA_real_, max(max_yearmonth, na.rm = TRUE)),
+      staleness_months = ifelse(all(is.na(staleness_months)), NA_real_, min(staleness_months, na.rm = TRUE)),
+      .groups = "drop"
+    )
+  cli_alert_success("Kingdom cell recency (aggregate): {scales::comma(nrow(shiny_data$kingdom_cell_recency))} rows")
+
+  rm(tax_cell_dt, tax_cell_recency); gc()
+} else {
+  cli_alert_info("Parquet cube not found — kingdom cell recency not computed")
+}
+
+# ===========================================================================
+# 5d. DYNTAXA-FILTERED SUMMARIES (for scope toggle)
+# ===========================================================================
+# Compute parallel versions of key summaries filtered to only Dyntaxa species.
+# These are used when the app's scope toggle is set to "Dyntaxa species".
+# The "All GBIF" versions come from the existing (unfiltered) summaries.
+
+cli_h2("Computing Dyntaxa-Filtered Summaries")
+
+cube_10km_parquet <- here(p_data_proc, "cubes", "cube_10km.parquet")
+recon_path <- here(p_data_proc, "taxonomic_reconciliation.rds")
+
+if (file.exists(cube_10km_parquet) && file.exists(recon_path) &&
+    requireNamespace("arrow", quietly = TRUE)) {
+
+  # Load Dyntaxa specieskeys
+  recon_dt <- as.data.table(readRDS(recon_path))
+  if ("in_dyntaxa" %in% names(recon_dt)) {
+    dyntaxa_keys <- recon_dt[in_dyntaxa == TRUE, unique(specieskey)]
+    cli_alert_info("Dyntaxa specieskeys: {scales::comma(length(dyntaxa_keys))}")
+  } else {
+    dyntaxa_keys <- recon_dt[match_tier != "unmatched", unique(specieskey)]
+    cli_alert_info("Dyntaxa specieskeys (from match_tier): {scales::comma(length(dyntaxa_keys))}")
+  }
+  rm(recon_dt); gc()
+
+  # Read parquet cube (all columns needed for the summaries)
+  dyn_dt <- as.data.table(
+    arrow::open_dataset(cube_10km_parquet) |>
+      dplyr::select(specieskey, eeacellcode, kingdom, class, order, family,
+                    basisofrecord, year, month, occurrences) |>
+      dplyr::collect()
+  )
+  n_all <- nrow(dyn_dt)
+
+  # Filter to Dyntaxa species only
+  dyn_dt <- dyn_dt[specieskey %in% dyntaxa_keys]
+  n_dyn <- nrow(dyn_dt)
+  cli_alert_info("Cube rows: {scales::comma(n_all)} total → {scales::comma(n_dyn)} Dyntaxa ({round(100 * n_dyn / n_all, 1)}%)")
+
+  # Coerce types
+  dyn_dt[, `:=`(
+    year_num  = as.numeric(year),
+    month_num = as.numeric(month),
+    occ_num   = as.numeric(occurrences)
+  )]
+  dyn_dt[, yearmonth := fifelse(
+    !is.na(year_num) & !is.na(month_num),
+    as.integer(year_num) * 100L + as.integer(month_num),
+    NA_integer_
+  )]
+  dyn_dt[is.na(order)  | order  == "", order  := "Unplaced"]
+  dyn_dt[is.na(family) | family == "", family := "Unplaced"]
+
+  # --- 5d.1: Time summary (Dyntaxa) ---
+  dyn_time <- dyn_dt[, .(
+    occurrences = sum(occ_num, na.rm = TRUE),
+    n_species   = as.numeric(uniqueN(specieskey)),
+    n_cells     = as.numeric(uniqueN(eeacellcode))
+  ), by = .(yearmonth)]
+  dyn_time[, basisofrecord := "all"]
+  dyn_time[, `:=`(
+    year  = as.integer(substr(as.character(yearmonth), 1, 4)),
+    month = as.integer(substr(as.character(yearmonth), 5, 6))
+  )]
+  shiny_data$dyntaxa_time_summary <- as_tibble(dyn_time)
+  cli_alert_success("Dyntaxa time summary: {scales::comma(nrow(dyn_time))} rows")
+
+  # --- 5d.2: Order × time summary (Dyntaxa) ---
+  dyn_order_time <- dyn_dt[, .(
+    occurrences = sum(occ_num, na.rm = TRUE),
+    n_species   = as.numeric(uniqueN(specieskey)),
+    n_cells     = as.numeric(uniqueN(eeacellcode))
+  ), by = .(order, yearmonth)]
+  dyn_order_time[, basisofrecord := "all"]
+  dyn_order_time[, `:=`(
+    year  = as.integer(substr(as.character(yearmonth), 1, 4)),
+    month = as.integer(substr(as.character(yearmonth), 5, 6))
+  )]
+  shiny_data$dyntaxa_order_time_summary <- as_tibble(dyn_order_time)
+  cli_alert_success("Dyntaxa order time summary: {scales::comma(nrow(dyn_order_time))} rows")
+
+  # --- 5d.3: Family × time summary (Dyntaxa) ---
+  dyn_family_time <- dyn_dt[, .(
+    occurrences = sum(occ_num, na.rm = TRUE),
+    n_species   = as.numeric(uniqueN(specieskey)),
+    n_cells     = as.numeric(uniqueN(eeacellcode))
+  ), by = .(order, family, yearmonth)]
+  dyn_family_time[, basisofrecord := "all"]
+  dyn_family_time[, `:=`(
+    year  = as.integer(substr(as.character(yearmonth), 1, 4)),
+    month = as.integer(substr(as.character(yearmonth), 5, 6))
+  )]
+  shiny_data$dyntaxa_family_time_summary <- as_tibble(dyn_family_time)
+  cli_alert_success("Dyntaxa family time summary: {scales::comma(nrow(dyn_family_time))} rows")
+
+  # --- 5d.4: Cell summary (Dyntaxa) ---
+  dyn_cell <- dyn_dt[, .(
+    occurrences = sum(occ_num, na.rm = TRUE),
+    n_species   = as.numeric(uniqueN(specieskey))
+  ), by = .(eeacellcode)]
+  dyn_cell[, basisofrecord := "all"]
+  shiny_data$dyntaxa_cell_summary <- as_tibble(dyn_cell)
+  cli_alert_success("Dyntaxa cell summary: {scales::comma(nrow(dyn_cell))} cells")
+
+  # --- 5d.5: Cell recency (Dyntaxa) ---
+  dyn_global_max_ym <- max(dyn_dt$yearmonth, na.rm = TRUE)
+  if (!is.na(dyn_global_max_ym) && !is.infinite(dyn_global_max_ym)) {
+    dyn_latest_date <- as.Date(paste0(
+      substr(as.character(dyn_global_max_ym), 1, 4), "-",
+      substr(as.character(dyn_global_max_ym), 5, 6), "-01"
+    ))
+    dyn_recency <- dyn_dt[, .(
+      max_yearmonth = ifelse(all(is.na(yearmonth)), NA_integer_, max(yearmonth, na.rm = TRUE))
+    ), by = .(eeacellcode)]
+    dyn_recency[, staleness_months := {
+      cell_d <- as.Date(paste0(
+        substr(as.character(max_yearmonth), 1, 4), "-",
+        substr(as.character(max_yearmonth), 5, 6), "-01"
+      ))
+      as.numeric(difftime(dyn_latest_date, cell_d, units = "days")) / 30.44
+    }]
+    dyn_recency[is.na(max_yearmonth), staleness_months := NA_real_]
+  } else {
+    dyn_recency <- dyn_dt[, .(
+      max_yearmonth = NA_integer_,
+      staleness_months = NA_real_
+    ), by = .(eeacellcode)]
+  }
+  dyn_recency[, basisofrecord := "all"]
+  shiny_data$dyntaxa_cell_recency <- as_tibble(dyn_recency)
+  cli_alert_success("Dyntaxa cell recency: {scales::comma(nrow(dyn_recency))} cells")
+
+  # --- 5d.6: Spatial gaps (Dyntaxa) — cell-level occurrence + species counts ---
+  dyn_spatial <- dyn_dt[, .(
+    occurrences = sum(occ_num, na.rm = TRUE),
+    n_species   = as.numeric(uniqueN(specieskey)),
+    has_data    = TRUE
+  ), by = .(eeacellcode)]
+  dyn_spatial[, basisofrecord := "all"]
+  shiny_data$dyntaxa_spatial_gaps <- as_tibble(dyn_spatial)
+  cli_alert_success("Dyntaxa spatial gaps: {scales::comma(nrow(dyn_spatial))} cells with data")
+
+  rm(dyn_dt, dyn_time, dyn_order_time, dyn_family_time, dyn_cell, dyn_recency, dyn_spatial)
+  gc()
+
+} else {
+  cli_alert_info("Parquet cube or reconciliation not found — Dyntaxa-filtered summaries not computed")
 }
 
 # ===========================================================================
@@ -1127,6 +1437,9 @@ shiny_data$metadata <- list(
   has_priorities = !is.null(shiny_data$priority_taxa_missing) || !is.null(shiny_data$priority_taxa_all),
   has_last_year = !is.null(shiny_data$overview_last_year),
   has_troudet = !is.null(shiny_data$troudet_bias),
+  has_invasive = !is.null(shiny_data$tax_by_invasive),
+  has_dyntaxa_scope = !is.null(shiny_data$species_scope_lookup),
+  has_kingdom_cell_recency = !is.null(shiny_data$kingdom_cell_recency),
   last_year = if (!is.null(shiny_data$last_year)) shiny_data$last_year else NA
 )
 
@@ -1156,11 +1469,25 @@ if (file.exists(publisher_cell_path)) {
 if (file.exists(published_time_path)) {
   pub_time <- as_tibble(fread(published_time_path))
   # Create yearmonth_published for the "published to GBIF" timeline
+  # Ensure year_published is numeric and filter out invalid values
   if (all(c("year_published", "month_published") %in% names(pub_time))) {
     pub_time <- pub_time |>
       mutate(
-        yearmonth_published = as.integer(paste0(year_published, sprintf("%02d", month_published)))
+        year_published = as.integer(year_published),
+        month_published = as.integer(month_published)
+      ) |>
+      filter(
+        !is.na(year_published), !is.na(month_published),
+        year_published >= 1900, year_published <= year(Sys.Date()) + 1,
+        month_published >= 1, month_published <= 12
+      ) |>
+      mutate(
+        yearmonth_published = year_published * 100L + month_published
       )
+    n_dropped <- nrow(as_tibble(fread(published_time_path))) - nrow(pub_time)
+    if (n_dropped > 0) {
+      cli_alert_info("Filtered {scales::comma(n_dropped)} rows with invalid year/month_published")
+    }
   }
   shiny_data$published_time_summary <- pub_time
   cli_alert_success("Published time summary: {nrow(pub_time)} rows")
