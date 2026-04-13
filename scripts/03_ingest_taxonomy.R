@@ -43,24 +43,12 @@ dir_redlist    <- here(raw_redlist_dir)
 dir_data_proc  <- here(p_data_proc)
 
 # National taxonomy input files (PRIMARY BACKBONE)
-file_taxonomy_taxon <- cfg_get(
-  "files.taxonomy.taxonomy_taxon",
-  cfg_get("files.taxonomy.taxonomy_taxon", "Taxon.csv")
-)
-file_taxonomy_distr <- cfg_get(
-  "files.taxonomy.taxonomy_distr",
-  cfg_get("files.taxonomy.taxonomy_distr", "SpeciesDistribution.csv")
-)
+file_taxonomy_taxon <- cfg_get("files.taxonomy.taxonomy_taxon", "Taxon.csv")
+file_taxonomy_distr <- cfg_get("files.taxonomy.taxonomy_distr", "SpeciesDistribution.csv")
 
 # National red list input files (SECONDARY - threat status)
-file_redlist_taxon <- cfg_get(
-  "files.redlist.redlist_taxon",
-  cfg_get("files.redlist.redlist_taxon", "taxon.txt")
-)
-file_redlist_distr <- cfg_get(
-  "files.redlist.redlist_distr",
-  cfg_get("files.redlist.redlist_distr", "distribution.txt")
-)
+file_redlist_taxon <- cfg_get("files.redlist.redlist_taxon", "taxon.txt")
+file_redlist_distr <- cfg_get("files.redlist.redlist_distr", "distribution.txt")
 
 # Full input paths
 input_files <- list(

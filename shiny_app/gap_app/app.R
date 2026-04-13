@@ -96,7 +96,16 @@ basis_types   <- if (!is.null(spatial_gaps)) sort(unique(spatial_gaps$basisofrec
 basis_types_no_all <- basis_types[basis_types != "all"]
 order_choices <- if (!is.null(top_orders)) top_orders$order else character(0)
 current_year  <- year(Sys.Date())
-country_name  <- tryCatch(yaml::read_yaml("../../config.yml")$country$name, error = function(e) "")
+
+# Try to read country name from config
+country_name <- tryCatch({
+  config_files <- c("../../configs/config_SE.yml", "../../config.yml")
+  found <- ""
+  for (cf in config_files) {
+    if (file.exists(cf)) { found <- yaml::read_yaml(cf)$country$name; break }
+  }
+  if (is.null(found)) "" else found
+}, error = function(e) "")
 
 # Cascading filter choices (for taxonomic tab)
 kingdom_choices <- if (!is.null(tax_by_order) && "kingdom" %in% names(tax_by_order)) {
@@ -132,12 +141,27 @@ plotly_layout <- function(p, ...) {
     args$yaxis <- default_yaxis
   }
   
-  do.call(layout, c(list(
+  p <- do.call(layout, c(list(
     p = p,
-    paper_bgcolor = "transparent",
+    paper_bgcolor = "#ffffff",
     plot_bgcolor  = "#fafaf7",
-    font = list(color = "#2d2d2d", family = "Outfit")
+    font = list(color = "#2d2d2d", family = "Outfit"),
+    margin = list(l = 60, r = 30, t = 40, b = 60)
   ), args))
+  
+  # Apply reduced toolbar to every plotly chart
+  p |> config(
+    displayModeBar = TRUE,
+    modeBarButtonsToRemove = c(
+      "zoom2d", "pan2d", "lasso2d", "select2d", "autoScale2d",
+      "hoverCompareCartesian", "hoverClosestCartesian",
+      "toggleSpikelines"
+    ),
+    toImageButtonOptions = list(
+      format = "png", width = 1400, height = 800, scale = 2,
+      filename = "gbifgaps_chart"
+    )
+  )
 }
 
 # Palette
@@ -174,7 +198,10 @@ ui <- fluidPage(
         if (!is.null(metadata)) tagList(
           span("Prepared: ", span(class = "header-stat-value",
             format(metadata$created_at, "%d %b %Y"))),
-          span("Datasets: ", span(class = "header-stat-value", metadata$n_datasets))
+          tags$a(href = paste0("https://www.gbif.org/dataset/search?publishingCountry=",
+              if (!is.null(metadata$country_code)) metadata$country_code else "SE"),
+            target = "_blank", style = "text-decoration: none; color: inherit;",
+            span("Datasets: ", span(class = "header-stat-value", metadata$n_datasets)))
         ),
         div(style = "display:flex; align-items:center; gap:0.4rem;",
           span(style = "font-size:0.8rem; color:#6b6b6b;", "Record type:"),
@@ -198,6 +225,25 @@ ui <- fluidPage(
         title = tagList(icon("dashboard"), "Overview"),
         value = "overview",
         div(style = "padding: 1.25rem 0;",
+
+          # About section
+          div(class = "card", style = "margin-bottom: 1.25rem; border-left: 4px solid var(--sage);",
+            div(class = "card-title", icon("info-circle"), "About This Dashboard"),
+            div(style = "font-size: 1rem; line-height: 1.7; color: var(--text-secondary);",
+              p("This dashboard analyses gaps in GBIF occurrence data using a national taxonomy backbone as reference.",
+                "It identifies spatial, temporal, and taxonomic gaps to guide data mobilisation priorities."),
+              tags$ul(style = "margin: 0.5rem 0;",
+                tags$li(tags$strong("Taxonomy backbone: "), metadata$taxonomy_name %||% "National checklist",
+                  if (!is.null(metadata$taxonomy_doi)) tagList(" — ", tags$a(href = metadata$taxonomy_doi, "DOI", target = "_blank"))),
+                tags$li(tags$strong("Threat status: "), "Swedish Red List (authoritative source for CR, EN, VU, NT, DD)"),
+                tags$li(tags$strong("Grids: "), "EEA reference grids at 10 km resolution (EPSG:3035)"),
+                tags$li(tags$strong("Scope filter: "), "Use the scope dropdown on Taxonomic and Threatened tabs to filter by native/introduced/invasive status")
+              ),
+              p(style = "font-size: 0.9rem; color: var(--text-muted); margin-top: 0.5rem;",
+                "Data last updated: ", metadata$build_date %||% "unknown",
+                " | Pipeline: gbifgaps")
+            )
+          ),
 
           # Top-level stats
           div(class = "stat-grid",
@@ -283,10 +329,15 @@ ui <- fluidPage(
           div(class = "card", style = "margin-bottom: 1rem;",
             div(class = "card-title", icon("calendar-plus"),
               paste0("Year in Review: ", last_year_label)),
-            div(class = "stat-grid", style = "grid-template-columns: repeat(4, 1fr);",
+            div(class = "info-note", style = "margin-bottom: 0.75rem;",
+              "Observations ", tags$strong("dated"), " in this period. Records published to GBIF during this time may cover earlier observation dates."),
+            div(class = "stat-grid", style = "grid-template-columns: repeat(5, 1fr);",
               div(class = "stat-box",
                 div(class = "stat-value sage", textOutput("ov_ly_occ", inline = TRUE)),
-                div(class = "stat-label", paste0("New Records (", last_year_label, ")"))),
+                div(class = "stat-label", paste0("Observations Dated (", last_year_label, ")"))),
+              div(class = "stat-box",
+                div(class = "stat-value plum", textOutput("ov_ly_published", inline = TRUE)),
+                div(class = "stat-label", paste0("Published to GBIF (", last_year_label, ")"))),
               div(class = "stat-box",
                 div(class = "stat-value slate", textOutput("ov_ly_cells", inline = TRUE)),
                 div(class = "stat-label", "Cells Active")),
@@ -327,13 +378,14 @@ ui <- fluidPage(
                 div(class = "card-title", icon("sliders-h"), "Display"),
                 radioButtons("map_var", NULL,
                   choices = setNames(
-                    c("occ", "stale", "richness", "last_year"),
-                    c("Occurrences", "Data recency",
-                      "Species richness", paste0(last_year_label, " additions"))),
+                    c("occ", "stale", "richness", "last_year_obs", "last_year_pub"),
+                    c("Occurrences", "Data recency", "Species richness",
+                      paste0("Observed (", last_year_label, ")"),
+                      paste0("Published (", last_year_label, ")"))),
                   selected = "occ")),
               if (has_admin) div(class = "card",
                 div(class = "card-title", icon("border-all"), "Administrative Boundaries"),
-                if (!is.null(admin_level1)) checkboxInput("show_admin1", "Show regions", value = FALSE),
+                if (!is.null(admin_level1)) checkboxInput("show_admin1", "Show regions", value = TRUE),
                 if (!is.null(admin_level2)) checkboxInput("show_admin2", "Show municipalities", value = FALSE)
               ),
               div(class = "card",
@@ -439,7 +491,7 @@ ui <- fluidPage(
         value = "taxonomic",
         div(style = "padding: 1.25rem 0;",
 
-          # Cascading taxonomy filters — now includes Family + Scope
+          # Cascading taxonomy filters
           div(class = "filter-section",
             fluidRow(
               column(2,
@@ -459,24 +511,37 @@ ui <- fluidPage(
               column(2,
                 div(class = "filter-label", "Family"),
                 uiOutput("tax_family_filter_ui")),
-              column(2,
-                if (has_establishment) tagList(
-                  div(class = "filter-label", "Scope"),
-                  selectInput("tax_scope", NULL,
-                    choices = scope_choices, selected = "all")
-                ) else tagList(
-                  div(class = "filter-label", "Last Year"),
-                  checkboxInput("tax_show_last_year", paste0("Highlight ", last_year_label),
-                    value = FALSE)
-                ))
+              if (has_establishment) column(2,
+                div(class = "filter-label", "Scope"),
+                selectInput("tax_scope", NULL,
+                  choices = scope_choices, selected = "present"))
             ),
-            if (has_establishment) fluidRow(
-              column(10),
-              column(2,
-                div(class = "filter-label", "Last Year"),
-                checkboxInput("tax_show_last_year", paste0("Highlight ", last_year_label),
-                  value = FALSE))
+            # Separate row: last 12 months toggle
+            tags$hr(style = "margin: 0.75rem 0; border-color: var(--border-light);"),
+            div(style = "display: flex; align-items: center; gap: 1.5rem;",
+              div(class = "filter-label", style = "margin-bottom: 0; white-space: nowrap;",
+                icon("calendar-alt", style = "margin-right: 0.3rem;"), "HIGHLIGHT LAST 12 MONTHS"),
+              radioButtons("tax_last_year_mode", NULL,
+                choices = setNames(
+                  c("off", "observed", "published"),
+                  c("Off",
+                    paste0("Observed (", last_year_label, ")"),
+                    paste0("Published to GBIF (", last_year_label, ")"))),
+                selected = "off", inline = TRUE)
             )
+          ),
+
+          # Taxonomy reference info
+          div(class = "info-note", style = "margin-bottom: 1rem;",
+            icon("book", style = "margin-right: 0.3rem;"),
+            "Taxonomy backbone: ", tags$strong(metadata$taxonomy_name %||% "Dyntaxa"),
+            " — ",
+            tags$a(href = "https://www.gbif.org/dataset/de8934f4-a136-481c-a87a-b0b202b80a31",
+              "View on GBIF", target = "_blank", style = "color: var(--sage);"),
+            " | ",
+            tags$a(href = "https://namnochslansen.artfakta.se/",
+              "Browse Dyntaxa", target = "_blank", style = "color: var(--sage);"),
+            ". The scope filter above controls which species are included (present, native, introduced, invasive)."
           ),
 
           # Troudet-style bias figure
@@ -543,7 +608,7 @@ ui <- fluidPage(
               column(2, uiOutput("threat_order_ui")),
               column(2,
                 if (has_establishment) selectInput("threat_scope", "Scope",
-                  choices = scope_choices, selected = "all")
+                  choices = scope_choices, selected = "present")
               )
             )),
           fluidRow(
@@ -562,6 +627,61 @@ ui <- fluidPage(
               "Includes CR, EN, VU, NT and DD (Data Deficient). ",
               "Use the filters above and column filters below to narrow results."),
             DTOutput("threat_table"))
+        )
+      ),
+
+      # =====================================================================
+      # PUBLISHER TAB (NEW)
+      # =====================================================================
+      tabPanel(
+        title = tagList(icon("building"), "Publishers"),
+        value = "publishers",
+        div(style = "padding: 1.25rem 0;",
+
+          # Publisher stats
+          div(class = "stat-grid", style = "grid-template-columns: repeat(4, 1fr);",
+            div(class = "stat-box",
+              div(class = "stat-value sage", textOutput("pub_n_publishers", inline = TRUE)),
+              div(class = "stat-label", "Publishers")),
+            div(class = "stat-box",
+              div(class = "stat-value slate", textOutput("pub_n_datasets", inline = TRUE)),
+              div(class = "stat-label", "Datasets")),
+            div(class = "stat-box",
+              div(class = "stat-value sand", textOutput("pub_single_cells", inline = TRUE)),
+              div(class = "stat-label", "Single-Publisher Cells")),
+            div(class = "stat-box",
+              div(class = "stat-value coral", textOutput("pub_top_pct", inline = TRUE)),
+              div(class = "stat-label", "Top Publisher Share"))
+          ),
+
+          div(class = "info-note", style = "margin-bottom: 1rem;",
+            "Which organisations contribute GBIF data for this country? ",
+            "Cells served by a single publisher are fragile — if that publisher stops contributing, the cell loses all coverage."),
+
+          fluidRow(
+            column(6, div(class = "card",
+              div(class = "card-title", icon("chart-bar"), "Top Publishers by Occurrences"),
+              plotlyOutput("pub_top_chart", height = "450px"))),
+            column(6, div(class = "card",
+              div(class = "card-title", icon("chart-pie"), "Top Publishers by Species Coverage"),
+              plotlyOutput("pub_species_chart", height = "450px")))
+          ),
+
+          fluidRow(
+            column(6, div(class = "card",
+              div(class = "card-title", icon("map"), "Publisher Dependency per Cell"),
+              div(class = "info-note", "Cells coloured by the number of publishers contributing data. ",
+                tags$span(style = "color: var(--coral);", "Red cells"), " depend on a single publisher."),
+              leafletOutput("pub_dependency_map", height = "450px"))),
+            column(6, div(class = "card",
+              div(class = "card-title", icon("calendar-alt"), "Published to GBIF Over Time"),
+              div(class = "info-note", "When records were published (added to GBIF), not when they were observed."),
+              plotlyOutput("pub_time_chart", height = "450px")))
+          ),
+
+          div(class = "card",
+            div(class = "card-title", icon("table"), "All Publishers"),
+            DTOutput("pub_table"))
         )
       ),
 
@@ -896,6 +1016,11 @@ server <- function(input, output, session) {
       comma(overview_last_year$cells_resolved)
     else "0"
   })
+  output$ov_ly_published <- renderText({
+    if (!is.null(overview_last_year) && !is.null(overview_last_year$occ_published_last_year))
+      comma(overview_last_year$occ_published_last_year)
+    else "N/A"
+  })
 
   # Spatial gap panel
   output$ov_spatial_pct <- renderText({
@@ -1152,7 +1277,7 @@ server <- function(input, output, session) {
         addLegend("bottomright", pal = sp_pal, values = ~sp_cat, title = "Species count")
       return()
 
-    } else if (input$map_var == "last_year" && !is.null(cell_last_year)) {
+    } else if (input$map_var == "last_year_obs" && !is.null(cell_last_year)) {
       ly <- cell_last_year |> select(eeacellcode, prior, last_year, newly_covered)
       map_sf <- grid_10km |> left_join(ly, by = "eeacellcode") |>
         mutate(
@@ -1166,8 +1291,8 @@ server <- function(input, output, session) {
         TRUE ~ "#e0dfda"
       )
       popup_fn <- ~paste0("Cell: ", eeacellcode,
-                          "<br>", last_year_label, " occ: ", comma(last_year),
-                          "<br>Prior occ: ", comma(prior),
+                          "<br>Observed ", last_year_label, ": ", comma(last_year),
+                          "<br>Prior: ", comma(prior),
                           if_else(newly_covered, "<br><strong>Newly covered!</strong>", ""))
 
       leafletProxy("spatial_map", data = map_sf) |>
@@ -1178,8 +1303,49 @@ server <- function(input, output, session) {
           popup       = popup_fn) |>
         addLegend("bottomright",
           colors = c(pal$coral, pal$sage, "#e0dfda"),
-          labels = c("Newly covered", paste0("Active in ", last_year_label), "No data in this year"),
-          title = paste0(last_year_label, " additions"))
+          labels = c("Newly covered", paste0("Observed in ", last_year_label), "No observations"),
+          title = paste0("Observed ", last_year_label))
+      return()
+
+    } else if (input$map_var == "last_year_pub") {
+      # Published to GBIF in last 12 months — computed from parquet at cell level
+      # For now, use cell_last_year as fallback (same data until cell-level published is available)
+      pub_cell <- safe_get("cell_published_last_year")
+      if (is.null(pub_cell) && !is.null(cell_last_year)) {
+        # Fallback: show message that published cell data isn't available yet
+        pub_cell <- cell_last_year |>
+          select(eeacellcode) |>
+          mutate(pub_last_year = 0, pub_prior = 0)
+      }
+      if (!is.null(pub_cell)) {
+        map_sf <- grid_10km |> left_join(
+          pub_cell |> select(eeacellcode, pub_last_year), by = "eeacellcode") |>
+          mutate(pub_last_year = replace_na(pub_last_year, 0))
+
+        map_sf <- map_sf |>
+          mutate(pub_cat = case_when(
+            pub_last_year == 0 ~ "None",
+            pub_last_year <= 100 ~ "1–100",
+            pub_last_year <= 1000 ~ "101–1K",
+            pub_last_year <= 10000 ~ "1K–10K",
+            TRUE ~ "> 10K"
+          ),
+          pub_cat = factor(pub_cat, levels = c("1–100", "101–1K", "1K–10K", "> 10K", "None")))
+
+        pub_pal <- colorFactor(
+          palette = c("#2A9D8F", pal$sage, pal$sand, pal$plum, "#e0dfda"),
+          domain = levels(map_sf$pub_cat), na.color = "#e0dfda")
+
+        leafletProxy("spatial_map", data = map_sf) |>
+          clearShapes() |> clearControls() |>
+          addPolygons(
+            fillColor = ~pub_pal(pub_cat),
+            fillOpacity = 0.7, weight = 0.3, color = "#999",
+            popup = ~paste0("Cell: ", eeacellcode,
+                            "<br>Published ", last_year_label, ": ", comma(pub_last_year))) |>
+          addLegend("bottomright", pal = pub_pal, values = ~pub_cat,
+            title = paste0("Published ", last_year_label))
+      }
       return()
 
     } else {
@@ -1289,11 +1455,28 @@ server <- function(input, output, session) {
   output$spatial_hist <- renderPlotly({
     req(spatial_gaps)
     df <- spatial_gaps |> filter(basisofrecord == basis_selected(), occurrences > 0)
-    plot_ly(df, x = ~log_occ, type = "histogram",
-      marker = list(color = pal$sage, line = list(color = pal$sage2, width = 0.5))) |>
+    
+    # Create categorical brackets
+    df <- df |> mutate(
+      occ_bracket = case_when(
+        occurrences <= 10 ~ "1–10",
+        occurrences <= 100 ~ "11–100",
+        occurrences <= 1000 ~ "101–1K",
+        occurrences <= 10000 ~ "1K–10K",
+        occurrences <= 100000 ~ "10K–100K",
+        TRUE ~ ">100K"
+      ),
+      occ_bracket = factor(occ_bracket, levels = c("1–10", "11–100", "101–1K", "1K–10K", "10K–100K", ">100K"))
+    )
+    
+    bracket_counts <- df |> count(occ_bracket, .drop = FALSE)
+    
+    plot_ly(bracket_counts, x = ~occ_bracket, y = ~n, type = "bar",
+      marker = list(color = pal$sage),
+      hovertemplate = "%{x}: %{y} cells<extra></extra>") |>
       plotly_layout(
-        title = list(text = "Distribution per 10km cell", font = list(size = 13)),
-        xaxis = list(title = "log10(Occurrences + 1)"),
+        title = list(text = "Occurrence distribution per 10km cell", font = list(size = 13)),
+        xaxis = list(title = "Occurrences per cell"),
         yaxis = list(title = "Number of 10km cells"))
   })
 
@@ -1580,7 +1763,8 @@ server <- function(input, output, session) {
       mutate(total_known = sum(n_known_species), total_occ_all = sum(total_occ),
              ideal_occ = (n_known_species / total_known) * total_occ_all,
              bias = total_occ - ideal_occ,
-             occ_prior = total_occ, occ_last_year = 0)
+             occ_prior = total_occ, occ_last_year = 0,
+             pub_last_year = 0, pub_prior = total_occ)
   })
 
   scoped_troudet_order <- reactive({
@@ -1594,7 +1778,8 @@ server <- function(input, output, session) {
       mutate(total_known = sum(n_known_species), total_occ_all = sum(total_occ),
              ideal_occ = (n_known_species / total_known) * total_occ_all,
              bias = total_occ - ideal_occ,
-             occ_prior = total_occ, occ_last_year = 0)
+             occ_prior = total_occ, occ_last_year = 0,
+             pub_last_year = 0, pub_prior = total_occ)
   })
 
   scoped_troudet_family <- reactive({
@@ -1608,7 +1793,8 @@ server <- function(input, output, session) {
       mutate(total_known = sum(n_known_species), total_occ_all = sum(total_occ),
              ideal_occ = (n_known_species / total_known) * total_occ_all,
              bias = total_occ - ideal_occ,
-             occ_prior = total_occ, occ_last_year = 0)
+             occ_prior = total_occ, occ_last_year = 0,
+             pub_last_year = 0, pub_prior = total_occ)
   })
 
   # ---- Recompute tax_by_order / tax_by_family from scoped data ----
@@ -1638,7 +1824,10 @@ server <- function(input, output, session) {
 
   # Helper: choose pre-computed or scoped data
   use_scope <- reactive({
-    !is.null(input$tax_scope) && input$tax_scope != "all"
+    # "present" scope can use pre-computed data (it's close enough to "all"
+    # since absent species rarely have GBIF records). Only native/introduced/invasive
+    # need on-the-fly recomputation.
+    !is.null(input$tax_scope) && input$tax_scope %in% c("native_present", "introduced_present", "invasive")
   })
 
   apply_tax_filters <- function(df) {
@@ -1701,6 +1890,8 @@ server <- function(input, output, session) {
           occ_prior = sum(occ_prior, na.rm = TRUE),
           occ_last_year = sum(occ_last_year, na.rm = TRUE),
           total_occ = sum(total_occ, na.rm = TRUE),
+          pub_last_year = sum(pub_last_year, na.rm = TRUE),
+          pub_prior = sum(pub_prior, na.rm = TRUE),
           .groups = "drop") |>
         mutate(
           total_known = sum(n_known_species),
@@ -1718,6 +1909,8 @@ server <- function(input, output, session) {
           occ_prior = sum(occ_prior, na.rm = TRUE),
           occ_last_year = sum(occ_last_year, na.rm = TRUE),
           total_occ = sum(total_occ, na.rm = TRUE),
+          pub_last_year = sum(pub_last_year, na.rm = TRUE),
+          pub_prior = sum(pub_prior, na.rm = TRUE),
           .groups = "drop") |>
         mutate(
           total_known = sum(n_known_species),
@@ -1743,14 +1936,28 @@ server <- function(input, output, session) {
       )
 
     # Dynamic height based on number of bars
-    show_ly <- !is.null(input$tax_show_last_year) && input$tax_show_last_year &&
-               "occ_last_year" %in% names(df)
+    ly_mode <- if (!is.null(input$tax_last_year_mode)) input$tax_last_year_mode else "off"
+    
+    # Determine which last-year column to use
+    if (ly_mode == "observed" && "occ_last_year" %in% names(df)) {
+      ly_col <- "occ_last_year"
+      prior_col <- "occ_prior"
+      ly_label <- paste0("Observed ", last_year_label)
+    } else if (ly_mode == "published" && "pub_last_year" %in% names(df)) {
+      ly_col <- "pub_last_year"
+      prior_col <- "pub_prior"
+      ly_label <- paste0("Published ", last_year_label)
+    } else {
+      ly_col <- NULL
+    }
+    
+    show_ly <- !is.null(ly_col)
 
     if (show_ly) {
       df <- df |>
         mutate(
-          bias_prior = occ_prior - ideal_occ,
-          bias_last_year = occ_last_year,
+          bias_prior = .data[[prior_col]] - ideal_occ,
+          bias_last_year = .data[[ly_col]],
           bar_col_ly = ifelse(bias >= 0, pal$sage2, pal$sand)
         )
 
@@ -1759,9 +1966,9 @@ server <- function(input, output, session) {
           marker = list(color = ~bar_col),
           hovertemplate = "%{y}: %{x:,.0f}<extra>Prior</extra>") |>
         add_trace(x = ~bias_last_year, type = "bar",
-          name = last_year_label,
+          name = ly_label,
           marker = list(color = ~bar_col_ly),
-          hovertemplate = "%{y}: +%{x:,.0f}<extra>Last year</extra>")
+          hovertemplate = paste0("%{y}: +%{x:,.0f}<extra>", ly_label, "</extra>"))
     } else {
       p <- plot_ly(df, y = ~reorder(label, bias), x = ~bias, type = "bar",
         marker = list(color = ~bar_col), orientation = "h",
@@ -1798,9 +2005,6 @@ server <- function(input, output, session) {
         miss = n_taxa - n_in_gbif,
         label = paste0(round(pct_coverage, 1), "%"))
 
-    show_ly <- !is.null(input$tax_show_last_year) && input$tax_show_last_year &&
-               "occ_last_year" %in% names(df)
-
     p <- plot_ly(df, y = ~reorder(order, n_taxa), x = ~n_in_gbif, type = "bar",
       name = "In GBIF", marker = list(color = pal$sage),
       text = ~label, textposition = "auto",
@@ -1810,12 +2014,24 @@ server <- function(input, output, session) {
         marker = list(color = pal$sand2),
         text = "", textposition = "none")
 
-    if (show_ly && "occ_last_year" %in% names(df)) {
+    ly_mode2 <- if (!is.null(input$tax_last_year_mode)) input$tax_last_year_mode else "off"
+    
+    if (ly_mode2 == "observed" && "occ_last_year" %in% names(df)) {
+      ly_val <- df$occ_last_year
+      ly_lab <- paste0("Observed ", last_year_label)
+    } else if (ly_mode2 == "published" && "pub_last_year" %in% names(df)) {
+      ly_val <- df$pub_last_year
+      ly_lab <- paste0("Published ", last_year_label)
+    } else {
+      ly_val <- NULL
+    }
+
+    if (!is.null(ly_val)) {
       p <- p |> add_annotations(
         x = ~n_in_gbif / 2,
         y = ~order,
-        text = ~ifelse(occ_last_year > 0,
-          paste0(last_year_label, ": ", comma(occ_last_year), " occ"), ""),
+        text = ~ifelse(ly_val > 0,
+          paste0(ly_lab, ": ", comma(ly_val), " occ"), ""),
         showarrow = FALSE,
         font = list(size = 9, color = pal$plum),
         xanchor = "center", yanchor = "bottom")
@@ -2121,6 +2337,145 @@ server <- function(input, output, session) {
     datatable(df, options = list(pageLength = 15, scrollX = TRUE),
       style = "bootstrap4", filter = "top")
   })
+
+  # ===================================================================
+  # PUBLISHERS
+  # ===================================================================
+
+  publisher_summary <- safe_get("publisher_summary")
+  publisher_cell_dep <- safe_get("publisher_cell_dependency")
+  published_time <- safe_get("published_time_summary")
+
+  output$pub_n_publishers <- renderText({
+    if (!is.null(publisher_summary)) comma(nrow(publisher_summary)) else "?"
+  })
+  output$pub_n_datasets <- renderText({
+    if (!is.null(publisher_summary)) comma(sum(publisher_summary$n_datasets, na.rm = TRUE)) else "?"
+  })
+  output$pub_single_cells <- renderText({
+    if (!is.null(publisher_cell_dep)) {
+      n <- sum(publisher_cell_dep$n_publishers == 1)
+      total <- nrow(publisher_cell_dep)
+      paste0(comma(n), " / ", comma(total))
+    } else "?"
+  })
+  output$pub_top_pct <- renderText({
+    if (!is.null(publisher_summary) && nrow(publisher_summary) > 0) {
+      top_occ <- max(publisher_summary$total_occurrences, na.rm = TRUE)
+      total_occ <- sum(publisher_summary$total_occurrences, na.rm = TRUE)
+      paste0(round(100 * top_occ / total_occ, 1), "%")
+    } else "?"
+  })
+
+  output$pub_top_chart <- renderPlotly({
+    req(publisher_summary)
+    df <- publisher_summary |>
+      arrange(desc(total_occurrences)) |>
+      head(20) |>
+      mutate(label = if ("publisher_name" %in% names(publisher_summary))
+        ifelse(!is.na(publisher_name), publisher_name, substr(publishingorgkey, 1, 12))
+        else substr(publishingorgkey, 1, 12))
+
+    plot_ly(df, y = ~reorder(label, total_occurrences), x = ~total_occurrences,
+      type = "bar", orientation = "h",
+      marker = list(color = pal$sage),
+      hovertemplate = "<b>%{y}</b><br>%{x:,} occurrences<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "Total Occurrences"),
+        yaxis = list(title = ""),
+        margin = list(l = 200))
+  })
+
+  output$pub_species_chart <- renderPlotly({
+    req(publisher_summary)
+    df <- publisher_summary |>
+      arrange(desc(n_species)) |>
+      head(20) |>
+      mutate(label = if ("publisher_name" %in% names(publisher_summary))
+        ifelse(!is.na(publisher_name), publisher_name, substr(publishingorgkey, 1, 12))
+        else substr(publishingorgkey, 1, 12))
+
+    plot_ly(df, y = ~reorder(label, n_species), x = ~n_species,
+      type = "bar", orientation = "h",
+      marker = list(color = pal$slate),
+      hovertemplate = "<b>%{y}</b><br>%{x:,} species<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "Species Count"),
+        yaxis = list(title = ""),
+        margin = list(l = 200))
+  })
+
+  output$pub_dependency_map <- renderLeaflet({
+    req(publisher_cell_dep, grid_10km)
+
+    map_sf <- grid_10km |>
+      left_join(publisher_cell_dep |> select(eeacellcode, n_publishers),
+        by = "eeacellcode") |>
+      mutate(
+        n_publishers = replace_na(n_publishers, 0L),
+        dep_cat = case_when(
+          n_publishers == 0 ~ "No data",
+          n_publishers == 1 ~ "1 (fragile)",
+          n_publishers <= 3 ~ "2\u20133",
+          n_publishers <= 5 ~ "4\u20135",
+          TRUE ~ "6+"
+        ),
+        dep_cat = factor(dep_cat, levels = c("No data", "1 (fragile)", "2\u20133", "4\u20135", "6+")))
+
+    dep_pal <- colorFactor(
+      palette = c("#f0f0f0", pal$coral, pal$sand, pal$sage, pal$slate),
+      domain = levels(map_sf$dep_cat), na.color = "#ddd")
+
+    m <- leaflet(map_sf) |>
+      addProviderTiles(providers$CartoDB.Positron) |>
+      addPolygons(fillColor = ~dep_pal(dep_cat), fillOpacity = 0.7,
+        weight = 0.3, color = "#bbb",
+        popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
+          "<br><strong>Publishers:</strong> ", n_publishers)) |>
+      addLegend("bottomright", pal = dep_pal, values = ~dep_cat,
+        title = "Publishers per cell")
+
+    if (!is.null(admin_level1))
+      m <- m |> addPolygons(data = admin_level1, group = "admin1",
+        fillColor = "transparent", fillOpacity = 0,
+        weight = 1.5, color = "#333", opacity = 0.3, label = ~admin_name)
+    m
+  })
+
+  output$pub_time_chart <- renderPlotly({
+    req(published_time)
+    df <- published_time |>
+      filter(!is.na(year_published) & year_published >= 2000) |>
+      group_by(year_published) |>
+      summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+    plot_ly(df, x = ~year_published, y = ~occ, type = "bar",
+      marker = list(color = pal$plum),
+      hovertemplate = "%{x}: %{y:,.0f} records<extra></extra>") |>
+      plotly_layout(
+        xaxis = list(title = "Year Published to GBIF"),
+        yaxis = list(title = "Occurrences"))
+  })
+
+  output$pub_table <- renderDT({
+    req(publisher_summary)
+    df <- publisher_summary |>
+      arrange(desc(total_occurrences)) |>
+      mutate(
+        pct = round(100 * total_occurrences / sum(total_occurrences, na.rm = TRUE), 2),
+        name = if ("publisher_name" %in% names(publisher_summary))
+          ifelse(!is.na(publisher_name), publisher_name, publishingorgkey)
+          else publishingorgkey
+      ) |>
+      select(name, total_occurrences, pct, n_species, n_cells, n_datasets, min_year, max_year)
+
+    datatable(df,
+      colnames = c("Publisher", "Occurrences", "Share %", "Species", "Cells", "Datasets", "From", "To"),
+      options = list(pageLength = 15, scrollX = TRUE, dom = "frtip"),
+      style = "bootstrap4") |>
+      formatRound("pct", 2) |>
+      formatRound("total_occurrences", digits = 0, mark = ",")
+  }, server = TRUE)
 
   # ===================================================================
   # PRIORITIES

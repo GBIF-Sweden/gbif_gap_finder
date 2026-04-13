@@ -30,23 +30,23 @@
   --border:       #e0dfda;
   --border-light: #eae9e4;
 
-  /* Accent colors — sage-driven palette */
-  --sage:     #6b8f71;
-  --sage-light: rgba(107, 143, 113, 0.12);
-  --sand:     #c4a882;
-  --sand-light: rgba(196, 168, 130, 0.12);
-  --slate:    #5c7a99;
-  --slate-light: rgba(92, 122, 153, 0.12);
-  --coral:    #c47a6c;
-  --coral-light: rgba(196, 122, 108, 0.12);
-  --plum:     #8b6d8f;
-  --plum-light: rgba(139, 109, 143, 0.12);
+  /* Accent colors — colorblind-safe palette (Tol/Wong inspired) */
+  --sage:     #2A7F62;
+  --sage-light: rgba(42, 127, 98, 0.12);
+  --sand:     #CCBB44;
+  --sand-light: rgba(204, 187, 68, 0.12);
+  --slate:    #4477AA;
+  --slate-light: rgba(68, 119, 170, 0.12);
+  --coral:    #EE6677;
+  --coral-light: rgba(238, 102, 119, 0.12);
+  --plum:     #AA3377;
+  --plum-light: rgba(170, 51, 119, 0.12);
 
   /* Semantic */
-  --success:  #6b8f71;
-  --warning:  #c4a882;
-  --danger:   #c47a6c;
-  --info:     #5c7a99;
+  --success:  #2A7F62;
+  --warning:  #CCBB44;
+  --danger:   #EE6677;
+  --info:     #4477AA;
 
   /* Radius */
   --radius-sm: 6px;
@@ -63,7 +63,8 @@ body {
   background: var(--bg-base);
   color: var(--text-primary);
   min-height: 100vh;
-  line-height: 1.5;
+  line-height: 1.6;
+  font-size: 15px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -101,7 +102,7 @@ body {
 
 .main-subtitle {
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   margin-top: 0.15rem;
 }
 
@@ -109,7 +110,7 @@ body {
   display: flex;
   gap: 2rem;
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 .header-stat-value {
@@ -132,7 +133,7 @@ body {
 
 .card-title {
   font-family: 'Fraunces', serif;
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
   color: var(--text-primary);
@@ -190,7 +191,7 @@ body {
 .stat-value.plum  { color: var(--plum); }
 
 .stat-label {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -209,7 +210,7 @@ body {
 }
 
 .gap-detail {
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -496,7 +497,7 @@ table.dataTable thead th {
   padding: 0.75rem 1rem;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   margin: 0.75rem 0;
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   color: var(--text-secondary);
 }
 

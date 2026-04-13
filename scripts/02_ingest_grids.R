@@ -22,7 +22,6 @@
 library(here)
 library(sf)
 library(dplyr)
-library(purrr)
 library(cli)
 library(data.table)
 
@@ -163,9 +162,25 @@ for (grid_name in names(grid_configs)) {
 
   # Clip to country extent
   if (grid_name == "grid10km" && !is.null(country_cells_10km)) {
-    n_before <- nrow(grid)
-    grid <- grid |> filter(eeacellcode %in% country_cells_10km)
-    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells")
+    # Use admin boundary (GADM) if available, otherwise convex hull of data cells
+    admin_path <- here(raw_admin_dir, "admin_level1.gpkg")
+    if (file.exists(admin_path)) {
+      cli_alert_info("Clipping to admin boundary (GADM level 1)")
+      admin <- st_read(admin_path, quiet = TRUE) |> st_transform(target_crs)
+      country_boundary <- st_union(admin) |> st_buffer(1000)  # 1km buffer for edge cells
+      n_before <- nrow(grid)
+      grid <- grid[st_intersects(grid, country_boundary, sparse = FALSE)[, 1], ]
+    } else {
+      # Fallback: convex hull of data cells with minimal buffer
+      cli_alert_info("No admin boundary found — using convex hull of data cells")
+      cells_with_data <- grid |> filter(eeacellcode %in% country_cells_10km)
+      country_hull <- st_convex_hull(st_union(cells_with_data)) |> st_buffer(5000)
+      n_before <- nrow(grid)
+      grid <- grid[st_intersects(grid, country_hull, sparse = FALSE)[, 1], ]
+    }
+    n_with_data <- sum(grid$eeacellcode %in% country_cells_10km)
+    n_empty <- nrow(grid) - n_with_data
+    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells ({n_with_data} with data, {n_empty} empty)")
   } else if (grid_name == "grid50km" && !is.null(country_cells_50km)) {
     n_before <- nrow(grid)
     grid <- grid |> filter(eeacellcode %in% country_cells_50km)

@@ -51,8 +51,7 @@ MAKE_SPECIES_CELL      <- TRUE
 MAKE_SPECIES_TIME      <- TRUE
 MAKE_SPECIES_CELL_TIME <- cfg_get("parameters.processing.make_species_cell_time", FALSE)
 
-p_cubes   <- here(p_data_proc, "cubes")
-p_derived <- here(p_data_proc, "derived")
+# p_cubes, p_derived are defined in R/globals.R
 
 dir.create(here(p_derived, "by_order"),  showWarnings = FALSE, recursive = TRUE)
 dir.create(here(p_derived, "by_family"), showWarnings = FALSE, recursive = TRUE)
@@ -61,8 +60,7 @@ dir.create(here(p_derived, "by_family"), showWarnings = FALSE, recursive = TRUE)
 # Helper Functions
 # ============================================================================
 
-safe_sum <- function(x) sum(as.numeric(x), na.rm = TRUE)
-safe_max <- function(x) { if (all(is.na(x))) NA_real_ else max(as.numeric(x), na.rm = TRUE) }
+# safe_sum and safe_max are defined in R/globals.R
 
 clean_for_filename <- function(x) {
   x <- str_replace_all(x, "[^A-Za-z0-9]", "_")

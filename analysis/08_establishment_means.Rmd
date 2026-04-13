@@ -39,11 +39,11 @@ p_gaps <- here(p_data_proc, "gaps")
 
 # Load data
 match_summary <- fread(here(p_gaps, "taxonomic_match_summary.csv"))
-grid_10km <- st_read(here(p_data_proc, "grids_10km.gpkg"), quiet = TRUE) |>
-  rename(eeacellcode = CELLCODE)
+grid_10km <- st_read(here(p_data_proc, "grids_10km.gpkg"), quiet = TRUE)
+grid_10km <- standardise_cellcode(grid_10km)
 
-# Admin boundaries (optional)
-admin_path1 <- here("data_raw", "admin", "admin_level1.gpkg")
+# Admin boundaries
+admin_path1 <- here(raw_admin_dir, "admin_level1.gpkg")
 admin_sf <- if (file.exists(admin_path1)) st_read(admin_path1, quiet = TRUE) else NULL
 
 # Cell-admin lookup (for regional analysis, optional)

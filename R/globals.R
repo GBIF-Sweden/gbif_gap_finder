@@ -116,6 +116,9 @@ p_by_family <- here(p_data_proc, "derived", "by_family")
 # Gap analysis paths (from scripts 07-09)
 p_gaps <- here(p_data_proc, "gaps")
 
+# Cube path (from script 04)
+p_cubes <- here(p_data_proc, "cubes")
+
 # Output paths (from script 10)
 p_tables     <- here(p_output, "tables")
 p_integrated <- here(p_output, "tables", "integrated")
@@ -142,10 +145,6 @@ raw_redlist_dir   <- cfg_get("paths.redlist_dir",    here(p_data_raw, "redlist")
 raw_taxonomy_dir  <- cfg_get("paths.taxonomy_dir",   here(p_data_raw, "taxonomy"))
 raw_admin_dir     <- cfg_get("paths.admin_dir",      here(p_data_raw, "admin"))
 
-# Legacy aliases (some scripts reference these separately)
-raw_grid_10km_dir <- raw_grid_dir
-raw_grid_50km_dir <- raw_grid_dir
-
 # ============================================================================
 # Processed Output Paths
 # ============================================================================
@@ -161,8 +160,69 @@ timestamp <- function() {
   format(Sys.time(), "%Y-%m-%d %H:%M:%S")
 }
 
-log_msg <- function(...) {
-  cli_alert_info(paste0(..., collapse = ""))
+#' Safe sum: coerce to numeric, handle NAs
+safe_sum <- function(x) sum(as.numeric(x), na.rm = TRUE)
+
+#' Safe max: coerce to numeric, handle all-NA
+safe_max <- function(x) {
+  if (all(is.na(x))) NA_real_ else max(as.numeric(x), na.rm = TRUE)
+}
+
+#' Parse yearmonth to Date
+#'
+#' Handles: "2025-01" (string), 202501 (6-digit int), 20251 (5-digit int)
+#' @param x Character or integer vector of yearmonth values
+#' @return Date vector (first of month)
+parse_yearmonth <- function(x) {
+  x_chr <- stringr::str_trim(as.character(x))
+  out <- rep(as.Date(NA), length(x_chr))
+
+  valid_input <- !is.na(x_chr) & x_chr != "" & x_chr != "NA"
+  if (!any(valid_input)) return(out)
+
+  # Format: "2025-01"
+  fmt_dash <- valid_input & stringr::str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
+  if (any(fmt_dash)) {
+    out[fmt_dash] <- as.Date(paste0(x_chr[fmt_dash], "-01"))
+  }
+
+  # Format: "202501" (6 digits)
+  fmt6 <- valid_input & !fmt_dash & stringr::str_detect(x_chr, "^[0-9]{6}$")
+  if (any(fmt6)) {
+    yr <- substr(x_chr[fmt6], 1, 4)
+    mo <- substr(x_chr[fmt6], 5, 6)
+    out[fmt6] <- as.Date(paste0(yr, "-", mo, "-01"))
+  }
+
+  # Format: "20251" (5 digits — single-digit month)
+  fmt5 <- valid_input & !fmt_dash & !fmt6 & stringr::str_detect(x_chr, "^[0-9]{5}$")
+  if (any(fmt5)) {
+    yr <- substr(x_chr[fmt5], 1, 4)
+    mo <- substr(x_chr[fmt5], 5, 5)
+    out[fmt5] <- as.Date(paste0(yr, "-0", mo, "-01"))
+  }
+
+  out
+}
+
+#' Extract year from yearmonth (integer)
+#'
+#' Handles "2025-01" and 202501 formats, returns integer year.
+#' @param x Character or integer vector of yearmonth values
+#' @return Integer vector of years
+parse_year <- function(x) {
+  x_chr <- stringr::str_trim(as.character(x))
+  out <- rep(NA_integer_, length(x_chr))
+
+  not_na <- !is.na(x_chr) & x_chr != "" & x_chr != "NA"
+
+  valid_dash <- not_na & stringr::str_detect(x_chr, "^[0-9]{4}-[0-9]{2}$")
+  out[valid_dash] <- as.integer(stringr::str_sub(x_chr[valid_dash], 1, 4))
+
+  valid_int <- not_na & !valid_dash & stringr::str_detect(x_chr, "^[0-9]{5,6}$")
+  out[valid_int] <- as.integer(substr(x_chr[valid_int], 1, 4))
+
+  out
 }
 
 # ============================================================================
@@ -203,18 +263,6 @@ standardise_cellcode <- function(df) {
   df
 }
 
-# ============================================================================
-# Directory Validation
-# ============================================================================
-
-check_raw_dir <- function(path, label) {
-  if (dir.exists(path)) {
-    cli_alert_info("{label}: {.path {path}}")
-  } else {
-    cli_alert_warning("{label}: {.path {path}} (not found — will be created on first run)")
-  }
-}
-
 # Print country at load time (00_setup.R handles the detailed path listing)
 cli_alert_info("Country: {cfg_get('country.name', COUNTRY_CODE)} ({COUNTRY_CODE})")
 
@@ -236,7 +284,7 @@ ensure_dirs <- function() {
 }
 
 # ============================================================================
-# tar_render() Placeholders
+# Rmd Placeholders (referenced by analysis/*.Rmd, resolved by tar_render)
 # ============================================================================
 has_threat_data <- TRUE
 grid10          <- NULL
