@@ -55,6 +55,8 @@ cli_dl(c(
   "Grids (shared)"     = raw_grid_dir,
   "Taxonomy"           = raw_taxonomy_dir,
   "Red list"           = raw_redlist_dir,
+  "Invasives"          = if (exists("raw_invasives_dir")) raw_invasives_dir else "(not configured)",
+  "Sensitive"          = if (exists("raw_sensitive_dir")) raw_sensitive_dir else "(not configured)",
   "Admin boundaries"   = raw_admin_dir
 ))
 

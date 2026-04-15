@@ -82,12 +82,28 @@ dyntaxa_family_time_summary <- safe_get("dyntaxa_family_time_summary")
 dyntaxa_cell_summary        <- safe_get("dyntaxa_cell_summary")
 dyntaxa_cell_recency        <- safe_get("dyntaxa_cell_recency")
 dyntaxa_spatial_gaps         <- safe_get("dyntaxa_spatial_gaps")
+dyntaxa_basis_recent        <- safe_get("dyntaxa_basis_recent")
+all_basis_recent            <- safe_get("all_basis_recent")
 
 # Establishment means / scope data
 match_summary_full   <- safe_get("taxonomic_match_summary")
 tax_by_establishment <- safe_get("tax_by_establishment")
 has_establishment    <- !is.null(match_summary_full) &&
                         "establishmentMeans" %in% names(match_summary_full)
+
+# Exclude orders from analysis (e.g. Primates = Homo sapiens in Dyntaxa)
+# This should match parameters.taxonomic.exclude_orders in config.yml
+EXCLUDE_ORDERS <- c("Primates")
+
+if (!is.null(match_summary_full) && length(EXCLUDE_ORDERS) > 0 &&
+    "order" %in% names(match_summary_full)) {
+  n_before <- nrow(match_summary_full)
+  match_summary_full <- match_summary_full |>
+    dplyr::filter(!order %in% EXCLUDE_ORDERS)
+  n_excluded <- n_before - nrow(match_summary_full)
+  if (n_excluded > 0) message("Excluded ", n_excluded, " taxa from orders: ",
+                               paste(EXCLUDE_ORDERS, collapse = ", "))
+}
 
 # Dyntaxa scope / invasive species data
 species_scope_lookup  <- safe_get("species_scope_lookup")
@@ -96,6 +112,20 @@ kingdom_cell_recency  <- safe_get("kingdom_cell_recency")
 tax_cell_recency      <- safe_get("tax_cell_recency")
 has_dyntaxa_scope     <- !is.null(species_scope_lookup) &&
                          "in_dyntaxa" %in% names(species_scope_lookup)
+
+# Apply order exclusion to pre-computed tables
+if (length(EXCLUDE_ORDERS) > 0) {
+  filter_orders <- function(df) {
+    if (!is.null(df) && "order" %in% names(df))
+      df |> dplyr::filter(!order %in% EXCLUDE_ORDERS)
+    else df
+  }
+  troudet_bias        <- filter_orders(troudet_bias)
+  troudet_bias_order  <- filter_orders(troudet_bias_order)
+  troudet_bias_family <- filter_orders(troudet_bias_family)
+  tax_by_order        <- filter_orders(tax_by_order)
+  tax_by_family       <- filter_orders(tax_by_family)
+}
 has_kingdom_recency   <- !is.null(kingdom_cell_recency)
 has_tax_cell_recency  <- !is.null(tax_cell_recency) &&
                          "class" %in% names(tax_cell_recency)
@@ -559,33 +589,59 @@ ui <- fluidPage(
                 p("Each GBIF occurrence record has a ", tags$strong("basis of record"),
                   " describing how the observation was made. The main types are: ",
                   tags$em("Human Observation"), " (field sightings, citizen science), ",
-                  tags$em("Preserved Specimen"), " (museum/herbarium collections), and ",
-                  tags$em("Machine Observation"), " (camera traps, acoustic sensors)."),
-                p("Understanding the mix of record types matters for gap analysis: ",
-                  "preserved specimens provide voucher evidence but are spatially biased toward collection expeditions; ",
-                  "human observations offer broader spatial coverage but may lack verification. ",
-                  "The temporal trends show how citizen science has dramatically increased data volume since ~2010.")
+                  tags$em("Preserved Specimen"), " (museum/herbarium collections), ",
+                  tags$em("Machine Observation"), " (camera traps, acoustic sensors), ",
+                  tags$em("Fossil Specimen"), " (paleontological collections), and ",
+                  tags$em("Material Sample"), " (DNA, tissue, environmental samples)."),
+                p(tags$strong("Occurrences by Basis of Record"), " shows the overall share of each record type. ",
+                  "Use the 'Last 12 Months' toggle to see how recent data collection compares to historical records. ",
+                  "When toggled on, bars show prior records (faded) and recent additions (solid)."),
+                p(tags$strong("Temporal Trend"), " shows the time series for a single selected basis type. ",
+                  "The sharp increase in Human Observations since ~2010 reflects the growth of citizen science ",
+                  "(primarily Artportalen and iNaturalist)."),
+                p(tags$strong("Spatial Coverage"), " shows what percentage of Sweden's 10 km grid cells have at least ",
+                  "one record of each type. Human Observations cover the most cells; museum specimens are concentrated ",
+                  "in fewer areas."),
+                p(tags$strong("Species Coverage"), " shows the total number of species detections summed across all cells. ",
+                  "Note: a species recorded in 3 cells counts as 3, not 1. This measures sampling breadth, not unique species count."),
+                p(tags$strong("Spatial Distribution"), " maps where each basis type has data, using binned occurrence categories.")
               )
             )
           ),
 
           uiOutput("basis_stat_boxes"),
+
+          # Last 12 months toggle
+          div(class = "filter-section", style = "margin-bottom: 1rem;",
+            div(style = "display: flex; align-items: center; gap: 1.5rem;",
+              div(class = "filter-label", style = "margin-bottom: 0; white-space: nowrap;",
+                icon("calendar-alt", style = "margin-right: 0.3rem;"), "HIGHLIGHT LAST 12 MONTHS"),
+              radioButtons("basis_last_year_mode", NULL,
+                choices = setNames(
+                  c("off", "observed", "published"),
+                  c("Off",
+                    paste0("Observed (", last_year_label, ")"),
+                    paste0("Published to GBIF (", last_year_label, ")"))),
+                selected = "off", inline = TRUE)
+            )
+          ),
+
           fluidRow(
             column(6, div(class = "card",
               div(class = "card-title", icon("chart-pie"), "Occurrences by Basis of Record"),
-              plotlyOutput("basis_pie", height = "340px"))),
+              plotlyOutput("basis_pie", height = "380px"))),
             column(6, div(class = "card",
               div(class = "card-title", icon("chart-line"), "Temporal Trend by Basis"),
               selectInput("basis_timeline_select", "Select basis:",
                 choices = basis_types_no_all, width = "250px"),
-              plotlyOutput("basis_timeline", height = "290px")))
+              plotlyOutput("basis_timeline", height = "330px")))
           ),
           fluidRow(
             column(6, div(class = "card",
-              div(class = "card-title", icon("map"), "Spatial Coverage by Basis"),
+              div(class = "card-title", icon("map"), "Spatial Coverage by Basis of Record"),
               plotlyOutput("basis_spatial_bar", height = "340px"))),
             column(6, div(class = "card",
-              div(class = "card-title", icon("dna"), "Species Coverage by Basis"),
+              div(class = "card-title", icon("dna"), "Unique Species by Basis of Record"),
               plotlyOutput("basis_species_bar", height = "340px")))
           ),
           div(class = "card",
@@ -684,6 +740,9 @@ ui <- fluidPage(
               "Browse Dyntaxa", target = "_blank", style = "color: var(--sage);"),
             ". The scope filter above controls which species are included (present, native, introduced, invasive)."
           ),
+
+          # Active filter breadcrumb
+          uiOutput("tax_filter_breadcrumb"),
 
           # Troudet-style bias figure
           div(class = "card",
@@ -1872,17 +1931,28 @@ server <- function(input, output, session) {
   )
   get_basis_color <- function(b) ifelse(b %in% names(basis_colors), basis_colors[b], "#999999")
 
-  # Stat boxes
+  # Stat boxes — use basis_recent data (correct per-basis totals from cube)
   output$basis_stat_boxes <- renderUI({
-    req(spatial_gaps)
-    sg <- spatial_gaps |> filter(basisofrecord != "all")
-    basis_summary <- sg |>
-      group_by(basisofrecord) |>
-      summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE),
-                n_cells = n(),
-                n_species = sum(n_species, na.rm = TRUE), .groups = "drop") |>
-      arrange(desc(total_occ)) |>
-      slice_head(n = 4)
+    br <- if (dyntaxa_mode() && !is.null(dyntaxa_basis_recent)) dyntaxa_basis_recent
+          else if (!is.null(all_basis_recent)) all_basis_recent
+          else NULL
+
+    if (is.null(br)) {
+      # Fallback to spatial_gaps
+      req(spatial_gaps)
+      sg <- spatial_gaps |> filter(basisofrecord != "all")
+      basis_summary <- sg |>
+        group_by(basisofrecord) |>
+        summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+        arrange(desc(total_occ)) |>
+        slice_head(n = 4)
+    } else {
+      basis_summary <- br |>
+        filter(basisofrecord != "all") |>
+        arrange(desc(occ_total)) |>
+        slice_head(n = 4) |>
+        rename(total_occ = occ_total)
+    }
 
     color_classes <- c("sage", "slate", "sand", "coral")
 
@@ -1897,41 +1967,106 @@ server <- function(input, output, session) {
     )
   })
 
-  # Pie chart with readable labels
+  # Pie / stacked bar — switches based on last-12-months toggle
   output$basis_pie <- renderPlotly({
-    req(spatial_gaps)
-    df <- spatial_gaps |>
-      filter(basisofrecord != "all") |>
-      group_by(basisofrecord) |>
-      summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
-      arrange(desc(total_occ)) |>
-      mutate(
-        pct = round(100 * total_occ / sum(total_occ), 1),
-        label_text = str_replace_all(basisofrecord, "_", " ")
-      )
+    br <- if (dyntaxa_mode() && !is.null(dyntaxa_basis_recent)) dyntaxa_basis_recent
+          else if (!is.null(all_basis_recent)) all_basis_recent
+          else NULL
 
-    cols <- sapply(df$basisofrecord, get_basis_color)
+    ly_mode <- if (!is.null(input$basis_last_year_mode)) input$basis_last_year_mode else "off"
 
-    plot_ly(df, labels = ~label_text, values = ~total_occ, type = "pie",
-      marker = list(colors = cols, line = list(color = "#fff", width = 1.5)),
-      textinfo = "label+percent",
-      textposition = "outside",
-      textfont = list(size = 11),
-      outsidetextfont = list(size = 10),
-      hovertemplate = "%{label}<br>%{value:,.0f} occurrences<br>%{percent}<extra></extra>") |>
-      plotly_layout(showlegend = FALSE,
-        margin = list(l = 40, r = 40, t = 20, b = 20))
+    if (!is.null(br) && ly_mode != "off") {
+      # Stacked horizontal bar: prior + last 12 months
+      df <- br |>
+        filter(basisofrecord != "all") |>
+        arrange(desc(occ_total)) |>
+        mutate(label_text = str_replace_all(basisofrecord, "_", " "))
+
+      if (ly_mode == "observed") {
+        recent_vals <- df$occ_last_year
+        prior_vals  <- df$occ_prior
+        recent_name <- paste0("Last 12 months (", last_year_label, ")")
+        prior_name  <- "Prior"
+      } else {
+        recent_vals <- df$pub_last_year
+        prior_vals  <- df$pub_prior
+        recent_name <- paste0("Published last 12 months (", last_year_label, ")")
+        prior_name  <- "Published prior"
+      }
+
+      plot_ly(df, y = ~reorder(label_text, occ_total), x = prior_vals,
+        type = "bar", orientation = "h", name = prior_name,
+        marker = list(color = "#d4c0a0"),
+        hovertemplate = paste0("%{y}<br>", prior_name, ": %{x:,.0f}<extra></extra>")) |>
+        add_trace(x = recent_vals, name = recent_name,
+          marker = list(color = pal$sage),
+          hovertemplate = paste0("%{y}<br>", recent_name, ": %{x:,.0f}<extra></extra>")) |>
+        plotly_layout(
+          barmode = "stack",
+          xaxis = list(title = "Number of occurrences"),
+          yaxis = list(title = ""),
+          margin = list(l = 160),
+          legend = list(orientation = "h", y = -0.15, x = 0.5, xanchor = "center",
+                        font = list(size = 10)))
+    } else {
+      # Default pie chart
+      if (!is.null(br)) {
+        df <- br |>
+          filter(basisofrecord != "all") |>
+          arrange(desc(occ_total)) |>
+          mutate(
+            pct = round(100 * occ_total / sum(occ_total), 1),
+            label_text = str_replace_all(basisofrecord, "_", " ")
+          )
+        vals <- df$occ_total
+      } else {
+        req(spatial_gaps)
+        df <- spatial_gaps |>
+          filter(basisofrecord != "all") |>
+          group_by(basisofrecord) |>
+          summarise(occ_total = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+          arrange(desc(occ_total)) |>
+          mutate(
+            pct = round(100 * occ_total / sum(occ_total), 1),
+            label_text = str_replace_all(basisofrecord, "_", " ")
+          )
+        vals <- df$occ_total
+      }
+
+      cols <- sapply(df$basisofrecord, get_basis_color)
+
+      plot_ly(df, labels = ~label_text, values = vals, type = "pie",
+        marker = list(colors = cols, line = list(color = "#fff", width = 1.5)),
+        textinfo = "percent",
+        textposition = "inside",
+        insidetextorientation = "horizontal",
+        textfont = list(size = 11, color = "#fff"),
+        hovertemplate = "%{label}<br>%{value:,.0f} occurrences<br>%{percent}<extra></extra>") |>
+        plotly_layout(
+          showlegend = TRUE,
+          legend = list(orientation = "h", y = -0.2, x = 0.5, xanchor = "center",
+                        font = list(size = 9)),
+          margin = list(l = 10, r = 10, t = 10, b = 80))
+    }
   })
 
-  # Timeline — single basis at a time
+  # Timeline — single basis at a time, uses time_summary (has per-basis rows)
   output$basis_timeline <- renderPlotly({
     req(time_summary, input$basis_timeline_select)
     sel <- input$basis_timeline_select
 
-    df <- time_summary |>
+    ts <- if (dyntaxa_mode() && !is.null(dyntaxa_time_summary)) dyntaxa_time_summary else time_summary
+
+    df <- ts |>
       filter(basisofrecord == sel, !is.na(year), year >= 1970) |>
       group_by(year) |>
       summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+    if (nrow(df) == 0) {
+      return(plotly_empty() |> plotly_layout(
+        annotations = list(list(text = paste0("No data for ", str_replace_all(sel, "_", " ")),
+          showarrow = FALSE, xref = "paper", yref = "paper", x = 0.5, y = 0.5))))
+    }
 
     base_col <- get_basis_color(sel)
 
@@ -1941,14 +2076,15 @@ server <- function(input, output, session) {
       line = list(color = base_col, width = 2),
       hovertemplate = "%{x}: %{y:,.0f}<extra></extra>") |>
       plotly_layout(
-        xaxis = list(title = ""),
-        yaxis = list(title = "Occurrences"))
+        xaxis = list(title = "Year"),
+        yaxis = list(title = "Number of occurrences"))
   })
 
-  # Spatial coverage bar
+  # Spatial coverage bar — uses scope-aware spatial_gaps (zero-filled grid)
   output$basis_spatial_bar <- renderPlotly({
     req(spatial_gaps)
-    df <- spatial_gaps |>
+    active_sg <- if (dyntaxa_mode() && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    df <- active_sg |>
       filter(basisofrecord != "all") |>
       group_by(basisofrecord) |>
       summarise(
@@ -1964,18 +2100,21 @@ server <- function(input, output, session) {
     plot_ly(df, y = ~reorder(labels, cells_with_data), x = ~pct,
       type = "bar", orientation = "h",
       marker = list(color = cols),
-      text = ~paste0(pct, "% (", comma(cells_with_data), " cells)"),
-      textposition = "auto", textfont = list(size = 10, color = "#fff"),
-      hovertemplate = "%{y}<br>%{x:.1f}% of cells<extra></extra>") |>
+      text = ~paste0(pct, "%"),
+      textposition = "outside", textfont = list(size = 9, color = "#333"),
+      cliponaxis = FALSE,
+      hovertemplate = "%{y}<br>%{x:.1f}% (%{text} cells)<extra></extra>") |>
       plotly_layout(
-        xaxis = list(title = "% of grid cells covered", range = c(0, 105)),
-        yaxis = list(title = ""))
+        xaxis = list(title = "% of 10 km grid cells with data", range = c(0, 120)),
+        yaxis = list(title = ""),
+        margin = list(l = 160, r = 60))
   })
 
-  # Species coverage bar
+  # Species coverage bar — uses scope-aware spatial_gaps (zero-filled grid)
   output$basis_species_bar <- renderPlotly({
     req(spatial_gaps)
-    df <- spatial_gaps |>
+    active_sg <- if (dyntaxa_mode() && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    df <- active_sg |>
       filter(basisofrecord != "all") |>
       group_by(basisofrecord) |>
       summarise(
@@ -1990,35 +2129,54 @@ server <- function(input, output, session) {
       type = "bar", orientation = "h",
       marker = list(color = cols),
       text = ~comma(total_species),
-      textposition = "auto", textfont = list(size = 10, color = "#fff"),
-      hovertemplate = "%{y}<br>%{x:,.0f} species detections<extra></extra>") |>
+      textposition = "outside", textfont = list(size = 9, color = "#333"),
+      cliponaxis = FALSE,
+      hovertemplate = "%{y}<br>%{x:,.0f} unique species<extra></extra>") |>
       plotly_layout(
-        xaxis = list(title = "Species detections (sum across cells)"),
-        yaxis = list(title = ""))
+        xaxis = list(title = "Number of unique species recorded"),
+        yaxis = list(title = ""),
+        margin = list(l = 160, r = 60))
   })
 
-  # Spatial map for selected basis
+  # Spatial map for selected basis — uses scope-aware spatial_gaps
   output$basis_map <- renderLeaflet({
     req(grid_10km, spatial_gaps, input$basis_map_select)
     sel <- input$basis_map_select
 
-    sg <- spatial_gaps |> filter(basisofrecord == sel)
+    active_sg <- if (dyntaxa_mode() && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    sg <- active_sg |> filter(basisofrecord == sel)
     map_sf <- grid_10km |> left_join(sg |> select(eeacellcode, occurrences, n_species), by = "eeacellcode")
 
-    vals <- log10(pmax(map_sf$occurrences, 1, na.rm = TRUE))
-    base_col <- get_basis_color(sel)
-    pal_fn <- colorNumeric(c("#f6f5f1", base_col), domain = vals, na.color = "#eee")
+    # Binned categories
+    map_sf <- map_sf |>
+      mutate(
+        occ_cat = case_when(
+          is.na(occurrences) | occurrences == 0 ~ "No data",
+          occurrences <= 10 ~ "1\u201310",
+          occurrences <= 100 ~ "11\u2013100",
+          occurrences <= 1000 ~ "101\u20131K",
+          occurrences <= 10000 ~ "1K\u201310K",
+          TRUE ~ "> 10K"
+        ),
+        occ_cat = factor(occ_cat, levels = c(
+          "1\u201310", "11\u2013100", "101\u20131K", "1K\u201310K", "> 10K", "No data"
+        ))
+      )
+
+    bin_pal <- colorFactor(
+      palette = c("#c8dbc6", "#6b8f71", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
+      domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     leaflet(map_sf) |>
       addProviderTiles(providers$CartoDB.Positron) |>
       addPolygons(
-        fillColor = ~pal_fn(vals), fillOpacity = 0.65,
+        fillColor = ~bin_pal(occ_cat), fillOpacity = 0.65,
         weight = 0.3, color = "#bbb",
         popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
                         "<br><strong>Occurrences:</strong> ", comma(occurrences),
                         "<br><strong>Species:</strong> ", comma(n_species))) |>
-      addLegend("bottomright", pal = pal_fn, values = vals,
-        title = paste0("log\u2081\u2080(Occ) \u2014 ", str_replace_all(sel, "_", " ")))
+      addLegend("bottomright", pal = bin_pal, values = ~occ_cat,
+        title = str_replace_all(sel, "_", " "))
   })
 
   # ===================================================================
@@ -2213,6 +2371,47 @@ server <- function(input, output, session) {
     }
     df
   }
+
+  # ===================================================================
+  # TAXONOMIC — Filter Breadcrumb
+  # ===================================================================
+
+  output$tax_filter_breadcrumb <- renderUI({
+    parts <- c()
+    if (!is.null(input$tax_kingdom) && input$tax_kingdom != "")
+      parts <- c(parts, input$tax_kingdom)
+    if (!is.null(input$tax_phylum) && input$tax_phylum != "")
+      parts <- c(parts, input$tax_phylum)
+    if (!is.null(input$tax_class) && input$tax_class != "")
+      parts <- c(parts, input$tax_class)
+    if (!is.null(input$tax_order_filter) && input$tax_order_filter != "")
+      parts <- c(parts, input$tax_order_filter)
+    if (!is.null(input$tax_family_filter) && input$tax_family_filter != "")
+      parts <- c(parts, input$tax_family_filter)
+
+    if (length(parts) == 0) return(NULL)
+
+    breadcrumb <- paste(parts, collapse = " \u2192 ")
+    div(
+      style = paste0(
+        "margin-bottom: 1rem; padding: 0.5rem 1rem; ",
+        "background: var(--bg-card, #f8f6f3); border-radius: 6px; ",
+        "border-left: 4px solid var(--sage, #7a9a7e); ",
+        "font-size: 0.9rem; color: var(--text-secondary, #666); ",
+        "display: flex; align-items: center; gap: 0.5rem;"
+      ),
+      icon("filter", style = "color: var(--sage, #7a9a7e);"),
+      tags$span("Showing:"),
+      tags$strong(breadcrumb, style = "color: var(--text-primary, #333);"),
+      actionLink("tax_clear_filters", tagList(icon("times-circle"), "Clear"),
+        style = "margin-left: auto; font-size: 0.85rem; color: var(--coral, #c47a6c); text-decoration: none;")
+    )
+  })
+
+  # Clear all taxonomic filters
+  observeEvent(input$tax_clear_filters, {
+    updateSelectInput(session, "tax_kingdom", selected = "")
+  })
 
   # ===================================================================
   # TAXONOMIC — Troudet Bias Figure (#7)

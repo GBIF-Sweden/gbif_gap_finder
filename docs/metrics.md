@@ -34,9 +34,14 @@ EEA grids are used as the spatial reference for mapping and cell-based gap detec
 - **10km:** se_10km shapefile
 - **50km:** EEA_50km_grid_v2024.gpkg (filtered to Sweden extent using 10km mask)
 
-### 1.3 Swedish Red List Taxonomy Export
+### 1.3 National Taxonomy Reference
 
-The Swedish reference taxonomy (SLU Artdatabanken 2024, version 1.8) and associated metadata is used as the local reference for taxonomic gap assessments.
+The national taxonomy reference is built from up to four sources (all configured in `configs/config_{CC}.yml`):
+
+- **National taxonomy backbone** (e.g., Dyntaxa for Sweden) — primary species checklist
+- **National red list** — threat status enrichment (CR, EN, VU, NT, DD)
+- **Invasive species registry** — `is_invasive` flag
+- **Sensitive species list** — `is_sensitive` flag + `sensitivity_category` (5km/25km/50km generalization)
 
 **Core variables used:**
 - `taxonID`
@@ -44,9 +49,11 @@ The Swedish reference taxonomy (SLU Artdatabanken 2024, version 1.8) and associa
 - `taxonRank`
 - `acceptedNameUsageID`
 - `threatStatus` (IUCN categories: CR, EN, VU, NT, LC, DD, etc.)
-- `establishmentMeans`
-
-**Total reference taxa:** 11,240
+- `establishmentMeans` (native, introduced, invasive, naturalised, uncertain)
+- `occurrenceStatus` (present, absent, doubtful, irregular)
+- `in_dyntaxa` (boolean — matched to backbone)
+- `is_invasive` (boolean — on invasive species registry)
+- `is_sensitive` (boolean — on restricted access list)
 
 ---
 
@@ -300,12 +307,15 @@ Taxa detected in cubes:
 
 ### 5.3 Matching Strategy
 
-**Method:** Scientific name string matching
+**Method:** 4-tier taxonomic reconciliation (script 09a)
 
 **Process:**
-1. Standardize both name strings (lowercase, trim, remove authorship)
-2. Extract binomial (Genus species) for species-level names
-3. Match `scientificName` (reference) to `species` (cube)
+1. **Tier 1** — Direct accepted name match (local, exact binomial)
+2. **Tier 2** — Synonym resolution via backbone synonym rows
+3. **Tier 3** — Infraspecific collapse (strip subspecies/variety, re-match locally)
+4. **Tier 4** — GBIF Species API lookup (for remaining unmatched, cached across runs)
+
+**Result:** ~99.8% occurrence coverage (up from 31% with name-only matching)
 
 **Implementation:**
 - Conservative binomial extraction
@@ -509,6 +519,8 @@ temporal:
 taxonomic:
   min_occurrences: 10
   min_cells: 5
+  exclude_orders: ["Primates"]        # Orders to exclude from gap analysis
+  year_published_format: "mjd"         # Modified Julian Date conversion
 ```
 
 ---
@@ -579,5 +591,5 @@ taxonomic:
 
 ---
 
-**Last updated:** 2026-01-26  
-**Scripts:** 07_define_spatial_gaps.R, 08_define_temporal_gaps.R, 09_define_taxonomic_gaps.R, 10_make_gap_overview.R
+**Last updated:** 2026-04-15  
+**Scripts:** 07_spatial_gaps.R, 08_temporal_gaps.R, 09a_reconcile_taxonomy.R, 09b_taxonomic_gaps.R, 10_make_gap_overview.R

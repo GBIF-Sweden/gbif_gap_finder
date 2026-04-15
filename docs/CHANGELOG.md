@@ -1,5 +1,41 @@
+# gbifgaps — Changelog
+
+## 2026-04-15: Sensitive Species, Dual-Scope Summaries, New Cubes
+
+### New Features
+- **Sensitive species integration** — SLU Artdatabanken restricted access list (203 species) downloaded, ingested, and propagated as `is_sensitive` flag + `sensitivity_category` (5km/25km/50km) through the full pipeline (scripts 01 → 03 → 06a → 06b → 09a → 11 → app)
+- **Dual-scope summaries** — script 06a now produces both full-GBIF and Dyntaxa-scoped variants of all core summaries (`cell_summary_10km.csv` + `cell_summary_dyntaxa_10km.csv`, etc.) via `write_dual_scope()`. Taxonomy lookup joined at cube level.
+- **Primates exclusion** — `parameters.taxonomic.exclude_orders: ["Primates"]` in config. Applied in 06a/06b taxa lookup and in the app at load time.
+- **Filter breadcrumb** — Taxonomic tab shows active filter path ("Animalia → Chordata → Aves") with a clear button.
+- **Taxonomy flags on species summaries** — `in_dyntaxa`, `is_invasive`, `is_sensitive`, `establishmentMeans` carried through all species-level CSVs from 06b.
+
+### Fixes
+- **year_published MJD conversion** — GBIF SQL API returns Modified Julian Date, not integer year. Script 04 now converts via `as.Date(x, origin = "1858-11-17")`, controlled by `parameters.taxonomic.year_published_format: "mjd"` in config.
+- **New GBIF cubes** downloaded with corrected `year_published` field (10km: `0020270-260409193756587`, 50km: `0020272-260409193756587`).
+
+### Files Modified
+- `R/globals.R` — added `raw_sensitive_dir`
+- `scripts/00_setup.R` — added sensitive + invasives to path display
+- `scripts/01_download_raw_data.R` — section 3c for sensitive species download
+- `scripts/03_ingest_taxonomy.R` — section 3.3d for sensitive species ingestion; `taxonRemarks` fallback for sensitivity category
+- `scripts/04_convert_cubes_parquet.R` — MJD→year conversion for `year_published`/`month_published`
+- `scripts/06a_make_core_summaries.R` — taxonomy lookup loading, `tag_cube_taxonomy()`, `write_dual_scope()`, dual-scope output for all phases
+- `scripts/06b_make_species_summaries.R` — taxonomy lookup, flag columns in `group_base`
+- `scripts/09a_reconcile_taxonomy.R` — `is_sensitive` in `taxa_hier_cols` + safety net
+- `scripts/11_prepare_gap_app_data.R` — `is_sensitive` + `establishmentMeans` in `species_scope_lookup`
+- `shiny_app/gap_app/app.R` — Primates exclusion at load, filter breadcrumb UI + server
+- `configs/config_SE.yml` — sensitive species config, cube DOIs, `exclude_orders`, `year_published_format`
+- `configs/config_NO.yml` — sensitive species placeholder, `year_published_format`
+- `configs/config_template.yml` — sensitive species template section
+- `_targets.R`, `run.R`, `README.md`, `ROADMAP.Rmd`, `CHANGELOG.md`, `data_sources.Rmd`, `data_sources_template.Rmd`
+
+### Pipeline Re-run Order
+Full re-run from script 01 (or from 03 if only taxonomy changed).
+
+---
+
 # gbifgaps — Taxonomy Restructuring & Feature Updates
-## Changelog
+## Changelog (Previous)
 
 ### Overview
 
