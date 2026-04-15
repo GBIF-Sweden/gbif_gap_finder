@@ -6,6 +6,8 @@
 #   1. EEA reference grids (10km and 50km)
 #   2. National taxonomy backbone (DwC-A via GBIF)
 #   3. National red list (DwC-A via GBIF, optional)
+#   3b. National invasive species registry (DwC-A, optional)
+#   3c. Sensitive species list (DwC-A, optional)
 #   4. GBIF occurrence cubes (SQL API — manual download, instructions printed)
 #   5. Administrative boundaries (GADM via geodata package)
 #
@@ -193,6 +195,30 @@ if (!invasives_enabled || invasives_key == "" || invasives_url == "") {
 }
 
 # ============================================================================
+# 3c. Sensitive Species List (optional)
+# ============================================================================
+
+cli_h1("3c \u2014 Sensitive Species List")
+
+sensitive_enabled <- cfg_get("sensitive.enabled", FALSE)
+sensitive_key <- cfg_get("sensitive.dataset_key", "")
+sensitive_url <- cfg_get("sensitive.export_url", "")
+sensitive_doi <- cfg_get("sensitive.doi", "")
+
+# raw_sensitive_dir is defined in R/globals.R — provide fallback if not yet updated
+if (!exists("raw_sensitive_dir")) {
+  raw_sensitive_dir <- here(p_data_raw, "sensitive")
+}
+
+if (!sensitive_enabled || sensitive_key == "" || sensitive_url == "") {
+  cli_alert_info("Sensitive species list not configured or disabled \u2014 skipping")
+} else {
+  dir.create(raw_sensitive_dir, showWarnings = FALSE, recursive = TRUE)
+  cli_alert_info("DOI: {sensitive_doi}")
+  download_gbif_dataset(sensitive_key, sensitive_url, raw_sensitive_dir, "sensitive")
+}
+
+# ============================================================================
 # 4. GBIF Occurrence Cubes (SQL API)
 # ============================================================================
 
@@ -316,6 +342,11 @@ metadata <- list(
     files = if (exists("raw_invasives_dir") && dir.exists(raw_invasives_dir))
       list.files(raw_invasives_dir, pattern = "\\.(txt|csv)$") else character(0)
   ),
+  sensitive = list(
+    doi = if (exists("sensitive_doi")) sensitive_doi else "",
+    files = if (exists("raw_sensitive_dir") && dir.exists(raw_sensitive_dir))
+      list.files(raw_sensitive_dir, pattern = "\\.(txt|csv)$") else character(0)
+  ),
   cubes = list.files(raw_gbif_cube_dir, pattern = "\\.(csv|parquet)$"),
   admin = list.files(raw_admin_dir, pattern = "\\.gpkg$")
 )
@@ -326,6 +357,7 @@ checks <- c(
   Taxonomy = length(metadata$taxonomy$files) > 0,
   `Red list` = !redlist_enabled || length(metadata$redlist$files) > 0,
   Invasives = !invasives_enabled || length(metadata$invasives$files) > 0,
+  Sensitive = !sensitive_enabled || length(metadata$sensitive$files) > 0,
   Cubes = length(metadata$cubes) >= 2,
   Admin = !admin_enabled || length(metadata$admin) > 0
 )

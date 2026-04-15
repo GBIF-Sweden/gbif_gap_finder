@@ -52,16 +52,29 @@ invasives:
   name: "Swedish Invasive Species Registry"
 
 # ============================================================================
+# Sensitive Species (Restricted Access)
+# ============================================================================
+# SLU Artdatabanken list of species with restricted locality data.
+# 203 species with sensitivity categories (5 km, 25 km, 50 km generalization).
+# https://www.gbif.org/dataset/0bfa983c-1ef3-4ade-8b07-13d4365f11ff
+sensitive:
+  enabled: true
+  dataset_key: "0bfa983c-1ef3-4ade-8b07-13d4365f11ff"
+  doi: "https://doi.org/10.15468/e4cz3x"
+  export_url: "https://www.gbif.se/ipt/archive.do?r=sensitivespecies"
+  name: "List of Restricted Access Species In Sweden"
+
+# ============================================================================
 # GBIF Occurrence Cubes (SQL API downloads)
 # ============================================================================
 cubes:
   source: "sql_api"
   grid10km:
-    download_key: null
-    doi: null
+    download_key: "0020270-260409193756587"
+    doi: "https://doi.org/10.15468/dl.cgee35"
   grid50km:
-    download_key: null
-    doi: null
+    download_key: "0020272-260409193756587"
+    doi: "https://doi.org/10.15468/dl.25bedh"
 
 # ============================================================================
 # Paths — All relative to data/{country_code}/
@@ -100,6 +113,10 @@ files:
   invasives:
     invasives_taxon: "taxon.txt"
     invasives_distr: "distribution.txt"
+
+  sensitive:
+    sensitive_taxon: "taxon.txt"
+    sensitive_distr: "distribution.txt"
 
 # ============================================================================
 # Derived Summaries
@@ -220,6 +237,8 @@ parameters:
   taxonomic:
     min_occurrences: 1
     min_cells: 1
+    exclude_orders: ["Primates"]
+    year_published_format: "mjd"   # Modified Julian Date — convert in script 04
   processing:
     large_order_threshold: 500000
     low_memory_mode: false

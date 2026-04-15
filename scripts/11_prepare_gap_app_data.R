@@ -554,10 +554,10 @@ recon_path <- here(p_data_proc, "taxonomic_reconciliation.rds")
 if (file.exists(recon_path)) {
   recon_full <- as_tibble(readRDS(recon_path))
 
-  # Create a lightweight lookup: specieskey → in_dyntaxa, is_invasive, kingdom
+  # Create a lightweight lookup: specieskey → in_dyntaxa, is_invasive, is_sensitive, kingdom
   recon_cols <- intersect(
-    c("specieskey", "in_dyntaxa", "is_invasive", "kingdom", "phylum",
-      "class", "order", "family", "match_tier"),
+    c("specieskey", "in_dyntaxa", "is_invasive", "is_sensitive", "kingdom", "phylum",
+      "class", "order", "family", "match_tier", "establishmentMeans"),
     names(recon_full)
   )
 
@@ -565,7 +565,9 @@ if (file.exists(recon_path)) {
     select(all_of(recon_cols)) |>
     mutate(
       in_dyntaxa = replace_na(in_dyntaxa, FALSE),
-      is_invasive = replace_na(is_invasive, FALSE)
+      is_invasive = replace_na(is_invasive, FALSE),
+      is_sensitive = if ("is_sensitive" %in% names(pick(everything())))
+        replace_na(is_sensitive, FALSE) else FALSE
     )
   cli_alert_success(
     "Species scope lookup: {scales::comma(nrow(shiny_data$species_scope_lookup))} species"
@@ -576,6 +578,11 @@ if (file.exists(recon_path)) {
   cli_alert_info(
     "  is_invasive: {scales::comma(sum(shiny_data$species_scope_lookup$is_invasive))}"
   )
+  if ("is_sensitive" %in% names(shiny_data$species_scope_lookup)) {
+    cli_alert_info(
+      "  is_sensitive: {scales::comma(sum(shiny_data$species_scope_lookup$is_sensitive))}"
+    )
+  }
   rm(recon_full); gc()
 } else {
   cli_alert_warning("Reconciliation table not found — Dyntaxa toggle not available")
@@ -666,13 +673,14 @@ if (file.exists(cube_10km_parquet) && requireNamespace("arrow", quietly = TRUE))
 }
 
 # ===========================================================================
-# 5d. DYNTAXA-FILTERED SUMMARIES (for scope toggle)
+# 5d. SCOPE-FILTERED SUMMARIES + LAST-12-MONTHS SPLITS
 # ===========================================================================
-# Compute parallel versions of key summaries filtered to only Dyntaxa species.
-# These are used when the app's scope toggle is set to "Dyntaxa species".
-# The "All GBIF" versions come from the existing (unfiltered) summaries.
+# Compute parallel summary sets for Dyntaxa and All GBIF scopes, each with
+# last-12-months observed/published splits. All computed from a single pass
+# over the parquet cube. This section is self-contained — it determines the
+# recent period cutoff from the data before computing anything.
 
-cli_h2("Computing Dyntaxa-Filtered Summaries")
+cli_h2("Computing Scope-Filtered Summaries (Dyntaxa + All GBIF)")
 
 cube_10km_parquet <- here(p_data_proc, "cubes", "cube_10km.parquet")
 recon_path <- here(p_data_proc, "taxonomic_reconciliation.rds")
@@ -691,128 +699,259 @@ if (file.exists(cube_10km_parquet) && file.exists(recon_path) &&
   }
   rm(recon_dt); gc()
 
-  # Read parquet cube (all columns needed for the summaries)
-  dyn_dt <- as.data.table(
+  # Read parquet cube — single read, used for all computations below
+  cube_dt <- as.data.table(
     arrow::open_dataset(cube_10km_parquet) |>
       dplyr::select(specieskey, eeacellcode, kingdom, class, order, family,
-                    basisofrecord, year, month, occurrences) |>
+                    basisofrecord, year, month,
+                    year_published, month_published, occurrences) |>
       dplyr::collect()
   )
-  n_all <- nrow(dyn_dt)
-
-  # Filter to Dyntaxa species only
-  dyn_dt <- dyn_dt[specieskey %in% dyntaxa_keys]
-  n_dyn <- nrow(dyn_dt)
-  cli_alert_info("Cube rows: {scales::comma(n_all)} total → {scales::comma(n_dyn)} Dyntaxa ({round(100 * n_dyn / n_all, 1)}%)")
+  cli_alert_info("Cube loaded: {scales::comma(nrow(cube_dt))} rows")
 
   # Coerce types
-  dyn_dt[, `:=`(
+  cube_dt[, `:=`(
     year_num  = as.numeric(year),
     month_num = as.numeric(month),
     occ_num   = as.numeric(occurrences)
   )]
-  dyn_dt[, yearmonth := fifelse(
+  cube_dt[, yearmonth := fifelse(
     !is.na(year_num) & !is.na(month_num),
     as.integer(year_num) * 100L + as.integer(month_num),
     NA_integer_
   )]
-  dyn_dt[is.na(order)  | order  == "", order  := "Unplaced"]
-  dyn_dt[is.na(family) | family == "", family := "Unplaced"]
-
-  # --- 5d.1: Time summary (Dyntaxa) ---
-  dyn_time <- dyn_dt[, .(
-    occurrences = sum(occ_num, na.rm = TRUE),
-    n_species   = as.numeric(uniqueN(specieskey)),
-    n_cells     = as.numeric(uniqueN(eeacellcode))
-  ), by = .(yearmonth)]
-  dyn_time[, basisofrecord := "all"]
-  dyn_time[, `:=`(
-    year  = as.integer(substr(as.character(yearmonth), 1, 4)),
-    month = as.integer(substr(as.character(yearmonth), 5, 6))
+  cube_dt[, yearmonth_pub := fifelse(
+    !is.na(year_published) & !is.na(month_published) &
+      as.integer(year_published) >= 1900 & as.integer(year_published) <= year(Sys.Date()) + 1 &
+      as.integer(month_published) >= 1 & as.integer(month_published) <= 12,
+    as.integer(year_published) * 100L + as.integer(month_published),
+    NA_integer_
   )]
-  shiny_data$dyntaxa_time_summary <- as_tibble(dyn_time)
-  cli_alert_success("Dyntaxa time summary: {scales::comma(nrow(dyn_time))} rows")
 
-  # --- 5d.2: Order × time summary (Dyntaxa) ---
-  dyn_order_time <- dyn_dt[, .(
-    occurrences = sum(occ_num, na.rm = TRUE),
-    n_species   = as.numeric(uniqueN(specieskey)),
-    n_cells     = as.numeric(uniqueN(eeacellcode))
-  ), by = .(order, yearmonth)]
-  dyn_order_time[, basisofrecord := "all"]
-  dyn_order_time[, `:=`(
-    year  = as.integer(substr(as.character(yearmonth), 1, 4)),
-    month = as.integer(substr(as.character(yearmonth), 5, 6))
-  )]
-  shiny_data$dyntaxa_order_time_summary <- as_tibble(dyn_order_time)
-  cli_alert_success("Dyntaxa order time summary: {scales::comma(nrow(dyn_order_time))} rows")
-
-  # --- 5d.3: Family × time summary (Dyntaxa) ---
-  dyn_family_time <- dyn_dt[, .(
-    occurrences = sum(occ_num, na.rm = TRUE),
-    n_species   = as.numeric(uniqueN(specieskey)),
-    n_cells     = as.numeric(uniqueN(eeacellcode))
-  ), by = .(order, family, yearmonth)]
-  dyn_family_time[, basisofrecord := "all"]
-  dyn_family_time[, `:=`(
-    year  = as.integer(substr(as.character(yearmonth), 1, 4)),
-    month = as.integer(substr(as.character(yearmonth), 5, 6))
-  )]
-  shiny_data$dyntaxa_family_time_summary <- as_tibble(dyn_family_time)
-  cli_alert_success("Dyntaxa family time summary: {scales::comma(nrow(dyn_family_time))} rows")
-
-  # --- 5d.4: Cell summary (Dyntaxa) ---
-  dyn_cell <- dyn_dt[, .(
-    occurrences = sum(occ_num, na.rm = TRUE),
-    n_species   = as.numeric(uniqueN(specieskey))
-  ), by = .(eeacellcode)]
-  dyn_cell[, basisofrecord := "all"]
-  shiny_data$dyntaxa_cell_summary <- as_tibble(dyn_cell)
-  cli_alert_success("Dyntaxa cell summary: {scales::comma(nrow(dyn_cell))} cells")
-
-  # --- 5d.5: Cell recency (Dyntaxa) ---
-  dyn_global_max_ym <- max(dyn_dt$yearmonth, na.rm = TRUE)
-  if (!is.na(dyn_global_max_ym) && !is.infinite(dyn_global_max_ym)) {
-    dyn_latest_date <- as.Date(paste0(
-      substr(as.character(dyn_global_max_ym), 1, 4), "-",
-      substr(as.character(dyn_global_max_ym), 5, 6), "-01"
-    ))
-    dyn_recency <- dyn_dt[, .(
-      max_yearmonth = ifelse(all(is.na(yearmonth)), NA_integer_, max(yearmonth, na.rm = TRUE))
-    ), by = .(eeacellcode)]
-    dyn_recency[, staleness_months := {
-      cell_d <- as.Date(paste0(
-        substr(as.character(max_yearmonth), 1, 4), "-",
-        substr(as.character(max_yearmonth), 5, 6), "-01"
-      ))
-      as.numeric(difftime(dyn_latest_date, cell_d, units = "days")) / 30.44
-    }]
-    dyn_recency[is.na(max_yearmonth), staleness_months := NA_real_]
-  } else {
-    dyn_recency <- dyn_dt[, .(
-      max_yearmonth = NA_integer_,
-      staleness_months = NA_real_
-    ), by = .(eeacellcode)]
+  # Diagnostic: check if year_published is actually lastinterpreted (always recent)
+  if (sum(!is.na(cube_dt$yearmonth_pub)) > 0) {
+    pub_ym_range <- range(cube_dt$yearmonth_pub, na.rm = TRUE)
+    pct_recent <- round(100 * sum(cube_dt$yearmonth_pub >= 202400L, na.rm = TRUE) /
+                        sum(!is.na(cube_dt$yearmonth_pub)), 1)
+    cli_alert_info("year_published range: {pub_ym_range[1]} to {pub_ym_range[2]}")
+    cli_alert_info("Records with year_published >= 2024: {pct_recent}%")
+    if (pct_recent > 95) {
+      cli_alert_warning(
+        "year_published appears to be lastinterpreted (GBIF processing date), not original publication date. ",
+        "Published-in-last-12-months splits may not be meaningful."
+      )
+    }
   }
-  dyn_recency[, basisofrecord := "all"]
-  shiny_data$dyntaxa_cell_recency <- as_tibble(dyn_recency)
-  cli_alert_success("Dyntaxa cell recency: {scales::comma(nrow(dyn_recency))} cells")
+  cube_dt[is.na(order)  | order  == "", order  := "Unplaced"]
+  cube_dt[is.na(family) | family == "", family := "Unplaced"]
 
-  # --- 5d.6: Spatial gaps (Dyntaxa) — cell-level occurrence + species counts ---
-  dyn_spatial <- dyn_dt[, .(
-    occurrences = sum(occ_num, na.rm = TRUE),
-    n_species   = as.numeric(uniqueN(specieskey)),
-    has_data    = TRUE
-  ), by = .(eeacellcode)]
-  dyn_spatial[, basisofrecord := "all"]
-  shiny_data$dyntaxa_spatial_gaps <- as_tibble(dyn_spatial)
-  cli_alert_success("Dyntaxa spatial gaps: {scales::comma(nrow(dyn_spatial))} cells with data")
+  # --- Determine recent period cutoff (last 12 months of data) ---
+  all_ym <- sort(unique(cube_dt$yearmonth[!is.na(cube_dt$yearmonth)]))
+  if (length(all_ym) > 0) {
+    latest_ym <- max(all_ym)
+    latest_year <- as.integer(substr(as.character(latest_ym), 1, 4))
+    latest_month <- as.integer(substr(as.character(latest_ym), 5, 6))
+    cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-% months(11)
+    recent_cutoff_ym <- as.integer(format(cutoff_date, "%Y%m"))
+    recent_label <- paste0(
+      format(cutoff_date, "%b %Y"), " \u2013 ",
+      format(as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")), "%b %Y")
+    )
+  } else {
+    recent_cutoff_ym <- as.integer(paste0(year(Sys.Date()) - 1, "01"))
+    recent_label <- paste0(year(Sys.Date()) - 1)
+  }
+  cli_alert_info("Recent period: {recent_label} (cutoff: {recent_cutoff_ym})")
 
-  rm(dyn_dt, dyn_time, dyn_order_time, dyn_family_time, dyn_cell, dyn_recency, dyn_spatial)
-  gc()
+  # Store for later use in sections 8b+
+  shiny_data$last_year <- recent_cutoff_ym
+  shiny_data$recent_label <- recent_label
+
+  # --- Split cube into Dyntaxa and All GBIF ---
+  dyn_dt <- cube_dt[specieskey %in% dyntaxa_keys]
+  cli_alert_info("Dyntaxa: {scales::comma(nrow(dyn_dt))} / {scales::comma(nrow(cube_dt))} rows ({round(100 * nrow(dyn_dt) / nrow(cube_dt), 1)}%)")
+
+  # === Helper: compute all summaries for a given data.table ===
+  compute_scope_summaries <- function(dt, scope_label) {
+    cli_h3("Computing summaries: {scope_label}")
+
+    results <- list()
+
+    # 1. Time summary (per-basis + "all")
+    ts_basis <- dt[, .(
+      occurrences = sum(occ_num, na.rm = TRUE),
+      n_species   = as.numeric(uniqueN(specieskey)),
+      n_cells     = as.numeric(uniqueN(eeacellcode))
+    ), by = .(basisofrecord, yearmonth)]
+
+    ts_all <- dt[, .(
+      occurrences = sum(occ_num, na.rm = TRUE),
+      n_species   = as.numeric(uniqueN(specieskey)),
+      n_cells     = as.numeric(uniqueN(eeacellcode))
+    ), by = .(yearmonth)]
+    ts_all[, basisofrecord := "all"]
+
+    ts <- rbindlist(list(ts_basis, ts_all), use.names = TRUE, fill = TRUE)
+    ts[, `:=`(
+      year  = as.integer(substr(as.character(yearmonth), 1, 4)),
+      month = as.integer(substr(as.character(yearmonth), 5, 6))
+    )]
+    results$time_summary <- as_tibble(ts)
+    cli_alert_success("{scope_label} time summary: {scales::comma(nrow(ts))} rows ({uniqueN(ts$basisofrecord)} basis types)")
+
+    # 2. Order x time summary
+    ots <- dt[, .(
+      occurrences = sum(occ_num, na.rm = TRUE),
+      n_species   = as.numeric(uniqueN(specieskey)),
+      n_cells     = as.numeric(uniqueN(eeacellcode))
+    ), by = .(order, yearmonth)]
+    ots[, basisofrecord := "all"]
+    ots[, `:=`(
+      year  = as.integer(substr(as.character(yearmonth), 1, 4)),
+      month = as.integer(substr(as.character(yearmonth), 5, 6))
+    )]
+    results$order_time_summary <- as_tibble(ots)
+    cli_alert_success("{scope_label} order time summary: {scales::comma(nrow(ots))} rows")
+
+    # 3. Family x time summary
+    fts <- dt[, .(
+      occurrences = sum(occ_num, na.rm = TRUE),
+      n_species   = as.numeric(uniqueN(specieskey)),
+      n_cells     = as.numeric(uniqueN(eeacellcode))
+    ), by = .(order, family, yearmonth)]
+    fts[, basisofrecord := "all"]
+    fts[, `:=`(
+      year  = as.integer(substr(as.character(yearmonth), 1, 4)),
+      month = as.integer(substr(as.character(yearmonth), 5, 6))
+    )]
+    results$family_time_summary <- as_tibble(fts)
+    cli_alert_success("{scope_label} family time summary: {scales::comma(nrow(fts))} rows")
+
+    # 4. Cell summary
+    cs <- dt[, .(
+      occurrences = sum(occ_num, na.rm = TRUE),
+      n_species   = as.numeric(uniqueN(specieskey))
+    ), by = .(eeacellcode)]
+    cs[, basisofrecord := "all"]
+    results$cell_summary <- as_tibble(cs)
+    cli_alert_success("{scope_label} cell summary: {scales::comma(nrow(cs))} cells")
+
+    # 5. Cell recency
+    global_max <- max(dt$yearmonth, na.rm = TRUE)
+    if (!is.na(global_max) && !is.infinite(global_max)) {
+      latest_date <- as.Date(paste0(
+        substr(as.character(global_max), 1, 4), "-",
+        substr(as.character(global_max), 5, 6), "-01"
+      ))
+      cr <- dt[, .(
+        max_yearmonth = ifelse(all(is.na(yearmonth)), NA_integer_, max(yearmonth, na.rm = TRUE))
+      ), by = .(eeacellcode)]
+      cr[, staleness_months := {
+        cell_d <- as.Date(paste0(
+          substr(as.character(max_yearmonth), 1, 4), "-",
+          substr(as.character(max_yearmonth), 5, 6), "-01"
+        ))
+        as.numeric(difftime(latest_date, cell_d, units = "days")) / 30.44
+      }]
+      cr[is.na(max_yearmonth), staleness_months := NA_real_]
+    } else {
+      cr <- dt[, .(max_yearmonth = NA_integer_, staleness_months = NA_real_), by = .(eeacellcode)]
+    }
+    cr[, basisofrecord := "all"]
+    results$cell_recency <- as_tibble(cr)
+    cli_alert_success("{scope_label} cell recency: {scales::comma(nrow(cr))} cells")
+
+    # 6. Spatial gaps (per-basis + "all") — zero-filled to match grid
+    # Get all grid cells from the loaded grid (must exist in shiny_data)
+    all_cells <- if (!is.null(shiny_data$grid_10km)) {
+      as.character(shiny_data$grid_10km$eeacellcode)
+    } else {
+      unique(dt$eeacellcode)
+    }
+    all_basis <- unique(dt$basisofrecord)
+
+    # Per-basis: aggregate, then zero-fill
+    sg_basis <- dt[, .(
+      occurrences = sum(occ_num, na.rm = TRUE),
+      n_species   = as.numeric(uniqueN(specieskey))
+    ), by = .(eeacellcode, basisofrecord)]
+
+    # Create complete grid: every cell × every basis type
+    complete_grid <- as.data.table(expand.grid(
+      eeacellcode = all_cells,
+      basisofrecord = all_basis,
+      stringsAsFactors = FALSE
+    ))
+    sg_basis <- merge(complete_grid, sg_basis, by = c("eeacellcode", "basisofrecord"), all.x = TRUE)
+    sg_basis[is.na(occurrences), occurrences := 0]
+    sg_basis[is.na(n_species), n_species := 0]
+    sg_basis[, has_data := occurrences > 0]
+
+    # "all" basis: aggregate across basis types per cell, zero-fill
+    sg_all <- dt[, .(
+      occurrences = sum(occ_num, na.rm = TRUE),
+      n_species   = as.numeric(uniqueN(specieskey))
+    ), by = .(eeacellcode)]
+    sg_all_complete <- data.table(eeacellcode = all_cells)
+    sg_all <- merge(sg_all_complete, sg_all, by = "eeacellcode", all.x = TRUE)
+    sg_all[is.na(occurrences), occurrences := 0]
+    sg_all[is.na(n_species), n_species := 0]
+    sg_all[, `:=`(basisofrecord = "all", has_data = occurrences > 0)]
+
+    results$spatial_gaps <- as_tibble(
+      rbindlist(list(sg_basis, sg_all), use.names = TRUE, fill = TRUE)
+    )
+    cli_alert_success("{scope_label} spatial gaps: {scales::comma(nrow(results$spatial_gaps))} rows ({length(all_basis) + 1} basis types, {length(all_cells)} cells)")
+
+    # 7. Basis recent splits (observed + published last 12 months)
+    br <- dt[, .(
+      occ_total     = sum(occ_num, na.rm = TRUE),
+      occ_last_year = sum(occ_num[!is.na(yearmonth) & yearmonth >= recent_cutoff_ym], na.rm = TRUE),
+      occ_prior     = sum(occ_num[is.na(yearmonth) | yearmonth < recent_cutoff_ym], na.rm = TRUE),
+      pub_last_year = sum(occ_num[!is.na(yearmonth_pub) & yearmonth_pub >= recent_cutoff_ym], na.rm = TRUE),
+      pub_prior     = sum(occ_num[is.na(yearmonth_pub) | yearmonth_pub < recent_cutoff_ym], na.rm = TRUE),
+      n_species     = as.numeric(uniqueN(specieskey))
+    ), by = .(basisofrecord)]
+
+    br_all <- dt[, .(
+      occ_total     = sum(occ_num, na.rm = TRUE),
+      occ_last_year = sum(occ_num[!is.na(yearmonth) & yearmonth >= recent_cutoff_ym], na.rm = TRUE),
+      occ_prior     = sum(occ_num[is.na(yearmonth) | yearmonth < recent_cutoff_ym], na.rm = TRUE),
+      pub_last_year = sum(occ_num[!is.na(yearmonth_pub) & yearmonth_pub >= recent_cutoff_ym], na.rm = TRUE),
+      pub_prior     = sum(occ_num[is.na(yearmonth_pub) | yearmonth_pub < recent_cutoff_ym], na.rm = TRUE),
+      n_species     = as.numeric(uniqueN(specieskey))
+    )]
+    br_all[, basisofrecord := "all"]
+
+    results$basis_recent <- as_tibble(
+      rbindlist(list(br, br_all), use.names = TRUE)
+    )
+    cli_alert_success("{scope_label} basis recent: {nrow(results$basis_recent)} basis types")
+
+    results
+  }
+
+  # === Compute for both scopes ===
+  dyntaxa_results <- compute_scope_summaries(dyn_dt, "Dyntaxa")
+  all_results     <- compute_scope_summaries(cube_dt, "All GBIF")
+
+  # Store Dyntaxa versions
+  shiny_data$dyntaxa_time_summary        <- dyntaxa_results$time_summary
+  shiny_data$dyntaxa_order_time_summary  <- dyntaxa_results$order_time_summary
+  shiny_data$dyntaxa_family_time_summary <- dyntaxa_results$family_time_summary
+  shiny_data$dyntaxa_cell_summary        <- dyntaxa_results$cell_summary
+  shiny_data$dyntaxa_cell_recency        <- dyntaxa_results$cell_recency
+  shiny_data$dyntaxa_spatial_gaps        <- dyntaxa_results$spatial_gaps
+  shiny_data$dyntaxa_basis_recent        <- dyntaxa_results$basis_recent
+
+  # Store All GBIF versions
+  shiny_data$all_basis_recent            <- all_results$basis_recent
+
+  # Clean up cube
+  rm(cube_dt, dyn_dt, dyntaxa_results, all_results); gc()
 
 } else {
-  cli_alert_info("Parquet cube or reconciliation not found — Dyntaxa-filtered summaries not computed")
+  cli_alert_info("Parquet cube or reconciliation not found — scope-filtered summaries not computed")
 }
 
 # ===========================================================================
@@ -968,47 +1107,44 @@ if (!is.null(family_time_summary)) {
 
 cli_h2("Computing Last 12 Months (Recent Delta) Data")
 
-# Determine the 12-month cutoff from the data
-recent_cutoff_ym <- NULL
-recent_label <- NULL
+# recent_cutoff_ym and recent_label may already be set by section 5d.
+# Only recompute if they weren't (e.g. if parquet cube was not available).
+if (!exists("recent_cutoff_ym") || is.null(recent_cutoff_ym)) {
+  if (!is.null(shiny_data$time_summary_10km)) {
+    ts_all <- shiny_data$time_summary_10km |> filter(basisofrecord == "all")
 
-if (!is.null(shiny_data$time_summary_10km)) {
-  ts_all <- shiny_data$time_summary_10km |> filter(basisofrecord == "all")
+    if ("yearmonth" %in% names(ts_all)) {
+      all_ym <- sort(unique(as.integer(gsub("-", "", ts_all$yearmonth))))
+    } else {
+      all_ym <- sort(unique(as.integer(paste0(ts_all$year, sprintf("%02d", ts_all$month)))))
+    }
 
-  # Find the latest yearmonth in the data
-  if ("yearmonth" %in% names(ts_all)) {
-    all_ym <- sort(unique(as.integer(gsub("-", "", ts_all$yearmonth))))
-  } else {
-    # Derive from year + month
-    all_ym <- sort(unique(as.integer(paste0(ts_all$year, sprintf("%02d", ts_all$month)))))
+    if (length(all_ym) > 0) {
+      latest_ym <- max(all_ym)
+      latest_year <- as.integer(substr(as.character(latest_ym), 1, 4))
+      latest_month <- as.integer(substr(as.character(latest_ym), 5, 6))
+      cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-% months(11)
+      recent_cutoff_ym <- as.integer(format(cutoff_date, "%Y%m"))
+      recent_label <- paste0(
+        format(cutoff_date, "%b %Y"), " \u2013 ",
+        format(as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")), "%b %Y")
+      )
+    }
   }
 
-  if (length(all_ym) > 0) {
-    latest_ym <- max(all_ym)
-    latest_year <- as.integer(substr(as.character(latest_ym), 1, 4))
-    latest_month <- as.integer(substr(as.character(latest_ym), 5, 6))
-
-    # 12 months before the latest data point
-    cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-% months(11)
-    recent_cutoff_ym <- as.integer(format(cutoff_date, "%Y%m"))
-
-    # Human-readable label
-    recent_label <- paste0(
-      format(cutoff_date, "%b %Y"), " – ",
-      format(as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")), "%b %Y")
-    )
+  if (!exists("recent_cutoff_ym") || is.null(recent_cutoff_ym)) {
+    recent_cutoff_ym <- as.integer(paste0(year(Sys.Date()) - 1, "01"))
+    recent_label <- paste0(year(Sys.Date()) - 1)
+    cli_alert_warning("Could not determine recent period from data, defaulting to {recent_label}")
   }
+
+  shiny_data$last_year <- recent_cutoff_ym
+  shiny_data$recent_label <- recent_label
+} else {
+  # Already computed in section 5d
+  recent_label <- shiny_data$recent_label %||% as.character(recent_cutoff_ym)
 }
 
-if (is.null(recent_cutoff_ym)) {
-  # Fallback: use last calendar year
-  recent_cutoff_ym <- as.integer(paste0(year(Sys.Date()) - 1, "01"))
-  recent_label <- paste0(year(Sys.Date()) - 1)
-  cli_alert_warning("Could not determine recent period from data, defaulting to {recent_label}")
-}
-
-shiny_data$last_year <- recent_cutoff_ym  # now a yearmonth, not a year
-shiny_data$recent_label <- recent_label
 cli_alert_info("Recent period: {recent_label} (yearmonth cutoff: {recent_cutoff_ym})")
 
 # ---- 8b.1  TAXONOMIC: Recent period splits for order/family/class/kingdom ----

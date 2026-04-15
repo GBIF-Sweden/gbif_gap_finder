@@ -1,16 +1,19 @@
 # scripts/03_ingest_taxonomy.R
 # ============================================================================
-# Taxonomy Ingestion: National Backbone + Red List Threat Status
+# Taxonomy Ingestion: National Backbone + Red List + Invasives + Sensitive
 # ============================================================================
 # Purpose:
-#   Read and standardise the national taxonomy backbone (primary) and
-#   national red list (secondary, for threat status enrichment).
+#   Read and standardise the national taxonomy backbone (primary),
+#   national red list (secondary, for threat status enrichment),
+#   invasive species registry, and sensitive species list.
 #   Produces a unified taxa reference table used by all downstream
 #   analysis scripts.
 #
 # Inputs:
 #   - data/{CC}/raw/taxonomy/ (Taxon.csv + SpeciesDistribution.csv)
 #   - data/{CC}/raw/redlist/  (taxon.txt + distribution.txt, optional)
+#   - data/{CC}/raw/invasives/ (taxon.txt + distribution.txt, optional)
+#   - data/{CC}/raw/sensitive/ (taxon.txt + distribution.txt, optional)
 #
 # Outputs (in data/{CC}/proc/):
 #   - <taxonomy>_taxon_current.rds
@@ -652,6 +655,149 @@ cli_alert_info(
   "GBIF species NOT in this reference will be marked in_dyntaxa = FALSE in script 09a"
 )
 
+# 3.3d Enrich with sensitive species status ----------------------------------
+
+cli_h2("Enriching with Sensitive Species Status")
+
+dir_sensitive <- if (exists("raw_sensitive_dir")) {
+  here(raw_sensitive_dir)
+} else {
+  here(p_data_raw, "sensitive")
+}
+sensitive_enabled_flag <- cfg_get("sensitive.enabled", FALSE)
+
+# Input files for sensitive species checklist
+file_sensitive_taxon <- cfg_get("files.sensitive.sensitive_taxon", "taxon.txt")
+file_sensitive_distr <- cfg_get("files.sensitive.sensitive_distr", "distribution.txt")
+
+sensitive_taxon_path <- file.path(dir_sensitive, file_sensitive_taxon)
+sensitive_distr_path <- file.path(dir_sensitive, file_sensitive_distr)
+
+sensitive_available <- sensitive_enabled_flag &&
+  file.exists(sensitive_taxon_path)
+
+if (sensitive_available) {
+
+  cli_alert_info("Reading sensitive species checklist")
+
+  sensitive_taxon <- read_table_safe(sensitive_taxon_path) |>
+    rename_to_dwc()
+
+  cli_alert_success(
+    "Sensitive species checklist: {scales::comma(nrow(sensitive_taxon))} rows"
+  )
+
+  # Read distribution for sensitivity category (generalization level)
+  sensitivity_category_col <- NULL
+  if (file.exists(sensitive_distr_path)) {
+    sensitive_distr <- read_table_safe(sensitive_distr_path) |>
+      rename_to_dwc()
+
+    cli_alert_info(
+      "Sensitive distribution: {scales::comma(nrow(sensitive_distr))} rows, {ncol(sensitive_distr)} columns"
+    )
+    cli_alert_info(
+      "Columns: {paste(names(sensitive_distr), collapse = ', ')}"
+    )
+
+    # Join distribution onto taxonomy
+    sens_join_key <- case_when(
+      "taxonID" %in% names(sensitive_taxon) &
+        "taxonID" %in% names(sensitive_distr) ~ "taxonID",
+      "id" %in% names(sensitive_taxon) &
+        "id" %in% names(sensitive_distr) ~ "id",
+      TRUE ~ NA_character_
+    )
+
+    if (!is.na(sens_join_key)) {
+      sens_distr_cols <- c(sens_join_key) |>
+        c(intersect(
+          names(sensitive_distr),
+          c("locationGeneralizationInMeters", "generalizationInMeters",
+            "coordinateUncertaintyInMeters", "establishmentMeans",
+            "occurrenceStatus", "threatStatus", "occurrenceRemarks",
+            "eventRemarks", "taxonRemarks")
+        ))
+
+      sensitive_taxon <- sensitive_taxon |>
+        left_join(
+          sensitive_distr |> select(any_of(sens_distr_cols)),
+          by = sens_join_key
+        )
+    }
+  } else {
+    cli_alert_info("No distribution file — checking taxon file for sensitivity category")
+  }
+
+  # Try to identify the sensitivity category column
+  # Priority: dedicated generalization columns > taxonRemarks (which SLU uses for "5km"/"25km"/"50km")
+  gen_cols <- intersect(
+    names(sensitive_taxon),
+    c("locationGeneralizationInMeters", "generalizationInMeters",
+      "coordinateUncertaintyInMeters")
+  )
+  if (length(gen_cols) > 0) {
+    sensitivity_category_col <- gen_cols[1]
+  } else if ("taxonRemarks" %in% names(sensitive_taxon)) {
+    # SLU Artdatabanken stores sensitivity as "5km", "25km", "50km" in taxonRemarks
+    remarks <- sensitive_taxon$taxonRemarks
+    is_sensitivity_value <- grepl("^\\d+\\s*km$", remarks, ignore.case = TRUE)
+    if (sum(is_sensitivity_value, na.rm = TRUE) > nrow(sensitive_taxon) * 0.5) {
+      sensitivity_category_col <- "taxonRemarks"
+      cli_alert_info("Using taxonRemarks as sensitivity category (SLU format)")
+    }
+  }
+
+  if (!is.null(sensitivity_category_col)) {
+    cli_alert_info("Sensitivity category column: {sensitivity_category_col}")
+    cat_summary <- sensitive_taxon |>
+      count(.data[[sensitivity_category_col]], sort = TRUE)
+    cli_alert_info("Sensitivity categories:")
+    print(cat_summary)
+  }
+
+  # Create sensitive species lookup by scientificName
+  sensitive_lookup <- sensitive_taxon |>
+    filter(!is.na(scientificName)) |>
+    distinct(scientificName, .keep_all = TRUE) |>
+    mutate(is_sensitive = TRUE)
+
+  # Include sensitivity category if available
+  if (!is.null(sensitivity_category_col)) {
+    sensitive_lookup <- sensitive_lookup |>
+      select(scientificName, is_sensitive,
+             sensitivity_category = all_of(sensitivity_category_col))
+  } else {
+    sensitive_lookup <- sensitive_lookup |>
+      select(scientificName, is_sensitive)
+  }
+
+  cli_alert_info(
+    "Sensitive species lookup: {scales::comma(nrow(sensitive_lookup))} taxa"
+  )
+
+  # Join to taxa_reference
+  taxa_reference <- taxa_reference |>
+    left_join(sensitive_lookup, by = "scientificName") |>
+    mutate(is_sensitive = replace_na(is_sensitive, FALSE))
+
+  # Fill sensitivity_category NA for non-sensitive species
+  if ("sensitivity_category" %in% names(taxa_reference)) {
+    taxa_reference <- taxa_reference |>
+      mutate(sensitivity_category = replace_na(sensitivity_category, NA_character_))
+  }
+
+  n_sensitive_matched <- sum(taxa_reference$is_sensitive, na.rm = TRUE)
+  cli_alert_success(
+    "Matched: {scales::comma(n_sensitive_matched)} taxa flagged as sensitive"
+  )
+
+} else {
+  cli_alert_info("Sensitive species list not configured or not found \u2014 skipping")
+  taxa_reference <- taxa_reference |>
+    mutate(is_sensitive = FALSE)
+}
+
 # Taxonomic status summary
 if ("taxonomicStatus" %in% names(taxa_reference)) {
   status_summary <- taxa_reference |>
@@ -717,7 +863,7 @@ core_columns <- c(
   "country", "countryCode", "occurrenceStatus",
   "establishmentMeans",
   "threatStatus_backbone", "threatStatus_redlist",
-  "is_invasive", "in_dyntaxa",
+  "is_invasive", "is_sensitive", "sensitivity_category", "in_dyntaxa",
 
   # Metadata
   "taxonomic_backbone", "backbone_version", "backbone_doi",
@@ -863,6 +1009,8 @@ validation_checks <- list(
     "threatStatus_backbone" %in% names(taxa_reference_clean),
   "threatStatus_redlist present" =
     "threatStatus_redlist" %in% names(taxa_reference_clean),
+  "is_sensitive present" =
+    "is_sensitive" %in% names(taxa_reference_clean),
   "No duplicate taxonIDs" =
     if ("taxonID" %in% names(taxa_reference_clean)) {
       !anyDuplicated(taxa_reference_clean$taxonID)

@@ -40,33 +40,35 @@ The full pipeline runs end-to-end for Sweden:
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Data ingestion (scripts 01–04) | ✅ Complete | SQL API cubes → parquet, shared EEA grids, GADM admin |
+| Data ingestion (scripts 01–04) | ✅ Complete | SQL API cubes → parquet, shared EEA grids, GADM admin, MJD year_published fix |
 | Invasive species integration | ✅ Complete | Swedish Invasive Species Registry (DwC-A), `is_invasive` flag |
+| Sensitive species integration | ✅ Complete | SLU Artdatabanken restricted access list (203 spp), `is_sensitive` flag + `sensitivity_category` |
 | Validation (script 05) | ✅ Complete | Parquet validation, column checks |
-| Core summaries (scripts 06a, 06b) | ✅ Complete | Cell, time, order, family, species, publisher summaries |
+| Core summaries (scripts 06a, 06b) | ✅ Complete | Dual-scope: full + `_dyntaxa` variants; taxonomy flags on species summaries |
 | Spatial gaps (script 07) | ✅ Complete | Coverage, hotspots, zero-data cells |
 | Temporal gaps (script 08) | ✅ Complete | Recency from parquet, seasonality, trends |
-| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, `in_dyntaxa` + `is_invasive` flags |
+| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, `in_dyntaxa` + `is_invasive` + `is_sensitive` flags |
 | Taxonomic gaps (script 09b) | ✅ Complete | Missing taxa, threat coverage, establishment means coverage |
 | Integration (script 10) | ✅ Complete | Combined overview tables |
 | Gap Analysis app (script 11 + Shiny) | ✅ Complete | Dyntaxa/All GBIF toggle, kingdom spatial filter, heatmap scale, about sections |
 | Biodiversity Explorer app (script 12 + Shiny) | ✅ Complete | i18n (EN/SV), vernacular names, invasive species tab |
 | R Markdown reports (analysis 01–08) | ✅ Complete | 8 reports including establishment means |
 | targets pipeline | ✅ Complete | Full DAG with `tar_make()`, download target, parquet-aware |
-| Configuration system | ✅ Complete | Country-aware `configs/config_{CC}.yml`, shared grids, invasives config |
+| Configuration system | ✅ Complete | Country-aware `configs/config_{CC}.yml`, shared grids, invasives + sensitive config |
 
 ## Key Technical Achievements
 
 - **Parquet-based pipeline** — single SQL API cube per resolution (16 columns including publisher, dataset, publication date), replacing 18 FST files per basis of record
 - **Country-aware architecture** — `data/{CC}/` folder structure, `configs/config_{CC}.yml`, shared EEA grids in `data/shared/grids/`
 - **Taxonomy reconciliation** went from 31% to 99.8% occurrence coverage through a 4-tier matching system
-- **Three-layer taxonomy**: Dyntaxa backbone + Red List threat status + Invasive Species Registry, unified via `in_dyntaxa` and `is_invasive` flags
+- **Four-layer taxonomy**: Dyntaxa backbone + Red List threat status + Invasive Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasive`, and `is_sensitive` flags
+- **Dual-scope summaries** — every core summary (cell, time, order, family, publisher) produced in both full-GBIF and Dyntaxa-scoped variants, with `exclude_orders` config support (e.g. Primates)
 - **Dyntaxa/All GBIF scope toggle** — gap metrics only shown when Dyntaxa backbone is active; "All GBIF" mode shows overview without gap metrics
 - **Kingdom-level spatial filtering** — recency maps can be filtered by kingdom to reveal patterns hidden by bird-dominated data
 - **Publisher analysis** — publisher summary, single-publisher cell dependency, published vs observed time
 - **Troudet-style sampling bias** at class, order, and family levels with hierarchical auto-drill
-- **Cascading taxonomy filters** (Kingdom→Phylum→Class→Order→Family) across app tabs
-- **Rolling 12-month window** — observations dated vs published to GBIF
+- **Cascading taxonomy filters** (Kingdom→Phylum→Class→Order→Family) across app tabs with active filter breadcrumb
+- **Rolling 12-month window** — observations dated vs published to GBIF (year_published via MJD conversion)
 - **Heatmap scale toggle** — log, linear, and annotated count views for temporal heatmaps
 - **Expandable About descriptions** on every tab, following the GBIF Country Metrics style
 - **Administrative boundaries** from GADM with map overlays and regional filtering
@@ -95,41 +97,61 @@ The full pipeline runs end-to-end for Sweden:
 - [x] Config system updated for invasives (SE, NO, template)
 - [x] Published Over Time chart fix (year_published type casting)
 
-## 1.3 App Features ✅
+## 1.3 Sensitive Species & Dual-Scope Summaries ✅
 
-- [x] Cascading taxonomy filters (Kingdom→Phylum→Class→Order→Family) — gap app
-- [x] Troudet-style taxonomic sampling bias figure — gap app + reports
-- [x] Rolling 12-month window for "recent activity" highlighting — app + reports
-- [x] Administrative boundary overlays (GADM) — both apps + reports
-- [x] Consistent categorical color palette across app and reports
-- [x] Data staleness/recency maps in spatial report
-- [x] SpeciesDistribution.csv integration (native/introduced/invasive scope filtering)
-- [x] Explorer app UI polish and regional data filtering
-- [x] Explorer app Swedish/native language UI (i18n)
-- [x] Invasive species tab in Explorer app
-- [x] Scope filter on taxonomic + threatened tabs (both apps)
-- [x] Priorities tab rewrite with goal-oriented actions + 12-month targets
-- [x] Establishment means R Markdown report (08)
-- [x] Publisher tab in gap app
-- [x] About/methodology sections on all tabs (expandable, GBIF Country Metrics style)
-- [x] Heatmap log/linear/count scale toggle
-- [x] Kingdom filter on spatial recency map
+- [x] Sensitive species list integration (SLU Artdatabanken, 203 species)
+  - Download via script 01, ingest via script 03
+  - `is_sensitive` flag + `sensitivity_category` (5km/25km/50km from taxonRemarks)
+  - Propagated through 06a → 06b → 09a → 11 → app
+- [x] New GBIF cubes with `year_published` fix
+  - GBIF SQL API returns MJD (Modified Julian Date), not integer year
+  - Script 04 converts via `as.Date(x, origin = "1858-11-17")`
+  - Controlled by `parameters.taxonomic.year_published_format: "mjd"` in config
+- [x] Dual-scope summaries in script 06a
+  - `write_dual_scope()` produces both full and `_dyntaxa` file variants
+  - Taxonomy lookup joined at cube level (species name → `in_dyntaxa`, `is_invasive`, `is_sensitive`)
+  - `exclude_orders` config applied at lookup level (e.g. Primates)
+- [x] Taxonomy flags carried through species summaries in script 06b
+  - `in_dyntaxa`, `is_invasive`, `is_sensitive`, `establishmentMeans` in every output CSV
+- [x] Primates exclusion: `parameters.taxonomic.exclude_orders: ["Primates"]` in config + app
+- [x] Filter breadcrumb on Taxonomic tab (shows active filter path with clear button)
+- [x] Updated all configs (SE, NO, template), globals.R, README
 
-## 1.4 Remaining Sweden Work
+## 1.4 App Tab Review (In Progress)
 
-- [ ] Dyntaxa filter bug: Primates (Homo sapiens) slipping through scope filter — investigate `establishmentMeans` values
-- [ ] Restricted species obfuscation (requires ArtDatabanken sensitivity classifications)
-- [ ] Default kingdom view on Taxonomic tab matching GBIF country page
+Tab-by-tab feedback and refinement of the Gap Analysis app:
+
+- [x] Spatial tab — reviewed and complete
+- [x] Temporal tab — reviewed and complete
+- [x] Basis of Record tab — reviewed and complete
+- [ ] Taxonomic tab — in progress:
+  - [x] Filter breadcrumb (item 6)
+  - [x] Primates exclusion (item 1)
+  - [ ] Troudet multi-select exclusion filter (e.g. exclude Aves from bias chart)
+  - [ ] Default GBIF-style groups on Troudet landing view (curated mixed-rank mapping)
+- [ ] Species of Concern tab — **new tab replacing Threatened** (sub-tabs: Threatened, Invasive, Sensitive)
+- [ ] Publishers tab — review pending
+- [ ] Priorities tab — review pending (integrate sampling bias data)
+- [ ] Overview tab — review pending
+
+## 1.5 Remaining Sweden Work
+
+- [ ] **Species of Concern tab** — merge Threatened + Invasive + Sensitive into one tab with sub-tabs:
+  - Threatened sub-tab: lift from current Threatened tab (coverage by CR/EN/VU/NT/DD, missing species table)
+  - Invasive sub-tab: monitoring coverage, spatial concentration, temporal trends, over-/under-representation
+  - Sensitive sub-tab: breakdown by sensitivity category (5/25/50km), taxonomic distribution, data quality impact
+- [ ] **Troudet exclusion filter** — multi-select input to remove dominant groups (e.g. Aves) from bias chart
+- [ ] **Default GBIF-style groups** — curated mixed-rank mapping table for Troudet landing view (Birds, Mammals, Insects, Vascular Plants, Fungi, etc.)
+- [ ] **Script 11 optimization** — replace cube re-aggregation (section 5d) with pre-computed `_dyntaxa` files from 06a
 - [ ] Publisher type classification (citizen science, museums, universities, agencies)
 - [ ] Basis of record "last 12 months" per-basis breakdown
 - [ ] Climate correlation on temporal tab (SMHI gridded data — deferred to v2)
-- [ ] Default scope change to "Present only"
-- [ ] Color blind accessibility audit
+- [ ] Color blind accessibility audit (per-chart, not wholesale palette swap)
 - [ ] Bar titles in downloaded images when >20 groups
 - [ ] PhyloPic taxonomic silhouette icons — *parked*
 - [ ] 1km grid resolution option — *requires evaluation*
 
-## 1.5 Code Quality
+## 1.6 Code Quality
 
 - [ ] Consistent `|>` pipe syntax throughout (currently mixed `|>` and `%>%`)
 - [ ] Remove dead code and commented-out sections
@@ -335,11 +357,11 @@ with a country selector, nightly data refreshes, and consistent branding.
 
 - [x] Sampling bias quantification (Troudet-style proportional sampling analysis)
 - [x] Invasive species integration (national registries as DwC-A)
+- [x] Restricted species integration (sensitive species list with generalization categories)
 - [ ] Species distribution model coverage gaps
 - [ ] Temporal trend predictions and forecasting
 - [ ] Climate envelope coverage analysis (SMHI / Copernicus gridded data)
 - [ ] Cross-country comparison mode
-- [ ] Restricted species obfuscation (ArtDatabanken sensitivity classifications)
 
 ## App Features
 
@@ -354,6 +376,11 @@ with a country selector, nightly data refreshes, and consistent branding.
 - [x] Heatmap log/linear/count scale toggle
 - [x] Expandable About descriptions on every tab
 - [x] Publisher tab with dependency analysis and mobilisation timeline
+- [x] Active filter breadcrumb with clear button
+- [x] Primates/configurable order exclusion
+- [ ] Species of Concern tab (Threatened + Invasive + Sensitive sub-tabs)
+- [ ] Troudet group exclusion multi-select
+- [ ] GBIF-style default group mapping for Troudet landing view
 - [ ] PhyloPic taxonomic silhouette icons on charts
 - [ ] PDF report generation from within apps
 - [ ] Data download buttons for all tables and maps
@@ -378,19 +405,20 @@ with a country selector, nightly data refreshes, and consistent branding.
 5. **Branding** — Should apps be GBIF-branded or node-branded?
 6. **1km resolution** — Is sub-10km resolution needed? Major architectural implications for data volume.
 7. **Unicellular organisms** — Currently excluded from gap analysis (no Dyntaxa coverage). Monitor for future checklists.
-8. **Restricted species** — What data source for sensitivity classifications? ArtDatabanken API or static list?
+8. **Restricted species** — ✅ Resolved: SLU Artdatabanken publishes a DwC-A checklist with sensitivity categories in `taxonRemarks`. Integrated as `is_sensitive` flag with `sensitivity_category` (5km/25km/50km).
 
 
 # Timeline
 
 | Quarter | Milestone |
 |---------|-----------|
-| Q1 2026 | Phase 1 complete — Sweden polished and documented |
-| Q2 2026 | Phase 2 complete — Norway running, config system refined |
-| Q2 2026 | Phase 3 started — Ethiopia grid abstraction |
+| Q1 2026 | Phase 1.1–1.3 complete — pipeline hardened, dual-scope, sensitive species |
+| Q2 2026 | Phase 1.4–1.5 complete — all app tabs reviewed and polished |
+| Q2 2026 | Phase 2 started — Norway replication |
+| Q3 2026 | Phase 3 started — Ethiopia grid abstraction |
 | Q3 2026 | Phase 4 — Package skeleton with core API |
 | Q4 2026 | Phase 5 — First public release, pkgdown site |
-| 2027 | Phase 6 — Community adoption, advanced features |
+| 2027    | Phase 6 — Community adoption, advanced features |
 
 ---
 

@@ -52,7 +52,7 @@ list(
   # Phase 1: Data Ingestion
   # ==========================================================================
 
-  # 1.0 Download raw data — taxonomy, red list, invasives, admin (script 01)
+  # 1.0 Download raw data — taxonomy, red list, invasives, sensitive, admin (script 01)
   tar_target(
     raw_data,
     {
@@ -79,7 +79,7 @@ list(
     format = "file"
   ),
 
-  # 1.2 Ingest taxonomy backbone + red list + invasives (script 03)
+  # 1.2 Ingest taxonomy backbone + red list + invasives + sensitive (script 03)
   tar_target(
     taxa_reference,
     {
