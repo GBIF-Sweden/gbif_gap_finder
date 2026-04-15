@@ -608,7 +608,7 @@ cli_h2("Enriching with higher taxonomy from matched backbone taxa")
 taxa_hier_cols <- intersect(
   c("taxonID", "taxonRank", "kingdom", "phylum", "class", "order", "family",
     "threatStatus_backbone", "threatStatus_redlist",
-    "is_invasive", "in_dyntaxa",
+    "is_invasive", "is_sensitive", "in_dyntaxa",
     "establishmentMeans", "occurrenceStatus"),
   names(accepted_taxa)
 )
@@ -645,10 +645,19 @@ if (!"is_invasive" %in% names(recon)) {
   recon[is.na(is_invasive), is_invasive := FALSE]
 }
 
+# Ensure is_sensitive column exists (FALSE for unmatched/non-sensitive)
+if (!"is_sensitive" %in% names(recon)) {
+  recon[, is_sensitive := FALSE]
+} else {
+  recon[is.na(is_sensitive), is_sensitive := FALSE]
+}
+
 n_in_dyntaxa <- sum(recon$in_dyntaxa)
 n_invasive   <- sum(recon$is_invasive)
+n_sensitive  <- sum(recon$is_sensitive)
 cli_alert_info("in_dyntaxa: {scales::comma(n_in_dyntaxa)} / {scales::comma(nrow(recon))}")
 cli_alert_info("is_invasive: {scales::comma(n_invasive)} species flagged")
+cli_alert_info("is_sensitive: {scales::comma(n_sensitive)} species flagged")
 
 
 # ============================================================================

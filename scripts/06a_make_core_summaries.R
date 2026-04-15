@@ -4,23 +4,31 @@
 # ============================================================================
 # Purpose:
 #   Create aggregate summary tables from GBIF parquet cubes.
+#   Each summary is produced in TWO scopes:
+#     - Full scope (all GBIF data)        → <name>_<grid>.csv
+#     - Dyntaxa scope (backbone species)   → <name>_dyntaxa_<grid>.csv
+#
+#   The Dyntaxa scope is determined by joining cube species to the taxa
+#   reference from script 03 (via specieskey → scientificName matching).
+#   Species not in the national backbone are excluded.
 #
 # GRID LOOKUPS:
 #   - grid_lookup_10km.csv   Maps poly_id → eeacellcode
 #   - grid_lookup_50km.csv
 #
-# CORE SUMMARIES:
+# CORE SUMMARIES (× 2 scopes):
 #   - cell_summary_<grid>.csv         Cell × basis
 #   - time_summary_<grid>.csv         Yearmonth × basis
 #   - cell_time_summary_<grid>.csv    Cell × yearmonth × basis
 #   - order_cell_summary_<grid>.csv   Order × cell × basis
 #   - order_time_summary_<grid>.csv   Order × yearmonth × basis
 #   - family_time_summary_<grid>.csv  Family × yearmonth × basis
-#   - publisher_summary_<grid>.csv    Publisher × basis (NEW)
+#   - publisher_summary_<grid>.csv    Publisher × basis
 #   - cube_key_summary.csv            File-level stats
 #
 # Inputs:  data/{CC}/proc/cubes/*.parquet (from 04)
 #          data/{CC}/proc/grids_*.gpkg (from 02)
+#          data/{CC}/proc/taxa_reference_current.rds (from 03)
 # Outputs: data/{CC}/proc/derived/*.csv
 #
 # Dependencies: scripts/00_setup.R, data.table, arrow, sf
@@ -52,6 +60,92 @@ MAKE_PUBLISHER_SUMMARY <- TRUE
 
 # p_cubes, p_derived are defined in R/globals.R
 dir.create(p_derived, showWarnings = FALSE, recursive = TRUE)
+
+# ============================================================================
+# Load Taxonomy Lookup (for Dyntaxa scoping)
+# ============================================================================
+# Build a lightweight lookup from the taxa reference so we can tag each cube
+# row with in_dyntaxa, is_invasive, is_sensitive, and establishmentMeans.
+# The join is on scientificName (= species column in the cube).
+
+taxa_ref_path <- here(p_data_proc, "taxa_reference_current.rds")
+has_taxa_ref <- file.exists(taxa_ref_path)
+
+if (has_taxa_ref) {
+  cli_h2("Loading Taxonomy Lookup")
+  taxa_ref <- readRDS(taxa_ref_path)
+
+  # Build lookup: one row per unique scientificName (accepted species only)
+  taxa_lookup <- as.data.table(taxa_ref)[
+    taxonomicStatus == "accepted" | is.na(taxonomicStatus)
+  ][, .(
+    in_dyntaxa = TRUE,
+    is_invasive = any(is_invasive, na.rm = TRUE),
+    is_sensitive = if ("is_sensitive" %in% names(taxa_ref))
+      any(is_sensitive, na.rm = TRUE) else FALSE,
+    establishmentMeans = first(na.omit(establishmentMeans))
+  ), by = .(scientificName)]
+
+  # Exclude orders from config (e.g., Primates)
+  exclude_orders <- cfg_get("parameters.taxonomic.exclude_orders", character(0))
+  if (length(exclude_orders) > 0) {
+    excluded_species <- as.data.table(taxa_ref)[
+      order %in% exclude_orders, unique(scientificName)
+    ]
+    taxa_lookup <- taxa_lookup[!scientificName %in% excluded_species]
+    cli_alert_info("Excluded {length(excluded_species)} species from orders: {paste(exclude_orders, collapse = ', ')}")
+  }
+
+  cli_alert_success("Taxa lookup: {scales::comma(nrow(taxa_lookup))} species")
+  rm(taxa_ref); gc()
+} else {
+  cli_alert_warning("No taxa reference found at {.path {taxa_ref_path}}")
+  cli_alert_warning("Dyntaxa-scoped summaries will NOT be produced")
+  taxa_lookup <- NULL
+}
+
+#' Tag a cube data.table with taxonomy flags via species name join
+#' Returns the dt with in_dyntaxa column added (FALSE for unmatched)
+tag_cube_taxonomy <- function(dt, lookup = taxa_lookup) {
+  if (is.null(lookup) || !"species" %in% names(dt)) return(dt)
+  dt <- merge(dt, lookup, by.x = "species", by.y = "scientificName", all.x = TRUE)
+  dt[is.na(in_dyntaxa), in_dyntaxa := FALSE]
+  dt[is.na(is_invasive), is_invasive := FALSE]
+  dt[is.na(is_sensitive), is_sensitive := FALSE]
+  dt
+}
+
+#' Run a summary function on both full and Dyntaxa-scoped data, write both
+#' @param dt         Tagged data.table (must have in_dyntaxa column)
+#' @param summary_fn Function(dt) that returns a summary data.table
+#' @param filename   Base filename (without _dyntaxa suffix)
+#' @param out_dir    Output directory
+write_dual_scope <- function(dt, summary_fn, filename, out_dir = p_derived) {
+  # Full scope
+  full_result <- summary_fn(dt)
+  fwrite(full_result, here(out_dir, filename))
+  n_full <- nrow(full_result)
+
+  # Dyntaxa scope
+  if ("in_dyntaxa" %in% names(dt) && has_taxa_ref) {
+    dt_dyntaxa <- dt[in_dyntaxa == TRUE]
+    if (nrow(dt_dyntaxa) > 0) {
+      dyntaxa_result <- summary_fn(dt_dyntaxa)
+      dyntaxa_filename <- sub("\\.csv$", "_dyntaxa.csv", filename)
+      fwrite(dyntaxa_result, here(out_dir, dyntaxa_filename))
+      cli_alert_success("{filename}: {scales::comma(n_full)} rows (full) | {scales::comma(nrow(dyntaxa_result))} rows (dyntaxa)")
+      rm(dyntaxa_result)
+    } else {
+      cli_alert_success("{filename}: {scales::comma(n_full)} rows (full) | 0 rows (dyntaxa)")
+    }
+    rm(dt_dyntaxa)
+  } else {
+    cli_alert_success("{filename}: {scales::comma(n_full)} rows")
+  }
+
+  rm(full_result)
+  invisible(NULL)
+}
 
 # ============================================================================
 # Helper Functions
@@ -152,6 +246,13 @@ if (MAKE_CORE_SUMMARIES) {
 
     cli_alert_info("{scales::comma(nrow(dt))} rows loaded")
 
+    # Tag with taxonomy flags
+    dt <- tag_cube_taxonomy(dt)
+    if ("in_dyntaxa" %in% names(dt)) {
+      n_dyntaxa <- sum(dt$in_dyntaxa)
+      cli_alert_info("Dyntaxa-matched rows: {scales::comma(n_dyntaxa)} / {scales::comma(nrow(dt))}")
+    }
+
     # File-level stats
     key_stats[[grid_name]] <- data.table(
       grid = grid_name,
@@ -160,45 +261,47 @@ if (MAKE_CORE_SUMMARIES) {
       n_cells = uniqueN(dt$eeacellcode),
       n_months = uniqueN(dt$yearmonth),
       n_species = uniqueN(dt$specieskey),
+      n_species_dyntaxa = if ("in_dyntaxa" %in% names(dt))
+        uniqueN(dt[in_dyntaxa == TRUE]$specieskey) else NA_integer_,
       n_publishers = if ("publishingorgkey" %in% names(dt)) uniqueN(dt$publishingorgkey) else NA_integer_,
       n_datasets = if ("datasetkey" %in% names(dt)) uniqueN(dt$datasetkey) else NA_integer_
     )
 
     # Cell summary: cell × basis
-    cell_dt <- dt[, .(
-      occurrences = safe_sum(occurrences),
-      n_species = uniqueN(specieskey)
-    ), by = .(grid, basisofrecord, eeacellcode)]
+    make_cell_summary <- function(d) {
+      cell_dt <- d[, .(
+        occurrences = safe_sum(occurrences),
+        n_species = uniqueN(specieskey)
+      ), by = .(grid, basisofrecord, eeacellcode)]
 
-    cell_all <- dt[, .(
-      occurrences = safe_sum(occurrences),
-      n_species = uniqueN(specieskey)
-    ), by = .(grid, eeacellcode)]
-    cell_all[, basisofrecord := "all"]
+      cell_all <- d[, .(
+        occurrences = safe_sum(occurrences),
+        n_species = uniqueN(specieskey)
+      ), by = .(grid, eeacellcode)]
+      cell_all[, basisofrecord := "all"]
 
-    cell_combined <- rbindlist(list(cell_dt, cell_all), use.names = TRUE, fill = TRUE)
-    fwrite(cell_combined, here(p_derived, glue("cell_summary_{grid_suffix}.csv")))
-    cli_alert_success("cell_summary_{grid_suffix}.csv: {scales::comma(nrow(cell_combined))} rows")
-    rm(cell_dt, cell_all, cell_combined)
+      rbindlist(list(cell_dt, cell_all), use.names = TRUE, fill = TRUE)
+    }
+    write_dual_scope(dt, make_cell_summary, glue("cell_summary_{grid_suffix}.csv"))
 
     # Time summary: yearmonth × basis
-    time_dt <- dt[, .(
-      occurrences = safe_sum(occurrences),
-      n_species = uniqueN(specieskey),
-      n_cells = uniqueN(eeacellcode)
-    ), by = .(grid, basisofrecord, yearmonth)]
+    make_time_summary <- function(d) {
+      time_dt <- d[, .(
+        occurrences = safe_sum(occurrences),
+        n_species = uniqueN(specieskey),
+        n_cells = uniqueN(eeacellcode)
+      ), by = .(grid, basisofrecord, yearmonth)]
 
-    time_all <- dt[, .(
-      occurrences = safe_sum(occurrences),
-      n_species = uniqueN(specieskey),
-      n_cells = uniqueN(eeacellcode)
-    ), by = .(grid, yearmonth)]
-    time_all[, basisofrecord := "all"]
+      time_all <- d[, .(
+        occurrences = safe_sum(occurrences),
+        n_species = uniqueN(specieskey),
+        n_cells = uniqueN(eeacellcode)
+      ), by = .(grid, yearmonth)]
+      time_all[, basisofrecord := "all"]
 
-    time_combined <- rbindlist(list(time_dt, time_all), use.names = TRUE, fill = TRUE)
-    fwrite(time_combined, here(p_derived, glue("time_summary_{grid_suffix}.csv")))
-    cli_alert_success("time_summary_{grid_suffix}.csv: {scales::comma(nrow(time_combined))} rows")
-    rm(time_dt, time_all, time_combined)
+      rbindlist(list(time_dt, time_all), use.names = TRUE, fill = TRUE)
+    }
+    write_dual_scope(dt, make_time_summary, glue("time_summary_{grid_suffix}.csv"))
 
     rm(dt); gc()
   }
@@ -221,25 +324,28 @@ if (MAKE_CELL_TIME) {
     pf <- grid_map[[grid_name]]
     cli_h3("{grid_name}")
 
-    dt <- read_cube(pf, cols = c("specieskey", "basisofrecord",
+    dt <- read_cube(pf, cols = c("specieskey", "species", "basisofrecord",
       "eeacellcode", "year", "month", "occurrences"), grid_label = grid_name)
 
-    ct_dt <- dt[, .(
-      occurrences = safe_sum(occurrences),
-      n_species = uniqueN(specieskey)
-    ), by = .(grid, basisofrecord, eeacellcode, yearmonth)]
+    dt <- tag_cube_taxonomy(dt)
 
-    ct_all <- dt[, .(
-      occurrences = safe_sum(occurrences),
-      n_species = uniqueN(specieskey)
-    ), by = .(grid, eeacellcode, yearmonth)]
-    ct_all[, basisofrecord := "all"]
+    make_cell_time <- function(d) {
+      ct_dt <- d[, .(
+        occurrences = safe_sum(occurrences),
+        n_species = uniqueN(specieskey)
+      ), by = .(grid, basisofrecord, eeacellcode, yearmonth)]
 
-    ct_combined <- rbindlist(list(ct_dt, ct_all), use.names = TRUE, fill = TRUE)
-    fwrite(ct_combined, here(p_derived, glue("cell_time_summary_{grid_suffix}.csv")))
-    cli_alert_success("cell_time_summary_{grid_suffix}.csv: {scales::comma(nrow(ct_combined))} rows")
+      ct_all <- d[, .(
+        occurrences = safe_sum(occurrences),
+        n_species = uniqueN(specieskey)
+      ), by = .(grid, eeacellcode, yearmonth)]
+      ct_all[, basisofrecord := "all"]
 
-    rm(dt, ct_dt, ct_all, ct_combined); gc()
+      rbindlist(list(ct_dt, ct_all), use.names = TRUE, fill = TRUE)
+    }
+    write_dual_scope(dt, make_cell_time, glue("cell_time_summary_{grid_suffix}.csv"))
+
+    rm(dt); gc()
   }
 }
 
@@ -255,47 +361,50 @@ if (MAKE_ORDER_SUMMARIES) {
     pf <- grid_map[[grid_name]]
     cli_h3("{grid_name}")
 
-    dt <- read_cube(pf, cols = c("specieskey", "basisofrecord",
+    dt <- read_cube(pf, cols = c("specieskey", "species", "basisofrecord",
       "eeacellcode", "year", "month", "order", "family", "occurrences"),
       grid_label = grid_name)
 
+    dt <- tag_cube_taxonomy(dt)
+
     # --- Order × Cell ---
-    oc_dt <- dt[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
-      n_families = uniqueN(family)), by = .(grid, basisofrecord, order, eeacellcode)]
-    oc_all <- dt[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
-      n_families = uniqueN(family)), by = .(grid, order, eeacellcode)]
-    oc_all[, basisofrecord := "all"]
-    oc_combined <- rbindlist(list(oc_dt, oc_all), use.names = TRUE, fill = TRUE)
-    fwrite(oc_combined, here(p_derived, glue("order_cell_summary_{grid_suffix}.csv")))
-    cli_alert_success("order_cell_summary_{grid_suffix}.csv: {scales::comma(nrow(oc_combined))} rows")
-    rm(oc_dt, oc_all, oc_combined)
+    make_order_cell <- function(d) {
+      oc_dt <- d[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
+        n_families = uniqueN(family)), by = .(grid, basisofrecord, order, eeacellcode)]
+      oc_all <- d[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
+        n_families = uniqueN(family)), by = .(grid, order, eeacellcode)]
+      oc_all[, basisofrecord := "all"]
+      rbindlist(list(oc_dt, oc_all), use.names = TRUE, fill = TRUE)
+    }
+    write_dual_scope(dt, make_order_cell, glue("order_cell_summary_{grid_suffix}.csv"))
 
     # --- Order × Time ---
-    ot_dt <- dt[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
-      n_families = uniqueN(family), n_cells = uniqueN(eeacellcode)),
-      by = .(grid, basisofrecord, order, yearmonth)]
-    ot_all <- dt[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
-      n_families = uniqueN(family), n_cells = uniqueN(eeacellcode)),
-      by = .(grid, order, yearmonth)]
-    ot_all[, basisofrecord := "all"]
-    ot_combined <- rbindlist(list(ot_dt, ot_all), use.names = TRUE, fill = TRUE)
-    fwrite(ot_combined, here(p_derived, glue("order_time_summary_{grid_suffix}.csv")))
-    cli_alert_success("order_time_summary_{grid_suffix}.csv: {scales::comma(nrow(ot_combined))} rows")
-    rm(ot_dt, ot_all, ot_combined)
+    make_order_time <- function(d) {
+      ot_dt <- d[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
+        n_families = uniqueN(family), n_cells = uniqueN(eeacellcode)),
+        by = .(grid, basisofrecord, order, yearmonth)]
+      ot_all <- d[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
+        n_families = uniqueN(family), n_cells = uniqueN(eeacellcode)),
+        by = .(grid, order, yearmonth)]
+      ot_all[, basisofrecord := "all"]
+      rbindlist(list(ot_dt, ot_all), use.names = TRUE, fill = TRUE)
+    }
+    write_dual_scope(dt, make_order_time, glue("order_time_summary_{grid_suffix}.csv"))
 
     # --- Family × Time ---
-    ft_dt <- dt[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
-      n_cells = uniqueN(eeacellcode)),
-      by = .(grid, basisofrecord, order, family, yearmonth)]
-    ft_all <- dt[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
-      n_cells = uniqueN(eeacellcode)),
-      by = .(grid, order, family, yearmonth)]
-    ft_all[, basisofrecord := "all"]
-    ft_combined <- rbindlist(list(ft_dt, ft_all), use.names = TRUE, fill = TRUE)
-    fwrite(ft_combined, here(p_derived, glue("family_time_summary_{grid_suffix}.csv")))
-    cli_alert_success("family_time_summary_{grid_suffix}.csv: {scales::comma(nrow(ft_combined))} rows")
+    make_family_time <- function(d) {
+      ft_dt <- d[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
+        n_cells = uniqueN(eeacellcode)),
+        by = .(grid, basisofrecord, order, family, yearmonth)]
+      ft_all <- d[, .(occurrences = safe_sum(occurrences), n_species = uniqueN(specieskey),
+        n_cells = uniqueN(eeacellcode)),
+        by = .(grid, order, family, yearmonth)]
+      ft_all[, basisofrecord := "all"]
+      rbindlist(list(ft_dt, ft_all), use.names = TRUE, fill = TRUE)
+    }
+    write_dual_scope(dt, make_family_time, glue("family_time_summary_{grid_suffix}.csv"))
 
-    rm(dt, ft_dt, ft_all, ft_combined); gc()
+    rm(dt); gc()
   }
 }
 
@@ -311,10 +420,12 @@ if (MAKE_PUBLISHER_SUMMARY) {
     pf <- grid_map[[grid_name]]
     cli_h3("{grid_name}")
 
-    dt <- read_cube(pf, cols = c("specieskey", "basisofrecord",
+    dt <- read_cube(pf, cols = c("specieskey", "species", "basisofrecord",
       "publishingorgkey", "datasetkey", "eeacellcode",
       "year", "month", "year_published", "month_published",
       "occurrences"), grid_label = grid_name)
+
+    dt <- tag_cube_taxonomy(dt)
 
     # Publisher overview: who contributes what
     has_dataset <- "datasetkey" %in% names(dt)
@@ -346,13 +457,13 @@ if (MAKE_PUBLISHER_SUMMARY) {
 
     # Published vs observed: year_published summary
     if ("year_published" %in% names(dt)) {
-      pub_vs_obs <- dt[, .(
-        occurrences = safe_sum(occurrences),
-        n_species = uniqueN(specieskey)
-      ), by = .(grid, year_published, month_published)]
-
-      fwrite(pub_vs_obs, here(p_derived, glue("published_time_summary_{grid_suffix}.csv")))
-      cli_alert_success("published_time_summary_{grid_suffix}.csv: {scales::comma(nrow(pub_vs_obs))} rows")
+      make_pub_time <- function(d) {
+        d[, .(
+          occurrences = safe_sum(occurrences),
+          n_species = uniqueN(specieskey)
+        ), by = .(grid, year_published, month_published)]
+      }
+      write_dual_scope(dt, make_pub_time, glue("published_time_summary_{grid_suffix}.csv"))
     }
 
     rm(dt, pub_dt, pub_cell); gc()
@@ -428,7 +539,8 @@ if (MAKE_PUBLISHER_SUMMARY) {
 cli_h1("Summary (Script 06a)")
 
 output_files <- list.files(p_derived, pattern = "\\.csv$")
-cli_alert_success("Total output files: {length(output_files)}")
+dyntaxa_files <- grep("_dyntaxa", output_files, value = TRUE)
+cli_alert_success("Total output files: {length(output_files)} ({length(dyntaxa_files)} dyntaxa-scoped)")
 
 categories <- list(
   "Grid lookups" = "grid_lookup",

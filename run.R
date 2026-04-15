@@ -32,7 +32,7 @@ cat("
 |                                                                    |
 |  Phase-specific runs:                                              |
 |                                                                    |
-|    run_download()       Download raw data (taxonomy, invasives...) |
+|    run_download()       Download raw data (taxonomy, invasives...)  |
 |    run_phase_1()        Ingestion (grids, taxonomy, cubes)         |
 |    run_phase_2()        Validation                                 |
 |    run_phase_3()        Derived summaries                          |
@@ -54,7 +54,7 @@ cat("
 # Convenience Functions
 # ============================================================================
 
-#' Download raw data (script 01 — taxonomy, red list, invasives, admin)
+#' Download raw data (script 01 — taxonomy, red list, invasives, sensitive, admin)
 run_download <- function() {
   tar_make(names = raw_data)
 }
@@ -172,6 +172,10 @@ status <- function() {
   invasives_dir <- if (exists("raw_invasives_dir")) raw_invasives_dir else here(p_data_raw, "invasives")
   invasive_files <- if (dir.exists(invasives_dir)) list.files(invasives_dir, pattern = "\\.(txt|csv)$") else character(0)
   cat("  Invasive species:", ifelse(length(invasive_files) > 0, paste0("Yes (", length(invasive_files), " files)"), "No"), "\n")
+
+  sensitive_dir <- if (exists("raw_sensitive_dir")) raw_sensitive_dir else here(p_data_raw, "sensitive")
+  sensitive_files <- if (dir.exists(sensitive_dir)) list.files(sensitive_dir, pattern = "\\.(txt|csv)$") else character(0)
+  cat("  Sensitive species:", ifelse(length(sensitive_files) > 0, paste0("Yes (", length(sensitive_files), " files)"), "No"), "\n")
 
   gap_app_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
   cat("  Gap app data ready:", ifelse(file.exists(gap_app_path), "Yes", "No"), "\n")

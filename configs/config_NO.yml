@@ -65,6 +65,18 @@ invasives:
   name: ""
 
 # ============================================================================
+# Sensitive Species List (optional)
+# ============================================================================
+# Norway: Set enabled: true and fill in dataset details when available.
+# Search: https://www.gbif.org/dataset/search?q=sensitive&publishingCountry=NO&type=CHECKLIST
+sensitive:
+  enabled: false
+  dataset_key: ""
+  doi: ""
+  export_url: ""
+  name: ""
+
+# ============================================================================
 # GBIF Occurrence Cubes (SQL API)
 # ============================================================================
 cubes:
@@ -100,6 +112,10 @@ files:
     invasives_taxon: "taxon.txt"
     invasives_distr: "distribution.txt"
 
+  sensitive:
+    sensitive_taxon: "taxon.txt"
+    sensitive_distr: "distribution.txt"
+
 # ============================================================================
 # Analysis Parameters
 # ============================================================================
@@ -116,6 +132,7 @@ parameters:
   taxonomic:
     min_occurrences: 10
     min_cells: 5
+    year_published_format: "mjd"   # Modified Julian Date — convert in script 04
 
   processing:
     large_order_threshold: 500000

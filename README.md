@@ -13,6 +13,7 @@ This project analyses GBIF occurrence data for a given country to identify:
 - **Taxonomic gaps** — species groups under-represented in the data, measured against a national taxonomy backbone
 - **Sampling bias** — Troudet-style analysis of taxonomic representation vs. proportional sampling
 - **Invasive species** — integration of national invasive species registries with occurrence data
+- **Sensitive species** — restricted access species flagged with generalization categories (5/25/50 km)
 - **Establishment means** — native, introduced, and invasive species scope filtering and monitoring
 - **Dyntaxa/All GBIF scope** — toggle between gap analysis (against national backbone) and full GBIF overview
 - **Publisher analysis** — which organisations contribute data, single-publisher dependency
@@ -114,13 +115,14 @@ tar_make()
 
 ## Data Sources
 
-The pipeline integrates four national data sources (all configured in `configs/config_{CC}.yml`):
+The pipeline integrates five national data sources (all configured in `configs/config_{CC}.yml`):
 
 | Source | Purpose | Sweden Example |
 |--------|---------|----------------|
 | National taxonomy backbone | Reference species pool for gap analysis | [Dyntaxa](https://doi.org/10.15468/j43wfc) |
 | National red list | Threat status (CR, EN, VU, NT, DD) | [Swedish Red List](https://doi.org/10.15468/jhwkpq) |
 | Invasive species registry | `is_invasive` flag on species | [Swedish Invasive Species](https://doi.org/10.15468/yxfse8) |
+| Sensitive species list | `is_sensitive` flag + generalization category | [Restricted Access Species](https://doi.org/10.15468/e4cz3x) |
 | GBIF occurrence cubes | Aggregated occurrence data per grid cell | [SQL API](https://www.gbif.org/occurrence/download/sql) |
 
 Additional shared data:
@@ -151,6 +153,8 @@ GROUP BY ...
 
 Submit at https://www.gbif.org/occurrence/download/sql. Script 01 prints the full query for your country.
 
+> **Note on `year_published`:** The GBIF SQL API returns `YEAR(CAST(lastinterpreted AS TIMESTAMP))` as a date type serialized in Modified Julian Date (MJD) format in the CSV/Parquet output — not as an integer year. Script 04 converts these to integer years using `as.Date(x, origin = "1858-11-17")`. This is controlled by `parameters.taxonomic.year_published_format` in the config.
+
 ## Taxonomy Architecture
 
 The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as the primary reference for gap analysis. Every GBIF species is matched to the backbone through a 4-tier reconciliation process:
@@ -160,17 +164,18 @@ The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as t
 - **Tier 3** — Infraspecific collapse (subspecies → species)
 - **Tier 4** — GBIF Species API lookup
 
-Each species receives two key flags:
+Each species receives three key flags:
 
 - `in_dyntaxa` — whether the species is in the national backbone (gap metrics only apply to these)
 - `is_invasive` — whether the species appears on the national invasive species registry
+- `is_sensitive` — whether the species is on the restricted access list (coordinates generalized in GBIF)
 
 The Gap Analysis app provides a **scope toggle**: "Dyntaxa species (gap analysis)" shows completeness metrics against the backbone, while "All GBIF Sweden (overview)" shows all occurrence data without gap metrics.
 
 ## Adapting for Another Country
 
 1. Copy `configs/config_template.yml` to `configs/config_{CC}.yml`
-2. Fill in taxonomy, red list, and invasive species settings (all optional except taxonomy)
+2. Fill in taxonomy, red list, invasive species, and sensitive species settings (all optional except taxonomy)
 3. Set your country: `Sys.setenv(GBIFGAPS_COUNTRY = "CC")`
 4. Download cubes via GBIF SQL API (change `countrycode` in the query)
 5. Place EEA grids in `data/shared/grids/` (shared, one-time download)
