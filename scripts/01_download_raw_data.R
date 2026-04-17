@@ -17,15 +17,14 @@
 #   source("scripts/01_download_raw_data.R")
 # ============================================================================
 
-library(here)
-library(cli)
+source(here::here("scripts", "00_setup.R"))
+
+# Script-specific packages (everything else loaded by 00_setup.R)
 library(httr)
 library(jsonlite)
 
 if (!requireNamespace("rgbif", quietly = TRUE)) install.packages("rgbif")
 library(rgbif)
-
-source(here("scripts", "00_setup.R"))
 
 # ============================================================================
 # Configuration
@@ -181,11 +180,6 @@ invasives_key <- cfg_get("invasives.dataset_key", "")
 invasives_url <- cfg_get("invasives.export_url", "")
 invasives_doi <- cfg_get("invasives.doi", "")
 
-# raw_invasives_dir is defined in R/globals.R — provide fallback if not yet updated
-if (!exists("raw_invasives_dir")) {
-  raw_invasives_dir <- here(p_data_raw, "invasives")
-}
-
 if (!invasives_enabled || invasives_key == "" || invasives_url == "") {
   cli_alert_info("Invasive species registry not configured or disabled \u2014 skipping")
 } else {
@@ -204,11 +198,6 @@ sensitive_enabled <- cfg_get("sensitive.enabled", FALSE)
 sensitive_key <- cfg_get("sensitive.dataset_key", "")
 sensitive_url <- cfg_get("sensitive.export_url", "")
 sensitive_doi <- cfg_get("sensitive.doi", "")
-
-# raw_sensitive_dir is defined in R/globals.R — provide fallback if not yet updated
-if (!exists("raw_sensitive_dir")) {
-  raw_sensitive_dir <- here(p_data_raw, "sensitive")
-}
 
 if (!sensitive_enabled || sensitive_key == "" || sensitive_url == "") {
   cli_alert_info("Sensitive species list not configured or disabled \u2014 skipping")
@@ -275,7 +264,7 @@ if (!admin_enabled) {
   cli_alert_warning("Package {.pkg geodata} needed: install.packages('geodata')")
 } else {
   library(geodata)
-  library(sf)
+  # sf already loaded by load_packages()
   dir.create(raw_admin_dir, showWarnings = FALSE, recursive = TRUE)
 
   iso3 <- cfg_get("admin_boundaries.country_code_iso3", "")

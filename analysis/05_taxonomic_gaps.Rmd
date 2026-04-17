@@ -1,0 +1,207 @@
+---
+title: "Taxonomic Gap Analysis"
+subtitle: "Species Coverage, Reconciliation, and Sampling Bias"
+author: "gbifgaps"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    fig_width: 10
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 6, dpi = 150
+)
+
+library(here); library(dplyr); library(tidyr); library(ggplot2)
+library(scales); library(knitr); library(kableExtra)
+
+data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+app_data <- readRDS(data_path)
+safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
+
+match_summary  <- safe_get("taxonomic_match_summary")
+tax_by_rank    <- safe_get("tax_by_rank")
+tax_by_kingdom <- safe_get("tax_by_kingdom")
+tax_by_order   <- safe_get("tax_by_order")
+tax_by_family  <- safe_get("tax_by_family")
+tax_by_threat  <- safe_get("tax_by_threat")
+troudet_order  <- safe_get("troudet_bias_order")
+troudet_family <- safe_get("troudet_bias_family")
+tax_estab      <- safe_get("tax_by_establishment")
+dashboard      <- safe_get("dashboard")
+metadata       <- safe_get("metadata")
+
+# Normalise column names: script 10 uses n_ref_total, script 11's grp_fn uses n_taxa
+norm_tax <- function(df) {
+  if (is.null(df)) return(NULL)
+  if ("n_ref_total" %in% names(df) && !"n_taxa" %in% names(df))
+    df <- df |> rename(n_taxa = n_ref_total)
+  df
+}
+tax_by_rank    <- norm_tax(tax_by_rank)
+tax_by_kingdom <- norm_tax(tax_by_kingdom)
+tax_by_order   <- norm_tax(tax_by_order)
+tax_by_family  <- norm_tax(tax_by_family)
+tax_by_threat  <- norm_tax(tax_by_threat)
+tax_estab      <- norm_tax(tax_estab)
+
+pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
+            coral = "#c47a6c", plum = "#8b6d8f")
+theme_gaps <- theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(color = "#666", size = 11),
+        panel.grid.minor = element_blank(), legend.position = "bottom")
+theme_set(theme_gaps)
+```
+
+# Overview
+
+This report analyses how well GBIF occurrence data covers the national taxonomy backbone (**`r metadata$taxonomy_name %||% "National checklist"`**). Every species in the backbone is checked against GBIF records through a 4-tier reconciliation: direct name match, synonym resolution, infraspecific collapse, and GBIF Species API lookup.
+
+```{r recon-stats}
+if (!is.null(dashboard)) {
+  stats <- tibble(
+    Metric = c("Species in backbone", "Species in GBIF",
+               "Matched to backbone", "Coverage", "Missing from GBIF"),
+    Value = c(comma(dashboard$taxa_in_reference[1]),
+              comma(dashboard$taxa_in_gbif[1]),
+              comma(dashboard$taxa_in_gbif[1]),
+              paste0(dashboard$taxa_pct_coverage[1], "%"),
+              comma(dashboard$taxa_missing[1]))
+  )
+  kable(stats, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+# Coverage by Taxonomic Rank
+
+```{r by-rank, fig.height=5}
+if (!is.null(tax_by_rank)) {
+  df <- tax_by_rank |>
+    filter(n_taxa >= 10) |>
+    arrange(desc(n_taxa)) |> head(10)
+
+  ggplot(df, aes(x = reorder(taxonRank, pct_coverage), y = pct_coverage)) +
+    geom_col(fill = pal$sage) +
+    geom_text(aes(label = paste0(pct_coverage, "% (", comma(n_in_gbif), "/", comma(n_taxa), ")")),
+              hjust = -0.05, size = 3.2) +
+    coord_flip() +
+    scale_y_continuous(limits = c(0, 110)) +
+    labs(title = "GBIF Coverage by Taxonomic Rank", x = "", y = "Coverage (%)")
+}
+```
+
+# Coverage by Kingdom
+
+```{r by-kingdom, fig.height=5}
+if (!is.null(tax_by_kingdom)) {
+  ggplot(tax_by_kingdom, aes(x = reorder(kingdom, n_taxa), y = pct_coverage)) +
+    geom_col(fill = pal$sage) +
+    geom_text(aes(label = paste0(pct_coverage, "%")), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_y_continuous(limits = c(0, 110)) +
+    labs(title = "Coverage by Kingdom", x = "", y = "Coverage (%)")
+}
+```
+
+# Coverage by Threat Status
+
+```{r by-threat}
+if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
+  df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+  kable(df |> select(Status = threatStatus, Total = n_taxa,
+    `In GBIF` = n_in_gbif, Missing = n_missing, `Coverage %` = pct_coverage),
+    align = c("l", rep("r", 4))) |> kable_styling(full_width = FALSE)
+}
+```
+
+```{r threat-chart, fig.height=4}
+if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
+  df <- tax_by_threat |>
+    filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
+    mutate(threatStatus = factor(threatStatus, c("CR", "EN", "VU", "NT", "DD")))
+
+  threat_colors <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
+                     NT = pal$sage, DD = pal$slate)
+
+  ggplot(df, aes(x = threatStatus, y = pct_coverage, fill = threatStatus)) +
+    geom_col(show.legend = FALSE) +
+    geom_text(aes(label = paste0(pct_coverage, "%")), vjust = -0.3, size = 3.5) +
+    scale_fill_manual(values = threat_colors) +
+    scale_y_continuous(limits = c(0, 110)) +
+    labs(title = "GBIF Coverage by Threat Status", x = "Red List category", y = "Coverage (%)")
+}
+```
+
+# Most Under-Sampled Orders
+
+```{r undersampled-orders, fig.height=7}
+if (!is.null(tax_by_order)) {
+  df <- tax_by_order |>
+    filter(n_missing > 0) |>
+    arrange(desc(n_missing)) |> head(20)
+
+  ggplot(df, aes(x = reorder(order, n_missing), y = n_missing)) +
+    geom_col(aes(fill = pct_coverage < 50), show.legend = FALSE) +
+    scale_fill_manual(values = c(`FALSE` = pal$sand, `TRUE` = pal$coral)) +
+    geom_text(aes(label = paste0(n_missing, " (", pct_coverage, "%)")),
+              hjust = -0.05, size = 3) +
+    coord_flip() +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+    labs(title = "Orders with Most Missing Species",
+         subtitle = "Count of backbone species not found in GBIF (coverage % in parentheses)",
+         x = "", y = "Species missing from GBIF")
+}
+```
+
+# Troudet Sampling Bias
+
+The Troudet-style analysis compares each taxonomic group's share of known species against its share of occurrence records. Groups with **negative bias** are under-represented in GBIF relative to their species richness.
+
+```{r troudet, fig.height=7}
+if (!is.null(troudet_order)) {
+  df <- troudet_order |>
+    filter(bias < 0) |>
+    arrange(bias) |> head(20) |>
+    mutate(gap = n_known_species - n_in_gbif)
+
+  ggplot(df, aes(x = reorder(order, -bias), y = bias)) +
+    geom_col(fill = pal$coral) +
+    coord_flip() +
+    scale_y_continuous(labels = label_comma()) +
+    labs(title = "Most Under-Sampled Orders (Troudet Bias)",
+         subtitle = "Negative bias = fewer records than expected given species richness",
+         x = "", y = "Sampling bias (occurrences)")
+}
+```
+
+# Establishment Means
+
+```{r establishment, fig.height=4}
+if (!is.null(tax_estab)) {
+  df <- tax_estab |>
+    mutate(label = case_when(
+      is.na(establishmentMeans) | establishmentMeans == "" ~ "Unclassified",
+      TRUE ~ tools::toTitleCase(establishmentMeans)
+    )) |> arrange(desc(n_taxa))
+
+  kable(df |> select(Category = label, Total = n_taxa,
+    `In GBIF` = n_in_gbif, Missing = n_missing, `Coverage %` = pct_coverage),
+    align = c("l", rep("r", 4))) |> kable_styling(full_width = FALSE)
+}
+```
+
+---
+
+*Report generated by `gbifgaps` on `r Sys.time()`.*

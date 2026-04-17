@@ -1,0 +1,249 @@
+---
+title: "GBIF Data Gap Analysis — Overview"
+subtitle: "Integrated Summary of Spatial, Temporal, Taxonomic, and Institutional Gaps"
+author: "gbifgaps"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    code_folding: hide
+    theme: flatly
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    fig_width: 10
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 6, dpi = 150
+)
+
+library(here)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(sf)
+library(knitr)
+library(kableExtra)
+
+# Load the same data bundle as the Shiny app
+data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+app_data <- readRDS(data_path)
+safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
+
+# Extract common datasets
+dashboard       <- safe_get("dashboard")
+grid_10km       <- safe_get("grid_10km")
+spatial_gaps    <- safe_get("spatial_gaps_10km")
+tax_by_threat   <- safe_get("tax_by_threat")
+tax_by_order    <- safe_get("tax_by_order")
+overview_ly     <- safe_get("overview_last_year")
+metadata        <- safe_get("metadata")
+match_summary   <- safe_get("taxonomic_match_summary")
+species_scope   <- safe_get("species_scope_lookup")
+publisher_summary <- safe_get("publisher_summary")
+publisher_cell_dep <- safe_get("publisher_cell_dependency")
+last_year_label <- safe_get("recent_label") %||% "last 12 months"
+
+# Normalise: script 10 uses n_ref_total, script 11 uses n_taxa
+norm_tax <- function(df) {
+  if (is.null(df)) return(NULL)
+  if ("n_ref_total" %in% names(df) && !"n_taxa" %in% names(df))
+    df <- df |> rename(n_taxa = n_ref_total)
+  df
+}
+tax_by_threat <- norm_tax(tax_by_threat)
+
+# Theme
+pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
+            coral = "#c47a6c", plum = "#8b6d8f")
+
+theme_gaps <- theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(color = "#666", size = 11),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+theme_set(theme_gaps)
+```
+
+# About
+
+This report summarises the GBIF biodiversity data gap analysis for **`r metadata$taxonomy_name %||% "the configured country"`**, using the national taxonomy backbone as a reference. It synthesises findings across spatial, temporal, taxonomic, and institutional dimensions.
+
+**Data sources:**
+
+- **Taxonomy backbone:** `r metadata$taxonomy_name %||% "National checklist"`
+- **Grid resolution:** EEA 10 km reference grid (EPSG:3035)
+- **Analysis date:** `r if (!is.null(metadata$created_at)) format(metadata$created_at, "%Y-%m-%d") else "unknown"`
+
+# Key Statistics
+
+```{r key-stats}
+if (!is.null(dashboard)) {
+  stats <- tibble(
+    Metric = c("Total occurrences", "Species in GBIF", "Species in backbone",
+               "Taxonomic coverage", "Grid cells (10 km)",
+               "Cells with data", "Spatial coverage",
+               "Year range"),
+    Value = c(
+      comma(dashboard$total_occurrences[1]),
+      comma(dashboard$taxa_in_gbif[1]),
+      comma(dashboard$taxa_in_reference[1]),
+      paste0(dashboard$taxa_pct_coverage[1], "%"),
+      comma(if (!is.null(grid_10km)) nrow(grid_10km) else NA),
+      comma(dashboard$cells_10km_with_data[1]),
+      paste0(dashboard$cells_10km_pct_coverage[1], "%"),
+      paste0(dashboard$year_min[1], "–", dashboard$year_max[1])
+    )
+  )
+  kable(stats, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+# Gap Summary
+
+```{r gap-panels, fig.height=4}
+if (!is.null(dashboard)) {
+  gap_df <- tibble(
+    Dimension = c("Spatial (10 km)", "Taxonomic"),
+    Coverage = c(as.numeric(dashboard$cells_10km_pct_coverage[1]),
+                 as.numeric(dashboard$taxa_pct_coverage[1])),
+    Gap = 100 - Coverage
+  ) |>
+    pivot_longer(c(Coverage, Gap), names_to = "type", values_to = "pct")
+
+  ggplot(gap_df, aes(x = pct, y = Dimension, fill = type)) +
+    geom_col(position = "stack") +
+    scale_fill_manual(values = c(Coverage = pal$sage, Gap = pal$coral)) +
+    scale_x_continuous(labels = label_percent(scale = 1), limits = c(0, 100)) +
+    labs(title = "Coverage vs Gap", x = "Percentage", y = "", fill = "") +
+    theme(legend.position = "bottom")
+}
+```
+
+## Threatened Species
+
+```{r threatened-summary}
+if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat)) {
+  df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+  kable(df |> select(Status = threatStatus, `In backbone` = n_taxa,
+    `In GBIF` = n_in_gbif, Missing = n_missing, `Coverage %` = pct_coverage),
+    align = c("l", "r", "r", "r", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+## Species of Concern
+
+```{r concern-summary}
+if (!is.null(species_scope)) {
+  concern <- tibble(
+    Category = c("Threatened", "Invasive", "Sensitive"),
+    `Species count` = c(
+      sum(species_scope$is_threatened, na.rm = TRUE),
+      sum(species_scope$is_invasive, na.rm = TRUE),
+      sum(species_scope$is_sensitive, na.rm = TRUE)
+    )
+  )
+  kable(concern, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+## Publishers
+
+```{r publisher-summary}
+if (!is.null(publisher_summary)) {
+  n_pub <- nrow(publisher_summary)
+  n_single <- if (!is.null(publisher_cell_dep)) sum(publisher_cell_dep$n_publishers == 1) else NA
+  n_cells <- if (!is.null(grid_10km)) nrow(grid_10km) else NA
+  top_pub <- publisher_summary |> arrange(desc(total_occurrences)) |> slice(1)
+  top_pct <- round(100 * top_pub$total_occurrences / sum(publisher_summary$total_occurrences), 1)
+
+  pub_stats <- tibble(
+    Metric = c("Total publishers", "Single-publisher cells", "Largest publisher", "Top publisher share"),
+    Value = c(comma(n_pub),
+              paste0(comma(n_single), " / ", comma(n_cells)),
+              if ("publisher_name" %in% names(top_pub)) top_pub$publisher_name else top_pub$publishingorgkey,
+              paste0(top_pct, "%"))
+  )
+  kable(pub_stats, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+## Basis of Record
+
+```{r bor-summary, fig.height=4}
+if (!is.null(spatial_gaps)) {
+  sg <- spatial_gaps |> filter(basisofrecord != "all") |>
+    group_by(basisofrecord) |>
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    mutate(pct = round(100 * occurrences / sum(occurrences), 1),
+           bor_label = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
+    arrange(desc(occurrences))
+
+  ggplot(sg |> head(6), aes(x = reorder(bor_label, occurrences), y = occurrences)) +
+    geom_col(fill = pal$sage) +
+    geom_text(aes(label = paste0(pct, "%")), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.15))) +
+    labs(title = "Occurrences by Basis of Record", x = "", y = "Total occurrences")
+}
+```
+
+# The Last 12 Months in Review
+
+```{r last-12-months}
+if (!is.null(overview_ly)) {
+  ly_stats <- tibble(
+    Metric = c("Observations dated in period",
+               "Published to GBIF (cumulative)",
+               "Cells with active recording",
+               "Newly covered cells",
+               "Priority cells resolved"),
+    Value = c(
+      comma(overview_ly$occ_last_year),
+      comma(overview_ly$occ_total),
+      comma(overview_ly$cells_active_last_year),
+      comma(overview_ly$cells_newly_covered),
+      comma(overview_ly$cells_resolved %||% 0)
+    )
+  )
+  kable(ly_stats, caption = paste0("Period: ", last_year_label),
+    align = c("l", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+## Establishment Means
+
+```{r establishment, fig.height=4}
+tax_estab <- norm_tax(safe_get("tax_by_establishment"))
+if (!is.null(tax_estab)) {
+  df <- tax_estab |>
+    mutate(label = case_when(
+      is.na(establishmentMeans) | establishmentMeans == "" ~ "Unclassified",
+      TRUE ~ tools::toTitleCase(establishmentMeans)
+    )) |>
+    arrange(desc(n_taxa))
+
+  ggplot(df, aes(x = reorder(label, pct_coverage), y = pct_coverage)) +
+    geom_col(aes(fill = label), show.legend = FALSE) +
+    geom_text(aes(label = paste0(pct_coverage, "%")), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_fill_manual(values = c(Native = pal$sage, Introduced = pal$sand,
+      Invasive = pal$coral, Naturalised = pal$slate,
+      Uncertain = pal$plum, Unclassified = "#ccc")) +
+    scale_y_continuous(limits = c(0, 105)) +
+    labs(title = "GBIF Coverage by Establishment Means", x = "", y = "Coverage (%)")
+}
+```
+
+---
+
+*Report generated by `gbifgaps` on `r Sys.time()`.*

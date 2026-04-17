@@ -26,15 +26,7 @@
 # Dependencies: scripts/00_setup.R, readr, dplyr, stringr, purrr
 # ============================================================================
 
-library(here)
-library(readr)
-library(dplyr)
-library(stringr)
-library(purrr)
-library(cli)
-library(glue)
-
-source(here("scripts", "00_setup.R"))
+source(here::here("scripts", "00_setup.R"))
 
 # ============================================================================
 # Configuration
@@ -659,11 +651,7 @@ cli_alert_info(
 
 cli_h2("Enriching with Sensitive Species Status")
 
-dir_sensitive <- if (exists("raw_sensitive_dir")) {
-  here(raw_sensitive_dir)
-} else {
-  here(p_data_raw, "sensitive")
-}
+dir_sensitive <- here(raw_sensitive_dir)
 sensitive_enabled_flag <- cfg_get("sensitive.enabled", FALSE)
 
 # Input files for sensitive species checklist

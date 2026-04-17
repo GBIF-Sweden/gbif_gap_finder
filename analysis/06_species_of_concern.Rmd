@@ -1,0 +1,325 @@
+---
+title: "Species of Concern"
+subtitle: "Threatened, Invasive, and Sensitive Species in GBIF"
+author: "gbifgaps"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    fig_width: 10
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 6, dpi = 150
+)
+
+library(here); library(dplyr); library(tidyr); library(ggplot2)
+library(scales); library(sf); library(knitr); library(kableExtra)
+
+data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+app_data <- readRDS(data_path)
+safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
+
+match_summary   <- safe_get("taxonomic_match_summary")
+species_scope   <- safe_get("species_scope_lookup")
+tax_by_threat   <- safe_get("tax_by_threat")
+grid_10km       <- safe_get("grid_10km")
+admin_level1    <- safe_get("admin_level1")
+
+# Scope-specific data
+threatened_sg   <- safe_get("threatened_spatial_gaps")
+threatened_br   <- safe_get("threatened_basis_recent")
+invasive_sg     <- safe_get("invasive_spatial_gaps")
+invasive_br     <- safe_get("invasive_basis_recent")
+invasive_ts     <- safe_get("invasive_time_summary")
+sensitive_sg    <- safe_get("sensitive_spatial_gaps")
+sensitive_br    <- safe_get("sensitive_basis_recent")
+
+pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
+            coral = "#c47a6c", plum = "#8b6d8f")
+theme_gaps <- theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(color = "#666", size = 11),
+        panel.grid.minor = element_blank(), legend.position = "bottom")
+theme_set(theme_gaps)
+
+# Helper: get threat column
+get_threat_col <- function(ms) {
+  tc <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))
+  if (length(tc) > 0) tc[1] else NA
+}
+```
+
+# Overview
+
+This report analyses three categories of species requiring special attention: **threatened** species on the national Red List, **invasive** species, and **sensitive** species with restricted location data.
+
+```{r scope-summary}
+if (!is.null(species_scope)) {
+  df <- tibble(
+    Category = c("Threatened (CR/EN/VU/NT)", "Invasive", "Sensitive"),
+    `Species in scope` = c(
+      sum(species_scope$is_threatened, na.rm = TRUE),
+      sum(species_scope$is_invasive, na.rm = TRUE),
+      sum(species_scope$is_sensitive, na.rm = TRUE)
+    )
+  )
+  kable(df, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+# Threatened Species {.tabset}
+
+## Coverage by Status
+
+```{r threat-coverage}
+if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
+  df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+  threat_colors <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
+                     NT = pal$sage, DD = pal$slate)
+
+  ggplot(df, aes(x = factor(threatStatus, c("CR","EN","VU","NT","DD")),
+                 y = pct_coverage, fill = threatStatus)) +
+    geom_col(show.legend = FALSE) +
+    geom_text(aes(label = paste0(pct_coverage, "%")), vjust = -0.3, size = 4) +
+    scale_fill_manual(values = threat_colors) +
+    scale_y_continuous(limits = c(0, 110)) +
+    labs(title = "GBIF Coverage by Red List Category", x = "", y = "Coverage (%)")
+}
+```
+
+## Missing Threatened Species
+
+```{r threat-missing}
+if (!is.null(match_summary)) {
+  tc <- get_threat_col(match_summary)
+  if (!is.na(tc)) {
+    missing <- match_summary |>
+      filter(.data[[tc]] %in% c("CR", "EN", "VU", "NT"), !matched_any) |>
+      group_by(.data[[tc]]) |>
+      summarise(n_missing = n(), .groups = "drop") |>
+      rename(Status = 1)
+
+    ggplot(missing, aes(x = Status, y = n_missing, fill = Status)) +
+      geom_col(show.legend = FALSE) +
+      geom_text(aes(label = n_missing), vjust = -0.3) +
+      scale_fill_manual(values = c(CR = pal$coral, EN = pal$sand,
+                                   VU = "#b8a060", NT = pal$sage)) +
+      labs(title = "Missing Threatened Species by Category",
+           subtitle = "Backbone species with zero GBIF records",
+           x = "", y = "Number of missing species")
+  }
+}
+```
+
+## Spatial Distribution
+
+```{r threat-map, fig.height=9}
+if (!is.null(grid_10km) && !is.null(threatened_sg)) {
+  sg <- threatened_sg |> filter(basisofrecord == "all")
+  map_sf <- grid_10km |>
+    left_join(sg |> select(eeacellcode, occurrences, n_species), by = "eeacellcode") |>
+    mutate(occ_cat = case_when(
+      is.na(occurrences) | occurrences == 0 ~ "No data",
+      occurrences <= 10 ~ "1–10", occurrences <= 100 ~ "11–100",
+      occurrences <= 1000 ~ "101–1K", TRUE ~ "> 1K"
+    ) |> factor(levels = c("1–10", "11–100", "101–1K", "> 1K", "No data")))
+
+  p <- ggplot(map_sf) +
+    geom_sf(aes(fill = occ_cat), color = NA) +
+    scale_fill_manual(values = c("1–10" = "#c8dbc6", "11–100" = pal$sage,
+      "101–1K" = pal$sand, "> 1K" = pal$coral, "No data" = "#e0e0e0")) +
+    labs(title = "Threatened Species — Spatial Distribution", fill = "Occurrences") +
+    theme_void() + theme(legend.position = "right")
+  if (!is.null(admin_level1)) {
+    p <- p + geom_sf(data = st_transform(admin_level1, st_crs(map_sf)),
+                     fill = NA, color = "#888", linewidth = 0.3)
+  }
+  print(p)
+}
+```
+
+## How Recorded
+
+```{r threat-bor, fig.height=4}
+if (!is.null(threatened_br)) {
+  df <- threatened_br |> filter(basisofrecord != "all") |>
+    mutate(bor = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
+    arrange(desc(occ_total))
+
+  ggplot(df, aes(x = reorder(bor, occ_total), y = occ_total)) +
+    geom_col(fill = pal$sage) +
+    geom_text(aes(label = comma(occ_total)), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.2))) +
+    labs(title = "Threatened Species — Basis of Record", x = "", y = "Occurrences")
+}
+```
+
+# Invasive Species {.tabset}
+
+## By Order and Family
+
+```{r inv-by-order, fig.height=6}
+if (!is.null(match_summary) && "is_invasive" %in% names(match_summary)) {
+  ms_inv <- match_summary |> filter(is_invasive == TRUE)
+
+  if (nrow(ms_inv) > 0 && "order" %in% names(ms_inv)) {
+    df <- ms_inv |>
+      filter(!is.na(order), order != "") |>
+      group_by(order) |>
+      summarise(n_total = n(), n_gbif = sum(matched_any, na.rm = TRUE),
+                n_missing = sum(!matched_any, na.rm = TRUE), .groups = "drop") |>
+      arrange(desc(n_total)) |> head(15)
+
+    df_long <- df |> pivot_longer(c(n_gbif, n_missing), names_to = "status", values_to = "n") |>
+      mutate(status = ifelse(status == "n_gbif", "In GBIF", "Missing"))
+
+    ggplot(df_long, aes(x = reorder(order, n_total), y = n, fill = status)) +
+      geom_col() +
+      scale_fill_manual(values = c("In GBIF" = pal$sage, "Missing" = pal$coral)) +
+      coord_flip() +
+      labs(title = "Invasive Species by Order", x = "", y = "Number of species", fill = "")
+  }
+}
+```
+
+## Spatial Distribution
+
+```{r inv-map, fig.height=9}
+if (!is.null(grid_10km) && !is.null(invasive_sg)) {
+  sg <- invasive_sg |> filter(basisofrecord == "all")
+  map_sf <- grid_10km |>
+    left_join(sg |> select(eeacellcode, occurrences, n_species), by = "eeacellcode") |>
+    mutate(occ_cat = case_when(
+      is.na(occurrences) | occurrences == 0 ~ "No data",
+      occurrences <= 10 ~ "1–10", occurrences <= 100 ~ "11–100",
+      occurrences <= 1000 ~ "101–1K", TRUE ~ "> 1K"
+    ) |> factor(levels = c("1–10", "11–100", "101–1K", "> 1K", "No data")))
+
+  p <- ggplot(map_sf) +
+    geom_sf(aes(fill = occ_cat), color = NA) +
+    scale_fill_manual(values = c("1–10" = "#d9a090", "11–100" = pal$coral,
+      "101–1K" = pal$sand, "> 1K" = "#3d4f6a", "No data" = "#e0e0e0")) +
+    labs(title = "Invasive Species — Spatial Distribution", fill = "Occurrences") +
+    theme_void() + theme(legend.position = "right")
+  if (!is.null(admin_level1)) {
+    p <- p + geom_sf(data = st_transform(admin_level1, st_crs(map_sf)),
+                     fill = NA, color = "#888", linewidth = 0.3)
+  }
+  print(p)
+}
+```
+
+## Temporal Trend
+
+```{r inv-temporal, fig.height=5}
+if (!is.null(invasive_ts)) {
+  df <- invasive_ts |>
+    filter(basisofrecord == "all") |>
+    mutate(yearmonth = as.integer(gsub("-", "", as.character(yearmonth))),
+           year = as.integer(substr(as.character(yearmonth), 1, 4))) |>
+    group_by(year) |>
+    summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+    filter(!is.na(year), year >= 1900)
+
+  ggplot(df, aes(x = year, y = occ)) +
+    geom_col(fill = pal$coral) +
+    scale_y_continuous(labels = label_comma()) +
+    labs(title = "Invasive Species — Observations Over Time", x = "Year", y = "Occurrences")
+}
+```
+
+# Sensitive Species {.tabset}
+
+## Data Availability
+
+```{r sens-summary}
+if (!is.null(match_summary) && "is_sensitive" %in% names(match_summary)) {
+  ms_sens <- match_summary |> filter(is_sensitive == TRUE)
+  n_sens <- nrow(ms_sens)
+  n_in_gbif <- sum(ms_sens$matched_any, na.rm = TRUE)
+
+  sens_stats <- tibble(
+    Metric = c("Known sensitive species", "In GBIF", "Missing from GBIF", "Coverage"),
+    Value = c(comma(n_sens), comma(n_in_gbif), comma(n_sens - n_in_gbif),
+              paste0(round(100 * n_in_gbif / max(n_sens, 1), 1), "%"))
+  )
+  kable(sens_stats, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+## Generalization Categories
+
+```{r sens-gen}
+if (!is.null(match_summary) && "sensitivity_category" %in% names(match_summary)) {
+  ms_sens <- match_summary |> filter(is_sensitive == TRUE, !is.na(sensitivity_category))
+  if (nrow(ms_sens) > 0) {
+    gen_df <- ms_sens |> count(sensitivity_category, sort = TRUE) |>
+      rename(Category = sensitivity_category, Species = n)
+    kable(gen_df, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+  }
+}
+```
+
+Sensitive species have coordinates generalised by GBIF to protect them from collection pressure, habitat disturbance, or trade. The generalization category (5 km, 25 km, or 50 km) indicates the radius within which coordinates are randomised. At 10 km grid resolution, 5 km-generalised species retain reasonable spatial accuracy; 25 km and 50 km species should be interpreted with caution.
+
+## Spatial Distribution
+
+```{r sens-map, fig.height=9}
+if (!is.null(grid_10km) && !is.null(sensitive_sg)) {
+  sg <- sensitive_sg |> filter(basisofrecord == "all")
+  map_sf <- grid_10km |>
+    left_join(sg |> select(eeacellcode, occurrences, n_species), by = "eeacellcode") |>
+    mutate(occ_cat = case_when(
+      is.na(occurrences) | occurrences == 0 ~ "No data",
+      occurrences <= 10 ~ "1–10", occurrences <= 100 ~ "11–100",
+      occurrences <= 1000 ~ "101–1K", TRUE ~ "> 1K"
+    ) |> factor(levels = c("1–10", "11–100", "101–1K", "> 1K", "No data")))
+
+  p <- ggplot(map_sf) +
+    geom_sf(aes(fill = occ_cat), color = NA) +
+    scale_fill_manual(values = c("1–10" = "#c6c8db", "11–100" = pal$slate,
+      "101–1K" = pal$plum, "> 1K" = "#3d4f6a", "No data" = "#e0e0e0")) +
+    labs(title = "Sensitive Species — Spatial Distribution",
+         subtitle = "Coordinates may be generalised; interpret with care",
+         fill = "Occurrences") +
+    theme_void() + theme(legend.position = "right")
+  if (!is.null(admin_level1)) {
+    p <- p + geom_sf(data = st_transform(admin_level1, st_crs(map_sf)),
+                     fill = NA, color = "#888", linewidth = 0.3)
+  }
+  print(p)
+}
+```
+
+## How Recorded
+
+```{r sens-bor, fig.height=4}
+if (!is.null(sensitive_br)) {
+  df <- sensitive_br |> filter(basisofrecord != "all") |>
+    mutate(bor = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
+    arrange(desc(occ_total))
+
+  ggplot(df, aes(x = reorder(bor, occ_total), y = occ_total)) +
+    geom_col(fill = pal$plum) +
+    geom_text(aes(label = comma(occ_total)), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.2))) +
+    labs(title = "Sensitive Species — Basis of Record", x = "", y = "Occurrences")
+}
+```
+
+---
+
+*Report generated by `gbifgaps` on `r Sys.time()`.*

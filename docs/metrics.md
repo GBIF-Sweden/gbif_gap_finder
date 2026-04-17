@@ -297,6 +297,27 @@ Taxonomic gaps compare GBIF-mediated taxonomic coverage to Swedish reference tax
 - **Total taxa:** 11,240
 - Includes: `taxonID`, `scientificName`, `taxonRank`, `threatStatus`, higher taxonomy
 
+### 5.1a Scope-Filtered Summaries (Script 09c)
+
+Script 09c uses the 4-tier reconciliation (section 5.3) to produce **five scope-filtered variants** of every cube-based summary. Each scope is a boolean filter over GBIF species:
+
+| Scope | Filter | Use |
+|-------|--------|-----|
+| `all` | All GBIF species | Full-overview / no-gap-metrics view |
+| `dyntaxa` | `in_dyntaxa == TRUE` | Gap analysis against the national backbone |
+| `threatened` | `threatStatus %in% c("CR","EN","VU","NT")` | Threatened species monitoring |
+| `invasive` | `is_invasive == TRUE` | Invasive species registry |
+| `sensitive` | `is_sensitive == TRUE` | Restricted access list |
+
+For each scope × grid resolution (10km/50km), 09c writes files with the pattern `<summary_type>_<scope>_<grid>.csv` in `data/{CC}/proc/derived/`, covering: `cell_summary`, `time_summary`, `cell_time_summary`, `order_cell_summary`, `order_time_summary`, `family_time_summary`, `published_time_summary`, `order_published_time_summary`, `family_published_time_summary`, `cell_recency`, `basis_recent`, `spatial_gaps` (zero-filled), `cell_last_year`.
+
+Additionally, 09c produces two pipeline constants consumed downstream:
+
+- `recent_cutoff.rds` — 12-month cutoff derived once from the cube's max yearmonth
+- `species_scope_summary.csv` — per-`specieskey` scope flag lookup for app runtime filtering
+
+The `exclude_orders` config (e.g. `["Primates"]`) is applied in 09c at the scope-lookup level, so excluded species appear in `all` but not in `dyntaxa`/`threatened`/`invasive`/`sensitive`.
+
 ### 5.2 Taxa Detected in GBIF Cube
 
 Taxa detected in cubes:
@@ -527,12 +548,13 @@ taxonomic:
 
 ## 8) Output File Summary
 
-**Phase 3 generates 60+ gap analysis files:**
+**Phase 3 generates 60+ gap analysis files plus ~130 scope-filtered variants:**
 
-- **Spatial gaps:** 7 files
-- **Temporal gaps:** 21 files
-- **Taxonomic gaps:** 14 files
-- **Integrated overview:** 18 files
+- **Spatial gaps (script 07):** 7 files
+- **Temporal gaps (script 08):** 21 files
+- **Taxonomic gaps (script 09b):** 14 files
+- **Scope summaries + recent-period layer (script 09c):** ~130 files (13 summary types × 5 scopes × 2 grid resolutions, plus tax_cell_recency, species_scope_summary, recent_cutoff)
+- **Integrated overview (script 10):** 18 files
 
 **All outputs documented in `config.yml` under `gaps.outputs` and `overview.outputs`**
 
@@ -591,5 +613,5 @@ taxonomic:
 
 ---
 
-**Last updated:** 2026-04-15  
-**Scripts:** 07_spatial_gaps.R, 08_temporal_gaps.R, 09a_reconcile_taxonomy.R, 09b_taxonomic_gaps.R, 10_make_gap_overview.R
+**Last updated:** 2026-04-16  
+**Scripts:** 07_spatial_gaps.R, 08_temporal_gaps.R, 09a_reconcile_taxonomy.R, 09b_taxonomic_gaps.R, 09c_scope_summaries.R, 10_make_gap_overview.R

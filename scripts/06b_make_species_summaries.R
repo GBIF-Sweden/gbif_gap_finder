@@ -5,17 +5,17 @@
 # Purpose:
 #   Create species-level summary tables from GBIF parquet cubes,
 #   including relative occurrence bias correction.
-#   Each species is tagged with in_dyntaxa, is_invasive, is_sensitive
-#   flags from the taxa reference (script 03), so downstream scripts
-#   can filter by scope without re-joining.
+#
+#   Taxonomy flags (in_dyntaxa, is_invasive, is_sensitive) are NOT
+#   applied here. They are added by script 09c after reconciliation,
+#   which uses the superior 4-tier matching from 09a.
 #
 # Strategy:
 #   1. Read parquet cube for each grid resolution
-#   2. Tag species with taxonomy flags (in_dyntaxa, is_invasive, etc.)
-#   3. Classify orders as small/large by row count
-#   4. Aggregate by order (small) or family (large)
-#   5. Add "all" basis rows and relative occurrence metrics
-#   6. Write per-taxon CSV files
+#   2. Classify orders as small/large by row count
+#   3. Aggregate by order (small) or family (large)
+#   4. Add "all" basis rows and relative occurrence metrics
+#   5. Write per-taxon CSV files
 #
 # Outputs (in data/{CC}/proc/derived/):
 #   by_order/<type>/<type>_<order>_<grid>.csv
@@ -23,9 +23,9 @@
 #
 #   where <type> is one of:
 #     - species_summary      Overall species totals
-#     - species_cell         Species × cell
-#     - species_time         Species × yearmonth
-#     - species_cell_time    Species × cell × yearmonth (optional)
+#     - species_cell         Species x cell
+#     - species_time         Species x yearmonth
+#     - species_cell_time    Species x cell x yearmonth (optional)
 #
 # Inputs:  data/{CC}/proc/cubes/*.parquet (from 04)
 # Config:  parameters.processing.large_order_threshold (default 500000)
@@ -34,15 +34,10 @@
 # Dependencies: scripts/00_setup.R, data.table, arrow, stringr
 # ============================================================================
 
-library(here)
-library(dplyr)
-library(stringr)
-library(data.table)
-library(glue)
-library(cli)
-library(arrow)
+source(here::here("scripts", "00_setup.R"))
 
-source(here("scripts", "00_setup.R"))
+# Script-specific package
+library(arrow)
 
 # ============================================================================
 # Configuration
@@ -56,73 +51,17 @@ MAKE_SPECIES_TIME      <- TRUE
 MAKE_SPECIES_CELL_TIME <- cfg_get("parameters.processing.make_species_cell_time", FALSE)
 
 # p_cubes, p_derived are defined in R/globals.R
-
-dir.create(here(p_derived, "by_order"),  showWarnings = FALSE, recursive = TRUE)
-dir.create(here(p_derived, "by_family"), showWarnings = FALSE, recursive = TRUE)
-
-# ============================================================================
-# Load Taxonomy Lookup (for Dyntaxa flags on species)
-# ============================================================================
-
-taxa_ref_path <- here(p_data_proc, "taxa_reference_current.rds")
-has_taxa_ref <- file.exists(taxa_ref_path)
-
-if (has_taxa_ref) {
-  cli_h2("Loading Taxonomy Lookup")
-  taxa_ref <- readRDS(taxa_ref_path)
-
-  taxa_lookup <- as.data.table(taxa_ref)[
-    taxonomicStatus == "accepted" | is.na(taxonomicStatus)
-  ][, .(
-    in_dyntaxa = TRUE,
-    is_invasive = any(is_invasive, na.rm = TRUE),
-    is_sensitive = if ("is_sensitive" %in% names(taxa_ref))
-      any(is_sensitive, na.rm = TRUE) else FALSE,
-    establishmentMeans = first(na.omit(establishmentMeans))
-  ), by = .(scientificName)]
-
-  # Exclude orders from config
-  exclude_orders <- cfg_get("parameters.taxonomic.exclude_orders", character(0))
-  if (length(exclude_orders) > 0) {
-    excluded_species <- as.data.table(taxa_ref)[
-      order %in% exclude_orders, unique(scientificName)
-    ]
-    taxa_lookup <- taxa_lookup[!scientificName %in% excluded_species]
-    cli_alert_info("Excluded species from orders: {paste(exclude_orders, collapse = ', ')}")
-  }
-
-  cli_alert_success("Taxa lookup: {scales::comma(nrow(taxa_lookup))} species")
-  rm(taxa_ref); gc()
-} else {
-  cli_alert_warning("No taxa reference found — species will not be tagged")
-  taxa_lookup <- NULL
-}
-
-tag_cube_taxonomy <- function(dt, lookup = taxa_lookup) {
-  if (is.null(lookup) || !"species" %in% names(dt)) return(dt)
-  dt <- merge(dt, lookup, by.x = "species", by.y = "scientificName", all.x = TRUE)
-  dt[is.na(in_dyntaxa), in_dyntaxa := FALSE]
-  dt[is.na(is_invasive), is_invasive := FALSE]
-  dt[is.na(is_sensitive), is_sensitive := FALSE]
-  dt
-}
+# Directories created by ensure_dirs() in 00_setup.R
 
 # ============================================================================
 # Helper Functions
 # ============================================================================
 
-# safe_sum and safe_max are defined in R/globals.R
-
-clean_for_filename <- function(x) {
-  x <- str_replace_all(x, "[^A-Za-z0-9]", "_")
-  x <- str_replace_all(x, "_+", "_")
-  str_remove(x, "^_|_$")
-}
+# read_cube(), safe_sum(), safe_max(), clean_for_filename() are in R/globals.R
 
 #' Add relative occurrence columns (bias correction)
 #' Computed from order/family/class totals in the data
 add_relative_occurrences <- function(dt) {
-  # Compute totals per order, family, class within each grid × basis
   if ("order" %in% names(dt)) {
     order_totals <- dt[, .(ordercount = safe_sum(occurrences)), by = .(grid, basisofrecord, order)]
     dt <- merge(dt, order_totals, by = c("grid", "basisofrecord", "order"), all.x = TRUE)
@@ -208,13 +147,6 @@ for (grid_name in names(grid_map)) {
   dt[is.na(order)  | order  == "", order  := "Unplaced"]
   dt[is.na(family) | family == "", family := "Unplaced"]
 
-  # Tag with taxonomy flags
-  dt <- tag_cube_taxonomy(dt)
-  if ("in_dyntaxa" %in% names(dt)) {
-    n_dyntaxa_sp <- uniqueN(dt[in_dyntaxa == TRUE]$specieskey)
-    cli_alert_info("Dyntaxa species: {scales::comma(n_dyntaxa_sp)} / {uniqueN(dt$specieskey)}")
-  }
-
   cli_alert_info("{scales::comma(nrow(dt))} rows, {uniqueN(dt$specieskey)} species")
 
   # ========================================================================
@@ -246,9 +178,6 @@ for (grid_name in names(grid_map)) {
     name_clean <- clean_for_filename(ord)
 
     group_base <- c("grid", "basisofrecord", "specieskey", "species", "family", "class")
-    # Add taxonomy flags if available (carried through to output)
-    flag_cols <- intersect(c("in_dyntaxa", "is_invasive", "is_sensitive", "establishmentMeans"), names(chunk))
-    group_base <- c(group_base, flag_cols)
 
     if (MAKE_SPECIES_SUMMARY) {
       agg <- chunk[, .(occurrences = safe_sum(occurrences)), by = intersect(group_base, names(chunk))]
@@ -295,9 +224,6 @@ for (grid_name in names(grid_map)) {
 
       name_clean <- paste0(clean_for_filename(ord), "_", clean_for_filename(fam))
       group_base <- c("grid", "basisofrecord", "specieskey", "species", "order", "family", "class")
-      # Add taxonomy flags if available (carried through to output)
-      flag_cols <- intersect(c("in_dyntaxa", "is_invasive", "is_sensitive", "establishmentMeans"), names(chunk))
-      group_base <- c(group_base, flag_cols)
 
       if (MAKE_SPECIES_SUMMARY) {
         agg <- chunk[, .(occurrences = safe_sum(occurrences)), by = intersect(group_base, names(chunk))]

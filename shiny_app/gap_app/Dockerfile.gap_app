@@ -59,9 +59,12 @@ COPY --from=builder /usr/local/lib/R/site-library /usr/local/lib/R/site-library
 
 WORKDIR /opt/project
 
-# Keep the original relative path structure so ../../config.yml still resolves.
-COPY config.yml ./config.yml
-COPY shiny_app/gap_app/app.R ./shiny_app/gap_app/app.R
+# Config: app.R looks for ../../configs/config_SE.yml relative to its workdir
+# (shiny_app/gap_app), so place it at the correct relative path.
+COPY configs/config_SE.yml ./configs/config_SE.yml
+
+# App code + data bundle + styles
+COPY shiny_app/gap_app/app.R         ./shiny_app/gap_app/app.R
 COPY shiny_app/gap_app/data/shiny_data.rds ./shiny_app/gap_app/data/shiny_data.rds
 COPY shiny_app/gap_app/www/styles.css ./shiny_app/gap_app/www/styles.css
 
