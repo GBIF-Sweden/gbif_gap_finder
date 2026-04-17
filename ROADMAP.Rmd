@@ -177,7 +177,11 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
 - [ ] **Troudet exclusion filter** — multi-select input to remove dominant groups (e.g. Aves) from bias chart
 - [ ] **Default GBIF-style groups** — curated mixed-rank mapping table for Troudet landing view (Birds, Mammals, Insects, Vascular Plants, Fungi, etc.)
 - [ ] Publisher type classification (citizen science, museums, universities, agencies)
+- [ ] `classify_publisher()` tuning — review which Swedish publishers land in "Other" and add keywords
 - [ ] Basis of record "last 12 months" per-basis breakdown — *data available via 09c's `basis_recent_<scope>_<grid>.csv`; app integration pending*
+- [ ] Sensitive species `sensitivity_category` — confirm pipeline carries it end-to-end, then add to species scope lookup CSV for the Data tab
+- [ ] `publisher_cell_taxonomy` file size — if 1.2M rows is too heavy for the shiny bundle, consider pre-aggregating to class level instead of order level
+- [ ] **`year_published` still broken — new cube downloads required** — the MJD→integer conversion in script 04 is implemented, but the current Swedish cubes still produce only 2 unique `year_published` values (visible in `published_time_summary_*.csv` having only 2 rows). The GBIF SQL API's `YEAR(CAST(lastinterpreted AS TIMESTAMP))` does not behave as expected in the CSV/Parquet output. Needs: (1) investigate whether the SQL query itself needs changing (e.g. different cast approach), (2) re-download cubes once fixed, (3) re-enable the "Published to GBIF" card on the Overview tab and the Published radio button on temporal/taxonomic tabs. The 12-month published metric was removed from the pipeline pending this fix; the Overview card currently shows cumulative totals instead.
 - [ ] Climate correlation on temporal tab (SMHI gridded data — deferred to v2)
 - [ ] Color blind accessibility audit (per-chart, not wholesale palette swap)
 - [ ] Bar titles in downloaded images when >20 groups
@@ -191,6 +195,27 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
 - [x] Centralised shared utilities (read_cube, safe_read, classify_accepted, resolve_threat_status, clean_for_filename, %||%)
 - [ ] Standardise function documentation headers
 - [ ] Ensure all scripts respect 100-character line width
+
+## 1.8 Data Integrity & Robustness
+
+- [ ] **03: Red list join by `scientificName` is fragile** — authorship differences between backbone and red list cause silent misses. Consider stripping authorship before joining, or matching on canonical name. Important for non-Swedish backbones.
+- [ ] **02: 50km cell code derivation has no validation** — `parse_10km()` derives 50km parent codes arithmetically but never checks whether those codes exist in the actual 50km grid file. Add a warning if zero matches are found.
+- [ ] **07: `filter_coarse_grid_to_country()` uses expensive `st_union`** — does `st_union` of the entire 10km grid (~5,000 polygons). Could cache the country boundary polygon during 02 or use the GADM admin boundary directly.
+- [ ] **09b: `load_derived_files` double-counting risk** — reads both `by_order/` and `by_family/` directories. If 06b is rerun with a different `large_order_threshold`, species from a previously-large order might appear in both, causing double-counting. Add a staleness check or cleanup step before 06b.
+- [ ] **10: `calc_metric()` silently swallows errors** — if an upstream file is malformed, the dashboard gets `NA` values without any warning. Consider logging which metrics failed.
+
+## 1.9 Architecture & Performance
+
+- [ ] **07: Cache cell code lists from 02** — 07 re-reads both grid GeoPackages to build cell universes. Could cache simple text files (`cellcodes_10km.txt`, `cellcodes_50km.txt`) during 02, saving gpkg reads and geometry operations.
+- [ ] **06a: `poly_id` column in grid lookups appears unused** — the lookup CSVs create a `poly_id` that no downstream script references. Either document its purpose or remove it.
+- [ ] **09b redundantly re-classifies backbone** — 09a already classifies accepted/synonym and builds the full reconciliation; 09b reloads and re-classifies `taxa_reference_current.rds` from scratch. 09b could read the classified backbone from 09a's output instead.
+- [ ] **11: `add_yearmonth_cols()` could be removed** — now skips when year/month exist, but still runs the check on ~30 files. Once confirmed that all 09c outputs always include year/month, the function can be dropped entirely.
+
+## 1.10 App Portability (for Norway/Ethiopia)
+
+- [ ] **`EXCLUDE_ORDERS` hardcoded in app.R** — line 95 has `c("Primates")`. Should read from config or from shiny_data bundle metadata, not be hardcoded.
+- [ ] **Legacy `config.yml` fallback in app.R** — line 172 still tries `../../config.yml` as a fallback. Remove this legacy path since configs are now at `configs/config_{CC}.yml`.
+- [ ] **Hardcoded "Sweden" references in app.R** — audit UI text for any direct "Sweden" strings that should read from config/metadata `country.name` instead.
 
 
 # Phase 2: Country Abstraction
@@ -222,15 +247,24 @@ Based on Norway results, refine the config system:
 
 - [ ] Taxonomy source abstraction — generic field mapping for any DwC-A backbone
 - [ ] Red list abstraction — handle different threat status column names
-- [ ] Feature flags — graceful degradation when components are missing:
+- [x] Feature flags — graceful degradation when components are missing:
+  - Already implemented: `invasives.enabled`, `sensitive.enabled`, `redlist.enabled` in config
+  - Scripts 01/03/09a/09c all handle disabled sources (set flags to FALSE, skip scopes with 0 species)
+  - App metadata flags (`has_invasive_scope`, `has_sensitive_scope`) control UI visibility
+  - Verified: Norway config with `invasives.enabled: false` + `sensitive.enabled: false` will produce `all`/`dyntaxa`/`threatened` scopes only
 
 ```yaml
-features:
-  has_national_checklist: true   # false → use GBIF backbone
-  has_redlist: true              # false → skip threat analysis
-  has_invasives: true            # false → skip invasive flag
-  has_regional_grids: true       # false → generate from country boundary
+# These already work — no new feature flags needed for European countries:
+invasives:
+  enabled: false    # → is_invasive = FALSE for all taxa, invasive scope skipped
+sensitive:
+  enabled: false    # → is_sensitive = FALSE for all taxa, sensitive scope skipped
+redlist:
+  enabled: false    # → threatStatus columns empty, threatened scope has 0 species → skipped
 ```
+
+- [ ] Future: `has_national_checklist: false` → use GBIF backbone instead of national taxonomy (for Phase 3)
+- [ ] Future: `has_regional_grids: false` → generate from country boundary (for Phase 3)
 
 ## 2.3 Grid System Abstraction
 
