@@ -213,9 +213,11 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
 
 ## 1.10 App Portability (for Norway/Ethiopia)
 
+- [ ] **Per-country app data folders** — script 11 currently overwrites a single `shiny_app/gap_app/data/shiny_data.rds`. Change to `shiny_app/gap_app/data/{CC}/shiny_data.rds` so country bundles coexist and switching doesn't require rerunning script 11. Requires updates to: script 11 (output path), app.R (data loading path from `GBIFGAPS_COUNTRY` env var or dropdown), Dockerfile (COPY path), `.gitignore`, `_targets.R` (gap_app_data output path).
 - [ ] **`EXCLUDE_ORDERS` hardcoded in app.R** — line 95 has `c("Primates")`. Should read from config or from shiny_data bundle metadata, not be hardcoded.
 - [ ] **Legacy `config.yml` fallback in app.R** — line 172 still tries `../../config.yml` as a fallback. Remove this legacy path since configs are now at `configs/config_{CC}.yml`.
 - [ ] **Hardcoded "Sweden" references in app.R** — audit UI text for any direct "Sweden" strings that should read from config/metadata `country.name` instead.
+- [ ] **"Dyntaxa" references in app.R** — several UI labels say "Dyntaxa" instead of using `metadata$taxonomy_name`. Replace with dynamic references so Norway shows "Nortaxa".
 
 
 # Phase 2: Country Abstraction
