@@ -16,7 +16,7 @@
 #   1. Ingestion    — scripts 01, 02, 03, 04
 #   2. Validation   — script 05
 #   3. Summaries    — scripts 06a, 06b
-#   4. Gap Analysis — scripts 07, 08, 09a, 09b
+#   4. Gap Analysis — scripts 07, 08, 09a, 09b, 09c
 #   5. Integration  — script 10
 #   6. Gap App Prep  — script 11
 #   7. Explorer Prep — script 12
@@ -35,8 +35,12 @@ source("scripts/00_setup.R")
 
 tar_option_set(
   packages = c(
+    # Core (matches required_packages in R/packages.R)
     "here", "dplyr", "tidyr", "readr", "stringr", "purrr", "glue",
-    "sf", "data.table", "arrow", "cli", "lubridate", "tibble", "yaml"
+    "tibble", "lubridate", "scales",
+    "sf", "data.table", "cli", "yaml",
+    # Script-specific (loaded by individual scripts but needed by targets workers)
+    "arrow"
   ),
   format = "rds",
   error  = "continue"
@@ -136,11 +140,17 @@ list(
     {
       validation_report
       source(here("scripts", "06a_make_core_summaries.R"), local = TRUE)
-      core_files <- list.files(
+      # Match 06a outputs only — exclude per-scope files produced by 09c
+      # which live in the same directory (cell_summary_all_10km.csv etc.)
+      all_csvs <- list.files(
         here(p_data_proc, "derived"),
         pattern = "^(cell|time|order|family|cube|grid_lookup|publisher|published).*\\.csv$",
         full.names = TRUE
       )
+      core_files <- all_csvs[!grepl(
+        "_(all|dyntaxa|threatened|invasive|sensitive)_(10|50)km\\.csv$",
+        all_csvs
+      )]
       if (length(core_files) == 0) stop("No core summary files created")
       core_files
     },
@@ -208,6 +218,41 @@ list(
     format = "file"
   ),
 
+  # 09c is a sibling of 09b — both depend on reconcile_taxonomy.
+  # 09c produces per-scope (all / dyntaxa / threatened / invasive / sensitive)
+  # summaries + the recent-period layer (cell_recency, basis_recent,
+  # spatial_gaps zero-filled, cell_last_year, tax_cell_recency) +
+  # recent_cutoff.rds as a pipeline constant.
+  tar_target(
+    scope_summaries,
+    {
+      reconcile_taxonomy; cube_parquet; grids
+      source(here("scripts", "09c_scope_summaries.R"), local = TRUE)
+      recent_cutoff <- here(p_data_proc, "recent_cutoff.rds")
+      stopifnot(file.exists(recent_cutoff))
+
+      # Per-scope files (cell_summary_all_10km.csv etc.)
+      scope_files <- list.files(
+        here(p_derived),
+        pattern = "_(all|dyntaxa|threatened|invasive|sensitive)_(10|50)km\\.csv$",
+        full.names = TRUE
+      )
+      # Non-scope 09c outputs
+      tax_cell_recency <- list.files(
+        here(p_derived),
+        pattern = "^tax_cell_recency_(10|50)km\\.csv$",
+        full.names = TRUE
+      )
+      species_scope <- here(p_derived, "species_scope_summary.csv")
+
+      all_files <- c(recent_cutoff, scope_files, tax_cell_recency,
+                     if (file.exists(species_scope)) species_scope)
+      if (length(scope_files) == 0) stop("No scope summary files created by 09c")
+      all_files
+    },
+    format = "file"
+  ),
+
   # ==========================================================================
   # Phase 5: Integrated Overview (script 10)
   # ==========================================================================
@@ -231,7 +276,7 @@ list(
   tar_target(
     gap_app_data,
     {
-      gap_overview
+      gap_overview; scope_summaries
       source(here("scripts", "11_prepare_gap_app_data.R"), local = TRUE)
       shiny_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
       stopifnot(file.exists(shiny_path))
@@ -260,8 +305,8 @@ list(
   # Phase 8: Reports (manual trigger)
   # ==========================================================================
 
-  tar_render(report_sanity_checks,
-    path = here("analysis", "01_sanity_checks.Rmd"), output_dir = here("analysis"),
+  tar_render(report_overview,
+    path = here("analysis", "01_overview.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
   tar_render(report_spatial_gaps,
     path = here("analysis", "02_spatial_gaps.Rmd"), output_dir = here("analysis"),
@@ -269,20 +314,20 @@ list(
   tar_render(report_temporal_gaps,
     path = here("analysis", "03_temporal_gaps.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
+  tar_render(report_record_types,
+    path = here("analysis", "04_record_types.Rmd"), output_dir = here("analysis"),
+    cue = tar_cue(mode = "never")),
   tar_render(report_taxonomic_gaps,
-    path = here("analysis", "04_taxonomic_gaps.Rmd"), output_dir = here("analysis"),
+    path = here("analysis", "05_taxonomic_gaps.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
-  tar_render(report_basis_of_record,
-    path = here("analysis", "05_basis_of_record_report.Rmd"), output_dir = here("analysis"),
+  tar_render(report_species_of_concern,
+    path = here("analysis", "06_species_of_concern.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
-  tar_render(report_integrated,
-    path = here("analysis", "06_integrated_report.Rmd"), output_dir = here("analysis"),
+  tar_render(report_publishers,
+    path = here("analysis", "07_publishers.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
-  tar_render(report_reconciliation_qa,
-    path = here("analysis", "07_taxonomy_reconciliation_qa.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_establishment_means,
-    path = here("analysis", "08_establishment_means.Rmd"), output_dir = here("analysis"),
+  tar_render(report_priorities,
+    path = here("analysis", "08_priorities.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
 
   # ==========================================================================
@@ -302,6 +347,7 @@ list(
         n_spatial_gap_files    = length(spatial_gaps),
         n_temporal_gap_files   = length(temporal_gaps),
         n_taxonomic_gap_files  = length(taxonomic_gaps),
+        n_scope_summary_files  = length(scope_summaries),
         n_overview_tables      = length(gap_overview),
         gap_app_ready          = file.exists(gap_app_data),
         explorer_app_ready     = file.exists(explorer_app_data)

@@ -30,15 +30,9 @@
 # Dependencies: data.table, stringr, here, cli, httr2 (optional, for Tier 4)
 # ============================================================================
 
-library(here)
-library(data.table)
-library(stringr)
-library(cli)
+source(here::here("scripts", "00_setup.R"))
 
-source(here("scripts", "00_setup.R"))
-
-# Null-coalescing operator (in case purrr is not attached)
-if (!exists("%||%")) `%||%` <- function(a, b) if (!is.null(a)) a else b
+# %||% is defined in R/globals.R
 
 timer_start <- Sys.time()
 
@@ -52,10 +46,16 @@ timer_start <- Sys.time()
 # or misidentifications that aren't in the national backbone anyway.
 api_min_occurrences <- cfg_get("parameters.taxonomic.api_min_occurrences", 1)
 
-# Maximum number of API requests per run (safety valve).
-# If there are more candidates, the remainder will be picked up on
-# the next run (cache persists across runs).
+# Maximum number of API requests per BATCH (safety valve against
+# runaway API calls). The script loops over batches of this size
+# until all candidates are queried (or api_max_batches is reached).
+# The cache is persisted between batches so progress is never lost.
 api_max_requests <- cfg_get("parameters.taxonomic.api_max_requests", 5000)
+
+# Maximum number of batches to run in a single script execution.
+# Default Inf means "keep going until all candidates are resolved".
+# Set to a finite value (e.g. 1) for a quick partial run.
+api_max_batches <- cfg_get("parameters.taxonomic.api_max_batches", Inf)
 
 # GBIF API rate limit (requests per second, GBIF allows ~10)
 api_rate_limit <- 10
@@ -63,10 +63,10 @@ api_rate_limit <- 10
 # Cache file for GBIF API responses (persists across reruns)
 cache_file <- here(p_data_proc, "gbif_name_cache.rds")
 
-# Output paths
+# Output paths (p_gaps defined in R/globals.R)
+# Directory created by ensure_dirs() in 00_setup.R
+
 reconciliation_file <- here(p_data_proc, "taxonomic_reconciliation.rds")
-gaps_dir <- here(p_data_proc, cfg_get("gaps.dir", "gaps"))
-dir.create(gaps_dir, showWarnings = FALSE, recursive = TRUE)
 
 cli_h1("09a -- Taxonomic Reconciliation")
 
@@ -123,8 +123,8 @@ if (!file.exists(taxa_file)) {
 taxa <- as.data.table(readRDS(taxa_file))
 taxa[, name_std := tolower(trimws(scientificName))]
 
-# Classify rows: accepted (taxonID == acceptedNameUsageID) vs synonym
-taxa[, is_accepted := (taxonID == acceptedNameUsageID)]
+# Classify rows: accepted vs synonym (NA-safe, uses taxonomicStatus first)
+taxa <- classify_accepted(taxa)
 
 accepted_taxa <- taxa[is_accepted == TRUE]
 synonym_taxa  <- taxa[is_accepted == FALSE]
@@ -368,110 +368,145 @@ if (file.exists(cache_file)) {
 # Determine which specieskeys still need querying
 t4_candidates[, sk_chr := as.character(specieskey)]
 already_cached <- t4_candidates$sk_chr %in% names(api_cache)
-to_query <- t4_candidates[!already_cached]
-
-n_to_query <- min(nrow(to_query), api_max_requests)
+remaining <- t4_candidates[!already_cached]
 
 cli_alert_info("Already cached: {scales::comma(sum(already_cached))}")
-cli_alert_info("Need API query: {scales::comma(nrow(to_query))}")
-if (nrow(to_query) > api_max_requests) {
-  cli_alert_warning("Capped at {api_max_requests} per run. Remaining will be queried on next rerun.")
-}
+cli_alert_info("Need API query: {scales::comma(nrow(remaining))}")
 
-# --- Query the API ---
+# --- Query the API in batches ---
 api_available <- TRUE
 
-if (n_to_query > 0) {
+if (nrow(remaining) > 0) {
   if (!requireNamespace("httr2", quietly = TRUE)) {
     cli_alert_warning("Package {.pkg httr2} not available -- skipping API queries")
     cli_alert_info("Install with: {.code install.packages('httr2')}")
     api_available <- FALSE
-    n_to_query <- 0
   }
 }
 
-if (n_to_query > 0 && api_available) {
+# Track totals across all batches for final reporting
+total_queried <- 0L
+total_api_errors <- 0L
+n_batches_run <- 0L
+
+if (nrow(remaining) > 0 && api_available) {
   library(httr2)
 
-  to_query <- to_query[1:n_to_query]
-  est_minutes <- round(n_to_query / api_rate_limit / 60, 1)
-  cli_alert_info("Querying GBIF API for {scales::comma(n_to_query)} species (~{est_minutes} min)")
+  # Compute batch plan
+  n_total_needed <- nrow(remaining)
+  n_batches_needed <- ceiling(n_total_needed / api_max_requests)
+  n_batches_to_run <- min(n_batches_needed, api_max_batches)
 
-  pb <- cli_progress_bar("GBIF Species API", total = n_to_query)
-  n_api_errors <- 0
+  est_total_minutes <- round(min(n_total_needed, n_batches_to_run * api_max_requests) /
+                             api_rate_limit / 60, 1)
+  cli_alert_info("Batch plan: {n_batches_to_run} batch(es) of up to {scales::comma(api_max_requests)} queries (~{est_total_minutes} min total)")
+  if (n_batches_needed > api_max_batches) {
+    cli_alert_warning("Capped at {api_max_batches} batch(es) per run ({scales::comma(n_total_needed - n_batches_to_run * api_max_requests)} candidates will be picked up on next rerun)")
+  }
 
-  for (i in seq_len(n_to_query)) {
-    sk <- to_query$sk_chr[i]
+  # === Outer loop: batches ===
+  while (nrow(remaining) > 0 && n_batches_run < api_max_batches) {
+    n_batches_run <- n_batches_run + 1L
+    batch_size <- min(nrow(remaining), api_max_requests)
+    batch <- remaining[1:batch_size]
 
-    tryCatch({
-      resp <- request(paste0("https://api.gbif.org/v1/species/", sk, "/synonyms")) |>
-        req_url_query(limit = 100) |>
-        req_retry(max_tries = 3, backoff = ~ 2) |>
-        req_throttle(rate = api_rate_limit) |>
-        req_perform()
+    cli_h3("Batch {n_batches_run}/{n_batches_to_run}: querying {scales::comma(batch_size)} species")
 
-      body <- resp_body_json(resp)
-      results <- body$results %||% list()
+    pb <- cli_progress_bar(
+      paste0("GBIF API batch ", n_batches_run),
+      total = batch_size
+    )
+    n_batch_errors <- 0L
 
-      # Extract synonym names from API results
-      # scientificName includes authorship (e.g., "Cortinarius odorifer (Britzelm.) Bres.")
-      # species is the canonical binomial (e.g., "Cortinarius odorifer")
-      # We need both, plus a stripped version of scientificName as fallback
-      # when the 'species' field is missing
-      all_names <- character(0)
+    # === Inner loop: queries within batch ===
+    for (i in seq_len(batch_size)) {
+      sk <- batch$sk_chr[i]
 
-      for (r in results) {
-        sn <- tolower(trimws(r$scientificName %||% ""))
-        cn <- tolower(trimws(r$species %||% ""))
+      tryCatch({
+        resp <- request(paste0("https://api.gbif.org/v1/species/", sk, "/synonyms")) |>
+          req_url_query(limit = 100) |>
+          req_retry(max_tries = 3, backoff = ~ 2) |>
+          req_throttle(rate = api_rate_limit) |>
+          req_perform()
 
-        if (nzchar(cn)) all_names <- c(all_names, cn)
-        if (nzchar(sn)) {
-          all_names <- c(all_names, sn)
-          # Also extract canonical binomial from scientificName
-          # (first two lowercase words, ignoring authorship)
-          parts <- strsplit(sn, "\\s+")[[1]]
-          if (length(parts) >= 2 &&
-              grepl("^[a-z]+$", parts[1]) &&
-              grepl("^[a-z-]+$", parts[2])) {
-            all_names <- c(all_names, paste(parts[1], parts[2]))
+        body <- resp_body_json(resp)
+        results <- body$results %||% list()
+
+        # Extract synonym names from API results
+        # scientificName includes authorship (e.g., "Cortinarius odorifer (Britzelm.) Bres.")
+        # species is the canonical binomial (e.g., "Cortinarius odorifer")
+        # We need both, plus a stripped version of scientificName as fallback
+        # when the 'species' field is missing
+        all_names <- character(0)
+
+        for (r in results) {
+          sn <- tolower(trimws(r$scientificName %||% ""))
+          cn <- tolower(trimws(r$species %||% ""))
+
+          if (nzchar(cn)) all_names <- c(all_names, cn)
+          if (nzchar(sn)) {
+            all_names <- c(all_names, sn)
+            # Also extract canonical binomial from scientificName
+            # (first two lowercase words, ignoring authorship)
+            parts <- strsplit(sn, "\\s+")[[1]]
+            if (length(parts) >= 2 &&
+                grepl("^[a-z]+$", parts[1]) &&
+                grepl("^[a-z-]+$", parts[2])) {
+              all_names <- c(all_names, paste(parts[1], parts[2]))
+            }
           }
         }
+
+        all_names <- unique(all_names[all_names != ""])
+
+        api_cache[[sk]] <- list(
+          synonyms   = all_names,
+          queried_at = Sys.time(),
+          n_results  = length(results)
+        )
+      },
+      error = function(e) {
+        api_cache[[sk]] <<- list(
+          synonyms   = character(0),
+          queried_at = Sys.time(),
+          error      = conditionMessage(e)
+        )
+        n_batch_errors <<- n_batch_errors + 1L
+      })
+
+      cli_progress_update(id = pb)
+
+      # Save cache periodically (every 500 queries) in case of crash
+      if (i %% 500 == 0) {
+        saveRDS(api_cache, cache_file)
       }
-
-      all_names <- unique(all_names[all_names != ""])
-
-      api_cache[[sk]] <- list(
-        synonyms   = all_names,
-        queried_at = Sys.time(),
-        n_results  = length(results)
-      )
-    },
-    error = function(e) {
-      api_cache[[sk]] <<- list(
-        synonyms   = character(0),
-        queried_at = Sys.time(),
-        error      = conditionMessage(e)
-      )
-      n_api_errors <<- n_api_errors + 1
-    })
-
-    cli_progress_update(id = pb)
-
-    # Save cache periodically (every 500 queries) in case of crash
-    if (i %% 500 == 0) {
-      saveRDS(api_cache, cache_file)
     }
+
+    cli_progress_done(id = pb)
+
+    # Persist cache at end of each batch
+    saveRDS(api_cache, cache_file)
+
+    # Update totals and remaining
+    total_queried <- total_queried + batch_size
+    total_api_errors <- total_api_errors + n_batch_errors
+
+    cli_alert_success(
+      "Batch {n_batches_run} complete: {scales::comma(batch_size)} queried",
+      " ({n_batch_errors} errors, cache: {scales::comma(length(api_cache))} total)"
+    )
+
+    # Refresh remaining pool (some entries might now be cached that weren't before,
+    # though in practice this is just batch-by-batch slicing)
+    already_cached <- remaining$sk_chr %in% names(api_cache)
+    remaining <- remaining[!already_cached]
   }
 
-  cli_progress_done(id = pb)
-
-  if (n_api_errors > 0) {
-    cli_alert_warning("API errors: {n_api_errors} / {n_to_query}")
+  if (total_api_errors > 0) {
+    cli_alert_warning("Total API errors across all batches: {total_api_errors} / {total_queried}")
   }
 
-  # Save final cache
-  saveRDS(api_cache, cache_file)
-  cli_alert_success("API cache saved: {scales::comma(length(api_cache))} total entries")
+  cli_alert_success("Tier 4 API phase complete: {n_batches_run} batch(es), {scales::comma(total_queried)} queries, cache: {scales::comma(length(api_cache))} entries")
 }
 
 # --- Resolve cached synonyms to backbone ---
@@ -683,7 +718,7 @@ saveRDS(recon, reconciliation_file)
 cli_alert_success("Saved: {.path {reconciliation_file}}")
 
 # CSV for the gap analysis pipeline (matches config)
-match_table_path <- here(gaps_dir,
+match_table_path <- here(p_gaps,
   cfg_get("gaps.outputs.taxonomic_match_table", "taxonomic_match_table.csv"))
 fwrite(recon[, -"name_std"], match_table_path)
 cli_alert_success("Saved: {.path {match_table_path}}")
@@ -698,7 +733,7 @@ tier_summary <- recon[, .(
 ), by = .(match_tier, match_type)][order(match_tier, -n_species)]
 
 # Tier summary CSV (09a-specific; 09b writes the backbone-level match_summary)
-match_summary_path <- here(gaps_dir, "taxonomic_reconciliation_summary.csv")
+match_summary_path <- here(p_gaps, "taxonomic_reconciliation_summary.csv")
 fwrite(tier_summary, match_summary_path)
 cli_alert_success("Saved: {.path {match_summary_path}}")
 
@@ -745,10 +780,10 @@ if (!api_available && nrow(t4_candidates) > 0) {
   cli_alert_warning("Install and rerun to resolve up to ~{scales::comma(nrow(t4_candidates))} more species.")
 }
 
-uncached <- nrow(to_query) - n_to_query
-if (uncached > 0) {
+# Did we hit the batch cap before resolving everything?
+if (api_available && nrow(remaining) > 0) {
   cli_alert_info("")
-  cli_alert_info("{scales::comma(uncached)} species still need API queries (hit per-run cap).")
+  cli_alert_info("{scales::comma(nrow(remaining))} species still need API queries (hit api_max_batches = {api_max_batches}).")
   cli_alert_info("Rerun this script to continue. Cache persists across runs.")
 }
 

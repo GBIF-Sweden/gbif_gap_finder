@@ -19,13 +19,7 @@
 # Dependencies: scripts/00_setup.R, sf, dplyr, data.table
 # ============================================================================
 
-library(here)
-library(sf)
-library(dplyr)
-library(cli)
-library(data.table)
-
-source(here("scripts", "00_setup.R"))
+source(here::here("scripts", "00_setup.R"))
 
 # ============================================================================
 # Configuration

@@ -26,17 +26,14 @@
 # Dependencies: scripts/00_setup.R, data.table, arrow
 # ============================================================================
 
-library(here)
-library(data.table)
-library(cli)
+source(here::here("scripts", "00_setup.R"))
 
+# Script-specific package
 if (!requireNamespace("arrow", quietly = TRUE)) {
   cli_abort(c("Package {.pkg arrow} is required",
     "i" = "Install: {.code install.packages('arrow')}"))
 }
 library(arrow)
-
-source(here("scripts", "00_setup.R"))
 
 # ============================================================================
 # Configuration
@@ -44,7 +41,7 @@ source(here("scripts", "00_setup.R"))
 
 cube_raw_dir  <- here(raw_gbif_cube_dir)
 cube_proc_dir <- here(p_data_proc, "cubes")
-dir.create(cube_proc_dir, showWarnings = FALSE, recursive = TRUE)
+# Directory created by ensure_dirs() in 00_setup.R
 
 cube_files <- list(
   grid10km = list(

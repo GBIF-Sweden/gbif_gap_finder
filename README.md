@@ -30,8 +30,8 @@ gbifgaps/
 │   ├── config_NO.yml           # Norway configuration
 │   └── config_template.yml     # Template for new countries
 ├── R/
-│   ├── globals.R               # Country-aware paths, constants, config helpers
-│   └── packages.R              # Package management
+│   ├── globals.R               # Config, paths, constants, shared utilities
+│   └── packages.R              # Package management (required / optional / app)
 ├── scripts/
 │   ├── 00_setup.R                         # Environment setup
 │   ├── 01_download_raw_data.R             # Download from GBIF/EEA/GADM
@@ -45,10 +45,19 @@ gbifgaps/
 │   ├── 08_temporal_gaps.R                 # Temporal gap analysis
 │   ├── 09a_reconcile_taxonomy.R           # GBIF ↔ backbone matching (4-tier)
 │   ├── 09b_taxonomic_gaps.R              # Taxonomic gap analysis
+│   ├── 09c_scope_summaries.R              # Per-scope summaries + recent-period layer
 │   ├── 10_make_gap_overview.R             # Integrated summary tables
 │   ├── 11_prepare_gap_app_data.R          # Bundle data for Gap Analysis app
 │   └── 12_prepare_explorer_app_data.R     # Bundle data for GBIF Explorer app
-├── analysis/                    # R Markdown reports (01–08)
+├── analysis/
+│   ├── 01_overview.Rmd                    # Dashboard overview report
+│   ├── 02_spatial_gaps.Rmd                # Spatial coverage analysis
+│   ├── 03_temporal_gaps.Rmd               # Temporal trends analysis
+│   ├── 04_record_types.Rmd               # Basis of record analysis
+│   ├── 05_taxonomic_gaps.Rmd             # Taxonomic coverage analysis
+│   ├── 06_species_of_concern.Rmd         # Threatened/invasive/sensitive
+│   ├── 07_publishers.Rmd                 # Publisher dependency analysis
+│   └── 08_priorities.Rmd                 # Priority actions report
 ├── data/
 │   ├── shared/
 │   │   └── grids/               # EEA grids (Europe-wide, shared)
@@ -101,6 +110,7 @@ source("scripts/07_spatial_gaps.R")             # Spatial gaps
 source("scripts/08_temporal_gaps.R")            # Temporal gaps
 source("scripts/09a_reconcile_taxonomy.R")      # GBIF ↔ backbone matching
 source("scripts/09b_taxonomic_gaps.R")          # Taxonomic gaps
+source("scripts/09c_scope_summaries.R")         # Per-scope summaries + recent period
 source("scripts/10_make_gap_overview.R")        # Overview tables
 source("scripts/11_prepare_gap_app_data.R")     # Gap app data bundle
 source("scripts/12_prepare_explorer_app_data.R") # Explorer app data bundle
@@ -170,7 +180,15 @@ Each species receives three key flags:
 - `is_invasive` — whether the species appears on the national invasive species registry
 - `is_sensitive` — whether the species is on the restricted access list (coordinates generalized in GBIF)
 
-The Gap Analysis app provides a **scope toggle**: "Dyntaxa species (gap analysis)" shows completeness metrics against the backbone, while "All GBIF Sweden (overview)" shows all occurrence data without gap metrics.
+Script **09c** uses these flags to produce five scope-filtered variants of every cube-based summary (cell, time, order, family, published, recency, spatial gaps, cell-last-year):
+
+- `_all` — all GBIF species (overview)
+- `_dyntaxa` — species matched to the national backbone (for gap analysis)
+- `_threatened` — Red List species (CR/EN/VU/NT)
+- `_invasive` — invasive species registry
+- `_sensitive` — restricted access list
+
+The Gap Analysis app reads these per-scope files directly, so scope switching in the UI is a lookup, not a computation. The recent-period cutoff is also derived once by 09c (from the data's max yearmonth) and saved as a pipeline constant.
 
 ## Adapting for Another Country
 
@@ -188,17 +206,19 @@ The Gap Analysis app provides a **scope toggle**: "Dyntaxa species (gap analysis
 | Download | 01 | Taxonomy, red list, invasives, admin boundaries | ~5 min |
 | Ingestion | 02–04 | Grids, taxonomy processing, CSV → parquet | ~30 min |
 | Validation | 05 | QA checks | ~2 min |
-| Summaries | 06a, 06b | Core + species summaries | ~45 min |
-| Gap Analysis | 07–09b | Spatial, temporal, taxonomic gaps | ~30 min |
+| Summaries | 06a, 06b | Core + species summaries (taxonomy-agnostic) | ~45 min |
+| Gap Analysis | 07, 08, 09a, 09b | Spatial, temporal, taxonomic gaps | ~30 min |
+| Scope + Recent | 09c | Per-scope summaries + recent-period layer | ~20 min |
 | Integration | 10 | Overview tables | ~5 min |
-| App Prep | 11, 12 | Shiny data bundles | ~15 min |
+| App Prep | 11, 12 | Shiny data bundles | ~10 min |
 
 ## Requirements
 
 - R >= 4.1.0
 - ~16 GB RAM recommended
 - ~20 GB disk space for full pipeline
-- Key packages: `sf`, `data.table`, `arrow`, `dplyr`, `plotly`, `leaflet`, `shiny`, `rgbif`
+- Pipeline packages: `sf`, `data.table`, `arrow`, `dplyr`, `scales`, `stringr`, `cli` (see `R/packages.R`)
+- Shiny app packages: `shiny`, `plotly`, `leaflet`, `DT`, `ggplot2` (see `app_packages` in `R/packages.R`)
 - Full dependency list managed via `renv`
 
 ## License

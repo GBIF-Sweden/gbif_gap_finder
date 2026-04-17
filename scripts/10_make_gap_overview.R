@@ -20,16 +20,7 @@
 #   output/tables/               - Standard summary tables
 #   output/tables/integrated/    - Multi-dimensional joined tables
 
-library(here)
-library(dplyr)
-library(tidyr)
-library(readr)
-library(purrr)
-library(stringr)
-library(data.table)
-library(cli)
-
-source(here("scripts", "00_setup.R"))
+source(here::here("scripts", "00_setup.R"))
 
 # ===========================================================================
 # CONFIGURATION
@@ -38,36 +29,21 @@ source(here("scripts", "00_setup.R"))
 cli_h1("Integrated Gap Overview (Script 10)")
 
 # p_gaps, p_derived, p_tables, p_integrated are defined in R/globals.R
-
-# Create directories
-dir.create(p_tables, showWarnings = FALSE, recursive = TRUE)
-dir.create(p_integrated, showWarnings = FALSE, recursive = TRUE)
+# Directories created by ensure_dirs() in 00_setup.R
 
 # ===========================================================================
 # HELPER FUNCTIONS
 # ===========================================================================
 
+# safe_read() and parse_year() are defined in R/globals.R
+
 #' Safely read gap file
-safe_read_gap <- function(filename) {
-  path <- here(p_gaps, filename)
-  if (!file.exists(path)) {
-    cli_alert_warning("Not found: {.path {filename}}")
-    return(NULL)
-  }
-  fread(path)
-}
+safe_read_gap <- function(filename) safe_read(here(p_gaps, filename))
 
 #' Safely read derived file
 safe_read_derived <- function(filename, subdir = NULL) {
-  if (!is.null(subdir)) {
-    path <- here(p_derived, subdir, filename)
-  } else {
-    path <- here(p_derived, filename)
-  }
-  if (!file.exists(path)) {
-    return(NULL)
-  }
-  fread(path)
+  if (!is.null(subdir)) safe_read(here(p_derived, subdir, filename))
+  else safe_read(here(p_derived, filename))
 }
 
 #' Write to integrated folder
@@ -91,8 +67,6 @@ write_table <- function(dt, filename) {
   fwrite(dt, path)
   cli_alert_success("{filename}: {scales::comma(nrow(dt))} rows")
 }
-
-# parse_year is defined in R/globals.R
 
 # ===========================================================================
 # LOAD ALL GAP OUTPUTS

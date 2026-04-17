@@ -17,16 +17,7 @@
 # Dependencies: scripts/00_setup.R, sf, readr, dplyr, stringr
 # ============================================================================
 
-library(here)
-library(sf)
-library(readr)
-library(dplyr)
-library(stringr)
-library(purrr)
-library(glue)
-library(cli)
-
-source(here("scripts", "00_setup.R"))
+source(here::here("scripts", "00_setup.R"))
 
 # ============================================================================
 # Configuration

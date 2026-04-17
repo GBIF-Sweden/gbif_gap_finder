@@ -37,12 +37,7 @@
 #     - taxonomic_priority_taxa.csv          Priority taxa for targeted sampling
 # ==============================================================================
 
-library(here)
-library(data.table)
-library(glue)
-library(cli)
-
-source(here("scripts", "00_setup.R"))
+source(here::here("scripts", "00_setup.R"))
 
 timer_start <- Sys.time()
 
@@ -51,8 +46,8 @@ timer_start <- Sys.time()
 # ===========================================================================
 
 # p_derived is defined in R/globals.R
-p_gaps    <- here(p_data_proc, cfg_get("gaps.dir", "gaps"))
-dir.create(p_gaps, showWarnings = FALSE, recursive = TRUE)
+# p_derived and p_gaps are defined in R/globals.R
+# Directory created by ensure_dirs() in 00_setup.R
 
 MIN_OCCURRENCES <- cfg_get("parameters.taxonomic.min_occurrences", 10)
 MIN_CELLS       <- cfg_get("parameters.taxonomic.min_cells", 5)
@@ -105,7 +100,7 @@ backbone <- as.data.table(readRDS(taxa_path))
 cli_alert_success("Loaded backbone: {scales::comma(nrow(backbone))} rows")
 
 # Keep only accepted taxa (synonyms are handled by 09a's matching)
-backbone[, is_accepted := (taxonID == acceptedNameUsageID)]
+backbone <- classify_accepted(backbone)
 tax_accepted <- backbone[is_accepted == TRUE]
 cli_alert_info("Accepted taxa: {scales::comma(nrow(tax_accepted))}")
 
@@ -113,27 +108,18 @@ cli_alert_info("Accepted taxa: {scales::comma(nrow(tax_accepted))}")
 tax_accepted[, name_std := tolower(trimws(scientificName))]
 
 # --- Resolve threat status ---
-# Priority: threatStatus_redlist > threatStatus_backbone > legacy columns
+# Uses fcoalesce to pick the first non-NA value per row across columns,
+# so that a taxon with NA in redlist but "VU" in backbone gets "VU".
 threat_col_candidates <- c(
   "threatStatus_redlist", "threatStatus_backbone",
   "dyntaxa_redlist_category", "swedish_redlist_category",
-  "redlistCategory", "threatStatus"
+  "redlistCategory"
 )
-threat_col <- intersect(threat_col_candidates, names(tax_accepted))
+tax_accepted <- resolve_threat_status(tax_accepted, threat_col_candidates)
 
-if (length(threat_col) > 0) {
-  # Use first available, with redlist preferred
-  primary_threat <- threat_col[1]
-  tax_accepted[, threatStatus := get(primary_threat)]
-  cli_alert_info("Threat status source: {primary_threat}")
-  
-  n_with_threat <- sum(!is.na(tax_accepted$threatStatus) &
-                         tax_accepted$threatStatus != "")
-  cli_alert_info("Taxa with threat status: {scales::comma(n_with_threat)}")
-} else {
-  tax_accepted[, threatStatus := NA_character_]
-  cli_alert_warning("No threat status column found")
-}
+n_with_threat <- sum(!is.na(tax_accepted$threatStatus) &
+                       tax_accepted$threatStatus != "")
+cli_alert_info("Taxa with threat status: {scales::comma(n_with_threat)}")
 
 # Standardise higher taxonomy column names
 for (col in c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")) {
@@ -148,7 +134,7 @@ keep_cols <- intersect(
   c("taxonID", "scientificName", "name_std", "taxonRank", "threatStatus",
     "kingdom", "phylum", "class", "order", "family", "genus",
     "establishmentMeans", "occurrenceStatus",
-    "is_invasive", "in_dyntaxa"),
+    "is_invasive", "is_sensitive", "sensitivity_category", "in_dyntaxa"),
   names(tax_accepted)
 )
 tax_clean <- tax_accepted[, ..keep_cols]
@@ -650,4 +636,4 @@ cli_alert_info("Output location: {.path {p_gaps}}")
 
 n_outputs <- length(list.files(p_gaps, pattern = "^taxonomic_"))
 cli_alert_info("Created {n_outputs} taxonomic gap files")
-cli_alert_info("Next: source('scripts/10_make_gap_overview.R')")
+cli_alert_info("Next: source('scripts/09c_scope_summaries.R')")

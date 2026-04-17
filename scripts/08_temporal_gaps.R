@@ -38,26 +38,19 @@
 #   - Stale cell: No observations in last 12 months or 5 years
 #   - Incomplete year: <12 months with data
 
-library(here)
-library(dplyr)
-library(readr)
-library(purrr)
-library(stringr)
-library(lubridate)
-library(data.table)
-library(glue)
-library(cli)
-library(arrow)
+# Dependencies: scripts/00_setup.R, data.table, arrow, lubridate
 
-source(here("scripts", "00_setup.R"))
+source(here::here("scripts", "00_setup.R"))
+
+# Script-specific package
+library(arrow)
 
 # ===========================================================================
 # CONFIGURATION
 # ===========================================================================
 
 # p_derived, p_cubes, p_gaps are defined in R/globals.R
-
-dir.create(p_gaps, showWarnings = FALSE, recursive = TRUE)
+# Directories created by ensure_dirs() in 00_setup.R
 
 # Staleness thresholds from config (or defaults)
 STALE_12M <- cfg_get("parameters.temporal.stale_months_12", 12)
@@ -70,47 +63,12 @@ cli_alert_info("Staleness thresholds: {STALE_12M} months, {STALE_60M} months")
 # HELPER FUNCTIONS
 # ===========================================================================
 
-# parse_yearmonth and safe_sum are defined in R/globals.R
+# parse_yearmonth, safe_sum, read_cube, read_derived_summary are in R/globals.R
 
-#' Read time summary safely
+#' Read time summary (wrapper around read_derived_summary)
 read_time_summary <- function(filename) {
-  path <- here(p_derived, filename)
-  
-  if (!file.exists(path)) {
-    cli_abort("Time summary not found: {.path {path}}")
-  }
-  
-  dt <- fread(path)
-  
-  required_cols <- c("basisofrecord", "yearmonth", "occurrences")
-  missing_cols <- setdiff(required_cols, names(dt))
-  
-  if (length(missing_cols) > 0) {
-    cli_abort(c(
-      "Missing required columns in {.path {filename}}",
-      "x" = "Missing: {paste(missing_cols, collapse = ', ')}"
-    ))
-  }
-  
-  # Add grid column if missing
-  if (!("grid" %in% names(dt))) {
-    grid_suffix <- str_extract(filename, "\\d+km")
-    dt[, grid := paste0("grid", grid_suffix)]
-  }
-  
-  dt
-}
-
-#' Read columns from a parquet cube file
-read_cube_cols <- function(path, cols) {
-  ds <- arrow::open_dataset(path)
-  available <- intersect(cols, names(ds$schema))
-  dt <- as.data.table(ds |> dplyr::select(dplyr::all_of(available)) |> dplyr::collect())
-  # Create yearmonth if needed
-  if (all(c("year", "month") %in% names(dt)) && !"yearmonth" %in% names(dt)) {
-    dt[, yearmonth := year * 100L + as.integer(month)]
-  }
-  dt
+  read_derived_summary(filename,
+    required_cols = c("basisofrecord", "yearmonth", "occurrences"))
 }
 
 #' Enrich temporal data with derived fields
@@ -316,7 +274,7 @@ compute_cell_recency <- function(grid_label, cubes_dir) {
   cli_alert_info("Reading: {basename(parquet_file)}")
   
   cols <- c("basisofrecord", "eeacellcode", "year", "month", "occurrences")
-  dt <- read_cube_cols(parquet_file, cols)
+  dt <- read_cube(parquet_file, cols = cols, recode_taxonomy = FALSE)
   
   dt <- dt[as.numeric(occurrences) > 0]
   dt[, ym := parse_yearmonth(yearmonth)]

@@ -45,13 +45,19 @@ theme_set(theme_minimal(base_size = 12))
 
 This document provides an overview of the derived summary tables created by `06a_make_core_summaries.R` and `06b_make_species_summaries.R`. These tables aggregate GBIF occurrence cube data into analysis-ready formats for gap analysis.
 
+**Note on architecture (April 2026 refactor):** 06a and 06b now produce only
+taxonomy-agnostic aggregations. Scope-filtered variants (`_all`, `_dyntaxa`,
+`_threatened`, `_invasive`, `_sensitive`) and the recent-period layer are
+produced by a dedicated downstream script, `09c_scope_summaries.R`, using the
+reconciliation table from 09a. See the CHANGELOG for details.
+
 ## Key Features
 
-- **Dual-scope summaries**: Every core summary is produced in two variants — full GBIF (`cell_summary_10km.csv`) and Dyntaxa-scoped (`cell_summary_dyntaxa_10km.csv`). The Dyntaxa scope only includes species matched to the national taxonomy backbone, with configurable order exclusions (e.g. Primates).
-- **Taxonomy flags**: Species-level tables carry `in_dyntaxa`, `is_invasive`, `is_sensitive`, and `establishmentMeans` columns, enabling downstream filtering without re-joining to the taxonomy reference.
-- **Bias correction columns**: Species-level tables include `familycount`, `ordercount`, `classcount` and their corresponding `relative_*` ratios
-- **Split by order**: Species-level tables are split by taxonomic order for manageable file sizes
-- **Multiple granularities**: From simple cell counts to full species × cell × time detail
+- **Pure cube aggregations**: 06a produces one variant of each core summary (cell, time, cell × time, order × cell, order × time, family × time, published × time) with no taxonomy filtering. Scope-filtered variants live in files named `<summary>_<scope>_<grid>.csv` (produced by 09c).
+- **Bias correction columns**: Species-level tables from 06b include `familycount`, `ordercount`, `classcount` and their corresponding `relative_*` ratios.
+- **Split by order**: Species-level tables are split by taxonomic order for manageable file sizes.
+- **Multiple granularities**: From simple cell counts to full species × cell × time detail.
+- **Taxonomy flags applied downstream**: `in_dyntaxa`, `is_invasive`, `is_sensitive`, and scope-filtered aggregations are all produced by 09c, which uses the 4-tier matching from 09a (not the simple name join that 06a/06b previously relied on).
 
 ---
 
@@ -262,16 +268,23 @@ if (length(species_summary_files) > 0) {
 | `species` | Scientific name |
 | `family` | Family name |
 | `occurrences` | Total occurrences |
-| `in_dyntaxa` | Whether species is in national taxonomy backbone |
-| `is_invasive` | Whether species is on national invasive species registry |
-| `is_sensitive` | Whether species is on restricted access list |
-| `establishmentMeans` | native, introduced, invasive, naturalised, uncertain |
 | `familycount` | Total occurrences in family (for bias correction) |
 | `ordercount` | Total occurrences in order |
 | `classcount` | Total occurrences in class |
 | `relative_family` | `occurrences / familycount` |
 | `relative_order` | `occurrences / ordercount` |
 | `relative_class` | `occurrences / classcount` |
+
+Taxonomy flags (`in_dyntaxa`, `is_invasive`, `is_sensitive`, `establishmentMeans`) are not present on 06b output files. Join to `species_scope_summary.csv` (produced by 09c) via `specieskey` to add them:
+
+```r
+library(data.table)
+ss <- fread("data/SE/proc/derived/by_order/species_summary/species_summary_Passeriformes_10km.csv")
+scope <- fread("data/SE/proc/derived/species_scope_summary.csv")
+ss <- merge(ss, scope[, .(specieskey, in_dyntaxa, is_invasive, is_sensitive,
+                          is_threatened, establishmentMeans)],
+            by = "specieskey", all.x = TRUE)
+```
 
 ---
 

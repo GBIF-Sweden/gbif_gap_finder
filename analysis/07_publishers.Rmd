@@ -1,0 +1,252 @@
+---
+title: "Publisher Analysis"
+subtitle: "Data Sources, Institutional Landscape, and Infrastructure Resilience"
+author: "gbifgaps"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    fig_width: 10
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 7, dpi = 150
+)
+
+library(here); library(dplyr); library(tidyr); library(ggplot2)
+library(scales); library(sf); library(knitr); library(kableExtra)
+
+data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+app_data <- readRDS(data_path)
+safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
+
+publisher_summary  <- safe_get("publisher_summary")
+publisher_cell_dep <- safe_get("publisher_cell_dependency")
+publisher_taxonomy <- safe_get("publisher_taxonomy")
+grid_10km          <- safe_get("grid_10km")
+admin_level1       <- safe_get("admin_level1")
+
+pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
+            coral = "#c47a6c", plum = "#8b6d8f")
+theme_gaps <- theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(color = "#666", size = 11),
+        panel.grid.minor = element_blank(), legend.position = "bottom")
+theme_set(theme_gaps)
+
+# Publisher classification by name
+classify_publisher <- function(name) {
+  name_lc <- tolower(name)
+  dplyr::case_when(
+    grepl("artdatabanken|artportalen|inaturalist|naturalist|ebird|observation\\.org|svalan", name_lc) ~ "Citizen science",
+    grepl("museum|herbari|naturhist|natural.hist|botanic.garden|museet", name_lc) ~ "Museum / Herbarium",
+    grepl("universit|högskola|academy|institut.+sci", name_lc) ~ "University",
+    grepl("smhi|naturvård|environment.+agenc|survey|geological|lantbruk|skogsstyr|ministry|myndigh", name_lc) ~ "Government",
+    TRUE ~ "Other"
+  )
+}
+
+cat_colors <- c("Citizen science" = pal$sage, "Museum / Herbarium" = pal$sand,
+                "University" = pal$slate, "Government" = pal$plum, "Other" = "#bbbbbb")
+
+truncate_name <- function(x, n = 40) ifelse(nchar(x) > n, paste0(substr(x, 1, n-1), "\u2026"), x)
+```
+
+# Overview
+
+```{r pub-stats}
+if (!is.null(publisher_summary)) {
+  n_pub <- nrow(publisher_summary)
+  n_single <- if (!is.null(publisher_cell_dep)) sum(publisher_cell_dep$n_publishers == 1) else NA
+  n_cells <- if (!is.null(grid_10km)) nrow(grid_10km) else NA
+  top <- publisher_summary |> arrange(desc(total_occurrences)) |> slice(1)
+  top_pct <- round(100 * top$total_occurrences / sum(publisher_summary$total_occurrences), 1)
+
+  stats <- tibble(
+    Metric = c("Total publishers", "Total datasets",
+               "Single-publisher cells", "Largest publisher", "Top publisher share"),
+    Value = c(comma(n_pub),
+              comma(sum(publisher_summary$n_datasets, na.rm = TRUE)),
+              paste0(comma(n_single), " / ", comma(n_cells)),
+              if ("publisher_name" %in% names(top)) top$publisher_name else "?",
+              paste0(top_pct, "%"))
+  )
+  kable(stats, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+# Top Publishers by Occurrences
+
+```{r top-occ, fig.height=8}
+if (!is.null(publisher_summary) && "publisher_name" %in% names(publisher_summary)) {
+  df <- publisher_summary |>
+    arrange(desc(total_occurrences)) |> head(20) |>
+    mutate(
+      name = ifelse(!is.na(publisher_name), publisher_name, publishingorgkey),
+      short = truncate_name(name),
+      category = classify_publisher(name)
+    )
+
+  ggplot(df, aes(x = reorder(short, total_occurrences), y = total_occurrences, fill = category)) +
+    geom_col() +
+    scale_fill_manual(values = cat_colors) +
+    scale_y_continuous(labels = label_comma()) +
+    coord_flip() +
+    labs(title = "Top 20 Publishers by Occurrence Volume",
+         x = "", y = "Total occurrences", fill = "Category") +
+    theme(axis.text.y = element_text(size = 9))
+}
+```
+
+# Top Publishers by Species Coverage
+
+```{r top-species, fig.height=8}
+if (!is.null(publisher_summary) && "publisher_name" %in% names(publisher_summary)) {
+  df <- publisher_summary |>
+    arrange(desc(n_species)) |> head(20) |>
+    mutate(
+      name = ifelse(!is.na(publisher_name), publisher_name, publishingorgkey),
+      short = truncate_name(name),
+      category = classify_publisher(name)
+    )
+
+  ggplot(df, aes(x = reorder(short, n_species), y = n_species, fill = category)) +
+    geom_col() +
+    scale_fill_manual(values = cat_colors) +
+    scale_y_continuous(labels = label_comma()) +
+    coord_flip() +
+    labs(title = "Top 20 Publishers by Species Coverage",
+         x = "", y = "Unique species", fill = "Category") +
+    theme(axis.text.y = element_text(size = 9))
+}
+```
+
+# Publisher Category Breakdown
+
+```{r category-table}
+if (!is.null(publisher_summary) && "publisher_name" %in% names(publisher_summary)) {
+  df <- publisher_summary |>
+    mutate(category = classify_publisher(
+      ifelse(!is.na(publisher_name), publisher_name, ""))) |>
+    group_by(category) |>
+    summarise(
+      Publishers = n(),
+      Occurrences = sum(total_occurrences, na.rm = TRUE),
+      Species = sum(n_species, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    mutate(`% Occ` = round(100 * Occurrences / sum(Occurrences), 1)) |>
+    arrange(desc(Occurrences))
+
+  kable(df, align = c("l", rep("r", 4)), format.args = list(big.mark = ",")) |>
+    kable_styling(full_width = FALSE)
+}
+```
+
+# Publisher Dependency Map
+
+```{r dep-map, fig.height=9}
+if (!is.null(grid_10km) && !is.null(publisher_cell_dep)) {
+  map_sf <- grid_10km |>
+    left_join(publisher_cell_dep |> select(eeacellcode, n_publishers), by = "eeacellcode") |>
+    mutate(
+      n_publishers = tidyr::replace_na(n_publishers, 0L),
+      dep_cat = case_when(
+        n_publishers == 0 ~ "No data",
+        n_publishers == 1 ~ "1 (fragile)",
+        n_publishers <= 3 ~ "2–3",
+        n_publishers <= 5 ~ "4–5",
+        TRUE ~ "6+"
+      ) |> factor(levels = c("No data", "1 (fragile)", "2–3", "4–5", "6+"))
+    )
+
+  dep_colors <- c("No data" = "#e8e8e8", "1 (fragile)" = pal$coral,
+                  "2–3" = "#d4a860", "4–5" = pal$sage, "6+" = pal$slate)
+
+  p <- ggplot(map_sf) +
+    geom_sf(aes(fill = dep_cat), color = NA) +
+    scale_fill_manual(values = dep_colors, name = "Publishers per cell") +
+    labs(title = "Publisher Dependency per Grid Cell",
+         subtitle = "Cells with only one publisher are fragile") +
+    theme_void() + theme(legend.position = "right")
+  if (!is.null(admin_level1)) {
+    p <- p + geom_sf(data = st_transform(admin_level1, st_crs(map_sf)),
+                     fill = NA, color = "#888", linewidth = 0.3)
+  }
+  print(p)
+}
+```
+
+# Taxonomic Coverage by Publisher
+
+Which publishers dominate for specific taxonomic groups?
+
+```{r pub-taxonomy, fig.height=8}
+if (!is.null(publisher_taxonomy) && !is.null(publisher_summary) &&
+    "publisher_name" %in% names(publisher_summary)) {
+  # Top 5 kingdoms by occurrence
+  top_kingdoms <- publisher_taxonomy |>
+    group_by(kingdom) |>
+    summarise(occ = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    arrange(desc(occ)) |> head(5) |> pull(kingdom)
+
+  for (k in top_kingdoms) {
+    pt <- publisher_taxonomy |> filter(kingdom == k) |>
+      group_by(publishingorgkey) |>
+      summarise(occ = sum(total_occurrences, na.rm = TRUE),
+                spp = sum(n_species, na.rm = TRUE), .groups = "drop") |>
+      left_join(publisher_summary |> select(publishingorgkey, publisher_name),
+                by = "publishingorgkey") |>
+      mutate(name = ifelse(!is.na(publisher_name), publisher_name, publishingorgkey),
+             short = truncate_name(name, 35),
+             category = classify_publisher(name)) |>
+      arrange(desc(occ)) |> head(10)
+
+    p <- ggplot(pt, aes(x = reorder(short, occ), y = occ, fill = category)) +
+      geom_col() +
+      scale_fill_manual(values = cat_colors) +
+      scale_y_continuous(labels = label_comma()) +
+      coord_flip() +
+      labs(title = paste0("Top Publishers — ", k),
+           x = "", y = "Occurrences", fill = "") +
+      theme(axis.text.y = element_text(size = 8))
+    print(p)
+    cat("\n\n")
+  }
+}
+```
+
+# All Publishers
+
+```{r pub-table}
+if (!is.null(publisher_summary)) {
+  df <- publisher_summary |>
+    arrange(desc(total_occurrences)) |>
+    mutate(
+      name = if ("publisher_name" %in% names(publisher_summary))
+        ifelse(!is.na(publisher_name), publisher_name, publishingorgkey)
+        else publishingorgkey,
+      pct = round(100 * total_occurrences / sum(total_occurrences), 2)
+    ) |>
+    select(Publisher = name, Occurrences = total_occurrences, `Share %` = pct,
+           Species = n_species, Cells = n_cells)
+
+  kable(df |> head(30), align = c("l", rep("r", 4)),
+    format.args = list(big.mark = ",")) |>
+    kable_styling(full_width = FALSE, font_size = 11)
+}
+```
+
+---
+
+*Report generated by `gbifgaps` on `r Sys.time()`.*
