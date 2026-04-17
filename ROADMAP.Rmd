@@ -44,16 +44,17 @@ The full pipeline runs end-to-end for Sweden:
 | Invasive species integration | ✅ Complete | Swedish Invasive Species Registry (DwC-A), `is_invasive` flag |
 | Sensitive species integration | ✅ Complete | SLU Artdatabanken restricted access list (203 spp), `is_sensitive` flag + `sensitivity_category` |
 | Validation (script 05) | ✅ Complete | Parquet validation, column checks |
-| Core summaries (scripts 06a, 06b) | ✅ Complete | Dual-scope: full + `_dyntaxa` variants; taxonomy flags on species summaries |
+| Core summaries (scripts 06a, 06b) | ✅ Complete | Taxonomy-agnostic pure aggregations (scope filtering moved to 09c) |
 | Spatial gaps (script 07) | ✅ Complete | Coverage, hotspots, zero-data cells |
 | Temporal gaps (script 08) | ✅ Complete | Recency from parquet, seasonality, trends |
-| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching, `in_dyntaxa` + `is_invasive` + `is_sensitive` flags |
+| Taxonomy reconciliation (script 09a) | ✅ Complete | 4-tier matching with batched Tier 4 API, `in_dyntaxa` + `is_invasive` + `is_sensitive` flags |
 | Taxonomic gaps (script 09b) | ✅ Complete | Missing taxa, threat coverage, establishment means coverage |
+| Scope summaries + recent-period layer (script 09c) | ✅ Complete | Five-scope summaries (all/dyntaxa/threatened/invasive/sensitive) + recent-period cutoff as pipeline constant |
 | Integration (script 10) | ✅ Complete | Combined overview tables |
-| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Dyntaxa/All GBIF toggle, kingdom spatial filter, heatmap scale, about sections |
+| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Pure loader after 09c refactor; scope toggles now map to pre-computed files |
 | Biodiversity Explorer app (script 12 + Shiny) | ✅ Complete | i18n (EN/SV), vernacular names, invasive species tab |
 | R Markdown reports (analysis 01–08) | ✅ Complete | 8 reports including establishment means |
-| targets pipeline | ✅ Complete | Full DAG with `tar_make()`, download target, parquet-aware |
+| targets pipeline | ✅ Complete | Full DAG with `tar_make()`, 09c as sibling of 09b |
 | Configuration system | ✅ Complete | Country-aware `configs/config_{CC}.yml`, shared grids, invasives + sensitive config |
 
 ## Key Technical Achievements
@@ -62,7 +63,9 @@ The full pipeline runs end-to-end for Sweden:
 - **Country-aware architecture** — `data/{CC}/` folder structure, `configs/config_{CC}.yml`, shared EEA grids in `data/shared/grids/`
 - **Taxonomy reconciliation** went from 31% to 99.8% occurrence coverage through a 4-tier matching system
 - **Four-layer taxonomy**: Dyntaxa backbone + Red List threat status + Invasive Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasive`, and `is_sensitive` flags
-- **Dual-scope summaries** — every core summary (cell, time, order, family, publisher) produced in both full-GBIF and Dyntaxa-scoped variants, with `exclude_orders` config support (e.g. Primates)
+- **Five-scope summaries via 09c** — scope-filtered variants (all / dyntaxa / threatened / invasive / sensitive) of every cube-based summary, pre-computed so the app's scope toggles are file lookups rather than runtime filters; `exclude_orders` config support (e.g. Primates) applied in 09c
+- **Recent-period cutoff as pipeline constant** — 09c derives the 12-month cutoff once from the cube's max yearmonth and saves `recent_cutoff.rds`; all downstream consumers read this file rather than recomputing
+- **Clean separation of concerns** — 06a/06b are taxonomy-agnostic (pure cube aggregation), 09a does reconciliation, 09b does taxonomic gaps, 09c does scope summaries + recent layer, 11 is a pure loader (no cube I/O)
 - **Dyntaxa/All GBIF scope toggle** — gap metrics only shown when Dyntaxa backbone is active; "All GBIF" mode shows overview without gap metrics
 - **Kingdom-level spatial filtering** — recency maps can be filtered by kingdom to reveal patterns hidden by bird-dominated data
 - **Publisher analysis** — publisher summary, single-publisher cell dependency, published vs observed time
@@ -87,6 +90,9 @@ The full pipeline runs end-to-end for Sweden:
 - [x] Pipeline housekeeping (README, config, packages.R, _targets.R, run.R)
 - [x] Taxonomy QA review report (Rmd 07)
 - [x] Full end-to-end `tar_make()` run
+- [x] Redundancy cleanup: consolidated shared utilities into globals.R, centralised package loading, removed duplicate helper functions across scripts
+- [x] Bug fixes: `is_accepted` NA-drop (classify_accepted), threat status fcoalesce (resolve_threat_status), yearmonth NA guard
+- [x] R Markdown reports renamed and `_targets.R` / `run.R` updated to match (01–08)
 
 ## 1.2 Taxonomy Restructuring ✅
 
@@ -107,9 +113,9 @@ The full pipeline runs end-to-end for Sweden:
   - GBIF SQL API returns MJD (Modified Julian Date), not integer year
   - Script 04 converts via `as.Date(x, origin = "1858-11-17")`
   - Controlled by `parameters.taxonomic.year_published_format: "mjd"` in config
-- [x] Dual-scope summaries in script 06a
-  - `write_dual_scope()` produces both full and `_dyntaxa` file variants
-  - Taxonomy lookup joined at cube level (species name → `in_dyntaxa`, `is_invasive`, `is_sensitive`)
+- [x] Dual-scope summaries in script 06a *(later superseded by 09c, see 1.4)*
+  - `write_dual_scope()` produced both full and `_dyntaxa` file variants
+  - Taxonomy lookup joined at cube level
   - `exclude_orders` config applied at lookup level (e.g. Primates)
 - [x] Taxonomy flags carried through species summaries in script 06b
   - `in_dyntaxa`, `is_invasive`, `is_sensitive`, `establishmentMeans` in every output CSV
@@ -117,7 +123,35 @@ The full pipeline runs end-to-end for Sweden:
 - [x] Filter breadcrumb on Taxonomic tab (shows active filter path with clear button)
 - [x] Updated all configs (SE, NO, template), globals.R, README
 
-## 1.4 App Tab Review (In Progress)
+## 1.4 Pipeline Refactor: 09c Scope Summaries ✅
+
+Consolidation of all scope-filtered and recent-period computation into a
+dedicated script, clean-up of duplicated taxonomy plumbing, and script 11
+reduction from 1700 to ~940 lines.
+
+- [x] **New script 09c** — sibling of 09b, depends on 09a reconciliation.
+  Produces per-scope (`all`, `dyntaxa`, `threatened`, `invasive`, `sensitive`)
+  variants of every cube-based summary across both grid resolutions.
+- [x] **Recent-period layer in 09c** — cell_recency, basis_recent,
+  spatial_gaps (zero-filled against grid), cell_last_year, tax_cell_recency
+  (kingdom × class × cell), and `recent_cutoff.rds` as pipeline constant.
+- [x] **Order- and family-level published-time summaries** — enable
+  Troudet bias "published" toggle at class/order granularity that was
+  previously NA.
+- [x] **06a/06b simplified** — taxonomy-agnostic aggregations; removed
+  `tag_cube_taxonomy()`, `write_dual_scope()`, taxa-reference loading.
+- [x] **09a batched Tier 4 API** — outer `while` loop over batches
+  (default `api_max_batches = Inf`), cache persists after every batch.
+- [x] **Script 11 rewritten as pure loader** — no cube I/O, no heavy
+  computation. Loads 09c per-scope files under `<scope>_<summary_type>`
+  names; provides backward-compat aliases to the `all` scope.
+- [x] **`_targets.R` updated** — `scope_summaries` target added as sibling
+  of `taxonomic_gaps`; `gap_app_data` depends on both.
+- [x] **Five-scope metadata flags in 11** — `has_all_scope`,
+  `has_dyntaxa_scope_data`, `has_threatened_scope`, `has_invasive_scope`,
+  `has_sensitive_scope` in the shiny_data bundle for app feature detection.
+
+## 1.5 App Tab Review (In Progress)
 
 Tab-by-tab feedback and refinement of the Gap Analysis app:
 
@@ -129,32 +163,32 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
   - [x] Primates exclusion (item 1)
   - [ ] Troudet multi-select exclusion filter (e.g. exclude Aves from bias chart)
   - [ ] Default GBIF-style groups on Troudet landing view (curated mixed-rank mapping)
-- [ ] Species of Concern tab — **new tab replacing Threatened** (sub-tabs: Threatened, Invasive, Sensitive)
+- [ ] Species of Concern tab — **new tab replacing Threatened** (sub-tabs: Threatened, Invasive, Sensitive) — *enabled by 09c scope summaries*
 - [ ] Publishers tab — review pending
 - [ ] Priorities tab — review pending (integrate sampling bias data)
 - [ ] Overview tab — review pending
 
-## 1.5 Remaining Sweden Work
+## 1.6 Remaining Sweden Work
 
-- [ ] **Species of Concern tab** — merge Threatened + Invasive + Sensitive into one tab with sub-tabs:
+- [ ] **Species of Concern tab** — merge Threatened + Invasive + Sensitive into one tab with sub-tabs (scope data already pre-computed by 09c):
   - Threatened sub-tab: lift from current Threatened tab (coverage by CR/EN/VU/NT/DD, missing species table)
   - Invasive sub-tab: monitoring coverage, spatial concentration, temporal trends, over-/under-representation
   - Sensitive sub-tab: breakdown by sensitivity category (5/25/50km), taxonomic distribution, data quality impact
 - [ ] **Troudet exclusion filter** — multi-select input to remove dominant groups (e.g. Aves) from bias chart
 - [ ] **Default GBIF-style groups** — curated mixed-rank mapping table for Troudet landing view (Birds, Mammals, Insects, Vascular Plants, Fungi, etc.)
-- [ ] **Script 11 optimization** — replace cube re-aggregation (section 5d) with pre-computed `_dyntaxa` files from 06a
 - [ ] Publisher type classification (citizen science, museums, universities, agencies)
-- [ ] Basis of record "last 12 months" per-basis breakdown
+- [ ] Basis of record "last 12 months" per-basis breakdown — *data available via 09c's `basis_recent_<scope>_<grid>.csv`; app integration pending*
 - [ ] Climate correlation on temporal tab (SMHI gridded data — deferred to v2)
 - [ ] Color blind accessibility audit (per-chart, not wholesale palette swap)
 - [ ] Bar titles in downloaded images when >20 groups
 - [ ] PhyloPic taxonomic silhouette icons — *parked*
 - [ ] 1km grid resolution option — *requires evaluation*
 
-## 1.6 Code Quality
+## 1.7 Code Quality
 
 - [ ] Consistent `|>` pipe syntax throughout (currently mixed `|>` and `%>%`)
-- [ ] Remove dead code and commented-out sections
+- [x] Remove dead code and commented-out sections (load_packages was dead; duplicated helpers removed)
+- [x] Centralised shared utilities (read_cube, safe_read, classify_accepted, resolve_threat_status, clean_for_filename, %||%)
 - [ ] Standardise function documentation headers
 - [ ] Ensure all scripts respect 100-character line width
 

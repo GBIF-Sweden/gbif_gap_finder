@@ -74,9 +74,10 @@ run_phase_3 <- function() {
   tar_make(names = c(core_summaries, species_summaries))
 }
 
-#' Run Phase 4: Gap Analysis (scripts 07, 08, 09a, 09b)
+#' Run Phase 4: Gap Analysis (scripts 07, 08, 09a, 09b, 09c)
 run_phase_4 <- function() {
-  tar_make(names = c(spatial_gaps, temporal_gaps, reconcile_taxonomy, taxonomic_gaps))
+  tar_make(names = c(spatial_gaps, temporal_gaps, reconcile_taxonomy,
+                     taxonomic_gaps, scope_summaries))
 }
 
 #' Run Phase 5: Integrated Overview (script 10)
@@ -97,14 +98,14 @@ run_explorer_app_prep <- function() {
 #' Render all R Markdown reports
 run_reports <- function() {
   tar_make(names = c(
-    report_sanity_checks,
+    report_overview,
     report_spatial_gaps,
     report_temporal_gaps,
+    report_record_types,
     report_taxonomic_gaps,
-    report_basis_of_record,
-    report_integrated,
-    report_reconciliation_qa,
-    report_establishment_means
+    report_species_of_concern,
+    report_publishers,
+    report_priorities
   ))
 }
 
@@ -169,12 +170,10 @@ status <- function() {
   taxa_path <- here(p_data_proc, "taxa_reference_current.rds")
   cat("  Taxonomy backbone:", ifelse(file.exists(taxa_path), "Yes", "No"), "\n")
 
-  invasives_dir <- if (exists("raw_invasives_dir")) raw_invasives_dir else here(p_data_raw, "invasives")
-  invasive_files <- if (dir.exists(invasives_dir)) list.files(invasives_dir, pattern = "\\.(txt|csv)$") else character(0)
+  invasive_files <- if (dir.exists(raw_invasives_dir)) list.files(raw_invasives_dir, pattern = "\\.(txt|csv)$") else character(0)
   cat("  Invasive species:", ifelse(length(invasive_files) > 0, paste0("Yes (", length(invasive_files), " files)"), "No"), "\n")
 
-  sensitive_dir <- if (exists("raw_sensitive_dir")) raw_sensitive_dir else here(p_data_raw, "sensitive")
-  sensitive_files <- if (dir.exists(sensitive_dir)) list.files(sensitive_dir, pattern = "\\.(txt|csv)$") else character(0)
+  sensitive_files <- if (dir.exists(raw_sensitive_dir)) list.files(raw_sensitive_dir, pattern = "\\.(txt|csv)$") else character(0)
   cat("  Sensitive species:", ifelse(length(sensitive_files) > 0, paste0("Yes (", length(sensitive_files), " files)"), "No"), "\n")
 
   gap_app_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")

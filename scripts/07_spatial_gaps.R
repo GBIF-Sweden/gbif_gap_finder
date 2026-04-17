@@ -28,23 +28,14 @@
 # Dependencies: scripts/00_setup.R, data.table, sf
 # ============================================================================
 
-library(here)
-library(dplyr)
-library(stringr)
-library(data.table)
-library(sf)
-library(glue)
-library(cli)
-
-source(here("scripts", "00_setup.R"))
+source(here::here("scripts", "00_setup.R"))
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
 # p_derived and p_gaps are defined in R/globals.R
-
-dir.create(p_gaps, showWarnings = FALSE, recursive = TRUE)
+# Directories created by ensure_dirs() in 00_setup.R
 
 QUANTILE_THRESHOLDS <- cfg_get(
   "parameters.spatial.quantile_thresholds", c(0.05, 0.10, 0.25)
@@ -59,32 +50,12 @@ cli_alert_info(
 # Helper Functions
 # ============================================================================
 
-#' Read cell summary safely
+# read_derived_summary(), guess_cellcode_field() are defined in R/globals.R
+
+#' Read cell summary (wrapper around read_derived_summary)
 read_cell_summary <- function(filename) {
-  path <- here(p_derived, filename)
-
-  if (!file.exists(path)) {
-    cli_abort("Cell summary not found: {.path {path}}")
-  }
-
-  dt <- fread(path)
-
-  required_cols <- c("basisofrecord", "eeacellcode", "occurrences")
-  missing_cols  <- setdiff(required_cols, names(dt))
-
-  if (length(missing_cols) > 0) {
-    cli_abort(c(
-      "Missing columns in {.path {filename}}",
-      "x" = "Missing: {paste(missing_cols, collapse = ', ')}"
-    ))
-  }
-
-  if (!("grid" %in% names(dt))) {
-    grid_suffix <- str_extract(filename, "\\d+km")
-    dt[, grid := paste0("grid", grid_suffix)]
-  }
-
-  dt
+  read_derived_summary(filename,
+    required_cols = c("basisofrecord", "eeacellcode", "occurrences"))
 }
 
 #' Get all cell codes from a grid file

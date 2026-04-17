@@ -21,9 +21,6 @@ if (!requireNamespace("here", quietly = TRUE)) {
   install.packages("here")
 }
 library(here)
-library(purrr)
-library(glue)
-library(cli)
 
 # Load package management functions -----------------------------------------
 source(here("R", "packages.R"))
@@ -31,16 +28,19 @@ source(here("R", "packages.R"))
 # Check for missing packages ------------------------------------------------
 missing_pkgs <- check_packages()
 if (length(missing_pkgs) > 0) {
-  cli_alert_warning(
+  cli::cli_alert_warning(
     "Missing packages detected: {.pkg {missing_pkgs}}"
   )
-  cli_alert_info(
+  cli::cli_alert_info(
     "To install, run: {.code install_missing_packages()}"
   )
-  cli_alert_info(
+  cli::cli_alert_info(
     "Then lock dependencies: {.code renv::snapshot()}"
   )
 }
+
+# Load all required packages ------------------------------------------------
+load_packages()
 
 # Load project globals and configuration ------------------------------------
 source(here("R", "globals.R"))
@@ -66,13 +66,7 @@ GRID_PREFIX     <- cfg_get("parameters.grid.grid_prefix", "EEA")
 GRID_RESOLUTIONS <- cfg_get("parameters.grid.resolutions", c(10, 50))
 
 # Ensure required directories exist -----------------------------------------
-required_dirs <- c(p_logs, p_data_proc, p_output)
-purrr::walk(required_dirs, \(d) {
-  if (!dir.exists(d)) {
-    dir.create(d, recursive = TRUE, showWarnings = FALSE)
-    cli_alert_success("Created directory: {.path {d}}")
-  }
-})
+ensure_dirs()
 
 # Record session info for reproducibility -----------------------------------
 session_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")

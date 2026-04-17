@@ -1,6 +1,6 @@
 ---
 title: "Spatial Gap Analysis"
-subtitle: "GBIF Gap Analysis - Geographic Coverage Assessment"
+subtitle: "Geographic Coverage Assessment"
 author: "gbifgaps"
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output:
@@ -10,775 +10,250 @@ output:
     toc_depth: 3
     code_folding: hide
     theme: flatly
-    fig_width: 12
-    fig_height: 8
   pdf_document:
     toc: true
     latex_engine: xelatex
-    toc_depth: 3
     fig_width: 10
     fig_height: 6
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  echo = TRUE,
-  message = FALSE,
-  warning = FALSE,
-  fig.width = 12,
-  fig.height = 8,
-  dpi = 150
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 7, dpi = 150
 )
-
-# Hide code in PDF output, show (with folding) in HTML
-if (!knitr::is_html_output()) {
-  knitr::opts_chunk$set(echo = FALSE)
-}
 
 library(here)
 library(dplyr)
 library(tidyr)
-library(readr)
-library(stringr)
 library(ggplot2)
-library(forcats)
 library(scales)
-library(viridis)
-library(patchwork)
 library(sf)
 library(knitr)
-library(data.table)
-library(glue)
-library(lubridate)
+library(kableExtra)
 
-# Consistent theme for all plots
+data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+app_data <- readRDS(data_path)
+safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
+
+grid_10km       <- safe_get("grid_10km")
+spatial_gaps    <- safe_get("spatial_gaps_10km")
+cell_summary    <- safe_get("cell_summary_10km")
+cell_recency    <- safe_get("cell_recency_10km")
+dashboard       <- safe_get("dashboard")
+admin_level1    <- safe_get("admin_level1")
+kingdom_recency <- safe_get("kingdom_cell_recency")
+cell_last_year  <- safe_get("cell_last_year")
+last_year_label <- safe_get("recent_label") %||% "last 12 months"
+
+pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
+            coral = "#c47a6c", plum = "#8b6d8f")
+
 theme_gaps <- theme_minimal(base_size = 13) +
-  theme(
-    plot.title = element_text(size = 16, face = "bold"),
-    plot.subtitle = element_text(size = 12, color = "grey40"),
-    plot.caption = element_text(size = 9, color = "grey50"),
-    legend.position = "bottom",
-    panel.grid.minor = element_blank(),
-    strip.text = element_text(size = 11, face = "bold")
-  )
-
+  theme(plot.title = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(color = "#666", size = 11),
+        panel.grid.minor = element_blank(), legend.position = "bottom")
 theme_set(theme_gaps)
-
-# Paths
-p_gaps <- here("data_proc", "gaps")
-p_tables <- here("output", "tables")
-p_data_proc <- here("data_proc")
-p_derived <- here("data_proc", "derived")
-p_integrated <- here("output", "tables", "integrated")
-
-# Admin boundaries (loaded once, used across map chunks)
-admin_sf <- tryCatch(
-  st_read(here("data_raw", "admin", "admin_level1.gpkg"), quiet = TRUE),
-  error = function(e) NULL
-)
-
-# Helper function for safe file reading
-safe_read <- function(path) {
-  if (!file.exists(path)) {
-    return(NULL)
-  }
-
-  fread(path) |> as_tibble()
-}
-
-# Helper for safe sf reading
-safe_read_sf <- function(path) {
-  if (!file.exists(path)) {
-    return(NULL)
-  }
-
-  tryCatch(
-    st_read(path, quiet = TRUE),
-    error = function(e) NULL
-  )
-}
 ```
 
 # Overview
 
-This report analyzes **spatial gaps** in the national biodiversity occurrence data, examining geographic coverage patterns across EEA reference grids at 10km and 50km resolutions.
+This report assesses the geographic coverage of GBIF occurrence data across `r if (!is.null(grid_10km)) comma(nrow(grid_10km)) else "?"` grid cells at 10 km resolution. Spatial gaps are areas where biodiversity data is missing or insufficient, potentially due to inaccessibility, lack of survey effort, or institutional bias.
 
-**Key questions addressed:**
- 
-- What proportion of the study area has biodiversity occurrence data?
-- Where are the geographic gaps in sampling coverage?
-- How does coverage vary by evidence type (basis of record)?
-- Which areas should be prioritized for future sampling efforts?
-
----
-
-# 1. Spatial Coverage Summary
-
-## 1.1 Grid Resolution Comparison
-
-```{r load-comparison}
-comp_grids <- safe_read(here(p_tables, "comparison_grid_resolutions.csv"))
-
-if (!is.null(comp_grids)) {
-  comp_grids |>
-    kable(
-      caption = "Spatial Coverage by Grid Resolution",
-      digits = 1,
-      format.args = list(big.mark = ",")
-    )
+```{r spatial-stats}
+if (!is.null(dashboard)) {
+  stats <- tibble(
+    Metric = c("Total grid cells", "Cells with data", "Spatial coverage",
+               "Zero-coverage cells", "Median staleness"),
+    Value = c(comma(dashboard$cells_10km_total[1]),
+              comma(dashboard$cells_10km_with_data[1]),
+              paste0(dashboard$cells_10km_pct_coverage[1], "%"),
+              comma(dashboard$cells_10km_zero[1]),
+              paste0(dashboard$median_staleness_months_10km[1], " months"))
+  )
+  kable(stats, align = c("l", "r")) |> kable_styling(full_width = FALSE)
 }
 ```
 
-```{r coverage-bars, fig.height=5}
-if (!is.null(comp_grids)) {
-  # Detect column names dynamically
-  grid_col <- if ("grid_resolution" %in% names(comp_grids)) "grid_resolution" else "grid"
-  total_col <- if ("n_cells_total" %in% names(comp_grids)) "n_cells_total" else names(comp_grids)[grepl("total", names(comp_grids))][1]
-  data_col <- if ("n_cells_with_data" %in% names(comp_grids)) "n_cells_with_data" else names(comp_grids)[grepl("with_data", names(comp_grids))][1]
-  
-  p1 <- comp_grids |>
-    ggplot(aes(x = .data[[grid_col]], y = pct_coverage, fill = .data[[grid_col]])) +
-    geom_col(width = 0.6) +
-    geom_text(
-      aes(label = glue("{round(pct_coverage, 1)}%")),
-      vjust = -0.5, size = 6, fontface = "bold"
-    ) +
-    scale_fill_viridis_d(option = "viridis", begin = 0.3, end = 0.7) +
-    ylim(0, 110) +
-    labs(title = "Coverage Percentage", y = "Coverage (%)", x = NULL) +
-    theme(legend.position = "none")
-  
-  comp_long <- comp_grids |>
-    select(all_of(c(grid_col, total_col, data_col))) |>
-    pivot_longer(
-      cols = all_of(c(total_col, data_col)),
-      names_to = "type",
-      values_to = "count"
-    ) |>
-    mutate(
-      type = case_when(
-        grepl("total", type, ignore.case = TRUE) ~ "Total Cells",
-        grepl("with_data", type, ignore.case = TRUE) ~ "Cells with Data",
-        TRUE ~ type
-      )
-    )
-  
-  p2 <- comp_long |>
-    ggplot(aes(x = .data[[grid_col]], y = count, fill = type)) +
-    geom_col(position = "dodge", width = 0.6) +
-    geom_text(
-      aes(label = comma(count)),
-      position = position_dodge(width = 0.6), vjust = -0.5, size = 4
-    ) +
-    scale_fill_viridis_d(option = "mako", begin = 0.3, end = 0.7) +
-    scale_y_continuous(labels = comma) +
-    labs(title = "Cell Counts", y = "Number of Cells", x = NULL, fill = NULL)
-  
-  p1 + p2 +
-    plot_annotation(
-      title = "Spatial Coverage Overview",
-      subtitle = "Comparing 10km and 50km EEA reference grids"
-    )
-}
-```
+# Occurrence Density
 
-## 1.2 Occurrence Distribution
-
-```{r occurrence-distribution, fig.height=5}
-cell_summary <- safe_read(here(p_derived, "cell_summary_10km.csv"))
-
-if (!is.null(cell_summary)) {
-  cell_all <- cell_summary |>
-    filter(basisofrecord == "all", occurrences > 0)
-  
-  ggplot(cell_all, aes(x = occurrences)) +
-    geom_histogram(
-      bins = 50,
-      fill = viridis(1, option = "viridis", begin = 0.4),
-      color = "white",
-      alpha = 0.8
-    ) +
-    scale_x_log10(labels = comma) +
-    labs(
-      title = "Distribution of Occurrences per Cell",
-      subtitle = "10km grid, cells with data only (log scale)",
-      x = "Occurrences per Cell",
-      y = "Number of Cells"
-    )
-}
-```
-
----
-
-# 2. Geographic Distribution Maps
-
-## 2.1 Overall Coverage Map (10km)
-
-```{r load-spatial-data}
-grid_10km <- safe_read_sf(here(p_data_proc, "grids_10km.gpkg"))
-spatial_gaps <- safe_read(here(p_gaps, "spatial_gaps_10km.csv"))
-
-if (!is.null(grid_10km)) {
-  # Find cellcode column
- cellcode_candidates <- names(grid_10km)[grepl("cellcode|eeacell", tolower(names(grid_10km)))]
-  cellcode_field <- if (length(cellcode_candidates) > 0) {
-    cellcode_candidates[1]
-  } else {
-    names(grid_10km)[grepl("code", tolower(names(grid_10km)))][1]
-  }
-  
-  grid_10km$eeacellcode <- as.character(grid_10km[[cellcode_field]])
-}
-```
-
-```{r coverage-map, fig.height=12, fig.width=10}
+```{r occ-map, fig.height=9}
 if (!is.null(grid_10km) && !is.null(spatial_gaps)) {
-  gaps_all <- spatial_gaps |>
-    filter(basisofrecord == "all") |>
-    select(eeacellcode, occurrences)
-  
-  grid_map <- grid_10km |>
-    left_join(gaps_all, by = "eeacellcode") |>
-    mutate(
-      log_occ = case_when(
-        is.na(occurrences) ~ NA_real_,
-        occurrences == 0 ~ NA_real_,
-        TRUE ~ log10(occurrences + 1)
-      )
-    )
-  
-  # Admin boundaries
-  
-  p <- ggplot(grid_map) +
-    geom_sf(aes(fill = log_occ), color = NA) +
-    scale_fill_viridis(
-      option = "viridis",
-      name = "log10(occurrences)",
-      na.value = "grey85",
-      guide = guide_colorbar(barwidth = 20, barheight = 0.8)
-    )
-  
-  if (!is.null(admin_sf)) {
-    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+  sg <- spatial_gaps |> filter(basisofrecord == "all")
+  map_sf <- grid_10km |>
+    left_join(sg |> select(eeacellcode, occurrences, n_species), by = "eeacellcode") |>
+    mutate(occ_cat = case_when(
+      is.na(occurrences) | occurrences == 0 ~ "No data",
+      occurrences <= 100 ~ "1–100",
+      occurrences <= 1000 ~ "101–1,000",
+      occurrences <= 10000 ~ "1,001–10,000",
+      occurrences <= 100000 ~ "10,001–100,000",
+      TRUE ~ "> 100,000"
+    ) |> factor(levels = c("1–100", "101–1,000", "1,001–10,000",
+                           "10,001–100,000", "> 100,000", "No data")))
+
+  occ_colors <- c("1–100" = pal$slate, "101–1,000" = pal$sage,
+                  "1,001–10,000" = pal$sand, "10,001–100,000" = pal$coral,
+                  "> 100,000" = "#3d4f6a", "No data" = "#e0e0e0")
+
+  p <- ggplot(map_sf) +
+    geom_sf(aes(fill = occ_cat), color = NA) +
+    scale_fill_manual(values = occ_colors, name = "Occurrences") +
+    labs(title = "Occurrence Density per Grid Cell",
+         subtitle = "All basis of record types combined") +
+    theme_void() + theme(legend.position = "right")
+  if (!is.null(admin_level1)) {
+    admin_t <- st_transform(admin_level1, st_crs(map_sf))
+    p <- p + geom_sf(data = admin_t, fill = NA, color = "#888", linewidth = 0.4)
   }
-  
-  p + labs(
-      title = "Geographic Distribution of Occurrence Data",
-      subtitle = "10km EEA Grid — continuous scale",
-      caption = "Grey cells indicate zero coverage"
-    ) +
-    theme_void() +
-    theme(
-      legend.position = "bottom",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40"),
-      plot.caption = element_text(size = 10, hjust = 1, color = "grey50")
-    )
+  print(p)
 }
 ```
 
-## 2.2 Coverage Categories Map
+# Species Richness
 
-```{r category-map, fig.height=12, fig.width=10}
+```{r richness-map, fig.height=9}
 if (!is.null(grid_10km) && !is.null(spatial_gaps)) {
-  gaps_all <- spatial_gaps |>
-    filter(basisofrecord == "all") |>
-    select(eeacellcode, occurrences)
-  
-  # Match app's categorical breaks
-  grid_cat <- grid_10km |>
-    left_join(gaps_all, by = "eeacellcode") |>
-    mutate(
-      occ_cat = case_when(
-        is.na(occurrences) | occurrences == 0 ~ "No data",
-        occurrences <= 100 ~ "1–100",
-        occurrences <= 1000 ~ "101–1,000",
-        occurrences <= 10000 ~ "1,001–10,000",
-        occurrences <= 100000 ~ "10,001–100,000",
-        TRUE ~ ">100,000"
-      ),
-      occ_cat = factor(occ_cat, levels = c(
-        "1–100", "101–1,000", "1,001–10,000",
-        "10,001–100,000", ">100,000", "No data"
-      ))
-    )
-  
-  # App palette: teal → sage → sand → coral → dark red → gray
-  occ_colors <- c("1–100" = "#5c7a99", "101–1,000" = "#6b8f71",
-                   "1,001–10,000" = "#c4a882", "10,001–100,000" = "#c47a6c",
-                   ">100,000" = "#8b3a3a", "No data" = "grey85")
-  
-  # Load admin boundaries if available
-  
-  p <- ggplot(grid_cat) +
-    geom_sf(aes(fill = occ_cat), color = "white", linewidth = 0.02) +
-    scale_fill_manual(values = occ_colors, drop = FALSE, name = "Occurrences")
-  
-  if (!is.null(admin_sf)) {
-    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+  sg <- spatial_gaps |> filter(basisofrecord == "all")
+  map_sf <- grid_10km |>
+    left_join(sg |> select(eeacellcode, n_species), by = "eeacellcode") |>
+    mutate(sp_cat = case_when(
+      is.na(n_species) | n_species == 0 ~ "No data",
+      n_species <= 10 ~ "1–10",
+      n_species <= 100 ~ "11–100",
+      n_species <= 500 ~ "101–500",
+      n_species <= 2000 ~ "501–2,000",
+      TRUE ~ "> 2,000"
+    ) |> factor(levels = c("1–10", "11–100", "101–500", "501–2,000", "> 2,000", "No data")))
+
+  rich_colors <- c("1–10" = pal$slate, "11–100" = pal$sage,
+                   "101–500" = pal$sand, "501–2,000" = pal$coral,
+                   "> 2,000" = "#3d4f6a", "No data" = "#e0e0e0")
+
+  p <- ggplot(map_sf) +
+    geom_sf(aes(fill = sp_cat), color = NA) +
+    scale_fill_manual(values = rich_colors, name = "Species") +
+    labs(title = "Species Richness per Grid Cell") +
+    theme_void() + theme(legend.position = "right")
+  if (!is.null(admin_level1)) {
+    admin_t <- st_transform(admin_level1, st_crs(map_sf))
+    p <- p + geom_sf(data = admin_t, fill = NA, color = "#888", linewidth = 0.4)
   }
-  
-  p + labs(title = "Occurrence Density by Grid Cell",
-           subtitle = "10km EEA grid — categorical breaks matching app display") +
-    theme_void() +
-    theme(legend.position = "right", legend.key.height = unit(1, "cm"),
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40"))
+  print(p)
 }
 ```
 
-## 2.3 Data Recency (Staleness) Map
+# Coverage by Basis of Record
 
-```{r staleness-map, fig.height=12, fig.width=10}
-cell_recency <- safe_read(here(p_gaps, "cell_recency_10km.csv"))
+```{r bor-spatial, fig.height=5}
+if (!is.null(spatial_gaps)) {
+  bor_cov <- spatial_gaps |>
+    filter(basisofrecord != "all") |>
+    group_by(basisofrecord) |>
+    summarise(cells_with_data = sum(has_data, na.rm = TRUE), .groups = "drop") |>
+    mutate(
+      total_cells = if (!is.null(grid_10km)) nrow(grid_10km) else max(cells_with_data),
+      pct = round(100 * cells_with_data / total_cells, 1),
+      bor_label = gsub("_", " ", basisofrecord) |> tools::toTitleCase()
+    ) |> arrange(desc(pct))
 
+  ggplot(bor_cov, aes(x = reorder(bor_label, pct), y = pct)) +
+    geom_col(fill = pal$sage) +
+    geom_text(aes(label = paste0(pct, "%")), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_y_continuous(limits = c(0, 105)) +
+    labs(title = "Spatial Coverage by Basis of Record",
+         subtitle = paste0("% of ", comma(nrow(grid_10km)), " grid cells with ≥1 occurrence"),
+         x = "", y = "Coverage (%)")
+}
+```
+
+# Data Recency
+
+```{r recency-map, fig.height=9}
 if (!is.null(grid_10km) && !is.null(cell_recency)) {
-  grid_stale <- grid_10km |>
-    left_join(cell_recency |> filter(basisofrecord == "all") |>
-                select(eeacellcode, staleness_months),
+  cr <- cell_recency |> filter(basisofrecord == "all")
+  map_sf <- grid_10km |>
+    left_join(cr |> select(eeacellcode, staleness_months), by = "eeacellcode") |>
+    mutate(stale_cat = case_when(
+      is.na(staleness_months) ~ "No data",
+      staleness_months <= 12 ~ "< 1 year",
+      staleness_months <= 36 ~ "1–3 years",
+      staleness_months <= 60 ~ "3–5 years",
+      TRUE ~ "> 5 years"
+    ) |> factor(levels = c("< 1 year", "1–3 years", "3–5 years", "> 5 years", "No data")))
+
+  stale_colors <- c("< 1 year" = pal$sage, "1–3 years" = pal$slate,
+                    "3–5 years" = pal$sand, "> 5 years" = pal$coral,
+                    "No data" = "#e0e0e0")
+
+  p <- ggplot(map_sf) +
+    geom_sf(aes(fill = stale_cat), color = NA) +
+    scale_fill_manual(values = stale_colors, name = "Last record") +
+    labs(title = "Data Recency per Grid Cell",
+         subtitle = "Time since the most recent occurrence record") +
+    theme_void() + theme(legend.position = "right")
+  if (!is.null(admin_level1)) {
+    admin_t <- st_transform(admin_level1, st_crs(map_sf))
+    p <- p + geom_sf(data = admin_t, fill = NA, color = "#888", linewidth = 0.4)
+  }
+  print(p)
+}
+```
+
+# Coverage by Kingdom
+
+```{r kingdom-recency, fig.height=8}
+if (!is.null(kingdom_recency)) {
+  king_cov <- kingdom_recency |>
+    group_by(kingdom) |>
+    summarise(
+      n_cells = n(),
+      total_occ = sum(total_occ, na.rm = TRUE),
+      .groups = "drop"
+    ) |> arrange(desc(total_occ))
+
+  ggplot(king_cov, aes(x = reorder(kingdom, n_cells), y = n_cells)) +
+    geom_col(fill = pal$sage) +
+    geom_text(aes(label = comma(n_cells)), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    labs(title = "Grid Cells with Data by Kingdom",
+         x = "", y = "Number of cells")
+}
+```
+
+# Last 12 Months — Spatial Activity
+
+```{r last-year-map, fig.height=9}
+if (!is.null(grid_10km) && !is.null(cell_last_year)) {
+  map_sf <- grid_10km |>
+    left_join(cell_last_year |> select(eeacellcode, occ_last_year, occ_prior, newly_covered),
               by = "eeacellcode") |>
-    mutate(
-      stale_cat = case_when(
-        is.na(staleness_months) ~ "No data",
-        staleness_months <= 12 ~ "< 1 year",
-        staleness_months <= 36 ~ "1–3 years",
-        staleness_months <= 60 ~ "3–5 years",
-        staleness_months <= 120 ~ "5–10 years",
-        TRUE ~ "> 10 years"
-      ),
-      stale_cat = factor(stale_cat, levels = c(
-        "< 1 year", "1–3 years", "3–5 years",
-        "5–10 years", "> 10 years", "No data"
-      ))
-    )
-  
-  stale_colors <- c("< 1 year" = "#5c7a99", "1–3 years" = "#6b8f71",
-                     "3–5 years" = "#c4a882", "5–10 years" = "#c47a6c",
-                     "> 10 years" = "#8b3a3a", "No data" = "grey85")
-  
-  p <- ggplot(grid_stale) +
-    geom_sf(aes(fill = stale_cat), color = "white", linewidth = 0.02) +
-    scale_fill_manual(values = stale_colors, drop = FALSE, name = "Data recency")
-  
-  if (!is.null(admin_sf)) {
-    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
-  }
-  
-  p + labs(title = "Data Recency by Grid Cell",
-           subtitle = "Time since most recent occurrence record",
-           caption = "Grey cells have no data; red cells have stale data (>10 years)") +
-    theme_void() +
-    theme(legend.position = "right", legend.key.height = unit(1, "cm"),
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40"))
-}
-```
+    mutate(activity = case_when(
+      !is.na(newly_covered) & newly_covered ~ "Newly covered",
+      !is.na(occ_last_year) & occ_last_year > 0 ~ "Active",
+      !is.na(occ_prior) & occ_prior > 0 ~ "Prior only",
+      TRUE ~ "No data"
+    ) |> factor(levels = c("Newly covered", "Active", "Prior only", "No data")))
 
-## 2.4 Species Richness Map
+  act_colors <- c("Newly covered" = pal$coral, "Active" = pal$sage,
+                  "Prior only" = pal$sand, "No data" = "#e0e0e0")
 
-```{r species-richness-map, fig.height=12, fig.width=10}
-if (!is.null(grid_10km) && !is.null(spatial_gaps) && "n_species" %in% names(spatial_gaps)) {
-  gaps_species <- spatial_gaps |>
-    filter(basisofrecord == "all") |>
-    select(eeacellcode, n_species)
-  
-  grid_species <- grid_10km |>
-    left_join(gaps_species, by = "eeacellcode") |>
-    mutate(
-      rich_cat = case_when(
-        is.na(n_species) | n_species == 0 ~ "No data",
-        n_species <= 10 ~ "1–10",
-        n_species <= 100 ~ "11–100",
-        n_species <= 1000 ~ "101–1,000",
-        TRUE ~ ">1,000"
-      ),
-      rich_cat = factor(rich_cat, levels = c(
-        "1–10", "11–100", "101–1,000", ">1,000", "No data"
-      ))
-    )
-  
-  rich_colors <- c("1–10" = "#5c7a99", "11–100" = "#6b8f71",
-                    "101–1,000" = "#c4a882", ">1,000" = "#c47a6c",
-                    "No data" = "grey85")
-  
-  p <- ggplot(grid_species) +
-    geom_sf(aes(fill = rich_cat), color = "white", linewidth = 0.02) +
-    scale_fill_manual(values = rich_colors, drop = FALSE, name = "Species")
-  
-  if (!is.null(admin_sf)) {
-    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
+  p <- ggplot(map_sf) +
+    geom_sf(aes(fill = activity), color = NA) +
+    scale_fill_manual(values = act_colors, name = "Activity") +
+    labs(title = paste0("Spatial Activity: ", last_year_label),
+         subtitle = "Cells with observations dated in the last 12 months") +
+    theme_void() + theme(legend.position = "right")
+  if (!is.null(admin_level1)) {
+    admin_t <- st_transform(admin_level1, st_crs(map_sf))
+    p <- p + geom_sf(data = admin_t, fill = NA, color = "#888", linewidth = 0.4)
   }
-  
-  p + labs(title = "Species Richness Distribution",
-           subtitle = "Number of unique species per 10km cell") +
-    theme_void() +
-    theme(legend.position = "right", legend.key.height = unit(1, "cm"),
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40"))
+  print(p)
 }
 ```
 
 ---
 
-# 3. Coverage by Basis of Record
-
-## 3.1 Zero Coverage Rates
-
-```{r basis-overview}
-spatial_overview <- safe_read(here(p_tables, "overview_spatial_by_basis.csv"))
-
-if (!is.null(spatial_overview)) {
-  spatial_10km <- spatial_overview |>
-    filter(grid == "grid10km", basisofrecord != "all") |>
-    arrange(pct_zero) |>
-    select(basisofrecord, n_with_data, pct_coverage, n_zero, pct_zero, total_occurrences)
-  
-  spatial_10km |>
-    kable(caption = "Coverage by Basis of Record (10km Grid)", digits = 1)
-}
-```
-
-```{r basis-zero-plot, fig.height=6}
-if (!is.null(spatial_overview)) {
-  spatial_10km <- spatial_overview |>
-    filter(grid == "grid10km", basisofrecord != "all")
-  
-  ggplot(spatial_10km, aes(x = fct_reorder(basisofrecord, -pct_zero), y = pct_zero, fill = pct_zero)) +
-    geom_col() +
-    geom_text(
-      aes(label = glue("{round(pct_zero, 1)}%")),
-      vjust = -0.3, size = 4
-    ) +
-    scale_fill_viridis_c(option = "rocket", direction = -1, begin = 0.2, end = 0.8) +
-    labs(
-      title = "Zero Coverage Rate by Evidence Type",
-      subtitle = "Percentage of 10km cells with no occurrences",
-      x = "Basis of Record",
-      y = "Zero Coverage (%)",
-      caption = "Lower values indicate better spatial coverage"
-    ) +
-    theme(
-      axis.text.x = element_text(angle = 45, hjust = 1),
-      legend.position = "none"
-    )
-}
-```
-
-## 3.2 Coverage Comparison Across Basis Types
-
-```{r basis-facet-maps, fig.height=14, fig.width=12}
-if (!is.null(grid_10km) && !is.null(spatial_gaps) && !is.null(spatial_overview)) {
-  # Get top 4 basis types by occurrence count
-  top_basis <- spatial_overview |>
-    filter(grid == "grid10km", basisofrecord != "all") |>
-    arrange(desc(total_occurrences)) |>
-    slice_head(n = 4) |>
-    pull(basisofrecord)
-  
-  # Prepare data for faceted map
-  gaps_by_basis <- spatial_gaps |>
-    filter(basisofrecord %in% top_basis) |>
-    select(eeacellcode, basisofrecord, occurrences)
-  
-  # Create faceted data by binding rows for each basis
-  grid_facet_list <- lapply(top_basis, function(b) {
-    basis_data <- gaps_by_basis |> filter(basisofrecord == b)
-    grid_10km |>
-      select(eeacellcode) |>
-      left_join(basis_data, by = "eeacellcode") |>
-      mutate(basisofrecord = b)
-  })
-  
-  grid_facet <- do.call(rbind, grid_facet_list) |>
-    mutate(
-      log_occ = case_when(
-        is.na(occurrences) ~ NA_real_,
-        occurrences == 0 ~ NA_real_,
-        TRUE ~ log10(occurrences + 1)
-      ),
-      basisofrecord = factor(basisofrecord, levels = top_basis)
-    )
-  
-  ggplot(grid_facet) +
-    geom_sf(aes(fill = log_occ), color = NA) +
-    facet_wrap(~basisofrecord, ncol = 2) +
-    scale_fill_viridis(
-      option = "viridis",
-      name = "log10(occ)",
-      na.value = "grey85"
-    ) +
-    labs(
-      title = "Coverage by Top 4 Evidence Types",
-      subtitle = "Comparing geographic distribution across basis of record"
-    ) +
-    theme_void() +
-    theme(
-      legend.position = "bottom",
-      strip.text = element_text(size = 12, face = "bold"),
-      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey40")
-    )
-}
-```
-
----
-
-# 4. Priority Areas
-
-## 4.1 Zero Coverage Cells
-
-```{r priority-zero}
-priority_zero <- safe_read(here(p_integrated, "priority_cells_zero_coverage.csv"))
-
-if (!is.null(priority_zero) && nrow(priority_zero) > 0) {
-  n_zero <- nrow(priority_zero)
-  cat(glue("**{comma(n_zero)} cells** have zero coverage across all basis types.\n\n"))
-  
-  priority_zero |>
-    select(any_of(c("grid", "eeacellcode", "priority_reason", "priority_level"))) |>
-    slice_head(n = 20) |>
-    kable(caption = "Sample of Zero Coverage Cells (Top 20)")
-} else {
-  cat("No zero coverage cells found or file not available.\n")
-}
-```
-
-## 4.2 Priority Cells Map
-
-```{r priority-map, fig.height=12, fig.width=10}
-if (!is.null(grid_10km) && !is.null(priority_zero) && nrow(priority_zero) > 0) {
-  grid_priority <- grid_10km |>
-    mutate(
-      is_zero = eeacellcode %in% priority_zero$eeacellcode,
-      priority = if_else(is_zero, "Zero Coverage", "Has Data")
-    )
-  
-  n_zero <- sum(grid_priority$is_zero)
-  
-  p <- ggplot(grid_priority) +
-    geom_sf(aes(fill = priority), color = "white", linewidth = 0.02) +
-    scale_fill_manual(
-      values = c("Zero Coverage" = "#E63946", "Has Data" = "#2A9D8F"),
-      name = "Status"
-    )
-  
-  if (!is.null(admin_sf)) {
-    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
-  }
-  
-  p + labs(
-      title = "Priority Areas: Zero Coverage Cells",
-      subtitle = glue("{comma(n_zero)} cells requiring sampling attention"),
-      caption = "Red cells have no occurrence records across any evidence type"
-    ) +
-    theme_void() +
-    theme(
-      legend.position = "bottom",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40")
-    )
-}
-```
-
-## 4.3 Low Coverage Analysis
-
-```{r low-coverage-analysis, fig.height=6}
-if (!is.null(cell_summary)) {
-  cell_all <- cell_summary |>
-    filter(basisofrecord == "all", occurrences > 0)
-  
-  threshold <- quantile(cell_all$occurrences, 0.1)
-  q25 <- quantile(cell_all$occurrences, 0.25)
-  q50 <- quantile(cell_all$occurrences, 0.50)
-  
-  low_coverage <- cell_all |>
-    filter(occurrences <= threshold)
-  
-  cat("**Cells with very low coverage (bottom 10%):**\n\n")
-  cat(glue("- Threshold: {comma(threshold)} occurrences\n"))
-  cat(glue("- Number of cells: {comma(nrow(low_coverage))}\n\n"))
-  
-  level_counts <- cell_all |>
-    mutate(
-      coverage_level = case_when(
-        occurrences <= threshold ~ "Very Low (bottom 10%)",
-        occurrences <= q25 ~ "Low (10-25%)",
-        occurrences <= q50 ~ "Below Median",
-        TRUE ~ "Above Median"
-      ),
-      coverage_level = factor(coverage_level, levels = c(
-        "Very Low (bottom 10%)", "Low (10-25%)", "Below Median", "Above Median"
-      ))
-    ) |>
-    count(coverage_level)
-  
-  ggplot(level_counts, aes(x = coverage_level, y = n, fill = coverage_level)) +
-    geom_col() +
-    geom_text(aes(label = comma(n)), vjust = -0.3, size = 4) +
-    scale_fill_viridis_d(option = "turbo", direction = -1) +
-    labs(
-      title = "Distribution of Cells by Coverage Level",
-      subtitle = "10km grid, cells with data only",
-      x = NULL,
-      y = "Number of Cells"
-    ) +
-    theme(
-      axis.text.x = element_text(angle = 30, hjust = 1),
-      legend.position = "none"
-    )
-}
-```
-
----
-
-# 5. Last 12 Months Highlights
-
-```{r ly-spatial-load}
-cell_time <- safe_read(here(p_derived, "cell_time_summary_10km.csv"))
-time_summary_ly <- safe_read(here(p_derived, "time_summary_10km.csv"))
-
-recent_cutoff_ym <- NULL
-recent_label <- NULL
-
-if (!is.null(time_summary_ly)) {
-  ts_ly <- time_summary_ly |> filter(basisofrecord == "all") |>
-    mutate(yearmonth_int = as.integer(gsub("-", "", yearmonth)))
-
-  all_ym <- sort(unique(ts_ly$yearmonth_int))
-  if (length(all_ym) > 0) {
-    latest_ym <- max(all_ym)
-    latest_year <- as.integer(substr(as.character(latest_ym), 1, 4))
-    latest_month <- as.integer(substr(as.character(latest_ym), 5, 6))
-    cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-% months(11)
-    recent_cutoff_ym <- as.integer(format(cutoff_date, "%Y%m"))
-    recent_label <- paste0(format(cutoff_date, "%b %Y"), " – ",
-      format(as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")), "%b %Y"))
-  }
-}
-if (is.null(recent_cutoff_ym)) {
-  recent_cutoff_ym <- as.integer(paste0(year(Sys.Date()) - 1, "01"))
-  recent_label <- paste0(year(Sys.Date()) - 1)
-}
-ly_label <- recent_label
-```
-
-```{r ly-spatial-summary}
-if (!is.null(cell_time)) {
-  ct <- cell_time |> filter(basisofrecord == "all") |>
-    mutate(yearmonth_int = as.integer(gsub("-", "", yearmonth)))
-
-  cell_era <- ct |>
-    mutate(era = ifelse(yearmonth_int >= recent_cutoff_ym, "last_year", "prior")) |>
-    group_by(eeacellcode, era) |>
-    summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
-    pivot_wider(names_from = era, values_from = occ, values_fill = 0)
-
-  if (!"prior" %in% names(cell_era)) cell_era$prior <- 0
-  if (!"last_year" %in% names(cell_era)) cell_era$last_year <- 0
-
-  cell_era <- cell_era |>
-    mutate(newly_covered = prior == 0 & last_year > 0,
-           has_ly_data = last_year > 0)
-
-  tibble(
-    Metric = c(
-      paste0("Cells active (", ly_label, ")"),
-      "Newly covered cells",
-      "Total recent occurrences"
-    ),
-    Value = c(
-      comma(sum(cell_era$has_ly_data)),
-      comma(sum(cell_era$newly_covered)),
-      comma(sum(cell_era$last_year))
-    )
-  ) |> kable(caption = paste0("Spatial Activity: ", ly_label))
-}
-```
-
-```{r ly-spatial-map, fig.height=12, fig.width=10}
-if (!is.null(grid_10km) && exists("cell_era")) {
-  grid_ly <- grid_10km |>
-    left_join(cell_era |> select(eeacellcode, last_year, newly_covered, has_ly_data),
-              by = "eeacellcode") |>
-    mutate(status = case_when(
-      newly_covered ~ "Newly covered",
-      has_ly_data ~ "Active (recent)",
-      TRUE ~ "No recent data"
-    ))
-
-  p <- ggplot(grid_ly) +
-    geom_sf(aes(fill = status), color = "white", linewidth = 0.02) +
-    scale_fill_manual(values = c("Newly covered" = "#E63946",
-                                  "Active (recent)" = "#2A9D8F",
-                                  "No recent data" = "grey85"))
-  
-  if (!is.null(admin_sf)) {
-    p <- p + geom_sf(data = admin_sf, fill = NA, color = "#333", linewidth = 0.4)
-  }
-  
-  p + labs(title = paste0("Spatial Activity: ", ly_label),
-         subtitle = paste0(comma(sum(cell_era$has_ly_data)), " cells active, ",
-                           comma(sum(cell_era$newly_covered)), " newly covered")) +
-    theme_void() +
-    theme(legend.position = "bottom",
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40"))
-}
-```
-
----
-
-# 6. Key Findings
-
-```{r summary-stats, results='asis'}
-cat("## Spatial Coverage Summary\n\n")
-
-if (!is.null(comp_grids)) {
-  # Detect column names
-  grid_col <- if ("grid_resolution" %in% names(comp_grids)) "grid_resolution" else "grid"
-  total_col <- if ("n_cells_total" %in% names(comp_grids)) "n_cells_total" else names(comp_grids)[grepl("total", names(comp_grids))][1]
-  data_col <- if ("n_cells_with_data" %in% names(comp_grids)) "n_cells_with_data" else names(comp_grids)[grepl("with_data", names(comp_grids))][1]
-  
-  cat("**Grid Coverage:**\n\n")
-  for (i in 1:nrow(comp_grids)) {
-    grid_name <- comp_grids[[grid_col]][i]
-    pct_cov <- comp_grids$pct_coverage[i]
-    n_data <- comp_grids[[data_col]][i]
-    n_total <- comp_grids[[total_col]][i]
-    cat(glue("- {grid_name}: {pct_cov}% coverage ({comma(n_data)} / {comma(n_total)} cells)\n\n"))
-  }
-}
-
-cat("\n**Priority Areas:**\n\n")
-if (!is.null(priority_zero) && nrow(priority_zero) > 0) {
-  cat(glue("- Zero coverage cells: {comma(nrow(priority_zero))}\n\n"))
-}
-if (exists("low_coverage")) {
-  cat(glue("- Very low coverage cells (bottom 10%): {comma(nrow(low_coverage))}\n\n"))
-}
-
-if (!is.null(spatial_overview)) {
-  cat("\n**Best Coverage by Evidence Type:**\n\n")
-  best_basis <- spatial_overview |>
-    filter(grid == "grid10km", basisofrecord != "all") |>
-    arrange(pct_zero) |>
-    slice_head(n = 3)
-  
-  for (i in 1:nrow(best_basis)) {
-    cat(glue("- {best_basis$basisofrecord[i]}: {round(100 - best_basis$pct_zero[i], 1)}% coverage\n\n"))
-  }
-}
-
-cat("\n**Recommendations:**\n\n")
-cat("1. Target zero-coverage cells for systematic biodiversity surveys\n")
-cat("2. Prioritize mountain and northern regions if they show lower coverage\n")
-cat("3. Leverage citizen science programs to expand geographic reach\n")
-```
-
----
-
-# Session Info
-
-```{r session}
-sessionInfo()
-```
+*Report generated by `gbifgaps` on `r Sys.time()`.*

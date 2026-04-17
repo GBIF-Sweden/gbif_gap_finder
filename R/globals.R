@@ -1,24 +1,26 @@
 # R/globals.R
 # ============================================================================
-# Project-Wide Configuration, Paths, and Constants
+# Project-Wide Configuration, Paths, Constants, and Shared Utilities
 # ============================================================================
 # Purpose:
-#   Central configuration loader for the GBIF gap analysis pipeline.
-#   All paths are derived from the country code in the config file.
-#   Scripts, R functions, Rmd templates, and Shiny apps are shared
-#   across countries — only the data directories differ.
+#   Central configuration loader and shared utility library for the
+#   GBIF gap analysis pipeline.  All paths are derived from the country
+#   code in the config file.  Scripts, R functions, Rmd templates, and
+#   Shiny apps are shared across countries — only the data directories
+#   differ.
+#
+#   This file also contains every helper function that is used by more
+#   than one pipeline script (cube readers, file readers, filename
+#   sanitisers, etc.) so that individual scripts never redefine them.
 #
 # Sourced by: scripts/00_setup.R (and transitively by every script)
 #
-# Dependencies:
-#   - here
-#   - cli
-#   - yaml (for config loading)
-#   - stringr (for guess_cellcode_field)
+# Dependencies (loaded by R/packages.R before this file is sourced):
+#   - here, cli, yaml, stringr, data.table, arrow (optional), sf (optional)
 # ============================================================================
 
-library(here)
-library(cli)
+# Null-coalescing operator (safe to define once; rlang also exports this)
+if (!exists("%||%")) `%||%` <- function(a, b) if (!is.null(a)) a else b
 
 # ============================================================================
 # Configuration Loading
@@ -271,9 +273,9 @@ cli_alert_info("Country: {cfg_get('country.name', COUNTRY_CODE)} ({COUNTRY_CODE}
 #' Create all derived/output directories if they don't exist
 ensure_dirs <- function() {
   dirs <- c(
-    p_data_raw, p_data_proc, p_output,
+    p_data_raw, p_data_proc, p_output, p_logs,
     p_derived, p_by_order, p_by_family,
-    p_gaps, p_tables, p_integrated,
+    p_gaps, p_cubes, p_tables, p_integrated,
     raw_gbif_cube_dir, raw_grid_dir,
     raw_redlist_dir, raw_taxonomy_dir,
     raw_invasives_dir, raw_sensitive_dir, raw_admin_dir
@@ -419,3 +421,198 @@ schema_spatial_coverage <- list(
   order          = list(required = FALSE, type = "character")
 )
 validate_spatial_coverage <- function(dt) validate_schema(dt, schema_spatial_coverage, "spatial_coverage (09b)")
+
+# ============================================================================
+# Shared Cube Reader
+# ============================================================================
+# Consolidated cube-reading logic used by 06a, 06b, 08, 09c.
+# Each script used to define its own variant; now they all call this.
+
+#' Read a parquet cube into data.table
+#'
+#' Opens a parquet file via arrow, optionally selects columns, creates
+#' a yearmonth integer column from year + month, and optionally recodes
+#' missing higher-taxonomy values to "Unplaced".
+#'
+#' @param parquet_path Path to parquet file
+#' @param cols         Character vector of columns to select (NULL = all)
+#' @param grid_label   Optional grid label string added as a `grid` column
+#' @param recode_taxonomy If TRUE, recode NA/empty order/family/class to
+#'                        "Unplaced" (default TRUE)
+#' @return A data.table
+read_cube <- function(parquet_path, cols = NULL, grid_label = NULL,
+                      recode_taxonomy = TRUE) {
+  if (!file.exists(parquet_path)) cli_abort("Not found: {.path {parquet_path}}")
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    cli_abort("Package {.pkg arrow} is required to read parquet cubes")
+  }
+
+  ds <- arrow::open_dataset(parquet_path)
+  if (!is.null(cols)) {
+    available <- intersect(cols, names(ds$schema))
+    ds <- ds |> dplyr::select(dplyr::all_of(available))
+  }
+  dt <- data.table::as.data.table(dplyr::collect(ds))
+
+  # Create yearmonth from year + month (NA-safe)
+  if (all(c("year", "month") %in% names(dt)) && !"yearmonth" %in% names(dt)) {
+    dt[, yearmonth := fifelse(
+      !is.na(year) & !is.na(month),
+      as.integer(year) * 100L + as.integer(month),
+      NA_integer_
+    )]
+  }
+
+  # Add grid label
+  if (!is.null(grid_label)) dt[, grid := grid_label]
+
+  # Recode missing taxonomy
+  if (recode_taxonomy) {
+    if ("order"  %in% names(dt)) dt[is.na(order)  | order  == "", order  := "Unplaced"]
+    if ("family" %in% names(dt)) dt[is.na(family) | family == "", family := "Unplaced"]
+    if ("class"  %in% names(dt)) dt[is.na(class)  | class  == "", class  := "Unplaced"]
+  }
+
+  dt
+}
+
+# ============================================================================
+# Shared File Readers
+# ============================================================================
+
+#' Read a derived summary CSV safely
+#'
+#' Checks file existence, reads with fread, validates required columns,
+#' and adds a grid column if missing (inferred from filename).
+#'
+#' @param filename  Filename relative to p_derived
+#' @param required_cols  Character vector of required column names
+#' @param base_dir  Base directory (default p_derived)
+#' @return A data.table
+read_derived_summary <- function(filename, required_cols = NULL,
+                                 base_dir = p_derived) {
+  path <- here::here(base_dir, filename)
+  if (!file.exists(path)) cli_abort("File not found: {.path {path}}")
+
+  dt <- data.table::fread(path)
+
+  if (!is.null(required_cols)) {
+    missing_cols <- setdiff(required_cols, names(dt))
+    if (length(missing_cols) > 0) {
+      cli_abort(c(
+        "Missing columns in {.path {filename}}",
+        "x" = "Missing: {paste(missing_cols, collapse = ', ')}"
+      ))
+    }
+  }
+
+  # Add grid column if missing (infer from filename)
+  if (!("grid" %in% names(dt))) {
+    grid_suffix <- stringr::str_extract(filename, "\\d+km")
+    if (!is.na(grid_suffix)) dt[, grid := paste0("grid", grid_suffix)]
+  }
+
+  dt
+}
+
+#' Safely read a file, returning NULL on missing/error
+#'
+#' @param path Full file path
+#' @param type "csv" or "rds"
+#' @return Data or NULL
+safe_read <- function(path, type = "csv") {
+  if (!file.exists(path)) return(NULL)
+  tryCatch({
+    if (type == "csv") data.table::fread(path)
+    else if (type == "rds") readRDS(path)
+  }, error = function(e) {
+    cli_alert_warning("Error reading {basename(path)}: {e$message}")
+    NULL
+  })
+}
+
+# ============================================================================
+# Shared Filename Utility
+# ============================================================================
+
+#' Sanitise a string for use in filenames
+#'
+#' Replaces non-alphanumeric characters with underscores and collapses
+#' runs of underscores.
+#' @param x Character string
+#' @return Sanitised string
+clean_for_filename <- function(x) {
+  x <- stringr::str_replace_all(x, "[^A-Za-z0-9]", "_")
+  x <- stringr::str_replace_all(x, "_+", "_")
+  stringr::str_remove(x, "^_|_$")
+}
+
+# ============================================================================
+# Taxonomy Helpers
+# ============================================================================
+
+#' Classify backbone taxa as accepted vs synonym (NA-safe)
+#'
+#' Uses taxonomicStatus as the primary signal, falling back to the
+#' taxonID == acceptedNameUsageID self-reference convention.
+#' This avoids the pitfall where acceptedNameUsageID is NA for accepted
+#' taxa, which would produce is_accepted = NA and silently drop them.
+#'
+#' @param dt A data.table with at least taxonID; optionally
+#'           taxonomicStatus and acceptedNameUsageID
+#' @return The input data.table with an `is_accepted` logical column added
+classify_accepted <- function(dt) {
+  if ("taxonomicStatus" %in% names(dt)) {
+    # Primary signal: taxonomicStatus (normalised to "accepted" by 03)
+    dt[, is_accepted := (taxonomicStatus == "accepted")]
+    # NA taxonomicStatus: fall back to ID comparison
+    dt[is.na(is_accepted) & "acceptedNameUsageID" %in% names(dt),
+       is_accepted := (!is.na(acceptedNameUsageID) & taxonID == acceptedNameUsageID)]
+    # Still NA: fall back to TRUE if acceptedNameUsageID is NA/empty
+    # (many checklists leave this blank for accepted taxa)
+    dt[is.na(is_accepted), is_accepted := (
+      !("acceptedNameUsageID" %in% names(dt)) |
+        is.na(acceptedNameUsageID) |
+        acceptedNameUsageID == ""
+    )]
+  } else if ("acceptedNameUsageID" %in% names(dt)) {
+    # No taxonomicStatus: use ID comparison, treating NA as accepted
+    dt[, is_accepted := (
+      is.na(acceptedNameUsageID) |
+        acceptedNameUsageID == "" |
+        taxonID == acceptedNameUsageID
+    )]
+  } else {
+    # No status info at all: assume all accepted
+    cli_alert_warning("No taxonomicStatus or acceptedNameUsageID — assuming all taxa are accepted")
+    dt[, is_accepted := TRUE]
+  }
+  dt
+}
+
+#' Resolve threat status from multiple columns (first non-NA per row)
+#'
+#' Uses data.table::fcoalesce() to pick the first non-NA value across
+#' the specified columns, in priority order.
+#'
+#' @param dt   A data.table
+#' @param cols Character vector of column names to coalesce, in priority order
+#' @return The input data.table with a `threatStatus` column added/updated
+resolve_threat_status <- function(dt, cols = c("threatStatus_redlist",
+                                               "threatStatus_backbone")) {
+  available <- intersect(cols, names(dt))
+  if (length(available) == 0) {
+    dt[, threatStatus := NA_character_]
+    cli_alert_warning("No threat status columns found")
+    return(dt)
+  }
+  if (length(available) == 1) {
+    dt[, threatStatus := get(available)]
+  } else {
+    # fcoalesce picks the first non-NA value across columns, per row
+    dt[, threatStatus := do.call(data.table::fcoalesce, .SD),
+       .SDcols = available]
+  }
+  cli_alert_info("Threat status resolved from: {paste(available, collapse = ' > ')}")
+  dt
+}

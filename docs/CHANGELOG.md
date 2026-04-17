@@ -1,5 +1,197 @@
 # gbifgaps — Changelog
 
+## 2026-04-17: Pipeline Housekeeping — Redundancy Cleanup & Bug Fixes
+
+### Bug Fixes
+
+- **CRITICAL: `is_accepted` silently dropped taxa with NA `acceptedNameUsageID`**
+  — In 09a and 09b, `is_accepted := (taxonID == acceptedNameUsageID)` evaluates
+  to `NA` when `acceptedNameUsageID` is empty/NA (common in many DwC-A checklists
+  for accepted taxa). These taxa vanished from *both* the accepted and synonym
+  pools, silently reducing the matching universe. Fixed with new
+  `classify_accepted()` in globals.R that uses `taxonomicStatus` as the primary
+  signal and falls back to the ID comparison, treating NA/empty
+  `acceptedNameUsageID` as accepted. (Scripts 09a, 09b)
+
+- **SIGNIFICANT: Threat status resolution lost data via column-level selection**
+  — In 09b, `tax_accepted[, threatStatus := get(primary_threat)]` picked the
+  first non-null *column name*, not the first non-NA *value per row*. A taxon
+  with `threatStatus_redlist = NA` but `threatStatus_backbone = "VU"` would
+  lose the "VU". Fixed with new `resolve_threat_status()` using
+  `data.table::fcoalesce()` to pick the first non-NA value across columns
+  per row. (Scripts 09b, 09c)
+
+- **MINOR: Yearmonth construction had no NA guard in 06a** — `year * 100L +
+  as.integer(month)` produces garbage when year or month is NA. The consolidated
+  `read_cube()` in globals.R now uses `fifelse(!is.na(year) & !is.na(month), ...)`
+  consistently across all cube-reading scripts.
+
+- **MINOR: Script 11 `add_yearmonth_cols()` wastefully overwrote year/month**
+  — 09c already adds year and month columns to time summaries. Fixed to skip
+  if both columns already exist.
+
+### Redundancy Cleanup
+
+- **Consolidated cube reader** — Four variants of "read parquet cube into
+  data.table" (`read_cube` in 06a, `read_cube_cols` in 08, `load_cube_scoped`
+  in 09c, `read_cube_sample` in 05) unified into a single `read_cube()` in
+  globals.R with parameters for column selection, grid labeling, and taxonomy
+  recoding. Script 09c's `load_cube_scoped` is now a thin wrapper.
+
+- **Consolidated file readers** — New `read_derived_summary()` and `safe_read()`
+  in globals.R replace duplicated `read_cell_summary()` (07),
+  `read_time_summary()` (08), `safe_read_gap()` / `safe_read_derived()` (10),
+  and `safe_read()` (11). Scripts 07 and 08 use thin wrappers.
+
+- **Single `%||%` definition** — Removed six redundant definitions
+  (01, 04, 06a, 09a, 09c, 11); one definition in globals.R.
+
+- **Single `clean_for_filename()`** — Moved from 06b to globals.R.
+
+- **Package loading centralised** — `00_setup.R` now calls `load_packages()`
+  from packages.R. Individual scripts stripped of redundant `library()` calls
+  (~70 removed), keeping only script-specific extras (arrow, httr, httr2,
+  rgbif, geodata).
+
+- **`packages.R` restructured** — Split into `required_packages` (pipeline),
+  `optional_packages` (enhancing), `app_packages` (Shiny/Rmd). Added `scales`
+  to required (used in every script via `scales::comma()`). Moved ggplot2,
+  viridis, knitr, gt, DT, shinyWidgets, rmarkdown, forcats to app_packages.
+  Moved `arrow` to optional. `load_packages()` is no longer dead code.
+
+- **Directory creation centralised** — `ensure_dirs()` now called from
+  `00_setup.R` (added `p_logs`, `p_cubes` to the directory list). Removed
+  ~15 scattered `dir.create()` calls from individual scripts. Only dynamic
+  per-taxon directories (06b) and the shiny output directory (11) retain
+  their own `dir.create()`.
+
+- **Stale `exists()` guards removed** — `raw_invasives_dir` and
+  `raw_sensitive_dir` fallback guards in 01, 03, and run.R removed since
+  globals.R always defines them.
+
+### Files Modified
+- `R/globals.R` — added `read_cube()`, `read_derived_summary()`, `safe_read()`,
+  `clean_for_filename()`, `classify_accepted()`, `resolve_threat_status()`,
+  `%||%`; added `p_logs` and `p_cubes` to `ensure_dirs()`
+- `R/packages.R` — restructured package lists, `load_packages()` now includes
+  `scales`
+- `scripts/00_setup.R` — calls `load_packages()` and `ensure_dirs()`
+- `scripts/01–11` — stripped redundant library calls, removed duplicate helper
+  functions, applied bug fixes
+- `_targets.R` — synced `tar_option_set(packages)` with restructured packages.R
+- `run.R` — removed stale `exists()` guards in `status()`
+
+### Net Effect
+- globals.R grew +197 lines (new shared utilities)
+- Individual scripts collectively shrank -267 lines
+- Total: -70 lines, significantly reduced maintenance surface
+- No changes to pipeline outputs or data schemas
+
+---
+
+## 2026-04-16: Scope Summaries & Recent-Period Layer (09c refactor)
+
+### Architectural Change
+Consolidated all scope-filtered and recent-period computations into a new
+script **09c_scope_summaries.R**. This is a cleanup of the previous dual-scope
+approach in 06a and the section 5d cube work in 11, both of which duplicated
+taxonomy plumbing and spread the recent-period cutoff logic across multiple
+files. After this refactor:
+
+- **06a/06b** are taxonomy-agnostic — pure cube aggregations, no more
+  `taxa_reference_current.rds` loading, no `tag_cube_taxonomy()`,
+  no `write_dual_scope()`.
+- **09a** still produces the 4-tier reconciliation with `in_dyntaxa`,
+  `is_invasive`, `is_sensitive` flags. Tier 4 API now runs in batches
+  (outer `while` loop) rather than a single-shot cap — cache persists at
+  the end of every batch. Default `api_max_batches = Inf` (runs to
+  completion); set to a finite value for partial runs.
+- **09c (NEW)** — sibling of 09b, depends on 09a. For each of five scopes
+  (`all`, `dyntaxa`, `threatened`, `invasive`, `sensitive`) and each grid
+  resolution, produces: cell/time/cell-time/order-time/family-time/
+  published-time/order-published-time/family-published-time summaries,
+  plus the recent-period layer (cell_recency, basis_recent,
+  spatial_gaps zero-filled, cell_last_year). Also writes
+  `tax_cell_recency` (kingdom × class × cell, not scope-filtered),
+  `recent_cutoff.rds` (pipeline constant), and `species_scope_summary.csv`
+  (per-specieskey flag lookup for app runtime filtering).
+- **11** — pure loader, down from 1700 → ~940 lines. No cube loading,
+  no heavy computation. Loads pre-computed scope summaries under
+  `<scope>_<summary_type>` names and provides backward-compat aliases
+  (e.g. `time_summary_10km` → `all_time_summary`). Troudet bias now uses
+  the order-level and class-level published splits from 09c
+  (previously `pub_last_year`/`pub_prior` were computed per-row inline
+  from the cube).
+
+### New Features
+- **Five-scope summaries** replacing the old dual-scope (full + dyntaxa)
+  system. `threatened`, `invasive`, `sensitive` scopes are now first-class
+  and pre-computed, enabling the new Species of Concern tab without runtime
+  filtering.
+- **Recent-period cutoff as pipeline constant** — derived once by 09c from
+  the cube's max yearmonth, saved to `data/{CC}/proc/recent_cutoff.rds`.
+  Script 11 and any downstream consumer reads this file rather than
+  recomputing.
+- **Order-level and family-level published-time summaries** — enable
+  Troudet bias "published" toggle at class/order granularity. Previously
+  `pub_last_year` / `pub_prior` were NA in the class/order bias tables.
+- **Batched Tier 4 API queries in 09a** — `api_max_batches` config knob;
+  cache persists between batches.
+
+### Outputs Added (per scope × per grid, in `data/{CC}/proc/derived/`)
+- `cell_summary_<scope>_<grid>.csv`
+- `time_summary_<scope>_<grid>.csv`
+- `cell_time_summary_<scope>_<grid>.csv`
+- `order_cell_summary_<scope>_<grid>.csv`
+- `order_time_summary_<scope>_<grid>.csv`
+- `family_time_summary_<scope>_<grid>.csv`
+- `published_time_summary_<scope>_<grid>.csv`
+- `order_published_time_summary_<scope>_<grid>.csv`
+- `family_published_time_summary_<scope>_<grid>.csv`
+- `cell_recency_<scope>_<grid>.csv`
+- `basis_recent_<scope>_<grid>.csv`
+- `spatial_gaps_<scope>_<grid>.csv` (zero-filled against grid)
+- `cell_last_year_<scope>_<grid>.csv`
+
+Plus (not scope-filtered):
+- `tax_cell_recency_<grid>.csv` (kingdom × class × cell)
+- `species_scope_summary.csv`
+- `recent_cutoff.rds`
+
+### Outputs Removed
+- `cell_summary_dyntaxa_10km.csv`, `time_summary_dyntaxa_10km.csv` etc. —
+  replaced by the scope-suffix variants from 09c (the `_dyntaxa` scope).
+
+### Files Modified
+- `scripts/06a_make_core_summaries.R` — removed taxonomy lookup,
+  `tag_cube_taxonomy()`, `write_dual_scope()`. Back to pure aggregation.
+- `scripts/06b_make_species_summaries.R` — same treatment.
+- `scripts/09a_reconcile_taxonomy.R` — batched Tier 4 loop (+41 lines).
+- `scripts/09c_scope_summaries.R` — NEW (705 lines).
+- `scripts/11_prepare_gap_app_data.R` — rewritten as loader (~940 lines).
+- `_targets.R` — `scope_summaries` target added (sibling of
+  `taxonomic_gaps`); `gap_app_data` now depends on both.
+- `run.R` — `run_phase_4()` includes `scope_summaries`.
+- `README.md` — Quick Start, Pipeline Phases, Taxonomy Architecture.
+- `ROADMAP.Rmd`, `derived_summaries_overview.Rmd`, `metrics.md` — updated
+  to reflect new architecture.
+
+### Pipeline Re-run Order
+Full re-run from 09a is required (09a output unchanged in schema, but
+06a/06b outputs changed due to removed dual-scope, and 09c is brand new).
+Suggested: rerun 06a → 06b → 09a → (09b, 09c) → 10 → 11.
+
+### Known Limitation
+`tax_by_order` / `tax_by_family` in the app are still derived from
+match_summary (not scope-filtered per run). The scope toggles in the UI
+map to the pre-computed per-scope summaries for cube-based metrics
+(occurrences, cells, time) but not for taxonomic coverage ratios — the
+latter only change when establishmentMeans is the scope. This matches
+the pre-refactor behavior and is acceptable because taxonomic coverage
+ratios are defined relative to the full backbone.
+
+---
+
 ## 2026-04-15: Sensitive Species, Dual-Scope Summaries, New Cubes
 
 ### New Features

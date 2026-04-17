@@ -18,61 +18,63 @@
 # ============================================================================
 
 # Required packages ----------------------------------------------------------
+# These are the packages actually used by the pipeline scripts (00-11).
 
 required_packages <- c(
-  # Core tidyverse
+  # Core data manipulation
   "dplyr",
   "tidyr",
   "readr",
   "stringr",
   "purrr",
   "tibble",
-  "forcats",
   "lubridate",
   "glue",
 
-  # High-performance data manipulation (used in cube processing)
+  # High-performance data manipulation (cube processing)
   "data.table",
 
   # Spatial
   "sf",
 
-  # Visualisation
-  "ggplot2",
-  "viridis",
+  # Formatting (scales::comma is used in every script)
   "scales",
-  "patchwork",
-  "gridExtra",
-
-  # Tables
-  "knitr",
-  "kableExtra",
-  "gt",
-  "DT",
-  "shinyWidgets",
-
-  # Reporting
-  "rmarkdown",
 
   # Project management
   "here",
   "yaml",
   "cli",
-  "fs",
-
-  # Pipeline (optional but recommended)
-  "targets",
-  "tarchetypes"
+  "fs"
 )
 
-# Optional packages (enhance functionality but not required) -----------------
+# Optional packages (enhance pipeline but not strictly required) -------------
 
 optional_packages <- c(
-  "rgbif",       # GBIF data access
-  "httr2",       # GBIF Species API (09a taxonomy reconciliation)
-  "arrow",       # Parquet file support
+  "arrow",       # Parquet file support (required for scripts 04+)
+  "rgbif",       # GBIF data access (script 01)
+  "httr",        # GBIF Registry API (script 06a publisher names)
+  "httr2",       # GBIF Species API (script 09a Tier 4)
+  "geodata",     # GADM admin boundaries (script 01)
   "furrr",       # Parallel processing
   "progressr"    # Progress bars
+)
+
+# App/reporting packages (used by Shiny app and Rmd reports, not scripts) ----
+
+app_packages <- c(
+  "ggplot2",
+  "viridis",
+  "patchwork",
+  "gridExtra",
+  "knitr",
+  "kableExtra",
+  "gt",
+  "DT",
+  "shinyWidgets",
+  "rmarkdown",
+  "forcats",
+  "targets",
+  "tarchetypes"
 )
 
 # Check and install ----------------------------------------------------------
@@ -144,13 +146,8 @@ load_packages <- function(verbose = FALSE) {
     # Spatial
     library(sf)
 
-    # Visualisation
-    library(ggplot2)
-    library(viridis)
+    # Formatting (scales::comma used across all scripts)
     library(scales)
-
-    # Tables and reporting
-    library(knitr)
 
     # Project utilities
     library(here)
