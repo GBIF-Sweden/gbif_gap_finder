@@ -1,9 +1,9 @@
 # configs/config_NO.yml
 # ============================================================================
-# gbifgaps — Norway
+# GBIF Gap Finder — Norway
 # ============================================================================
 # To run:
-#   Sys.setenv(GBIFGAPS_COUNTRY = "NO")
+#   Sys.setenv(GBIF_GAP_COUNTRY = "NO")
 #   source("scripts/00_setup.R")
 #   source("scripts/01_download_raw_data.R")
 #

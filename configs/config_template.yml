@@ -1,10 +1,10 @@
 # configs/config_template.yml
 # ============================================================================
-# gbifgaps — Project Configuration Template
+# GBIF Gap Finder — Project Configuration Template
 # ============================================================================
 # Copy this file to configs/config_{CC}.yml (e.g. config_NO.yml)
 # Fill in all TODO items, then run:
-#   Sys.setenv(GBIFGAPS_COUNTRY = "CC")
+#   Sys.setenv(GBIF_GAP_COUNTRY = "CC")
 #   source("scripts/00_setup.R")
 #   source("scripts/01_download_raw_data.R")
 #

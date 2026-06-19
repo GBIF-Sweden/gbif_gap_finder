@@ -1,6 +1,6 @@
 # run.R
 # ============================================================================
-# Helper Script for Running the GBIF Gap Analysis Pipeline
+# Helper Script for Running the GBIF Gap Finder Pipeline
 # ============================================================================
 # Source this file for convenient pipeline commands.
 # Works with both targets-based and script-based workflows.
@@ -9,7 +9,7 @@
 #   source("run.R")
 #   status()         # Check pipeline progress
 #   run_all()        # Full pipeline
-#   launch_gap_app() # Start Gap Analysis app
+#   launch_gap_finder() # Start the Gap Finder app
 
 library(targets)
 library(here)
@@ -20,7 +20,7 @@ library(here)
 
 cat("
 +--------------------------------------------------------------------+
-|            gbifgaps - GBIF Biodiversity Gap Analysis               |
+|                     GBIF Gap Finder                                |
 +--------------------------------------------------------------------+
 |                                                                    |
 |  Common commands:                                                  |
@@ -38,14 +38,12 @@ cat("
 |    run_phase_3()        Derived summaries                          |
 |    run_phase_4()        Gap analysis (spatial, temporal, taxonomic) |
 |    run_phase_5()        Integrated overview                        |
-|    run_gap_app_prep()      Prepare data for Gap Analysis app       |
-|    run_explorer_app_prep() Prepare data for GBIF Explorer app      |
+|    run_gap_finder_prep()  Prepare data for the Gap Finder app      |
 |    run_reports()        Render all R Markdown reports               |
 |                                                                    |
 |  Shiny apps:                                                       |
 |                                                                    |
-|    launch_gap_app()     Launch the Gap Analysis app                |
-|    launch_explorer_app() Launch the GBIF Explorer app              |
+|    launch_gap_finder()    Launch the Gap Finder app                |
 |                                                                    |
 +--------------------------------------------------------------------+
 ")
@@ -85,14 +83,9 @@ run_phase_5 <- function() {
   tar_make(names = gap_overview)
 }
 
-#' Prepare data for Gap Analysis app (script 11)
-run_gap_app_prep <- function() {
-  tar_make(names = gap_app_data)
-}
-
-#' Prepare data for GBIF Explorer app (script 12)
-run_explorer_app_prep <- function() {
-  tar_make(names = explorer_app_data)
+#' Prepare data for the Gap Finder app (script 11)
+run_gap_finder_prep <- function() {
+  tar_make(names = gap_finder_data)
 }
 
 #' Render all R Markdown reports
@@ -109,26 +102,15 @@ run_reports <- function() {
   ))
 }
 
-#' Launch the Gap Analysis app
-launch_gap_app <- function() {
-  gap_data_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+#' Launch the Gap Finder app
+launch_gap_finder <- function() {
+  gap_data_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
   if (!file.exists(gap_data_path)) {
     cat("\u26a0\ufe0f  Gap app data not found. Preparing first...\n")
-    run_gap_app_prep()
+    run_gap_finder_prep()
   }
-  cat("\U0001f680 Launching Gap Analysis app...\n")
-  shiny::runApp(here("shiny_app", "gap_app"))
-}
-
-#' Launch the GBIF Explorer app
-launch_explorer_app <- function() {
-  explorer_data_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
-  if (!file.exists(explorer_data_path)) {
-    cat("\u26a0\ufe0f  Explorer app data not found. Preparing first...\n")
-    run_explorer_app_prep()
-  }
-  cat("\U0001f680 Launching GBIF Explorer app...\n")
-  shiny::runApp(here("shiny_app", "gbif_explorer"))
+  cat("\U0001f680 Launching Gap Finder app...\n")
+  shiny::runApp(here("shiny_app", "gap_finder"))
 }
 
 #' Run the full pipeline (core only; reports are separate)
@@ -176,11 +158,8 @@ status <- function() {
   sensitive_files <- if (dir.exists(raw_sensitive_dir)) list.files(raw_sensitive_dir, pattern = "\\.(txt|csv)$") else character(0)
   cat("  Sensitive species:", ifelse(length(sensitive_files) > 0, paste0("Yes (", length(sensitive_files), " files)"), "No"), "\n")
 
-  gap_app_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
-  cat("  Gap app data ready:", ifelse(file.exists(gap_app_path), "Yes", "No"), "\n")
-
-  explorer_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
-  cat("  Explorer app data ready:", ifelse(file.exists(explorer_path), "Yes", "No"), "\n")
+  gap_finder_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
+  cat("  Gap Finder data ready:", ifelse(file.exists(gap_finder_path), "Yes", "No"), "\n")
 }
 
 #' Destroy all cached targets and rebuild from scratch

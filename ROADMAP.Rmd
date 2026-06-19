@@ -1,6 +1,6 @@
 ---
-title: "gbifgaps — Development Roadmap"
-subtitle: "GBIF Biodiversity Data Gap Analysis Package"
+title: "GBIF Gap Finder — Development Roadmap (Master)"
+subtitle: "(gbif.se/gap-finder)"
 author: "GBIF Sweden / NRM"
 date: "`r format(Sys.Date(), '%B %Y')`"
 output:
@@ -19,17 +19,121 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 
 # Vision
 
-**gbifgaps** is a plug-and-play R package that enables any GBIF node to generate
+**gbif_gap_finder** is a plug-and-play R pipeline that enables any (European) GBIF node to generate
 a systematic gap analysis of their national biodiversity data — identifying where,
 when, and which species are under-represented — and to explore the results through
-two interactive dashboards:
+an interactive **Gap Finder Dashboard**.
 
-1. **Gap Analysis Dashboard** — internal tool for data mobilisation priorities
-2. **Biodiversity Explorer** — public-facing tool for exploring national occurrence data
-
-The package is designed so that a node can point it at their country's GBIF data,
+The pipeline is designed so that a node can point it at their country's GBIF data,
 a national taxonomy backbone, and (optionally) a red list and invasive species registry,
 and produce a complete analysis with minimal configuration.
+
+
+# Decisions Log — latest meeting
+
+*These resolve the "decision needed" markers in §1.11 and elsewhere. Recorded here as the
+canonical outcome; the body of the roadmap below is unchanged except where a decision is
+annotated inline as **→ D#**.*
+
+| # | Decision | Outcome |
+|---|----------|---------|
+| **D1** | **Primary users** | **Broadest audience** — not only GBIF staff but policy makers, researchers, funders, agencies, publishers. → the full communication layer (§1.11) and EAA accessibility (§1.11.3) are **in scope for v1**, not optional. Resolves the "primary target user" question in §1.11.11 / §1.11.3 / §1.11.5. |
+| **D2** | **App name** | **GBIF Gap Finder**, living at **`gbif.se/gapfinder`**. Slug recommendation below. Resolves §1.11.12. |
+| **D3** | **Current (partial) year in temporal trends** | **Default = last *complete* year** (full-year view); the current partial year stays available but is not the default, so charts don't show a misleading end-of-series drop. Resolves §1.11.4 "current year in temporal stats". |
+| **D4** | **Lowest taxonomic level** | **Go to family where computationally feasible.** Class/Order aren't meaningful, esp. for plants. The pipeline runs only 2–3×/year so compute time is **not** the constraint — bundle size / sparsity is. Feasibility analysis below. Resolves §1.11.6 "lowest taxonomic level". |
+| **D5** | **Communication-layer scope for v1** | **Full** (follows from D1). |
+| **D6** | **Versioned comparison / annual report** | **Defer the in-app feature**; it rides on the snapshot retrospective already in §5.3. Resolves §1.11.15. |
+| **D7** | **Invasives taxonomic level** | **Species level, single graph** — Order/Family is uninformative. Confirms the existing §1.11.7 item. |
+| **D8** | **Filters** | Filtering is **broken across tabs** (not just Publishers) — fix globally. **Every filter needs an explicit "All" / reset option.** Extends §1.11.4 (publisher map + taxonomic filtering broken) and §1.11.5 ("All publisher categories" reset) and §1.11.6 (navigate back up taxonomy). |
+| **D9** | **Data DOI / provenance** | Surface the **GBIF download DOI** in the app (display + copy/download), so users can cite and retrieve the exact data used. Resolves the DOI part of §1.11.12 and reinforces the existing §1.6 "cube DOI in Overview" item. |
+| **D10** | **Publisher "GBIF Sweden"** | **Remove** — placeholder for orphaned/legacy datasets, not a real publisher. Confirms the existing §1.11.4 item. |
+| **D11** | **Publisher categories** | Replace the ad-hoc scheme with **three categories: Citizen science · Private sector · Research data** (the latter holding *university, museum, herbarium, sequencing*). Supersedes the more granular suggestions in §1.11.5 — see the open sub-question below on where field stations / marine institutes land. |
+| **D12** | **Global grid abstraction (ISEA3H / non-Europe)** | **Out of scope for Lena.** Focus stays on the **EEA reference grid**. **Phase 3 is demoted to a side note / future possibility for other nodes**, not an owned task. |
+| **D13** | **First-layer navigation** | **Build it** — a "Choose your path" entry layer with short per-user-group explanations **+ a small click-through demo**. Upgrades §1.11.11 from "decision needed" to confirmed first-layer feature. |
+
+### D2 — URL slug recommendation
+Use **gap-finder**.
+UI display name: **GBIF Gap Finder**; 
+tagline: *"Finding the gaps in Sweden's GBIF-mediated data."*
+
+### D4 — Family-level feasibility (the compute question)
+**It's mostly already computed, and CPU is not the constraint.**
+
+- The **taxonomic *gap* analysis** (which checklist species/families have zero GBIF
+  records) is a join — already at family/species level. Free.
+- **06b** already emits `by_order/` *and* `by_family/`; **09c** already produces order- and
+  family-level published-time summaries; **Troudet bias** already drills to family. So
+  family-level *summaries* largely exist.
+- Pipeline runs **2–3×/year** → wall-clock is irrelevant; a `data.table` group-by at
+  family×cell is seconds–minutes even at millions of rows.
+
+**The real costs are bundle size and sparsity, not compute:**
+
+1. `tax_cell_recency` is currently *kingdom × class × cell*. Going to *…× family × cell*
+   multiplies rows by ~(n_families / n_classes), order 10–30× — the same concern already
+   flagged for `publisher_cell_taxonomy` (~1.2M rows, §1.6) being too heavy for the Shiny
+   `.rds` bundle.
+2. Most families have ≤1 record in most 10 km cells → a global family×cell matrix is noisy.
+
+**Recommendation (matches "expensive compute in the pipeline, not the app"):** compute
+family-level in the pipeline (cheap, runs rarely); ship only the small family-level
+*summaries*; keep the heavy family×cell matrix **drill-down-only** (compute it within a
+selected higher taxon, not globally); and **measure the bundle size first** (task **T-D1**)
+before making family the default. Consult **Kevin** on which groups genuinely benefit from
+family vs genus (§1.11.6).
+
+### D11 — open sub-question
+The three-category scheme has no obvious home for **field stations** (Station Linné) or
+**marine institutes** (Flanders Marine Institute), and §1.11.5 also raised
+sequencing/NGO edge cases. Sequencing → **Research data** (per D11). Decide: do field
+stations / marine institutes fold into **Research data** too, or do you want a small 4th
+bucket? Flagged so `classify_publisher()` can be specified unambiguously.
+
+---
+
+# Reconciliation & round-2 audit status
+
+This master merges your 712-line roadmap with the deeper code audit
+(`REVIEW_2026-05-07_round2.md`) and the meeting decisions. Most audit items were **already
+in your roadmap** (e.g. the multicellular pre-filter in §1.9, which is *more* detailed than
+the audit). The audit's genuinely **new** contributions, folded in below:
+
+- ★ **Root cause of the Norway "Sweden/Dyntaxa" bug** — added as the headline of §1.10.
+  `app.R` line 172 reads `config_SE.yml` *first regardless of country*. The single
+  consolidated fix (pass everything through `shiny_data$metadata`, stop app.R reading
+  configs) closes most of §1.10 at once. → task **T-S1**, the recommended starting point.
+- **`dyntaxa_*` data-key rename** — your §1.10 covers *UI label* "Dyntaxa" strings, but the
+  audit found the *data keys themselves* are `dyntaxa_*` in `shiny_data` (so Norwegian data
+  is stored under `dyntaxa_*`). Added to §1.10. → **T-R7**.
+- **§1.4 "pure loader" revision** — the audit found script 11 still computes in **Section
+  12** (overview last-year stats) and **Section 13** (Troudet bias). Annotated in §1.4. →
+  **T-R3**.
+- **`run.R` CLI outlier** — `cli` usage is consistent *inside* the pipeline scripts (good);
+  `run.R` is the outlier. Added to §1.7.
+- **Audit confirmations** (still-open, no new item needed): §1.8 `calc_metric()` swallows
+  errors (script 10 ~lines 133–135); §1.9 multicellular pre-filter not yet implemented;
+  §1.9 09b redundant re-classify; §1.9 `add_yearmonth_cols()` removable.
+
+A separate **`TASKS.md`** breaks the pipeline-side work into start-here, commit-sized steps.
+
+## ⚠ Not in this master — confirm before it's lost
+
+In the **2026-05-07 strategic session** we developed material that is **not present in this
+712-line roadmap**. Flagging so nothing is silently dropped — tell me whether to merge each
+or whether it's tracked in a separate doc:
+
+- **Bundle B — cube-stack rewrite:** b3verse schema migration, `rgbif::occ_download_sql()`
+  automated downloads, SQL canonicalisation (the GROUP BY query *is* the cube spec). *Note:
+  the snapshot/diff part of Bundle B is already reflected in your §5.3.*
+- **Bundle F — operations automation:** quarterly runs (Jan/Apr/Jul/Oct), email
+  notification with auto-retry, reports generated-and-notified, dashboard deployment on the
+  NRM server. *Note: Bundle F's Zenodo archival appears **superseded** by your §5.3
+  "reproducibility without Zenodo" decision — worth resolving the tension explicitly.*
+- **§1.15 EuropaBON / EBOCC alignment** — positioning node-level gap analysis as EuropaBON
+  input; EBV workflow-template mapping.
+- **§1.17 Outputs Layer — policy reports** — annual Sweden **GBF Target 21** Brief,
+  EuropaBON/EBV National Contribution Report, and a Multi-Country Target 21 Comparison
+  (GBIF Secretariat handoff). Ties to the snapshot retrospective in §5.3.
 
 
 # Current Status
@@ -145,6 +249,11 @@ reduction from 1700 to ~940 lines.
 - [x] **Script 11 rewritten as pure loader** — no cube I/O, no heavy
   computation. Loads 09c per-scope files under `<scope>_<summary_type>`
   names; provides backward-compat aliases to the `all` scope.
+  - ⚠ **Round-2 audit revision:** *partially* true — 11 does no cube I/O, but
+    **Section 12** (overview last-year stats: yearly totals, recent-vs-prior
+    splits, newly-covered/resolved cells) and **Section 13** (Troudet-style
+    bias) are still real computation. Per "expensive compute in pipeline, not
+    app," migrate §§12–13 into 09c (or a new 09d sibling). → task **T-R3**.
 - [x] **`_targets.R` updated** — `scope_summaries` target added as sibling
   of `taxonomic_gaps`; `gap_app_data` depends on both.
 - [x] **Five-scope metadata flags in 11** — `has_all_scope`,
@@ -187,6 +296,8 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
 - [ ] Bar titles in downloaded images when >20 groups
 - [ ] PhyloPic taxonomic silhouette icons — *parked*
 - [ ] 1km grid resolution option — *requires evaluation*
+- [ ] **Resolution toggle in dashboard** — the pipeline already produces outputs at both 10km and 50km, but the app defaults to 10km with no user control. Add a dropdown/toggle to switch resolutions. Essential for larger countries where 10km produces too many cells for interactive use. Low effort — data exists, just needs UI wiring.
+- [ ] **Cube DOI and data provenance in Overview tab** — the cube DOIs and dataset DOIs are stored in config and metadata but never surfaced in the app UI. Add a provenance/citation card to the About or Overview section showing cube DOIs, taxonomy DOI, red list DOI, and pipeline run date.
 
 ## 1.7 Code Quality
 
@@ -195,6 +306,7 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
 - [x] Centralised shared utilities (read_cube, safe_read, classify_accepted, resolve_threat_status, clean_for_filename, %||%)
 - [ ] Standardise function documentation headers
 - [ ] Ensure all scripts respect 100-character line width
+- [ ] **`run.R` CLI outlier** — round-2 audit confirms `cli` usage is consistent *inside* the pipeline scripts (09a/b/c, 10, 11) — good — but `run.R` is still the outlier from the previous review. Bring it in line.
 
 ## 1.8 Data Integrity & Robustness
 
@@ -202,22 +314,148 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
 - [ ] **02: 50km cell code derivation has no validation** — `parse_10km()` derives 50km parent codes arithmetically but never checks whether those codes exist in the actual 50km grid file. Add a warning if zero matches are found.
 - [ ] **07: `filter_coarse_grid_to_country()` uses expensive `st_union`** — does `st_union` of the entire 10km grid (~5,000 polygons). Could cache the country boundary polygon during 02 or use the GADM admin boundary directly.
 - [ ] **09b: `load_derived_files` double-counting risk** — reads both `by_order/` and `by_family/` directories. If 06b is rerun with a different `large_order_threshold`, species from a previously-large order might appear in both, causing double-counting. Add a staleness check or cleanup step before 06b.
-- [ ] **10: `calc_metric()` silently swallows errors** — if an upstream file is malformed, the dashboard gets `NA` values without any warning. Consider logging which metrics failed.
+- [ ] **10: `calc_metric()` silently swallows errors** — *(round-2 audit confirmed, script 10 ~lines 133–135)* malformed upstream files yield silent `NA` in the dashboard. Log which metrics failed. → **T-R1**.
 
 ## 1.9 Architecture & Performance
 
+- [ ] **09a: Pre-filter cube species to multicellular organisms before reconciliation** — currently all 79K species in the cube enter the 4-tier matching, including ~20K bacteria, protists, archaea, and viruses that Dyntaxa doesn't cover. These inflate the "unmatched" count and make the match rate (74.6%) look worse than it is for the organisms we care about. Proposed fix: query the GBIF Species API for kingdom of all cube species before reconciliation, drop Bacteria/Archaea/Viruses, then run the 4-tier matching on the remainder. Would give cleaner stats like "58K of 62K multicellular species matched (93%)" and reduce Tier 4 API calls. Add a config option `taxonomic.scope_filter` (e.g. `exclude_kingdoms: [Bacteria, Archaea, Viruses]`) for flexibility. *(Round-2 audit: still **not implemented** — 09a runs 4-tier matching on all ~79K species.)* → **T-R4**.
 - [ ] **07: Cache cell code lists from 02** — 07 re-reads both grid GeoPackages to build cell universes. Could cache simple text files (`cellcodes_10km.txt`, `cellcodes_50km.txt`) during 02, saving gpkg reads and geometry operations.
 - [ ] **06a: `poly_id` column in grid lookups appears unused** — the lookup CSVs create a `poly_id` that no downstream script references. Either document its purpose or remove it.
-- [ ] **09b redundantly re-classifies backbone** — 09a already classifies accepted/synonym and builds the full reconciliation; 09b reloads and re-classifies `taxa_reference_current.rds` from scratch. 09b could read the classified backbone from 09a's output instead.
-- [ ] **11: `add_yearmonth_cols()` could be removed** — now skips when year/month exist, but still runs the check on ~30 files. Once confirmed that all 09c outputs always include year/month, the function can be dropped entirely.
+- [ ] **09b redundantly re-classifies backbone** — 09a already classifies accepted/synonym and builds the full reconciliation; 09b reloads and re-classifies `taxa_reference_current.rds` from scratch. 09b could read the classified backbone from 09a's output instead. *(Audit confirmed, 09b line ~103.)* → **T-R5**.
+- [ ] **11: `add_yearmonth_cols()` could be removed** — now skips when year/month exist, but still runs the check on ~30 files. Once confirmed that all 09c outputs always include year/month, the function can be dropped entirely. *(Audit confirmed, 11 line ~50, 6 call sites.)* → **T-R6**.
 
-## 1.10 App Portability (for Norway/Ethiopia)
+## 1.10 App Portability (for Norway — Ethiopia demoted, see D12)
 
-- [ ] **Per-country app data folders** — script 11 currently overwrites a single `shiny_app/gap_app/data/shiny_data.rds`. Change to `shiny_app/gap_app/data/{CC}/shiny_data.rds` so country bundles coexist and switching doesn't require rerunning script 11. Requires updates to: script 11 (output path), app.R (data loading path from `GBIFGAPS_COUNTRY` env var or dropdown), Dockerfile (COPY path), `.gitignore`, `_targets.R` (gap_app_data output path).
-- [ ] **`EXCLUDE_ORDERS` hardcoded in app.R** — line 95 has `c("Primates")`. Should read from config or from shiny_data bundle metadata, not be hardcoded.
-- [ ] **Legacy `config.yml` fallback in app.R** — line 172 still tries `../../config.yml` as a fallback. Remove this legacy path since configs are now at `configs/config_{CC}.yml`.
-- [ ] **Hardcoded "Sweden" references in app.R** — audit UI text for any direct "Sweden" strings that should read from config/metadata `country.name` instead.
-- [ ] **"Dyntaxa" references in app.R** — several UI labels say "Dyntaxa" instead of using `metadata$taxonomy_name`. Replace with dynamic references so Norway shows "Nortaxa".
+> ★ **Round-2 audit located the root cause of the Norway "Sweden / Data Gap
+> Analyses" title bug, and the single fix that closes most of this section.**
+
+- [ ] ★ **CRITICAL — stop app.R reading config files (T-S1).** `app.R` line 172
+  reads `../../configs/config_SE.yml` **first, regardless of active country**, so
+  `country$name` resolves to "Sweden" even under `GBIF_GAP_COUNTRY=NO`. **Fix:**
+  remove all config reads from app.R; capture `country_name`, `country_code`,
+  `exclude_orders`, `taxonomy_name`, and `download_doi` (D9) into
+  `shiny_data$metadata` in **script 11** (~line 837); have app.R read everything
+  from `metadata`. The bundle is already country-specific — it should carry its
+  own context. **This one move closes the four hardcoded-string items below plus
+  the legacy-fallback item.** → task **T-S1** (recommended starting point).
+- [ ] **Rename `dyntaxa_*` data keys → `backbone_*`** (or `national_*`). Audit
+  confirmed the *data keys themselves* are `dyntaxa_*` in `shiny_data` (e.g.
+  `dyntaxa_time_summary`, `dyntaxa_cell_summary`, `dyntaxa_spatial_gaps`), so
+  Norwegian data is stored under `dyntaxa_*`. Bounded refactor across 09c filename
+  suffixes, the script 11 loader, and app.R references. **Do before Norway ships
+  publicly.** → **T-R7**.
+- [ ] **Per-country app data folders** — script 11 currently overwrites a single `shiny_app/gap_app/data/shiny_data.rds`. Change to `shiny_app/gap_app/data/{CC}/shiny_data.rds` so country bundles coexist and switching doesn't require rerunning script 11. Requires updates to: script 11 (output path), app.R (data loading path from `GBIF_GAP_COUNTRY` env var or dropdown), Dockerfile (COPY path), `.gitignore`, `_targets.R` (gap_app_data output path).
+- [ ] **`EXCLUDE_ORDERS` hardcoded in app.R** — line 95 has `c("Primates")`. Should read from config or from shiny_data bundle metadata, not be hardcoded. *(09c reads `exclude_orders` correctly — only the app is hardcoded; subsumed by T-S1.)*
+- [ ] **Legacy `config.yml` fallback in app.R** — line 172 still tries `../../config.yml` as a fallback. Remove this legacy path since configs are now at `configs/config_{CC}.yml`. *(Removed by T-S1.)*
+- [ ] **Hardcoded "Sweden" references in app.R** — audit pinned line 407 (scope-toggle label `"All GBIF Sweden (overview)"`) and line 809 (spatial About). Replace with `glue("…{metadata$country_name}…")`. *(Subsumed by T-S1.)*
+- [ ] **"Dyntaxa" references in app.R** — several UI labels say "Dyntaxa" instead of using `metadata$taxonomy_name` (audit: lines 878, 901–902, 951, 1041, 1055; **drop the `%||% "Dyntaxa"` fallback at line 945** — a missing value there is a pipeline bug, not an app default). Replace so Norway shows "Nortaxa". *(Subsumed by T-S1.)*
+
+## 1.11 Communication & Usability (Colleague Review — VJ)
+
+Feedback from internal review. Overall assessment: conceptually strong, ready as a first version once obvious errors are fixed and accessibility is improved. The main weakness is the **communication layer**, not the analytical scope. Items grouped by theme below; several require a decision (see companion decisions document).
+
+### 1.11.1 Framing & Interpretation (high priority)
+
+- [ ] **Distinguish "GBIF data gaps" from "biodiversity knowledge gaps"** throughout the app. A missing GBIF record does not mean a species is unknown, unmonitored, or absent — recent data may exist outside GBIF. The app currently jumps from measurement to action too quickly.
+- [ ] **Reword spatial staleness** — e.g. Spatial tab "not surveyed in over 10 years, should be prioritized for resurvey" → "This cell has no GBIF-mediated occurrence records dated within the last 10 years." Then suggest checking for national/regional data before prioritising resurvey.
+- [ ] **Separate measurement / interpretation / action** in tab text. Use consistent structure: what the data show → what it might mean → what action could follow.
+- [ ] **Single-publisher cells wording** — frame as "infrastructure vulnerability and partnership opportunity," not criticism of the publisher.
+
+### 1.11.2 Overview redesign — auto-generated key findings (high priority)
+
+- [ ] **Top "what matters" panel** with 4–6 auto-generated key findings: largest spatial gaps, most taxonomically underrepresented groups, most important threatened species gaps, areas with stale data, publisher dependency risks. A policymaker should grasp the main message without inspecting eight tabs.
+- [ ] **Hyperlinks in overview graph headers** to jump to the relevant tab.
+- [ ] **"Total Swedish Occurrences"** label (not "Total Occurrences") to avoid confusion with GBIF as a whole.
+- [ ] **Make the observed-vs-published distinction more visible** in charts and labels. Many users assume "new GBIF records" = "new observations," which isn't necessarily true.
+
+### 1.11.3 Accessibility — EAA compliance (high priority, legal obligation)
+
+- [ ] **European Accessibility Act compliance** — as a government org, GBIF Sweden is obliged to follow the EAA. Full audit needed: readability, fonts, header levels, red/green colour combinations, logical structure.
+- [ ] **Tooltips and plain-language definitions** for technical terms (occurrence cubes, backbone, 4-tier reconciliation, scope-filtered summaries, establishment means, basis of record, single-publisher cells, Troudet bias). Support the terms, don't remove them — add a glossary or "What does this mean?" boxes.
+- [ ] **Larger, more visible download buttons.**
+- [ ] **"Methods and limitations" page** or expandable section to keep the Overview simple while moving technical detail somewhere accessible.
+
+### 1.11.4 Bugs & data quality issues to fix
+
+- [ ] **Record Types: fossil specimens flatlining (1970s only)** — likely a date parsing error. New palaeobotanical data mobilised last year isn't showing. Investigate date handling for FOSSIL_SPECIMEN.
+- [ ] **Record Types: basis of record classes missing from pie chart** — fossil specimens, living specimens etc. may be dropped. If "Observation" shows with 1909 records, other classes should be visible too.
+- [ ] **Current year in temporal stats** — **→ D3: default to the last *complete* year**; keep the current partial year selectable but visually distinguished (greyed/dashed) so charts don't imply a sharp decline.
+- [ ] **Taxonomic tab: exclusion search mixes Latin/English** — example suggests "Aves" but list shows "Birds". Only works with "Aves" after drilling into Chordata. Make categories consistent.
+- [ ] **Taxonomic tab: broken links, missing row names (taxa not all visible).**
+- [ ] **Spatial: no grid cells in Swedish marine waters** — Norway shows marine cells; Sweden should too, given available marine data. Investigate why Swedish EEZ/marine cells are missing.
+- [ ] **Publisher map view filtering broken** — **→ D8**: filtering is broken across tabs, not just here — fix globally; clarify whether the dependency map should respond to category.
+- [ ] **Publisher taxonomic filtering not working** in some views (works for publisher category).
+- [ ] **Remove "GBIF Sweden" as a publisher** — **→ D10 (confirmed)**: placeholder for orphaned/legacy datasets, not a real publisher.
+
+### 1.11.5 Publisher categories cleanup
+
+- [ ] **Publisher category classification — → D11**: rebuild `classify_publisher()` to **three categories — Citizen science · Private sector · Research data** (= university + museum + herbarium + sequencing). Fixes the known misclassifications (KTH→research/university, naturglucker→citizen science, SLU Aqua→research/university, MGnify/iBOL→research/sequencing). **Document which source field the category derives from.** See the D11 open sub-question on field stations / marine institutes.
+- [ ] **Add categories for missing types** — sequencing infrastructures (MGnify, iBOL), field stations (Station Linné), marine institutes (Flanders Marine Institute → NGO?).
+- [ ] **Log-transformed view** for publisher graphs where labels are unreadable.
+- [ ] **"All publisher categories" reset option** after selecting one.
+
+### 1.11.6 Taxonomic accessibility
+
+- [ ] **Link to external taxonomic info** (Wikipedia / Artfakta) so non-specialists understand what a taxon is. Example: "We have a lot of data on Cyprinidae" — what is that? (a fish). Increases accessibility for non-experts.
+- [ ] **Lowest taxonomic level for spatial gaps** — **→ D4: go to family where feasible** (Class too coarse, esp. plants). Compute is not the constraint — bundle size/sparsity is; **measure first (T-D1)**, keep family×cell drill-down-only, consult Kevin on group suitability. See the D4 feasibility analysis above.
+- [ ] **Navigate back up the taxonomic hierarchy** — **→ D8**: every filter (taxonomy and otherwise) needs an explicit "All" / reset to return to "all classes" from any drilled level.
+- [ ] **Colour-code taxonomic mobilization targets by higher taxonomy** (plant families green, insects red, fungi brown) for quick overview.
+
+### 1.11.7 Species of Concern tab
+
+- [ ] **Cite and link the source checklists** (red list, GRIIS, sensitive species) used as the basis for this tab.
+- [ ] **Sensitivity warning directly on maps** — add the 25km/50km generalised-coordinate caution onto any sensitive-species map, not only in explanatory text.
+- [ ] **Swedish common names** in the bottom table — species of concern are of high stakeholder interest.
+- [ ] **Invasive species at species level** — **→ D7 (confirmed)**: Order/Family uninformative; show all on one species-level graph.
+- [ ] **Confirm latest red list** — published April 2026. Verify the pipeline uses it; link it in "About this dashboard."
+
+### 1.11.8 Priorities tab
+
+- [ ] **Zero-coverage cells look like border artifacts** — all are border grids, suggesting a clipping/edge effect rather than genuine gaps. Investigate; consider including recency >10 years category.
+- [ ] **Stale cells colour scale hard to read.**
+- [ ] **Document what "targets for the next 12 months" are based on.**
+
+### 1.11.9 Data tab
+
+- [ ] **Rename "Select Dataset"** — users expect to download a specific dataset (e.g. Artportalen). Rename to "Select Gap Explorer Dataset" or similar.
+- [ ] **More visible download button** (also see accessibility). **→ D9**: surface the **GBIF download DOI** here (display + copy/download) so users can cite and retrieve the exact data.
+
+### 1.11.10 Calls to action for publishers
+
+- [ ] **Direct calls to action** for potential publishers: "Do you hold data for these taxa?", "Can your institution help fill these cells?", "Contact GBIF Sweden for publication support."
+
+### 1.11.11 User journeys (decision needed)
+
+- [ ] **"Choose your path" section** on the Overview or a "user groups" panel, mapping user types to relevant tabs:
+  - Data publishers → Priorities, Taxonomic, Publishers, Data
+  - Conservation agencies → Concern, Spatial, Temporal, Priorities
+  - Researchers → Taxonomic, Temporal, Record Types, Data
+  - GBIF Sweden planning → Overview, Publishers, Priorities, Data
+  - Funders / decision-makers → Key findings, Priorities, Publisher dependency
+- [ ] **→ D1 (broadest audience) + D13**: build this as a **first-layer "Choose your path" entry** with short per-group explanations **and a small click-through demo**. No longer a "decision needed" — it's confirmed.
+
+### 1.11.12 Metadata, citation, naming
+
+- [ ] **App name — → D2: GBIF Gap Finder**, at `gbif.se/gapfinder` (slug `gapfinder`; see D2 rec).
+- [ ] **Recommended citation** for the app, plus the **data DOI (→ D9)**.
+- [ ] **Version, contact, data provenance block** (partly covered by 1.6 provenance item).
+- [ ] **GitHub documentation + user manual** to include framing and interpretation guidance.
+
+### 1.11.13 Interpretation guidance
+
+- [ ] **Interpretation examples**: "How to interpret a stale cell," "How to interpret a missing threatened species," "How to interpret taxonomic bias." Possibly per user group.
+
+### 1.11.14 Separate data-quality task (Artportalen)
+
+- [ ] **Artportalen pre-1900 records analysis** — Artportalen is a citizen science platform but contains records dated to 1551, which are hobbyist-digitised specimen records, not observations. Analyse the extent of this in Artportalen data so we can: (a) inform Artportalen, (b) link to the related specimens (likely held in another system), (c) ensure these are excluded from exports to avoid duplicates, or request removal where publication rights are lacking. This is a standalone investigation, not an app feature.
+
+### 1.11.15 Versioned comparison / annual report
+
+- [ ] **Show changes between data versions** (quarterly / half-yearly) — how gaps are being filled over time. Overlaps with the GBIF monthly snapshots retrospective analysis (section 5.3). Could also generate an annual report.
+
+### 1.11.16 Indigenous data governance (when CARE is implemented)
+
+- [ ] When connecting to Sámi knowledge / Indigenous data governance, the app must **not treat those data as just another "gap" to mobilise**. Some data should not be open; some require governance, consent, context, or community authority. The current sensitive-species handling is a good start for ecological sensitivity but insufficient for Indigenous data governance. Consider a dedicated "local context" tab once best practices are set. (Links to Phase 7.1 CARE tab.)
 
 
 # Phase 2: Country Abstraction
@@ -276,9 +514,15 @@ The `CELLCODE_FIELD` parameter is scaffolded but not yet fully implemented.
 - [ ] Abstract grid file format (currently assumes `.gpkg` with specific column names)
 - [ ] Support ISEA3H hexagonal grids via `dggridR` package
 - [ ] Auto-generate grid from country boundary when no pre-built grid exists
+- [ ] **Generic "bring your own grid" support** — any country should be able to supply a grid shapefile/geopackage with a cell ID column and have the pipeline use it. Requires: (1) config parameter for cell ID field name, (2) config parameter for grid CRS, (3) removal of all EEA-specific assumptions in scripts 02/06a/07/09c. This is the prerequisite for non-European deployment.
 
 
 # Phase 3: Ethiopia & Global Grids
+
+> **→ D12: out of scope for Lena.** Focus stays on the **EEA reference grid**. This phase
+> is retained only as a **side note / future possibility for other nodes or contributors**
+> — it is **not** an owned task and is off the critical path. (The §2.3 grid-abstraction
+> items that concern non-EEA / hexagonal grids inherit the same status.)
 
 *Goal: Prove the pipeline works outside Europe with a fundamentally different grid system.*
 
@@ -313,112 +557,58 @@ Ethiopian GBIF data is likely much sparser than Sweden. The pipeline should:
 - Handle orders/families with very few records gracefully
 - Skip analyses that require minimum data density
 
-
-# Phase 4: R Package
-
-*Goal: Transform the project into an installable R package.*
-
-## 4.1 Package Structure
-
-```
-gbifgaps/
-├── DESCRIPTION
-├── NAMESPACE
-├── R/
-│   ├── config.R              # Config loading and validation
-│   ├── download.R            # GBIF cube and taxonomy downloads
-│   ├── ingest.R              # Grid, taxonomy, cube processing
-│   ├── summarise.R           # Core and species-level summaries
-│   ├── gaps_spatial.R        # Spatial gap analysis
-│   ├── gaps_temporal.R       # Temporal gap analysis
-│   ├── gaps_taxonomic.R      # Reconciliation + taxonomic gaps
-│   ├── integrate.R           # Overview tables
-│   ├── prepare_apps.R        # Shiny data bundling
-│   └── utils.R               # safe_sum, safe_read, helpers
-├── inst/
-│   ├── shiny/
-│   │   ├── gap_app/
-│   │   └── gbif_explorer/
-│   ├── configs/
-│   │   ├── config_template.yml
-│   │   ├── config_sweden.yml
-│   │   └── config_norway.yml
-│   ├── analysis/             # Rmd reports
-│   └── targets/              # _targets.R template
-├── vignettes/
-│   ├── getting-started.Rmd
-│   ├── configuration.Rmd
-│   ├── running-analysis.Rmd
-│   └── customization.Rmd
-├── tests/
-│   └── testthat/
-└── man/
-```
-
-## 4.2 Core API
-
-```r
-library(gbifgaps)
-
-# Full pipeline in one call
-run_pipeline("config_sweden.yml")
-
-# Or step by step
-setup_project("config_sweden.yml")
-download_data()
-ingest_data()
-make_summaries()
-analyse_gaps()
-prepare_apps()
-
-# Launch dashboards
-launch_gap_app()
-launch_explorer_app()
-
-# Render reports
-render_reports()
-```
-
-## 4.3 Package Development Tasks
-
-- [ ] Create `DESCRIPTION` with proper metadata, authors, license
-- [ ] Extract reusable functions from scripts into `R/` files
-- [ ] Write `roxygen2` documentation for all exported functions
-- [ ] Create vignettes (Getting Started, Configuration, Running, Customization)
-- [ ] Write unit tests (`testthat`) for config validation, data processing, matching
-- [ ] Set up `pkgdown` documentation site
-- [ ] GitHub Actions for R CMD check
-
-
 # Phase 5: Distribution & Hosting
 
-## 5.1 Package Distribution
-
-- [ ] Host on GitHub (`gbif/gbifgaps` or `gbif-sweden/gbifgaps`)
+- [ ] Host on GitHub (`GBIF-Sweden/gbif_gap_finder`)
 - [ ] R CMD check passing on Linux, macOS, Windows
-- [ ] `pkgdown` site with country gallery and screenshots
-- [ ] Consider CRAN submission (later, once API is stable)
 
-## 5.2 Shiny App Hosting
 
-Options for GBIF nodes:
+## 5.2 Data Strategy: GBIF Monthly Snapshots
 
-| Option | Effort | Cost | Best For |
-|--------|--------|------|----------|
-| shinyapps.io | Low | Free tier / $$ | Quick demos, small nodes |
-| Posit Connect | Medium | $$$ | Enterprise nodes |
-| ShinyProxy + Docker | Medium | Server costs | Self-hosted nodes |
-| GBIF central hosting | Low (for nodes) | Central | `gaps.gbif.org/{country}` |
+GBIF publishes complete monthly snapshots of all occurrence data in Parquet format on cloud storage (AWS/Azure): https://www.gbif.org/occurrence-snapshots
 
-The central hosting model is most appealing: one deployment at GBIF Secretariat
-with a country selector, nightly data refreshes, and consistent branding.
+This changes the data strategy fundamentally:
 
-## 5.3 Data Refresh Strategy
+**Reproducibility without Zenodo archiving:**
 
-- GBIF cubes can be re-downloaded periodically (monthly/quarterly)
-- Taxonomy reconciliation cache persists across runs
-- `targets` pipeline only reruns what changed
-- Consider scheduled GitHub Actions for automated updates
+Instead of archiving 30GB+ of derived data on Zenodo, the pipeline only needs to record the snapshot date in the config. Anyone with the same snapshot + config + pipeline code gets identical results. Archive the code and config (already on GitHub), not the data.
+
+```yaml
+# In config_SE.yml:
+cubes:
+  source: "snapshot"              # instead of "sql_api"
+  snapshot_date: "2025-04-01"     # GBIF monthly snapshot
+```
+
+**Retrospective gap analysis:**
+
+Run the pipeline against the 2023-01, 2024-01, and 2025-01 snapshots to track how gaps change over time. This is arguably the most powerful use case — showing whether data mobilisation efforts are actually closing gaps.
+
+**Temporal comparison dashboard:**
+
+A new "Gap Trends" tab or report comparing key metrics across snapshot dates:
+
+- Taxonomic coverage % over time (are we closing the checklist gap?)
+- Number of zero-coverage cells over time (are new areas being sampled?)
+- Stale cell count trends (is sampling effort sustained or one-off?)
+- Threatened species coverage trajectory (are priority taxa being mobilised?)
+- Publisher diversity trends (is the data ecosystem growing?)
+
+**Implementation approach:**
+
+1. **Snapshot → cube generation** — write a DuckDB/Arrow query that reads a GBIF snapshot Parquet file and produces the same species × cell × month × basis of record × publisher aggregation that the SQL API cube provides. This replaces the manual cube download step entirely.
+2. **Config parameter** — `cubes.source: "snapshot"` + `cubes.snapshot_date: "2025-04-01"` tells the pipeline to generate cubes from a snapshot rather than expecting pre-downloaded CSVs.
+3. **Multi-snapshot runner** — a wrapper that runs the pipeline against multiple snapshot dates and collects the dashboard summary metrics into a comparison table.
+4. **Gap Trends tab** — new Shiny tab (or standalone report) visualising metric trajectories across snapshots.
+
+**Practical considerations:**
+
+- Monthly snapshots are ~500GB compressed (all countries, all taxa). Filtering to one country + aggregating is the equivalent of what the SQL API does — feasible with DuckDB on a laptop but needs ~16GB RAM.
+- Snapshots are available from [TBC — check earliest available date] to present.
+- The national taxonomy backbone and red list may also change between snapshot dates. For fair comparison, either hold the reference constant (same Dyntaxa version across all snapshots) or document which version was used.
+- This approach makes the pipeline fully self-contained: no GBIF SQL API dependency, no manual download step, just a snapshot date in the config.
+
+**Priority:** High for reproducibility (replaces Zenodo archiving), medium for retrospective analysis (needs cube generation step), high impact for demonstrating gbifgaps value to GBIF nodes.
 
 
 # Phase 6: Future Enhancements
@@ -430,6 +620,7 @@ with a country selector, nightly data refreshes, and consistent branding.
 - [x] Restricted species integration (sensitive species list with generalization categories)
 - [ ] Species distribution model coverage gaps
 - [ ] Temporal trend predictions and forecasting
+- [ ] **Retrospective gap trends** — run pipeline against multiple GBIF monthly snapshots (e.g. 2023-01, 2024-01, 2025-01) and compare key metrics over time. New "Gap Trends" dashboard tab showing whether data mobilisation efforts are closing gaps. Depends on snapshot-based cube generation (section 5.3).
 - [ ] Climate envelope coverage analysis (SMHI / Copernicus gridded data)
 - [ ] Cross-country comparison mode
 
@@ -448,34 +639,96 @@ with a country selector, nightly data refreshes, and consistent branding.
 - [x] Publisher tab with dependency analysis and mobilisation timeline
 - [x] Active filter breadcrumb with clear button
 - [x] Primates/configurable order exclusion
-- [ ] Species of Concern tab (Threatened + Invasive + Sensitive sub-tabs)
-- [ ] Troudet group exclusion multi-select
-- [ ] GBIF-style default group mapping for Troudet landing view
+- [x] Species of Concern tab (Threatened + Invasive + Sensitive sub-tabs)
+- [x] Troudet group exclusion multi-select
+- [x] GBIF-style default group mapping for Troudet landing view
 - [ ] PhyloPic taxonomic silhouette icons on charts
 - [ ] PDF report generation from within apps
 - [ ] Data download buttons for all tables and maps
-- [ ] Country comparison view (side-by-side dashboards)
 - [ ] API endpoint for programmatic gap metric access
 - [ ] Publisher type classification and colour coding
 
 ## Community
 
 - [ ] Contribution guidelines (CONTRIBUTING.md)
-- [ ] Country config repository (community-maintained configs)
-- [ ] GBIF node webinars and tutorials
-- [ ] Conference presentations (GBIF Science Symposium, TDWG)
-
 
 # Open Questions
 
 1. **Grid bundling** — Should the package bundle EEA grids or always download?
 2. **GBIF authentication** — How to handle API credentials for cube downloads?
-3. **Data freshness** — How often should analyses be re-run?
+3. **Data freshness** — Monthly snapshots solve this: run against the latest snapshot for current state, or against historical snapshots for trend analysis. No manual download needed.
 4. **Central hosting** — Will GBIF Secretariat host a multi-country instance?
 5. **Branding** — Should apps be GBIF-branded or node-branded?
 6. **1km resolution** — Is sub-10km resolution needed? Major architectural implications for data volume.
 7. **Unicellular organisms** — Currently excluded from gap analysis (no Dyntaxa coverage). Monitor for future checklists.
 8. **Restricted species** — ✅ Resolved: SLU Artdatabanken publishes a DwC-A checklist with sensitivity categories in `taxonRemarks`. Integrated as `is_sensitive` flag with `sensitivity_category` (5km/25km/50km).
+9. **CARE metrics** — What does "CARE-aligned data" mean quantitatively? Need to define concrete metrics (e.g. % of records with indigenous community consent, representation in publishing organisations, presence of traditional knowledge fields). Requires consultation with GIDA-Sápmi and similar organisations.
+10. **EcoBon ecosystem cubes** — What is the data format, resolution, and availability? Need to evaluate whether ecosystem cubes can be overlaid on the same EEA grid or require a separate spatial framework.
+
+
+# Phase 7: Research Dimensions
+
+*Goal: Extend the gap analysis beyond species occurrence into equity and ecosystem dimensions.*
+
+*(Renumbered from a duplicate "Phase 6" in the source. §7.1 CARE links to the §1.11.16
+Indigenous-data-governance caution.)*
+
+## 7.1 CARE Principles Tab
+
+A new dashboard tab to assess how CARE-aligned biodiversity data is within each country. This is exploratory and requires conceptual development before implementation.
+
+**What CARE means here:**
+
+The CARE Principles (Collective Benefit, Authority to Control, Responsibility, Ethics) address indigenous data governance. For a GBIF gap analysis, this could mean identifying:
+
+- Which grid cells overlap with indigenous territories (e.g. Sámi areas in Sweden/Norway)
+- Whether data from those areas was collected with community involvement
+- Whether indigenous communities are represented among data publishers
+- Gaps in traditional ecological knowledge representation
+
+**Possible approach:**
+
+1. Obtain indigenous territory polygons (LandMark Global Platform, national sources, or GBIF-mediated datasets)
+2. Spatial overlay: flag grid cells that intersect indigenous territories
+3. Compare data density, recency, and publisher diversity in indigenous vs. non-indigenous areas
+4. Identify publishers with indigenous governance structures
+5. Surface findings in a dedicated "CARE" or "Data Equity" tab
+
+**Dependencies:**
+
+- Indigenous territory boundary data (availability varies by country)
+- Defining measurable CARE indicators — requires consultation with GIDA-Sápmi and indigenous data governance experts
+- Ethical review: the tab must *support* indigenous data sovereignty, not surveil or extract from it
+
+**Feasibility:** High conceptual effort, medium technical effort. The spatial overlay is straightforward; defining meaningful metrics is the hard part. Could start with a pilot for Sápmi in Sweden/Norway.
+
+## 7.2 EcoBon Ecosystem Cubes Integration
+
+Integrate EcoBon ecosystem-level occurrence cubes to highlight which ecosystems are underrepresented or undersampled in GBIF data.
+
+**Concept:**
+
+EcoBon produces ecosystem-level biodiversity data cubes. By overlaying these with the gbifgaps species-level analysis, we could identify:
+
+- Ecosystems with low GBIF sampling intensity relative to their expected biodiversity
+- Ecosystem types that are spatially well-covered but taxonomically biased
+- Priority ecosystems for monitoring investment (combining gap analysis with ecosystem importance)
+
+**Possible approach:**
+
+1. Obtain EcoBon ecosystem cube data (habitat type × cell × time)
+2. Crosswalk ecosystem types to grid cells (EEA grid alignment TBC)
+3. Join with existing gbifgaps cell-level summaries
+4. Compute per-ecosystem metrics: sampling intensity, taxonomic completeness, recency
+5. New dashboard tab or overlay on existing spatial tab
+
+**Dependencies:**
+
+- EcoBon data availability and format (need to evaluate)
+- Grid alignment between EcoBon cubes and EEA reference grids
+- Ecosystem type classification (EUNIS, IUCN GET, or EcoBon-specific)
+
+**Feasibility:** Medium technical effort if data aligns with EEA grids; high if a separate spatial framework is needed. Start with a data availability assessment.
 
 
 # Timeline
@@ -485,10 +738,11 @@ with a country selector, nightly data refreshes, and consistent branding.
 | Q1 2026 | Phase 1.1–1.3 complete — pipeline hardened, dual-scope, sensitive species |
 | Q2 2026 | Phase 1.4–1.5 complete — all app tabs reviewed and polished |
 | Q2 2026 | Phase 2 started — Norway replication |
-| Q3 2026 | Phase 3 started — Ethiopia grid abstraction |
+| Q2 2026 | **T-S1 metadata fix** — kills the Norway "Sweden/Dyntaxa" bug; §1.10 closed; Norway demo-safe |
 | Q3 2026 | Phase 4 — Package skeleton with core API |
-| Q4 2026 | Phase 5 — First public release, pkgdown site |
-| 2027    | Phase 6 — Community adoption, advanced features |
+| Q4 2026 | Phase 5 — First public **GBIF Gap Finder** release at `gbif.se/gapfinder`, pkgdown site |
+| 2027    | Phase 7 — CARE tab pilot (Sápmi), EcoBon data assessment |
+| 2027    | Community adoption, advanced features |
 
 ---
 
