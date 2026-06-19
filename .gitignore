@@ -1,5 +1,5 @@
 # ==============================================================================
-# gbifgaps — .gitignore
+# GBIF Gap Finder — .gitignore
 # ==============================================================================
 
 # --- R session files ---
@@ -41,4 +41,4 @@ download_metadata.json
 # --- OS clutter ---
 .DS_Store
 Thumbs.db
-desktop.inishiny_app/gbif_explorer/data/
+.positai

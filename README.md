@@ -1,8 +1,8 @@
-# GBIF Biodiversity Data Gap Analysis
+# GBIF Gap Finder
 
 Systematic analysis of spatial, temporal, and taxonomic gaps in national biodiversity occurrence data from GBIF. Designed as a reusable pipeline for any GBIF node — currently configured for **Sweden**.
 
-> **Package name:** This project is being developed into the `gbifgaps` R package. See [ROADMAP.Rmd](ROADMAP.Rmd) for the full development plan.
+> See [ROADMAP.Rmd](ROADMAP.Rmd) for the full development plan.
 
 ## Overview
 
@@ -15,7 +15,7 @@ This project analyses GBIF occurrence data for a given country to identify:
 - **Invasive species** — integration of national invasive species registries with occurrence data
 - **Sensitive species** — restricted access species flagged with generalization categories (5/25/50 km)
 - **Establishment means** — native, introduced, and invasive species scope filtering and monitoring
-- **Dyntaxa/All GBIF scope** — toggle between gap analysis (against national backbone) and full GBIF overview
+- **National taxonomic backbone/All GBIF scope** — toggle between gap analysis (against national backbone) and full GBIF overview
 - **Publisher analysis** — which organisations contribute data, single-publisher dependency
 - **Recent activity** — rolling 12-month window: observations dated vs published to GBIF
 
@@ -24,7 +24,7 @@ The analysis uses EEA reference grids (10 km and 50 km) with EPSG:3035 (ETRS89-L
 ## Project Structure
 
 ```
-gbifgaps/
+gbif_gap_finder/
 ├── configs/
 │   ├── config_SE.yml           # Sweden configuration
 │   ├── config_NO.yml           # Norway configuration
@@ -47,8 +47,7 @@ gbifgaps/
 │   ├── 09b_taxonomic_gaps.R              # Taxonomic gap analysis
 │   ├── 09c_scope_summaries.R              # Per-scope summaries + recent-period layer
 │   ├── 10_make_gap_overview.R             # Integrated summary tables
-│   ├── 11_prepare_gap_app_data.R          # Bundle data for Gap Analysis app
-│   └── 12_prepare_explorer_app_data.R     # Bundle data for GBIF Explorer app
+│   └── 11_prepare_gap_finder_data.R       # Bundle data for the Gap Finder app
 ├── analysis/
 │   ├── 01_overview.Rmd                    # Dashboard overview report
 │   ├── 02_spatial_gaps.Rmd                # Spatial coverage analysis
@@ -68,9 +67,8 @@ gbifgaps/
 │   │   └── data_sources.Rmd     # Data provenance documentation
 │   └── NO/                      # Norway (placeholder)
 ├── shiny_app/
-│   ├── gap_app/                 # Gap Analysis dashboard
-│   └── gbif_explorer/           # Biodiversity Explorer
-├── _targets.R                   # Pipeline DAG definition
+│   ├── gap_finder/              # Gap Finder dashboard
+├── _targets.R                   # Pipeline definition
 ├── run.R                        # Convenience functions
 └── ROADMAP.Rmd                  # Development plan
 ```
@@ -112,8 +110,7 @@ source("scripts/09a_reconcile_taxonomy.R")      # GBIF ↔ backbone matching
 source("scripts/09b_taxonomic_gaps.R")          # Taxonomic gaps
 source("scripts/09c_scope_summaries.R")         # Per-scope summaries + recent period
 source("scripts/10_make_gap_overview.R")        # Overview tables
-source("scripts/11_prepare_gap_app_data.R")     # Gap app data bundle
-source("scripts/12_prepare_explorer_app_data.R") # Explorer app data bundle
+source("scripts/11_prepare_gap_finder_data.R") # Gap Finder data bundle
 ```
 
 Or use `targets`:
@@ -188,13 +185,13 @@ Script **09c** uses these flags to produce five scope-filtered variants of every
 - `_invasive` — invasive species registry
 - `_sensitive` — restricted access list
 
-The Gap Analysis app reads these per-scope files directly, so scope switching in the UI is a lookup, not a computation. The recent-period cutoff is also derived once by 09c (from the data's max yearmonth) and saved as a pipeline constant.
+The Gap Finder app reads these per-scope files directly, so scope switching in the UI is a lookup, not a computation. The recent-period cutoff is also derived once by 09c (from the data's max yearmonth) and saved as a pipeline constant.
 
 ## Adapting for Another Country
 
 1. Copy `configs/config_template.yml` to `configs/config_{CC}.yml`
 2. Fill in taxonomy, red list, invasive species, and sensitive species settings (all optional except taxonomy)
-3. Set your country: `Sys.setenv(GBIFGAPS_COUNTRY = "CC")`
+3. Set your country: `Sys.setenv(GBIF_GAP_COUNTRY = "CC")`
 4. Download cubes via GBIF SQL API (change `countrycode` in the query)
 5. Place EEA grids in `data/shared/grids/` (shared, one-time download)
 6. Run the pipeline from script 01
@@ -210,7 +207,7 @@ The Gap Analysis app reads these per-scope files directly, so scope switching in
 | Gap Analysis | 07, 08, 09a, 09b | Spatial, temporal, taxonomic gaps | ~30 min |
 | Scope + Recent | 09c | Per-scope summaries + recent-period layer | ~20 min |
 | Integration | 10 | Overview tables | ~5 min |
-| App Prep | 11, 12 | Shiny data bundles | ~10 min |
+| App Prep | 11 | Shiny data bundle | ~10 min |
 
 ## Requirements
 

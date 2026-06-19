@@ -1,13 +1,13 @@
-# scripts/11_prepare_gap_app_data.R
+# scripts/11_prepare_gap_finder_data.R
 # ==============================================================================
-# Prepare Data for Gap Analysis App
+# Prepare Data for the Gap Finder App
 # ==============================================================================
 # This script assembles the Shiny data bundle by LOADING pre-computed outputs
 # from the pipeline. It performs no heavy computation — everything cube-based
 # and scope-filtered is done by 09c, and all tabular summaries come from
 # 07/08/09b/10.
 #
-# Output: shiny_app/gap_app/data/shiny_data.rds
+# Output: shiny_app/gap_finder/data/shiny_data.rds
 #
 # The bundle contains:
 #   - Grid geometries (simplified for web rendering)
@@ -38,7 +38,7 @@ cli_h1("Preparing Data for Shiny App (Script 11)")
 # Configuration
 # ==============================================================================
 
-shiny_output_dir <- here("shiny_app", "gap_app", "data")
+shiny_output_dir <- here("shiny_app", "gap_finder", "data")
 if (!dir.exists(shiny_output_dir)) dir.create(shiny_output_dir, recursive = TRUE)
 shiny_data_path <- here(shiny_output_dir, "shiny_data.rds")
 
@@ -836,10 +836,14 @@ dataset_names <- names(shiny_data)
 
 shiny_data$metadata <- list(
   created_at = Sys.time(),
-  created_by = "scripts/11_prepare_gap_app_data.R",
+  created_by = "scripts/11_prepare_gap_finder_data.R",
   r_version = R.version.string,
   n_datasets = length(dataset_names),
   datasets = dataset_names,
+
+  # Country — from the active config (whichever GBIF_GAP_COUNTRY selected at build)
+  country_name = cfg_get("country.name", COUNTRY_CODE),
+  country_code = cfg_get("country.code", COUNTRY_CODE),
 
   # Taxonomy backbone info (from config)
   taxonomy_name = cfg_get("taxonomy.name", "National Taxonomy"),

@@ -1,6 +1,6 @@
 # _targets.R
 # ============================================================================
-# gbifgaps — Targets Pipeline Definition
+# gbif_gap_finder — Targets Pipeline Definition
 # ============================================================================
 # Every target delegates to the numbered scripts via source().
 # The scripts are the single source of truth for all logic.
@@ -18,9 +18,8 @@
 #   3. Summaries    — scripts 06a, 06b
 #   4. Gap Analysis — scripts 07, 08, 09a, 09b, 09c
 #   5. Integration  — script 10
-#   6. Gap App Prep  — script 11
-#   7. Explorer Prep — script 12
-#   8. Reports      — Rmd files (manual trigger)
+#   6. Gap Finder Prep — script 11
+#   7. Reports      — Rmd files (manual trigger)
 # ============================================================================
 
 library(targets)
@@ -270,15 +269,15 @@ list(
   ),
 
   # ==========================================================================
-  # Phase 6: Gap App Data Prep (script 11)
+  # Phase 6: Gap Finder Data Prep (script 11)
   # ==========================================================================
 
   tar_target(
-    gap_app_data,
+    gap_finder_data,
     {
       gap_overview; scope_summaries
-      source(here("scripts", "11_prepare_gap_app_data.R"), local = TRUE)
-      shiny_path <- here("shiny_app", "gap_app", "data", "shiny_data.rds")
+      source(here("scripts", "11_prepare_gap_finder_data.R"), local = TRUE)
+      shiny_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
       stopifnot(file.exists(shiny_path))
       shiny_path
     },
@@ -286,23 +285,7 @@ list(
   ),
 
   # ==========================================================================
-  # Phase 7: Explorer App Data Prep (script 12)
-  # ==========================================================================
-
-  tar_target(
-    explorer_app_data,
-    {
-      gap_app_data
-      source(here("scripts", "12_prepare_explorer_app_data.R"), local = TRUE)
-      explorer_path <- here("shiny_app", "gbif_explorer", "data", "shiny_data.rds")
-      stopifnot(file.exists(explorer_path))
-      explorer_path
-    },
-    format = "file"
-  ),
-
-  # ==========================================================================
-  # Phase 8: Reports (manual trigger)
+  # Phase 7: Reports (manual trigger)
   # ==========================================================================
 
   tar_render(report_overview,
@@ -349,8 +332,7 @@ list(
         n_taxonomic_gap_files  = length(taxonomic_gaps),
         n_scope_summary_files  = length(scope_summaries),
         n_overview_tables      = length(gap_overview),
-        gap_app_ready          = file.exists(gap_app_data),
-        explorer_app_ready     = file.exists(explorer_app_data)
+        gap_finder_ready       = file.exists(gap_finder_data)
       )
     }
   )

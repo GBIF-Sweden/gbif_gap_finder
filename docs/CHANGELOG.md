@@ -1,4 +1,60 @@
-# gbifgaps — Changelog
+# gbif_gap_finder — Changelog
+
+## 2026-06-18: Rename — gbifgaps → gbif_gap_finder, Explorer App Removed
+
+### Renamed
+
+- **Project** — `gbifgaps` → `gbif_gap_finder` (display name "GBIF Gap Finder")
+  across README, configs, `_targets.R`, `run.R`, and the changelog title.
+- **Shiny app** — `shiny_app/gap_app/` → `shiny_app/gap_finder/`;
+  `Dockerfile.gap_app` → `Dockerfile.gap_finder`; published GHCR image
+  `gap-app` → `gap-finder`. (publish-shiny-images.yml)
+- **App-prep script** — `scripts/11_prepare_gap_app_data.R` →
+  `scripts/11_prepare_gap_finder_data.R`.
+- **Pipeline identifiers** — target `gap_app_data` → `gap_finder_data`;
+  summary field `gap_app_ready` → `gap_finder_ready`. (_targets.R)
+- **Helper functions** — `launch_gap_app()` → `launch_gap_finder()`;
+  `run_gap_app_prep()` → `run_gap_finder_prep()`. (run.R)
+- **Environment variable** — `GBIFGAPS_COUNTRY` → `GBIF_GAP_COUNTRY`, read in
+  `globals.R` and set in all configs, README, and the data-sources template.
+- **Display text** — product references ("Data Gap Analysis", "Gap Analysis
+  app") → "GBIF Gap Finder" / "Gap Finder app", including the app's dashboard
+  header (app.R). The scientific term *gap analysis* (spatial/temporal/
+  taxonomic) is retained throughout.
+
+### Removed
+
+- **Biodiversity Explorer app** — `shiny_app/gbif_explorer/` and its data-prep
+  script `scripts/12_prepare_explorer_app_data.R`, the `explorer_app_data`
+  target, the `launch_explorer_app()` / `run_explorer_app_prep()` helpers, and
+  all README/ROADMAP references. The project now ships a single dashboard.
+  (Note: the in-app "Data Explorer" *tab* in app.R is unrelated and retained.)
+
+### Bug Fixes
+
+- **CRITICAL: Script 11 still wrote to the old app folder** — after the
+  `gap_app` → `gap_finder` rename, `11_prepare_gap_finder_data.R` still set its
+  output to `shiny_app/gap_app/data/`, while the `gap_finder_data` target,
+  `run.R`, and CI expected `shiny_app/gap_finder/data/`. The target's
+  `stopifnot(file.exists(...))` would fail and `tar_make()` would error at
+  app-prep. Output path corrected. (Script 11)
+
+- **MINOR: Stale old-name references in strings/comments** — script 11's header
+  comment and `created_by` metadata, and `app.R`'s data-not-found error
+  message, still named `11_prepare_gap_app_data.R`; updated to
+  `11_prepare_gap_finder_data.R`.
+
+### Migration Notes
+
+- Set `GBIF_GAP_COUNTRY` (the old `GBIFGAPS_COUNTRY` is no longer read).
+- On disk: rename the app folder and Dockerfile; delete
+  `shiny_app/gbif_explorer/` and `scripts/12_prepare_explorer_app_data.R`.
+- Re-publishing produces a new image (`…/gap-finder`) and, if deployed, a new
+  app URL — retire the old `gap-app` image/URL.
+- The `gap_finder_data` rename invalidates that target's cache; `tar_make()`
+  rebuilds it and its downstream once.
+- Earlier entries below intentionally keep the original `gap_app` /
+  `11_prepare_gap_app_data.R` names, which were correct at those releases.
 
 ## 2026-04-17: Pipeline Housekeeping — Redundancy Cleanup & Bug Fixes
 
@@ -226,7 +282,7 @@ Full re-run from script 01 (or from 03 if only taxonomy changed).
 
 ---
 
-# gbifgaps — Taxonomy Restructuring & Feature Updates
+# gbif_gap_finder — Taxonomy Restructuring & Feature Updates
 ## Changelog (Previous)
 
 ### Overview

@@ -4,7 +4,7 @@
 # ============================================================================
 # Purpose:
 #   Define, check, install, and load all required packages for the
-#   GBIF gap analysis pipeline.
+#   GBIF gap finder pipeline.
 #
 # Usage:
 #   source("R/packages.R")

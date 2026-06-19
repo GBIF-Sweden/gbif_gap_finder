@@ -4,7 +4,7 @@
 # ============================================================================
 # Purpose:
 #   Central configuration loader and shared utility library for the
-#   GBIF gap analysis pipeline.  All paths are derived from the country
+#   GBIF gap finder pipeline.  All paths are derived from the country
 #   code in the config file.  Scripts, R functions, Rmd templates, and
 #   Shiny apps are shared across countries — only the data directories
 #   differ.
@@ -29,14 +29,14 @@ if (!exists("%||%")) `%||%` <- function(a, b) if (!is.null(a)) a else b
 #' Read YAML configuration file
 #'
 #' Searches for config in this order:
-#'   1. configs/config_{GBIFGAPS_COUNTRY}.yml (env var override)
+#'   1. configs/config_{GBIF_GAP_COUNTRY}.yml (env var override)
 #'   2. configs/config_SE.yml (default)
 #'   3. config.yml (legacy, project root)
 #'
 #' @return List of configuration values
 read_config <- function() {
   # Check for environment variable override
-  country_env <- Sys.getenv("GBIFGAPS_COUNTRY", "")
+  country_env <- Sys.getenv("GBIF_GAP_COUNTRY", "")
 
   candidates <- c(
     if (nchar(country_env) > 0) here("configs", paste0("config_", country_env, ".yml")),

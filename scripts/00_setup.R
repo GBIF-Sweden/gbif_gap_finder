@@ -47,7 +47,7 @@ source(here("R", "globals.R"))
 
 # Display configured data paths ---------------------------------------------
 country_name <- cfg_get("country.name", "(not set)")
-cli_h2("Project: GBIF Gap Analysis \u2014 {country_name}")
+cli_h2("Project: GBIF Gap Finder \u2014 {country_name}")
 
 cli_dl(c(
   "Data directory"     = p_data,
