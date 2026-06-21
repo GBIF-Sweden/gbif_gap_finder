@@ -33,6 +33,7 @@ cat("
 |  Phase-specific runs:                                              |
 |                                                                    |
 |    run_download()       Download raw data (taxonomy, invasives...)  |
+|    run_resolve_sources() Resolve + validate data-source DOIs        |
 |    run_phase_1()        Ingestion (grids, taxonomy, cubes)         |
 |    run_phase_2()        Validation                                 |
 |    run_phase_3()        Derived summaries                          |
@@ -52,14 +53,19 @@ cat("
 # Convenience Functions
 # ============================================================================
 
-#' Download raw data (script 01 — taxonomy, red list, invasives, sensitive, admin)
+#' Download raw data (script 01a — taxonomy, red list, invasives, sensitive, admin)
 run_download <- function() {
   tar_make(names = raw_data)
 }
 
-#' Run Phase 1: Data Ingestion (scripts 01-04)
+#' Resolve + validate data-source DOIs/citations from keys (script 01b)
+run_resolve_sources <- function() {
+  tar_make(names = data_sources_meta)
+}
+
+#' Run Phase 1: Data Ingestion (scripts 01a, 01b, 02-04)
 run_phase_1 <- function() {
-  tar_make(names = c(raw_data, grids, taxa_reference, cube_parquet))
+  tar_make(names = c(raw_data, data_sources_meta, grids, taxa_reference, cube_parquet))
 }
 
 #' Run Phase 2: Validation (script 05)

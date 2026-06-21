@@ -36,8 +36,8 @@ dashboard      <- safe_get("dashboard")
 overview_ly    <- safe_get("overview_last_year")
 last_year_label <- safe_get("recent_label") %||% "last 12 months"
 
-pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
-            coral = "#c47a6c", plum = "#8b6d8f")
+pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
+            coral = "#EE6677", plum = "#AA3377")
 theme_gaps <- theme_minimal(base_size = 13) +
   theme(plot.title = element_text(face = "bold", size = 14),
         plot.subtitle = element_text(color = "#666", size = 11),

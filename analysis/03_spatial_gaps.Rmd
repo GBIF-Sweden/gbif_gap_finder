@@ -46,8 +46,8 @@ kingdom_recency <- safe_get("kingdom_cell_recency")
 cell_last_year  <- safe_get("cell_last_year")
 last_year_label <- safe_get("recent_label") %||% "last 12 months"
 
-pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
-            coral = "#c47a6c", plum = "#8b6d8f")
+pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
+            coral = "#EE6677", plum = "#AA3377")
 
 theme_gaps <- theme_minimal(base_size = 13) +
   theme(plot.title = element_text(face = "bold", size = 14),
@@ -92,9 +92,9 @@ if (!is.null(grid_10km) && !is.null(spatial_gaps)) {
     ) |> factor(levels = c("1–100", "101–1,000", "1,001–10,000",
                            "10,001–100,000", "> 100,000", "No data")))
 
-  occ_colors <- c("1–100" = pal$slate, "101–1,000" = pal$sage,
-                  "1,001–10,000" = pal$sand, "10,001–100,000" = pal$coral,
-                  "> 100,000" = "#3d4f6a", "No data" = "#e0e0e0")
+  occ_colors <- c("1–100" = "#c6dbef", "101–1,000" = "#9ecae1",
+                  "1,001–10,000" = "#6baed6", "10,001–100,000" = "#3182bd",
+                  "> 100,000" = "#08519c", "No data" = "#e0e0e0")
 
   p <- ggplot(map_sf) +
     geom_sf(aes(fill = occ_cat), color = NA) +
@@ -126,9 +126,9 @@ if (!is.null(grid_10km) && !is.null(spatial_gaps)) {
       TRUE ~ "> 2,000"
     ) |> factor(levels = c("1–10", "11–100", "101–500", "501–2,000", "> 2,000", "No data")))
 
-  rich_colors <- c("1–10" = pal$slate, "11–100" = pal$sage,
-                   "101–500" = pal$sand, "501–2,000" = pal$coral,
-                   "> 2,000" = "#3d4f6a", "No data" = "#e0e0e0")
+  rich_colors <- c("1–10" = "#c6dbef", "11–100" = "#9ecae1",
+                   "101–500" = "#6baed6", "501–2,000" = "#3182bd",
+                   "> 2,000" = "#08519c", "No data" = "#e0e0e0")
 
   p <- ggplot(map_sf) +
     geom_sf(aes(fill = sp_cat), color = NA) +

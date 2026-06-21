@@ -1,4 +1,4 @@
-# scripts/01_download_raw_data.R
+# scripts/01a_download_raw_data.R
 # ============================================================================
 # Download Raw Data Sources
 # ============================================================================
@@ -14,7 +14,7 @@
 # All data stored in: data/{country_code}/raw/
 #
 # Usage:
-#   source("scripts/01_download_raw_data.R")
+#   source("scripts/01a_download_raw_data.R")
 # ============================================================================
 
 source(here::here("scripts", "00_setup.R"))
@@ -229,8 +229,6 @@ SELECT
   basisofrecord, publishingorgkey, datasetkey,
   GBIF_EEARGCode({{RESOLUTION}}, decimallatitude, decimallongitude, 0) AS eeacellcode,
   "year", "month",
-  YEAR(CAST(lastinterpreted AS TIMESTAMP)) AS year_published,
-  MONTH(CAST(lastinterpreted AS TIMESTAMP)) AS month_published,
   COUNT(*) AS occurrences
 FROM occurrence
 WHERE countrycode = \'{country_code}\'
@@ -239,9 +237,7 @@ WHERE countrycode = \'{country_code}\'
 GROUP BY specieskey, species, kingdom, phylum, class, "order", family,
   basisofrecord, publishingorgkey, datasetkey,
   GBIF_EEARGCode({{RESOLUTION}}, decimallatitude, decimallongitude, 0),
-  "year", "month",
-  YEAR(CAST(lastinterpreted AS TIMESTAMP)),
-  MONTH(CAST(lastinterpreted AS TIMESTAMP))', .open = "{{", .close = "}}")
+  "year", "month"', .open = "{{", .close = "}}")
 
   cli_alert_info("SQL query (replace RESOLUTION with 10000 or 50000):")
   cat("\n", gsub("\\{\\{RESOLUTION\\}\\}", "10000", sql_query), "\n\n")

@@ -27,7 +27,8 @@ admin_boundaries:
 taxonomy:
   name: "Dyntaxa"
   dataset_key: "de8934f4-a136-481c-a87a-b0b202b80a31"
-  doi: "https://doi.org/10.15468/j43wfc"
+  # DOI + citation are resolved from dataset_key by 01b_resolve_data_sources.R.
+  # Do not hand-maintain a doi here — it drifts when the dataset is re-versioned.
   export_url: https://api.artdatabanken.se/taxonservice/v1/DarwinCore/Download?subscription-key=4b068709e7f2427d9fc76bf42d8e2b57
 
 # ============================================================================
@@ -36,7 +37,6 @@ taxonomy:
 redlist:
   enabled: true
   dataset_key: "fab88965-e69d-4491-a04d-e3198b626e52"
-  doi: "https://doi.org/10.15468/jhwkpq"
   export_url: "https://www.gbif.se/ipt/archive.do?r=swedishredlist2020"
 
 # ============================================================================
@@ -47,7 +47,6 @@ redlist:
 invasives:
   enabled: true
   dataset_key: "c1a61294-6195-4055-9b22-a2e48e5e16d7"
-  doi: "https://doi.org/10.15468/yxfse8"
   export_url: "https://www.gbif.se/ipt/archive.do?r=invasivespecies"
   name: "Swedish Invasive Species Registry"
 
@@ -60,7 +59,6 @@ invasives:
 sensitive:
   enabled: true
   dataset_key: "0bfa983c-1ef3-4ade-8b07-13d4365f11ff"
-  doi: "https://doi.org/10.15468/e4cz3x"
   export_url: "https://www.gbif.se/ipt/archive.do?r=sensitivespecies"
   name: "List of Restricted Access Species In Sweden"
 
@@ -69,12 +67,15 @@ sensitive:
 # ============================================================================
 cubes:
   source: "sql_api"
+  # Only the download_key is maintained by hand — copy it from the GBIF
+  # download landing page. The DOI, citation and record count are resolved
+  # and validated from the key by scripts/01b_resolve_data_sources.R, so they
+  # can never drift from GBIF. If a key is wrong or from a test instance,
+  # 01b fails loudly at the start of the run.
   grid10km:
-    download_key: "0020270-260409193756587"
-    doi: "https://doi.org/10.15468/dl.cgee35"
+    download_key: "0072621-260519110011954"
   grid50km:
-    download_key: "0020272-260409193756587"
-    doi: "https://doi.org/10.15468/dl.25bedh"
+    download_key: "0072622-260519110011954"
 
 # ============================================================================
 # Paths — All relative to data/{country_code}/
@@ -238,7 +239,6 @@ parameters:
     min_occurrences: 1
     min_cells: 1
     exclude_orders: ["Primates"]
-    year_published_format: "mjd"   # Modified Julian Date — convert in script 04
   processing:
     large_order_threshold: 500000
     low_memory_mode: false

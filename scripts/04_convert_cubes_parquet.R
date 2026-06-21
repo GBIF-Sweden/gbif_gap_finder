@@ -21,7 +21,7 @@
 # Expected columns (16):
 #   specieskey, species, kingdom, phylum, class, order, family,
 #   basisofrecord, publishingorgkey, datasetkey, eeacellcode,
-#   year, month, year_published, month_published, occurrences
+#   year, month, occurrences
 #
 # Dependencies: scripts/00_setup.R, data.table, arrow
 # ============================================================================
@@ -57,8 +57,7 @@ cube_files <- list(
 # Expected columns from the SQL API download
 expected_cols <- c("specieskey", "species", "kingdom", "phylum", "class",
   "order", "family", "basisofrecord", "publishingorgkey", "datasetkey",
-  "eeacellcode", "year", "month", "year_published", "month_published",
-  "occurrences")
+  "eeacellcode", "year", "month", "occurrences")
 
 cli_h1("Convert GBIF Cubes to Parquet \u2014 {COUNTRY_CODE}")
 
@@ -118,35 +117,11 @@ for (grid_name in names(cube_files)) {
     dt <- dt[eeacellcode != "" & !is.na(eeacellcode)]
   }
 
-  # Convert year_published / month_published from MJD to integer
-  # The GBIF SQL API returns YEAR(CAST(...)) as a date type, which Parquet/CSV
-  # serialises as Modified Julian Date (days since 1858-11-17).
-  yp_format <- cfg_get("parameters.taxonomic.year_published_format", "integer")
-
-  if (yp_format == "mjd" && "year_published" %in% names(dt)) {
-    cli_alert_info("Converting year_published from MJD to integer year")
-    dt[, year_published := data.table::year(as.Date(year_published, origin = "1858-11-17"))]
-    cli_alert_info("year_published range: {min(dt$year_published, na.rm = TRUE)} \u2013 {max(dt$year_published, na.rm = TRUE)}")
-  }
-
-  if (yp_format == "mjd" && "month_published" %in% names(dt)) {
-    cli_alert_info("Converting month_published from MJD to integer month")
-    dt[, month_published := data.table::month(as.Date(month_published, origin = "1858-11-17"))]
-    cli_alert_info("month_published range: {min(dt$month_published, na.rm = TRUE)} \u2013 {max(dt$month_published, na.rm = TRUE)}")
-  }
-
   # Summary stats
   cli_alert_info("Unique species: {scales::comma(uniqueN(dt$specieskey))}")
   cli_alert_info("Unique cells: {scales::comma(uniqueN(dt$eeacellcode))}")
   cli_alert_info("Total occurrences: {scales::comma(sum(as.numeric(dt$occurrences)))}")
   cli_alert_info("Year range: {min(dt$year, na.rm = TRUE)} \u2013 {max(dt$year, na.rm = TRUE)}")
-
-  if ("year_published" %in% names(dt)) {
-    yp_range <- range(dt$year_published, na.rm = TRUE)
-    cli_alert_info("Year published range: {yp_range[1]} \u2013 {yp_range[2]}")
-    n_yp_na <- sum(is.na(dt$year_published))
-    if (n_yp_na > 0) cli_alert_warning("year_published NAs: {scales::comma(n_yp_na)}")
-  }
 
   if ("publishingorgkey" %in% names(dt))
     cli_alert_info("Unique publishers: {scales::comma(uniqueN(dt$publishingorgkey))}")

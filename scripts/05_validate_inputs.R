@@ -267,9 +267,9 @@ if (file_exists_safe(manifest_file)) {
         }
 
         # Check new columns
-        new_cols <- c("publishingorgkey", "datasetkey", "year_published", "month_published")
+        new_cols <- c("publishingorgkey", "datasetkey")
         present_new <- intersect(new_cols, pq_cols)
-        md_check(glue("{length(present_new)}/4 new columns present ({paste(present_new, collapse = ', ')})"), "ok")
+        md_check(glue("{length(present_new)}/2 new columns present ({paste(present_new, collapse = ', ')})"), "ok")
 
         cli_alert_success("{basename(pq_file)}: {length(pq_cols)} columns, {pq_size} MB")
       }, error = function(e) {

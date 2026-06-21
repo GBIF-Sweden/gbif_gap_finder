@@ -13,7 +13,7 @@
 #   tar_read(name)          Read a cached result
 #
 # Pipeline phases:
-#   1. Ingestion    — scripts 01, 02, 03, 04
+#   1. Ingestion    — scripts 01a, 01b, 02, 03, 04
 #   2. Validation   — script 05
 #   3. Summaries    — scripts 06a, 06b
 #   4. Gap Analysis — scripts 07, 08, 09a, 09b, 09c
@@ -55,14 +55,24 @@ list(
   # Phase 1: Data Ingestion
   # ==========================================================================
 
-  # 1.0 Download raw data — taxonomy, red list, invasives, sensitive, admin (script 01)
+  # 1.0a Download raw data — taxonomy, red list, invasives, sensitive, admin (script 01a)
   tar_target(
     raw_data,
     {
-      source(here("scripts", "01_download_raw_data.R"), local = TRUE)
+      source(here("scripts", "01a_download_raw_data.R"), local = TRUE)
       metadata_path <- here(p_data_raw, "download_metadata.json")
       stopifnot(file.exists(metadata_path))
       metadata_path
+    },
+    format = "file"
+  ),
+  
+  # 1.0b check DOI & co (script 01b)
+  tar_target(
+    data_sources_meta,
+    {
+      source(here("scripts", "01b_resolve_data_sources.R"), local = TRUE)
+      here("data", COUNTRY_CODE, "proc", "data_sources_meta.rds")
     },
     format = "file"
   ),
@@ -272,11 +282,19 @@ list(
   # Phase 6: Gap Finder Data Prep (script 11)
   # ==========================================================================
 
+  # Track the bundle script as a file so editing it auto-invalidates the bundle.
+  # (Targets normally tracks only the source() call, not the file's contents.)
+  tar_target(
+    script_gap_finder,
+    here("scripts", "11_prepare_gap_finder_data.R"),
+    format = "file"
+  ),
+
   tar_target(
     gap_finder_data,
     {
-      gap_overview; scope_summaries
-      source(here("scripts", "11_prepare_gap_finder_data.R"), local = TRUE)
+      gap_overview; scope_summaries; data_sources_meta
+      source(script_gap_finder, local = TRUE)
       shiny_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
       stopifnot(file.exists(shiny_path))
       shiny_path
@@ -291,14 +309,14 @@ list(
   tar_render(report_overview,
     path = here("analysis", "01_overview.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
+  tar_render(report_priorities,
+    path = here("analysis", "02_priorities.Rmd"), output_dir = here("analysis"),
+    cue = tar_cue(mode = "never")),
   tar_render(report_spatial_gaps,
-    path = here("analysis", "02_spatial_gaps.Rmd"), output_dir = here("analysis"),
+    path = here("analysis", "03_spatial_gaps.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
   tar_render(report_temporal_gaps,
-    path = here("analysis", "03_temporal_gaps.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_record_types,
-    path = here("analysis", "04_record_types.Rmd"), output_dir = here("analysis"),
+    path = here("analysis", "04_temporal_gaps.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
   tar_render(report_taxonomic_gaps,
     path = here("analysis", "05_taxonomic_gaps.Rmd"), output_dir = here("analysis"),
@@ -309,8 +327,8 @@ list(
   tar_render(report_publishers,
     path = here("analysis", "07_publishers.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
-  tar_render(report_priorities,
-    path = here("analysis", "08_priorities.Rmd"), output_dir = here("analysis"),
+  tar_render(report_record_types,
+    path = here("analysis", "08_record_types.Rmd"), output_dir = here("analysis"),
     cue = tar_cue(mode = "never")),
 
   # ==========================================================================

@@ -17,6 +17,10 @@ output:
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 ```
 
+> **About this document.** This is the living development roadmap for GBIF Gap Finder — a working record of design decisions, completed milestones, and planned work, updated as the project evolves. If you're looking for a project overview, screenshots, and how to run the tool, start with the [README](README.md) instead; this document is the behind-the-scenes plan.
+>
+> **Status markers** used throughout: ✅ or `[x]` = done · 🚧 = in progress · `[ ]` = planned. The document runs roughly decisions-first, then **Current Status** (what works today), then the phased plan for what comes next.
+
 # Vision
 
 **gbif_gap_finder** is a plug-and-play R pipeline that enables any (European) GBIF node to generate
@@ -144,7 +148,7 @@ The full pipeline runs end-to-end for Sweden:
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Data ingestion (scripts 01–04) | ✅ Complete | SQL API cubes → parquet, shared EEA grids, GADM admin, MJD year_published fix |
+| Data ingestion (scripts 01a–04) | ✅ Complete | SQL API cubes (14-col) → parquet, shared EEA grids, GADM admin |
 | Invasive species integration | ✅ Complete | Swedish Invasive Species Registry (DwC-A), `is_invasive` flag |
 | Sensitive species integration | ✅ Complete | SLU Artdatabanken restricted access list (203 spp), `is_sensitive` flag + `sensitivity_category` |
 | Validation (script 05) | ✅ Complete | Parquet validation, column checks |
@@ -155,15 +159,14 @@ The full pipeline runs end-to-end for Sweden:
 | Taxonomic gaps (script 09b) | ✅ Complete | Missing taxa, threat coverage, establishment means coverage |
 | Scope summaries + recent-period layer (script 09c) | ✅ Complete | Five-scope summaries (all/dyntaxa/threatened/invasive/sensitive) + recent-period cutoff as pipeline constant |
 | Integration (script 10) | ✅ Complete | Combined overview tables |
-| Gap Analysis app (script 11 + Shiny) | ✅ Complete | Pure loader after 09c refactor; scope toggles now map to pre-computed files |
-| Biodiversity Explorer app (script 12 + Shiny) | ✅ Complete | i18n (EN/SV), vernacular names, invasive species tab |
+| Gap Finder app (script 11 + Shiny) | ✅ Complete | Pure loader after 09c refactor; scope toggles now map to pre-computed files |
 | R Markdown reports (analysis 01–08) | ✅ Complete | 8 reports including establishment means |
 | targets pipeline | ✅ Complete | Full DAG with `tar_make()`, 09c as sibling of 09b |
 | Configuration system | ✅ Complete | Country-aware `configs/config_{CC}.yml`, shared grids, invasives + sensitive config |
 
 ## Key Technical Achievements
 
-- **Parquet-based pipeline** — single SQL API cube per resolution (16 columns including publisher, dataset, publication date), replacing 18 FST files per basis of record
+- **Parquet-based pipeline** — single SQL API cube per resolution (14 columns including publisher and dataset), replacing 18 FST files per basis of record
 - **Country-aware architecture** — `data/{CC}/` folder structure, `configs/config_{CC}.yml`, shared EEA grids in `data/shared/grids/`
 - **Taxonomy reconciliation** went from 31% to 99.8% occurrence coverage through a 4-tier matching system
 - **Four-layer taxonomy**: Dyntaxa backbone + Red List threat status + Invasive Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasive`, and `is_sensitive` flags
@@ -172,14 +175,13 @@ The full pipeline runs end-to-end for Sweden:
 - **Clean separation of concerns** — 06a/06b are taxonomy-agnostic (pure cube aggregation), 09a does reconciliation, 09b does taxonomic gaps, 09c does scope summaries + recent layer, 11 is a pure loader (no cube I/O)
 - **Dyntaxa/All GBIF scope toggle** — gap metrics only shown when Dyntaxa backbone is active; "All GBIF" mode shows overview without gap metrics
 - **Kingdom-level spatial filtering** — recency maps can be filtered by kingdom to reveal patterns hidden by bird-dominated data
-- **Publisher analysis** — publisher summary, single-publisher cell dependency, published vs observed time
+- **Publisher analysis** — publisher summary, single-publisher cell dependency
 - **Troudet-style sampling bias** at class, order, and family levels with hierarchical auto-drill
 - **Cascading taxonomy filters** (Kingdom→Phylum→Class→Order→Family) across app tabs with active filter breadcrumb
-- **Rolling 12-month window** — observations dated vs published to GBIF (year_published via MJD conversion)
+- **Rolling 12-month window** — recent activity by observation (event) date
 - **Heatmap scale toggle** — log, linear, and annotated count views for temporal heatmaps
 - **Expandable About descriptions** on every tab, following the GBIF Country Metrics style
 - **Administrative boundaries** from GADM with map overlays and regional filtering
-- **Swedish/English i18n** in the Explorer app with vernacular species names from Dyntaxa
 - **Europe-wide EEA grids** — shared 10km + 50km grids, clipped to country extent automatically
 
 
@@ -205,7 +207,7 @@ The full pipeline runs end-to-end for Sweden:
 - [x] Dyntaxa/All GBIF scope toggle in Gap Analysis app
 - [x] Kingdom-level cell recency data for spatial filtering
 - [x] Config system updated for invasives (SE, NO, template)
-- [x] Published Over Time chart fix (year_published type casting)
+- [x] Published Over Time chart *(later retired; publication-time analysis deferred to a future snapshot-based tab)*
 
 ## 1.3 Sensitive Species & Dual-Scope Summaries ✅
 
@@ -213,10 +215,7 @@ The full pipeline runs end-to-end for Sweden:
   - Download via script 01, ingest via script 03
   - `is_sensitive` flag + `sensitivity_category` (5km/25km/50km from taxonRemarks)
   - Propagated through 06a → 06b → 09a → 11 → app
-- [x] New GBIF cubes with `year_published` fix
-  - GBIF SQL API returns MJD (Modified Julian Date), not integer year
-  - Script 04 converts via `as.Date(x, origin = "1858-11-17")`
-  - Controlled by `parameters.taxonomic.year_published_format: "mjd"` in config
+- [x] New GBIF cubes via SQL API *(the `year_published` column was later dropped — the `lastinterpreted` cast never yielded usable publication years; publication-time analysis is deferred to a future snapshot-based tab)*
 - [x] Dual-scope summaries in script 06a *(later superseded by 09c, see 1.4)*
   - `write_dual_scope()` produced both full and `_dyntaxa` file variants
   - Taxonomy lookup joined at cube level
@@ -255,7 +254,7 @@ reduction from 1700 to ~940 lines.
     bias) are still real computation. Per "expensive compute in pipeline, not
     app," migrate §§12–13 into 09c (or a new 09d sibling). → task **T-R3**.
 - [x] **`_targets.R` updated** — `scope_summaries` target added as sibling
-  of `taxonomic_gaps`; `gap_app_data` depends on both.
+  of `taxonomic_gaps`; `gap_finder_data` depends on both.
 - [x] **Five-scope metadata flags in 11** — `has_all_scope`,
   `has_dyntaxa_scope_data`, `has_threatened_scope`, `has_invasive_scope`,
   `has_sensitive_scope` in the shiny_data bundle for app feature detection.
@@ -290,7 +289,7 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
 - [ ] Basis of record "last 12 months" per-basis breakdown — *data available via 09c's `basis_recent_<scope>_<grid>.csv`; app integration pending*
 - [ ] Sensitive species `sensitivity_category` — confirm pipeline carries it end-to-end, then add to species scope lookup CSV for the Data tab
 - [ ] `publisher_cell_taxonomy` file size — if 1.2M rows is too heavy for the shiny bundle, consider pre-aggregating to class level instead of order level
-- [ ] **`year_published` still broken — new cube downloads required** — the MJD→integer conversion in script 04 is implemented, but the current Swedish cubes still produce only 2 unique `year_published` values (visible in `published_time_summary_*.csv` having only 2 rows). The GBIF SQL API's `YEAR(CAST(lastinterpreted AS TIMESTAMP))` does not behave as expected in the CSV/Parquet output. Needs: (1) investigate whether the SQL query itself needs changing (e.g. different cast approach), (2) re-download cubes once fixed, (3) re-enable the "Published to GBIF" card on the Overview tab and the Published radio button on temporal/taxonomic tabs. The 12-month published metric was removed from the pipeline pending this fix; the Overview card currently shows cumulative totals instead.
+- [x] **`year_published` retired** — the `lastinterpreted` cast only ever produced ~2 usable values, so the column was removed from the cube SQL (now 14 columns) and from all downstream code (scripts 04/05/06a, config, app). A proper "published to GBIF over time" view will be rebuilt from dated GBIF snapshots as its own tab, rather than from a cube column.
 - [ ] Climate correlation on temporal tab (SMHI gridded data — deferred to v2)
 - [ ] Color blind accessibility audit (per-chart, not wholesale palette swap)
 - [ ] Bar titles in downloaded images when >20 groups
@@ -344,7 +343,7 @@ Tab-by-tab feedback and refinement of the Gap Analysis app:
   Norwegian data is stored under `dyntaxa_*`. Bounded refactor across 09c filename
   suffixes, the script 11 loader, and app.R references. **Do before Norway ships
   publicly.** → **T-R7**.
-- [ ] **Per-country app data folders** — script 11 currently overwrites a single `shiny_app/gap_app/data/shiny_data.rds`. Change to `shiny_app/gap_app/data/{CC}/shiny_data.rds` so country bundles coexist and switching doesn't require rerunning script 11. Requires updates to: script 11 (output path), app.R (data loading path from `GBIF_GAP_COUNTRY` env var or dropdown), Dockerfile (COPY path), `.gitignore`, `_targets.R` (gap_app_data output path).
+- [ ] **Per-country app data folders** — script 11 currently overwrites a single `shiny_app/gap_finder/data/shiny_data.rds`. Change to `shiny_app/gap_finder/data/{CC}/shiny_data.rds` so country bundles coexist and switching doesn't require rerunning script 11. Requires updates to: script 11 (output path), app.R (data loading path from `GBIF_GAP_COUNTRY` env var or dropdown), Dockerfile (COPY path), `.gitignore`, `_targets.R` (gap_finder_data output path).
 - [ ] **`EXCLUDE_ORDERS` hardcoded in app.R** — line 95 has `c("Primates")`. Should read from config or from shiny_data bundle metadata, not be hardcoded. *(09c reads `exclude_orders` correctly — only the app is hardcoded; subsumed by T-S1.)*
 - [ ] **Legacy `config.yml` fallback in app.R** — line 172 still tries `../../config.yml` as a fallback. Remove this legacy path since configs are now at `configs/config_{CC}.yml`. *(Removed by T-S1.)*
 - [ ] **Hardcoded "Sweden" references in app.R** — audit pinned line 407 (scope-toggle label `"All GBIF Sweden (overview)"`) and line 809 (spatial About). Replace with `glue("…{metadata$country_name}…")`. *(Subsumed by T-S1.)*
@@ -608,7 +607,7 @@ A new "Gap Trends" tab or report comparing key metrics across snapshot dates:
 - The national taxonomy backbone and red list may also change between snapshot dates. For fair comparison, either hold the reference constant (same Dyntaxa version across all snapshots) or document which version was used.
 - This approach makes the pipeline fully self-contained: no GBIF SQL API dependency, no manual download step, just a snapshot date in the config.
 
-**Priority:** High for reproducibility (replaces Zenodo archiving), medium for retrospective analysis (needs cube generation step), high impact for demonstrating gbifgaps value to GBIF nodes.
+**Priority:** High for reproducibility (replaces Zenodo archiving), medium for retrospective analysis (needs cube generation step), high impact for demonstrating Gap Finder's value to GBIF nodes.
 
 
 # Phase 6: Future Enhancements
@@ -630,8 +629,7 @@ A new "Gap Trends" tab or report comparing key metrics across snapshot dates:
 - [x] Cascading taxonomy filters across app tabs
 - [x] Troudet-style sampling bias analysis with auto-drill
 - [x] Rolling 12-month activity window
-- [x] Region/municipality selector in Explorer app
-- [x] Scope filter on taxonomic + threatened tabs (both apps)
+- [x] Scope filter on taxonomic + threatened tabs
 - [x] Dyntaxa/All GBIF scope toggle
 - [x] Kingdom-level spatial filtering on recency map
 - [x] Heatmap log/linear/count scale toggle
@@ -708,7 +706,7 @@ Integrate EcoBon ecosystem-level occurrence cubes to highlight which ecosystems 
 
 **Concept:**
 
-EcoBon produces ecosystem-level biodiversity data cubes. By overlaying these with the gbifgaps species-level analysis, we could identify:
+EcoBon produces ecosystem-level biodiversity data cubes. By overlaying these with the Gap Finder species-level analysis, we could identify:
 
 - Ecosystems with low GBIF sampling intensity relative to their expected biodiversity
 - Ecosystem types that are spatially well-covered but taxonomically biased
@@ -718,7 +716,7 @@ EcoBon produces ecosystem-level biodiversity data cubes. By overlaying these wit
 
 1. Obtain EcoBon ecosystem cube data (habitat type × cell × time)
 2. Crosswalk ecosystem types to grid cells (EEA grid alignment TBC)
-3. Join with existing gbifgaps cell-level summaries
+3. Join with existing Gap Finder cell-level summaries
 4. Compute per-ecosystem metrics: sampling intensity, taxonomic completeness, recency
 5. New dashboard tab or overlay on existing spatial tab
 
