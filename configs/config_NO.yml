@@ -5,7 +5,7 @@
 # To run:
 #   Sys.setenv(GBIF_GAP_COUNTRY = "NO")
 #   source("scripts/00_setup.R")
-#   source("scripts/01_download_raw_data.R")
+#   source("scripts/01a_download_raw_data.R")
 #
 # Data: data/NO/raw/ and data/NO/proc/
 # Grids: data/shared/grids/ (shared across European countries)
@@ -37,7 +37,8 @@ admin_boundaries:
 taxonomy:
   name: "Nortaxa"
   dataset_key: "a6c6cead-b5ce-4a4e-8cf5-1542ba708dec"
-  doi: "https://doi.org/10.15468/4dd3tf"
+  # DOI + citation are resolved from dataset_key by 01b_resolve_data_sources.R.
+  # Do not hand-maintain a doi here — it drifts when the dataset is re-versioned.
   export_url: "https://ipt.artsdatabanken.no/archive.do?r=artsnavnebase"
 
 # ============================================================================
@@ -48,7 +49,6 @@ taxonomy:
 redlist:
   enabled: true
   dataset_key: "4f1047ac-a19d-41a8-98eb-d968b2548b53"
-  doi: "https://doi.org/10.15468/mx9gdc"
   export_url: "https://ipt.gbif.no/archive.do?r=redlist-norway"
 
 # ============================================================================
@@ -61,11 +61,9 @@ redlist:
 invasives:
   enabled: true
   dataset_key: "38de3b7a-5af3-4b6f-a1c5-4c0aa6abf010"
-  doi: "https://doi.org/10.15468/9oaedf"
-  export_url: "https://cloud.gbif.org/griis/archive.do?r=griis-brunei-norway"
+  export_url: "https://cloud.gbif.org/griis/archive.do?r=griis-norway"
   name: "GRIIS - Introduced and Invasive Species - Norway"
 
-  
 # ============================================================================
 # Sensitive Species List (optional)
 # ============================================================================
@@ -74,24 +72,27 @@ invasives:
 sensitive:
   enabled: false
   dataset_key: ""
-  doi: ""
   export_url: ""
   name: ""
 
 # ============================================================================
 # GBIF Occurrence Cubes (SQL API)
 # ============================================================================
-# Downloaded 2026-04-17 via GBIF SQL API
-# Verify which is 10km vs 50km from your download — check the RESOLUTION
-# value you used in each SQL query (10000 = 10km, 50000 = 50km).
+# Downloaded 2026-04-17 via GBIF SQL API.
+# Only the download_key is maintained by hand — copy it from the GBIF download
+# landing page. The DOI, citation and record count are resolved and validated
+# from the key by scripts/01b_resolve_data_sources.R, so they can never drift
+# from GBIF. If a key is wrong or from a test instance, 01b fails loudly at the
+# start of the run.
+# NOTE: if you re-download, use the current 14-column SQL in 01a (the older
+# cubes carried two broken publication-date columns that are now retired;
+# extra columns are ignored, so existing downloads still load).
 cubes:
   source: "sql_api"
   grid10km:
-    download_key: "0025058-260409193756587"
-    doi: "https://doi.org/10.15468/dl.tyxmfx"
+    download_key: "0072888-260519110011954"
   grid50km:
-    download_key: "0025061-260409193756587"
-    doi: "https://doi.org/10.15468/dl.nvvmf2"
+    download_key: "0072887-260519110011954"
 
 # ============================================================================
 # Files
@@ -137,7 +138,10 @@ parameters:
   taxonomic:
     min_occurrences: 10
     min_cells: 5
-    year_published_format: "mjd"   # Modified Julian Date — convert in script 04
+    # NOTE: config_SE.yml uses min_occurrences: 1 / min_cells: 1 and
+    # exclude_orders: ["Primates"]. Align these by hand if you want NO to match
+    # Sweden's scoping (excluding Primates keeps Homo sapiens out of the gap
+    # analysis). Left as-is here to preserve the original Norway tuning.
 
   processing:
     large_order_threshold: 500000

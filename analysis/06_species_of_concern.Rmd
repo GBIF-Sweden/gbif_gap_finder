@@ -45,8 +45,8 @@ invasive_ts     <- safe_get("invasive_time_summary")
 sensitive_sg    <- safe_get("sensitive_spatial_gaps")
 sensitive_br    <- safe_get("sensitive_basis_recent")
 
-pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
-            coral = "#c47a6c", plum = "#8b6d8f")
+pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
+            coral = "#EE6677", plum = "#AA3377")
 theme_gaps <- theme_minimal(base_size = 13) +
   theme(plot.title = element_text(face = "bold", size = 14),
         plot.subtitle = element_text(color = "#666", size = 11),
@@ -85,7 +85,7 @@ if (!is.null(species_scope)) {
 ```{r threat-coverage}
 if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
   df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
-  threat_colors <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
+  threat_colors <- c(CR = pal$coral, EN = pal$sand, VU = "#EE8866",
                      NT = pal$sage, DD = pal$slate)
 
   ggplot(df, aes(x = factor(threatStatus, c("CR","EN","VU","NT","DD")),
@@ -114,7 +114,7 @@ if (!is.null(match_summary)) {
       geom_col(show.legend = FALSE) +
       geom_text(aes(label = n_missing), vjust = -0.3) +
       scale_fill_manual(values = c(CR = pal$coral, EN = pal$sand,
-                                   VU = "#b8a060", NT = pal$sage)) +
+                                   VU = "#EE8866", NT = pal$sage)) +
       labs(title = "Missing Threatened Species by Category",
            subtitle = "Backbone species with zero GBIF records",
            x = "", y = "Number of missing species")
@@ -137,7 +137,7 @@ if (!is.null(grid_10km) && !is.null(threatened_sg)) {
 
   p <- ggplot(map_sf) +
     geom_sf(aes(fill = occ_cat), color = NA) +
-    scale_fill_manual(values = c("1–10" = "#c8dbc6", "11–100" = pal$sage,
+    scale_fill_manual(values = c("1–10" = "#CCEEDD", "11–100" = pal$sage,
       "101–1K" = pal$sand, "> 1K" = pal$coral, "No data" = "#e0e0e0")) +
     labs(title = "Threatened Species — Spatial Distribution", fill = "Occurrences") +
     theme_void() + theme(legend.position = "right")
@@ -209,8 +209,8 @@ if (!is.null(grid_10km) && !is.null(invasive_sg)) {
 
   p <- ggplot(map_sf) +
     geom_sf(aes(fill = occ_cat), color = NA) +
-    scale_fill_manual(values = c("1–10" = "#d9a090", "11–100" = pal$coral,
-      "101–1K" = pal$sand, "> 1K" = "#3d4f6a", "No data" = "#e0e0e0")) +
+    scale_fill_manual(values = c("1–10" = "#FFAABB", "11–100" = pal$coral,
+      "101–1K" = pal$sand, "> 1K" = "#114477", "No data" = "#e0e0e0")) +
     labs(title = "Invasive Species — Spatial Distribution", fill = "Occurrences") +
     theme_void() + theme(legend.position = "right")
   if (!is.null(admin_level1)) {
@@ -289,8 +289,8 @@ if (!is.null(grid_10km) && !is.null(sensitive_sg)) {
 
   p <- ggplot(map_sf) +
     geom_sf(aes(fill = occ_cat), color = NA) +
-    scale_fill_manual(values = c("1–10" = "#c6c8db", "11–100" = pal$slate,
-      "101–1K" = pal$plum, "> 1K" = "#3d4f6a", "No data" = "#e0e0e0")) +
+    scale_fill_manual(values = c("1–10" = "#CCDDF0", "11–100" = pal$slate,
+      "101–1K" = pal$plum, "> 1K" = "#114477", "No data" = "#e0e0e0")) +
     labs(title = "Sensitive Species — Spatial Distribution",
          subtitle = "Coordinates may be generalised; interpret with care",
          fill = "Occurrences") +

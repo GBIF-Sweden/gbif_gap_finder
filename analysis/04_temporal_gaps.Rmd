@@ -1,0 +1,171 @@
+---
+title: "Temporal Gap Analysis"
+subtitle: "Temporal Patterns, Trends, and Data Recency"
+author: "GBIF Gap Finder"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    fig_width: 10
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 6, dpi = 150
+)
+
+library(here); library(dplyr); library(tidyr); library(ggplot2)
+library(scales); library(knitr); library(kableExtra)
+
+data_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
+app_data <- readRDS(data_path)
+safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
+
+time_summary   <- safe_get("time_summary_10km")
+cell_recency   <- safe_get("cell_recency_10km")
+dashboard      <- safe_get("dashboard")
+overview_ly    <- safe_get("overview_last_year")
+last_year_label <- safe_get("recent_label") %||% "last 12 months"
+
+pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
+            coral = "#EE6677", plum = "#AA3377")
+theme_gaps <- theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(color = "#666", size = 11),
+        panel.grid.minor = element_blank(), legend.position = "bottom")
+theme_set(theme_gaps)
+```
+
+# Overview
+
+This report examines the temporal distribution of GBIF occurrence data — when records were observed, how data collection has evolved over decades, and which areas have the most recent or most outdated records.
+
+# Occurrence Volume Over Time
+
+```{r annual-trend, fig.height=5}
+if (!is.null(time_summary)) {
+  df <- time_summary |>
+    filter(basisofrecord == "all", !is.na(year), year >= 1900) |>
+    group_by(year) |>
+    summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+  ggplot(df, aes(x = year, y = occurrences)) +
+    geom_area(fill = pal$sage, alpha = 0.7) +
+    geom_line(color = pal$sage, linewidth = 0.5) +
+    scale_y_continuous(labels = label_comma()) +
+    labs(title = "Annual Occurrence Volume", subtitle = "All record types, 1900–present",
+         x = "Year", y = "Number of occurrences")
+}
+```
+
+# By Basis of Record
+
+```{r bor-temporal, fig.height=6}
+if (!is.null(time_summary)) {
+  df <- time_summary |>
+    filter(basisofrecord != "all", !is.na(year), year >= 1970) |>
+    mutate(bor_label = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
+    group_by(year, bor_label) |>
+    summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+  # Keep top 4 BOR types
+  top_bor <- df |> group_by(bor_label) |>
+    summarise(total = sum(occurrences)) |> arrange(desc(total)) |> head(4)
+  df <- df |> filter(bor_label %in% top_bor$bor_label)
+
+  bor_colors <- c("Human Observation" = pal$sage, "Preserved Specimen" = pal$slate,
+                  "Material Sample" = pal$sand, "Machine Observation" = pal$coral)
+
+  ggplot(df, aes(x = year, y = occurrences, fill = bor_label)) +
+    geom_area(alpha = 0.7, position = "stack") +
+    scale_fill_manual(values = bor_colors) +
+    scale_y_continuous(labels = label_comma()) +
+    labs(title = "Occurrence Volume by Record Type",
+         subtitle = "Top 4 basis of record types, 1970–present",
+         x = "Year", y = "Occurrences", fill = "")
+}
+```
+
+# Decade Summary
+
+```{r decade, fig.height=5}
+if (!is.null(time_summary)) {
+  df <- time_summary |>
+    filter(basisofrecord == "all", !is.na(year), year >= 1900) |>
+    mutate(decade = floor(year / 10) * 10) |>
+    group_by(decade) |>
+    summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE),
+              spp = sum(as.numeric(n_species), na.rm = TRUE), .groups = "drop")
+
+  ggplot(df, aes(x = decade, y = occ)) +
+    geom_col(fill = pal$slate) +
+    scale_y_continuous(labels = label_comma()) +
+    scale_x_continuous(breaks = seq(1900, 2020, 20)) +
+    labs(title = "Occurrences per Decade", x = "Decade", y = "Total occurrences")
+}
+```
+
+# Data Recency Distribution
+
+```{r recency-hist, fig.height=5}
+if (!is.null(cell_recency)) {
+  cr <- cell_recency |> filter(basisofrecord == "all", !is.na(staleness_months))
+
+  ggplot(cr, aes(x = staleness_months / 12)) +
+    geom_histogram(binwidth = 1, fill = pal$sage, color = "white") +
+    geom_vline(xintercept = 5, linetype = "dashed", color = pal$coral) +
+    annotate("text", x = 5.5, y = Inf, label = "5-year threshold", vjust = 2,
+             color = pal$coral, size = 3.5) +
+    labs(title = "Distribution of Cell Staleness",
+         subtitle = "Years since the most recent record per grid cell",
+         x = "Years since last record", y = "Number of cells")
+}
+```
+
+# Staleness Summary
+
+```{r staleness-table}
+if (!is.null(cell_recency)) {
+  cr <- cell_recency |> filter(basisofrecord == "all")
+  stale_df <- tibble(
+    Category = c("< 1 year", "1–3 years", "3–5 years", "> 5 years", "No data"),
+    Cells = c(
+      sum(cr$staleness_months <= 12, na.rm = TRUE),
+      sum(cr$staleness_months > 12 & cr$staleness_months <= 36, na.rm = TRUE),
+      sum(cr$staleness_months > 36 & cr$staleness_months <= 60, na.rm = TRUE),
+      sum(cr$staleness_months > 60, na.rm = TRUE),
+      sum(is.na(cr$staleness_months))
+    )
+  ) |> mutate(`%` = round(100 * Cells / sum(Cells), 1))
+
+  kable(stale_df, align = c("l", "r", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+# The Last 12 Months
+
+```{r last-12}
+if (!is.null(overview_ly)) {
+  ly <- tibble(
+    Metric = c("Occurrences dated", "Cells active", "Newly covered cells"),
+    Value = c(comma(overview_ly$occ_last_year),
+              comma(overview_ly$cells_active_last_year),
+              comma(overview_ly$cells_newly_covered))
+  )
+  kable(ly, caption = last_year_label, align = c("l", "r")) |>
+    kable_styling(full_width = FALSE)
+}
+```
+
+---
+
+*Report generated by `gbif_gap_finder` on `r Sys.time()`.*

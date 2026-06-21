@@ -17,7 +17,7 @@ This project analyses GBIF occurrence data for a given country to identify:
 - **Establishment means** — native, introduced, and invasive species scope filtering and monitoring
 - **National taxonomic backbone/All GBIF scope** — toggle between gap analysis (against national backbone) and full GBIF overview
 - **Publisher analysis** — which organisations contribute data, single-publisher dependency
-- **Recent activity** — rolling 12-month window: observations dated vs published to GBIF
+- **Recent activity** — rolling 12-month window of observations by event date
 
 The analysis uses EEA reference grids (10 km and 50 km) with EPSG:3035 (ETRS89-LAEA) projection, shared across all European countries. Administrative boundaries from GADM are overlaid on maps for regional context.
 
@@ -34,7 +34,8 @@ gbif_gap_finder/
 │   └── packages.R              # Package management (required / optional / app)
 ├── scripts/
 │   ├── 00_setup.R                         # Environment setup
-│   ├── 01_download_raw_data.R             # Download from GBIF/EEA/GADM
+│   ├── 01a_download_raw_data.R            # Download raw data from GBIF/EEA/GADM
+│   ├── 01b_resolve_data_sources.R         # Resolve dataset + cube DOIs from GBIF keys
 │   ├── 02_ingest_grids.R                  # Process + clip EEA grids
 │   ├── 03_ingest_taxonomy.R               # National taxonomy + red list + invasives
 │   ├── 04_convert_cubes_parquet.R         # CSV → parquet conversion
@@ -50,22 +51,24 @@ gbif_gap_finder/
 │   └── 11_prepare_gap_finder_data.R       # Bundle data for the Gap Finder app
 ├── analysis/
 │   ├── 01_overview.Rmd                    # Dashboard overview report
-│   ├── 02_spatial_gaps.Rmd                # Spatial coverage analysis
-│   ├── 03_temporal_gaps.Rmd               # Temporal trends analysis
-│   ├── 04_record_types.Rmd               # Basis of record analysis
-│   ├── 05_taxonomic_gaps.Rmd             # Taxonomic coverage analysis
-│   ├── 06_species_of_concern.Rmd         # Threatened/invasive/sensitive
-│   ├── 07_publishers.Rmd                 # Publisher dependency analysis
-│   └── 08_priorities.Rmd                 # Priority actions report
+│   ├── 02_priorities.Rmd                  # Priority actions report
+│   ├── 03_spatial_gaps.Rmd                # Spatial coverage analysis
+│   ├── 04_temporal_gaps.Rmd               # Temporal trends analysis
+│   ├── 05_taxonomic_gaps.Rmd              # Taxonomic coverage analysis
+│   ├── 06_species_of_concern.Rmd          # Threatened/invasive/sensitive
+│   ├── 07_publishers.Rmd                  # Publisher dependency analysis
+│   └── 08_record_types.Rmd                # Basis of record analysis
 ├── data/
 │   ├── shared/
 │   │   └── grids/               # EEA grids (Europe-wide, shared)
 │   ├── SE/
 │   │   ├── raw/                 # Raw downloads (cubes, taxonomy, redlist, invasives, admin)
 │   │   ├── proc/                # Processed data (parquet, derived, gaps)
-│   │   ├── output/              # Summary tables
-│   │   └── data_sources.Rmd     # Data provenance documentation
+│   │   └── output/              # Summary tables
 │   └── NO/                      # Norway (placeholder)
+├── docs/
+│   ├── data_sources_SE.Rmd      # Sweden data provenance documentation
+│   └── data_sources_NO.Rmd      # Norway data provenance documentation
 ├── shiny_app/
 │   ├── gap_finder/              # Gap Finder dashboard
 ├── _targets.R                   # Pipeline definition
@@ -89,10 +92,13 @@ source("scripts/00_setup.R")
 
 ```r
 # Download taxonomy, red list, invasive species registry, admin boundaries
-source("scripts/01_download_raw_data.R")
+source("scripts/01a_download_raw_data.R")
 
-# GBIF cubes: download via SQL API (instructions printed by script 01)
+# GBIF cubes: download via SQL API (instructions printed by script 01a)
 # Place cube CSVs in data/{CC}/raw/cubes/
+
+# Resolve dataset + cube DOIs from their GBIF keys (for citations)
+source("scripts/01b_resolve_data_sources.R")
 ```
 
 ### 4. Run Pipeline
@@ -127,9 +133,9 @@ The pipeline integrates five national data sources (all configured in `configs/c
 | Source | Purpose | Sweden Example |
 |--------|---------|----------------|
 | National taxonomy backbone | Reference species pool for gap analysis | [Dyntaxa](https://doi.org/10.15468/j43wfc) |
-| National red list | Threat status (CR, EN, VU, NT, DD) | [Swedish Red List](https://doi.org/10.15468/jhwkpq) |
-| Invasive species registry | `is_invasive` flag on species | [Swedish Invasive Species](https://doi.org/10.15468/yxfse8) |
-| Sensitive species list | `is_sensitive` flag + generalization category | [Restricted Access Species](https://doi.org/10.15468/e4cz3x) |
+| National red list | Threat status (CR, EN, VU, NT, DD) | [Swedish Red List 2025](https://doi.org/10.15468/zbbyqv) |
+| Invasive species register | `is_invasive` flag (species level) | [GRIIS Sweden](https://doi.org/10.15468/i57bff) |
+| Sensitive species list | `is_sensitive` flag + generalization category | [Restricted Access Species](https://doi.org/10.15468/jwbtsb) |
 | GBIF occurrence cubes | Aggregated occurrence data per grid cell | [SQL API](https://www.gbif.org/occurrence/download/sql) |
 
 Additional shared data:
@@ -141,15 +147,13 @@ Additional shared data:
 
 ## GBIF Occurrence Cubes
 
-Cubes are downloaded via the **GBIF SQL API** as a single file per grid resolution, containing all basis of record types, publisher information, and publication dates:
+Cubes are downloaded via the **GBIF SQL API** as a single file per grid resolution, containing all basis of record types and publisher/dataset attribution:
 
 ```sql
 SELECT specieskey, species, kingdom, phylum, class, "order", family,
   basisofrecord, publishingorgkey, datasetkey,
   GBIF_EEARGCode(10000, decimallatitude, decimallongitude, 0) AS eeacellcode,
   "year", "month",
-  YEAR(CAST(lastinterpreted AS TIMESTAMP)) AS year_published,
-  MONTH(CAST(lastinterpreted AS TIMESTAMP)) AS month_published,
   COUNT(*) AS occurrences
 FROM occurrence
 WHERE countrycode = 'SE' AND hascoordinate = TRUE
@@ -158,9 +162,9 @@ WHERE countrycode = 'SE' AND hascoordinate = TRUE
 GROUP BY ...
 ```
 
-Submit at https://www.gbif.org/occurrence/download/sql. Script 01 prints the full query for your country.
+Submit at https://www.gbif.org/occurrence/download/sql. Script 01a prints the full query for your country.
 
-> **Note on `year_published`:** The GBIF SQL API returns `YEAR(CAST(lastinterpreted AS TIMESTAMP))` as a date type serialized in Modified Julian Date (MJD) format in the CSV/Parquet output — not as an integer year. Script 04 converts these to integer years using `as.Date(x, origin = "1858-11-17")`. This is controlled by `parameters.taxonomic.year_published_format` in the config.
+The cube has **14 columns**: `specieskey`, `species`, `kingdom`, `phylum`, `class`, `order`, `family`, `basisofrecord`, `publishingorgkey`, `datasetkey`, `eeacellcode`, `year`, `month`, `occurrences`. See `docs/data_sources_SE.Rmd` for a per-column description.
 
 ## Taxonomy Architecture
 

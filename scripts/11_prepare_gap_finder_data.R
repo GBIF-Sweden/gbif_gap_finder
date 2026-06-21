@@ -44,6 +44,17 @@ shiny_data_path <- here(shiny_output_dir, "shiny_data.rds")
 
 shiny_data <- list()
 
+# Resolved data-source provenance (cube + checklist DOIs/citations, contributing
+# datasets) produced by 01b_resolve_data_sources.R. Baked into the bundle so the
+# app's Data & sources tab can credit sources offline.
+ds_meta_path <- here(p_data_proc, "data_sources_meta.rds")
+data_sources_meta <- if (file.exists(ds_meta_path)) {
+  readRDS(ds_meta_path)
+} else {
+  cli_alert_warning("data_sources_meta.rds not found — run 01b first; sources will be unattributed.")
+  NULL
+}
+
 # safe_read() and %||% are defined in R/globals.R
 
 # Add year/month columns from yearmonth if they don't already exist
@@ -610,17 +621,8 @@ if (!is.null(overview_ts)) {
 
 if (!is.null(overview_cly) && !is.null(shiny_data$overview_last_year)) {
   shiny_data$overview_last_year$cells_newly_covered <- sum(overview_cly$newly_covered, na.rm = TRUE)
-  # Cumulative "Published to GBIF" total: all occurrences in the bundle.
-  # The 12-month published metric has been removed from the pipeline pending
-  # resolution of the year_published conversion bug; the Overview card now
-  # shows the total cumulative mobilised count instead.
-  shiny_data$overview_last_year$occ_total <-
-    shiny_data$overview_last_year$occ_prior + shiny_data$overview_last_year$occ_last_year
   cli_alert_success(
     "Cells newly covered: {scales::comma(shiny_data$overview_last_year$cells_newly_covered)}"
-  )
-  cli_alert_success(
-    "Cumulative total: {scales::comma(shiny_data$overview_last_year$occ_total)} occurrences"
   )
 }
 
@@ -845,9 +847,9 @@ shiny_data$metadata <- list(
   country_name = cfg_get("country.name", COUNTRY_CODE),
   country_code = cfg_get("country.code", COUNTRY_CODE),
 
-  # Taxonomy backbone info (from config)
+  # Taxonomy backbone info — DOI now resolved from dataset_key (01b), not config
   taxonomy_name = cfg_get("taxonomy.name", "National Taxonomy"),
-  taxonomy_doi  = cfg_get("taxonomy.doi", NULL),
+  taxonomy_doi  = data_sources_meta$checklists$taxonomy$doi %||% cfg_get("taxonomy.doi", NULL),
 
   n_cells_10km = if (!is.null(shiny_data$grid_10km)) nrow(shiny_data$grid_10km) else NA,
   n_cells_50km = if (!is.null(shiny_data$grid_50km)) nrow(shiny_data$grid_50km) else NA,
@@ -873,7 +875,11 @@ shiny_data$metadata <- list(
 
   has_kingdom_cell_recency = !is.null(shiny_data$kingdom_cell_recency),
   last_year = shiny_data$last_year %||% NA,
-  recent_label = shiny_data$recent_label %||% NA
+  recent_label = shiny_data$recent_label %||% NA,
+
+  # Resolved provenance for the Data & sources tab: cube DOIs, checklist DOIs,
+  # contributing datasets + publisher count (from 01b)
+  data_sources = data_sources_meta
 )
 
 

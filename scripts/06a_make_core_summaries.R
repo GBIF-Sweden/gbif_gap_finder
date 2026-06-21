@@ -278,7 +278,7 @@ if (MAKE_PUBLISHER_SUMMARY) {
     dt <- read_cube(pf, cols = c("specieskey", "species", "basisofrecord",
       "publishingorgkey", "datasetkey", "eeacellcode",
       "kingdom", "phylum", "class", "order", "family",
-      "year", "month", "year_published", "month_published",
+      "year", "month",
       "occurrences"), grid_label = grid_name)
 
     # Publisher overview: who contributes what
@@ -338,17 +338,6 @@ if (MAKE_PUBLISHER_SUMMARY) {
     fwrite(pub_cell, here(p_derived, glue("publisher_cell_dependency_{grid_suffix}.csv")))
     n_single <- sum(pub_cell$n_publishers == 1)
     cli_alert_info("Cells with single publisher: {n_single}/{nrow(pub_cell)}")
-
-    # Published vs observed: year_published summary
-    if ("year_published" %in% names(dt)) {
-      pub_time <- dt[, .(
-        occurrences = safe_sum(occurrences),
-        n_species = uniqueN(specieskey)
-      ), by = .(grid, year_published, month_published)]
-      fwrite(pub_time, here(p_derived, glue("published_time_summary_{grid_suffix}.csv")))
-      cli_alert_success("published_time_summary_{grid_suffix}.csv: {nrow(pub_time)} rows")
-      rm(pub_time)
-    }
 
     rm(dt, pub_dt, pub_cell, pub_bor, pub_bor_total, pub_dominant_bor, pub_tax, pub_cell_tax); gc()
   }

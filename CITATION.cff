@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "gbif_gap_finder: a reproducible pipeline for biodiversity data gap analysis"
+abstract: >-
+  An R/targets and Shiny pipeline that quantifies spatial, temporal, and
+  taxonomic gaps in a country's GBIF-mediated occurrence data. It combines
+  GBIF occurrence cubes with a national taxonomic backbone and national
+  red list, invasive (GRIIS), and sensitive species lists, resolving all
+  source citations and DOIs automatically from their download and dataset
+  keys.
+type: software
+authors:
+  - family-names: "Thöle"
+    given-names: "Lena"
+    affiliation: "GBIF Sweden, Swedish Museum of Natural History (NRM)"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"  # add your ORCID
+repository-code: "https://github.com/GBIF-Sweden/gbif_gap_finder"
+url: "https://github.com/GBIF-Sweden/gbif_gap_finder"
+license: MIT
+version: "0.3.0"          # bump to match the tag you submit
+date-released: "2026-06-21"
+keywords:
+  - biodiversity
+  - GBIF
+  - data gaps
+  - occurrence cubes
+  - taxonomic backbone
+  - red list
+  - invasive species
+  - Shiny
+  - targets
+  - reproducibility

@@ -241,6 +241,7 @@ plotly_layout <- function(p, ...) {
   # Apply reduced toolbar to every plotly chart
   p |> plotly::config(
     displayModeBar = TRUE,
+    displaylogo = FALSE,
     modeBarButtonsToRemove = c(
       "zoom2d", "pan2d", "lasso2d", "select2d", "autoScale2d",
       "hoverCompareCartesian", "hoverClosestCartesian",
@@ -349,11 +350,11 @@ aggregate_to_gbif_groups <- function(df) {
 
 # Palette
 pal <- list(
-  sage  = "#6b8f71", sage2 = "#8ab090",
-  slate = "#5c7a99", slate2 = "#7d9ab5",
-  sand  = "#c4a882", sand2  = "#d4c0a0",
-  coral = "#c47a6c", coral2 = "#d9a090",
-  plum  = "#8b6d8f",
+  sage  = "#2A7F62", sage2 = "#44BB99",
+  slate = "#4477AA", slate2 = "#77AADD",
+  sand  = "#CCBB44", sand2  = "#EEDD88",
+  coral = "#EE6677", coral2 = "#FFAABB",
+  plum  = "#AA3377",
   text  = "#2d2d2d", muted = "#6b6b6b"
 )
 
@@ -365,11 +366,8 @@ pal <- list(
 ui <- fluidPage(
 
   tags$head(
-    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css"),
-    tags$style(HTML("
-      .nav-tabs > li > a { padding: 5px 6px; font-size: 0.84rem; letter-spacing: -0.01em; }
-      .nav-tabs { flex-wrap: nowrap !important; white-space: nowrap; overflow-x: auto; }
-    "))
+    tags$title(if (nchar(country_name) > 0) paste0("GBIF Gap Finder \u2014 ", country_name) else "GBIF Gap Finder"),
+    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css")
   ),
 
   # Header
@@ -421,45 +419,55 @@ ui <- fluidPage(
         value = "overview",
         div(style = "padding: 1.25rem 0;",
 
-          # About section (expandable)
+          # Welcome / orientation — always visible, integrates the persona guide
           div(class = "card", style = "margin-bottom: 1.25rem; border-left: 4px solid var(--sage);",
-            actionLink("overview_about_toggle", tagList(
-              icon("info-circle"), " About This Dashboard",
-              icon("chevron-down", style = "float:right; margin-top:3px;")
-            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
-            conditionalPanel(
-              condition = "input.overview_about_toggle % 2 == 1",
-              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
-                p("This dashboard analyses gaps in GBIF occurrence data for ",
-                  tags$strong(if (nchar(country_name) > 0) country_name else "the configured country"),
-                  " using a national taxonomy backbone as reference. ",
-                  "It identifies spatial, temporal, taxonomic, and institutional gaps to guide ",
-                  "data mobilisation priorities."),
-                p("The analysis pipeline processes GBIF occurrence cubes at 10 km grid resolution, ",
-                  "matches observed species against the national backbone through a 4-tier reconciliation, ",
-                  "and produces scope-filtered summaries for threatened, invasive, and sensitive species. ",
-                  "All metrics shown here are derived from the same data bundle used across all tabs."),
-                tags$ul(style = "margin: 0.5rem 0;",
-                  tags$li(tags$strong("Taxonomy backbone: "),
-                    if (!is.null(metadata$taxonomy_doi)) {
-                      tagList(tags$a(href = metadata$taxonomy_doi,
-                        metadata$taxonomy_name %||% "National checklist",
-                        target = "_blank", style = "text-decoration: underline;"))
-                    } else {
-                      metadata$taxonomy_name %||% "National checklist"
-                    }),
-                  tags$li(tags$strong("Threat status: "), "National Red List (CR, EN, VU, NT, DD)"),
-                  tags$li(tags$strong("Sensitive species: "), "Restricted access list with coordinate generalization (5/25/50 km)"),
-                  tags$li(tags$strong("Invasive species: "), "National invasive species registry"),
-                  tags$li(tags$strong("Grids: "), "EEA reference grids at 10 km resolution (EPSG:3035)"),
-                  tags$li(tags$strong("Scope filter: "), "Use the scope dropdown on the Species of Concern tab to filter by native/introduced/invasive status")
-                ),
-                p(style = "font-size: 0.85rem; color: #999; margin-top: 0.5rem;",
-                  "Data last updated: ",
-                  if (!is.null(metadata$created_at)) format(metadata$created_at, "%Y-%m-%d %H:%M") else "unknown",
-                  " | Pipeline: gbif_gap_finder")
-              )
-            )
+            div(class = "card-title", icon("compass"), "What this dashboard shows \u2014 and where to start"),
+            p(style = "color: var(--text-secondary); margin: 0 0 0.85rem; line-height: 1.7;",
+              "GBIF brings together hundreds of millions of species records from museums, researchers, ",
+              "and citizen scientists \u2014 but that coverage is uneven. Some places, time periods, and species ",
+              "are recorded far more thoroughly than others. This dashboard maps those gaps for ",
+              tags$strong(if (nchar(country_name) > 0) country_name else "the country"),
+              ": it shows where the records on GBIF are thin, so that limited survey time, digitisation effort, ",
+              "data mobilisation, and funding can be aimed where they will do the most good."),
+            p(style = "color: var(--text-secondary); margin: 0 0 1.25rem; line-height: 1.7;",
+              "It looks at four kinds of gap \u2014 ", tags$strong("where"), " records are missing across the map, ",
+              tags$strong("when"), " recording tails off, ", tags$strong("which"), " species are under-recorded, ",
+              "and ", tags$strong("who"), " is publishing the data \u2014 with extra attention to threatened, invasive, ",
+              "and sensitive species. It also sorts records by ", tags$strong("type"),
+              " \u2014 field observations, preserved museum specimens, and DNA sequences \u2014 so you can see not just ",
+              "how much data a place has, but whether it is the kind that can support your work. ",
+              "Every figure on every tab is drawn from the same GBIF data, compared against ",
+              tags$strong(if (nchar(country_name) > 0) country_name else "the country"),
+              "'s national species checklist, so the numbers stay consistent as you explore."),
+
+            div(style = "font-family: 'Fraunces', serif; font-size: 1.28rem; font-weight: 600; color: var(--text-primary); margin: 0 0 0.85rem;",
+              "New here? Jump straight to what matters to you:"),
+            fluidRow(
+              column(4, div(style = "height: 100%; padding: 1rem; background: var(--bg-subtle); border-radius: var(--radius); border-left: 4px solid var(--sage);",
+                tags$h4(style = "font-family: 'Fraunces', serif; font-size: 1.05rem; margin: 0 0 0.4rem;", "Researchers & field biologists"),
+                p(style = "color: var(--text-secondary); line-height: 1.55; margin-bottom: 0.85rem;",
+                  "Find under-recorded species and regions worth targeting for new fieldwork or specimen digitisation."),
+                actionButton("goto_taxonomic", tagList(icon("leaf"), " Find taxonomic gaps"), class = "btn-primary"))),
+              column(4, div(style = "height: 100%; padding: 1rem; background: var(--bg-subtle); border-radius: var(--radius); border-left: 4px solid var(--slate);",
+                tags$h4(style = "font-family: 'Fraunces', serif; font-size: 1.05rem; margin: 0 0 0.4rem;", "Data publishers & collections"),
+                p(style = "color: var(--text-secondary); line-height: 1.55; margin-bottom: 0.85rem;",
+                  "See where published records fill gaps, and which map cells depend on a single data publisher."),
+                actionButton("goto_publishers", tagList(icon("building"), " Open Publishers"), class = "btn-primary"))),
+              column(4, div(style = "height: 100%; padding: 1rem; background: var(--bg-subtle); border-radius: var(--radius); border-left: 4px solid var(--coral);",
+                tags$h4(style = "font-family: 'Fraunces', serif; font-size: 1.05rem; margin: 0 0 0.4rem;", "Policy makers & GBIF nodes"),
+                p(style = "color: var(--text-secondary); line-height: 1.55; margin-bottom: 0.85rem;",
+                  "Get a ranked, exportable to-do list for mobilising data on threatened and invasive species."),
+                actionButton("goto_priorities", tagList(icon("bullseye"), " See Priorities"), class = "btn-primary")))
+            ),
+
+            p(style = "font-size: 0.9rem; color: var(--text-muted); margin: 1.25rem 0 0; line-height: 1.6;",
+              "Built from GBIF occurrence records, ",
+              tags$strong(if (nchar(country_name) > 0) country_name else "the country"),
+              "'s national Red List, the GRIIS register of invasive species, and a 10 km reference grid. ",
+              "The ", tags$strong("Data & Sources"), " tab lists every dataset with its DOI and citation. ",
+              "Data last updated: ",
+              if (!is.null(metadata$created_at)) format(metadata$created_at, "%Y-%m-%d %H:%M") else "unknown",
+              ".")
           ),
 
           # Top-level stats
@@ -536,7 +544,11 @@ ui <- fluidPage(
           fluidRow(
             column(4,
               div(class = "card",
-                div(class = "card-title", icon("shield-alt"), "Species of Concern"),
+                div(class = "card-title", icon("shield-alt"), "Species of Concern in GBIF"),
+                div(class = "info-note", style = "margin: -0.25rem 0 0.6rem; font-size: 0.85rem;",
+                  "Concern species ", tags$strong("currently in GBIF"), " \u2014 i.e. with at least one ",
+                  "occurrence record. Those with no records yet are counted as missing on the ",
+                  tags$strong("Species of Concern"), " tab."),
                 div(class = "stat-grid", style = "grid-template-columns: repeat(3, 1fr);",
                   div(class = "stat-box",
                     div(class = "stat-value coral", textOutput("ov_n_threatened", inline = TRUE)),
@@ -599,14 +611,11 @@ ui <- fluidPage(
             div(class = "card-title", icon("calendar-plus"),
               paste0("The Last 12 Months in Review: ", last_year_label)),
             div(class = "info-note", style = "margin-bottom: 0.75rem;",
-              "Observations ", tags$strong("dated"), " in this period. Records published to GBIF during this time may cover earlier observation dates."),
-            div(class = "stat-grid", style = "grid-template-columns: repeat(5, 1fr);",
+              "Observations ", tags$strong("dated"), " in this period \u2014 i.e. with an event date in the last 12 months."),
+            div(class = "stat-grid", style = "grid-template-columns: repeat(4, 1fr);",
               div(class = "stat-box",
                 div(class = "stat-value sage", textOutput("ov_ly_occ", inline = TRUE)),
                 div(class = "stat-label", paste0("Observations Dated (", last_year_label, ")"))),
-              div(class = "stat-box",
-                div(class = "stat-value plum", textOutput("ov_ly_published", inline = TRUE)),
-                div(class = "stat-label", "Published to GBIF (cumulative)")),
               div(class = "stat-box",
                 div(class = "stat-value slate", textOutput("ov_ly_cells", inline = TRUE)),
                 div(class = "stat-label", "Cells Active")),
@@ -618,6 +627,114 @@ ui <- fluidPage(
                 div(class = "stat-label", "Priority Cells Resolved"))
             )
           )
+        )
+      ),
+
+      # =====================================================================
+      # PRIORITIES TAB
+      # =====================================================================
+      tabPanel(
+        title = tagList(icon("bullseye"), "Priorities"),
+        value = "priorities",
+        div(style = "padding: 1.25rem 0;",
+
+          # About section (expandable)
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--coral);",
+            actionLink("priorities_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.priorities_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
+                p("This tab turns what the other tabs found into a clear, prioritised to-do list \u2014 ",
+                  "where records are missing, and what to do about it. It is built for the people who decide ",
+                  "where time and money go: GBIF node staff, collection managers, and data coordinators."),
+                p("The ", tags$strong("Recommended Actions"), " below are concrete, countable goals, ",
+                  "grouped by the kind of gap each one closes:"),
+                tags$ul(
+                  tags$li(tags$strong("Spatial:"), " Zero-coverage grid cells (never surveyed) are the highest ",
+                    "priority. Stale cells (data older than 5+ years) need resurvey to track ecological change."),
+                  tags$li(tags$strong("Taxonomic:"), " Missing threatened species (CR/EN with zero GBIF records) are ",
+                    "critical for conservation. Under-sampled orders (high species richness, low occurrence count) ",
+                    "indicate systematic collection biases."),
+                  tags$li(tags$strong("Species of Concern:"), " Sensitive species with degraded coordinates, ",
+                    "invasive species lacking monitoring data, and threatened species without any GBIF records ",
+                    "all require targeted attention."),
+                  tags$li(tags$strong("Temporal:"), " Cells and taxa with only historical records and no recent activity ",
+                    "may represent abandoned monitoring programmes or shifted survey effort."),
+                  tags$li(tags$strong("Infrastructure:"), " Single-publisher cells and under-diversified geographic regions ",
+                    "indicate data resilience risks. Use the Publishers tab to identify taxonomic groups ",
+                    "where additional data sources are needed.")
+                ),
+                p("The ", tags$strong("Next 12 Months"), " section projects realistic targets based on recent performance. ",
+                  "Targets are set at 1.5\u00d7 the rate achieved in the last 12 months — ambitious but achievable. ",
+                  "These projections help frame discussions with funders, data holders, and institutional partners ",
+                  "about what is possible with sustained effort."),
+                p("Use the ", tags$strong("Export"), " button to download the priority lists as a spreadsheet for ",
+                  "sharing with stakeholders, incorporating into grant proposals, or feeding into institutional work plans.")
+              )
+            )
+          ),
+
+          # Recommended Actions — one card per gap dimension
+          div(class = "card",
+            div(class = "card-title", icon("tasks"), "Recommended Actions"),
+            div(class = "info-note",
+              "Concrete goals derived from the gap analysis. Each action targets a specific dimension ",
+              "of data completeness with measurable outcomes."),
+            uiOutput("action_goals")),
+
+          # Next 12 Months — based on last 12 months performance
+          div(class = "card",
+            div(class = "card-title", icon("chart-line"),
+              paste0("Next 12 Months — Based on ", last_year_label, " Performance")),
+            div(class = "info-note",
+              "What was achieved in the last 12 months, and what could be targeted next. ",
+              "Targets are set at 1.5\u00d7 the recent rate to encourage growth."),
+            uiOutput("next_12_months")),
+
+          # Export
+          div(class = "card",
+            div(style = "display:flex; align-items:center; justify-content:space-between;",
+              div(
+                div(class = "card-title", icon("download"), "Export Action Plan"),
+                div(style = "font-size:0.85rem; color:#6b6b6b;",
+                  "Download all priority items as a single CSV.")),
+              div(style = "padding-left:1rem;",
+                downloadButton("download_action_plan", "Download CSV",
+                  class = "btn-download", style = "white-space:nowrap;"))
+            )),
+
+          # Maps: zero coverage + stale cells
+          fluidRow(
+            column(6, div(class = "card",
+              div(class = "card-title", icon("map-marker-alt"), "Zero Coverage Cells"),
+              div(class = "info-note", style = "margin-top:0;",
+                "Each square is a 10 km grid cell with ", tags$strong("no records at all"),
+                " \u2014 never surveyed, or not yet digitised. Click a cell for its code."),
+              leafletOutput("zero_map", height = "400px"),
+              div(style = "margin-top:0.75rem;"),
+              DTOutput("zero_table"))),
+            column(6, div(class = "card",
+              div(class = "card-title", icon("hourglass-half"), "Stale Cells"),
+              div(class = "info-note", style = "margin-top:0;",
+                "Cells whose newest record is ", tags$strong("over five years old"),
+                " \u2014 they may need resurveying to catch ecological change. Click a cell for details."),
+              leafletOutput("stale_map", height = "400px"),
+              div(style = "margin-top:0.75rem;"),
+              DTOutput("stale_table")))
+          ),
+
+          # Taxonomic mobilization targets
+          div(class = "card",
+            div(class = "card-title", icon("seedling"), "Taxonomic Mobilization Targets"),
+            div(class = "info-note",
+              "Orders and families with the largest gap between known species and GBIF coverage."),
+            fluidRow(
+              column(6, plotlyOutput("priority_undersampled_orders", height = "380px")),
+              column(6, plotlyOutput("priority_undersampled_families", height = "380px"))
+            ))
         )
       ),
 
@@ -637,7 +754,7 @@ ui <- fluidPage(
             ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
             conditionalPanel(
               condition = "input.spatial_about_toggle % 2 == 1",
-              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+              div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
                 p("This tab shows how biodiversity observations are distributed across the country's ",
                   "10 km EEA reference grid cells. Each cell is coloured by the selected metric: total occurrences, ",
                   "data recency (how recently each cell was surveyed), species richness, or observations ",
@@ -662,6 +779,10 @@ ui <- fluidPage(
           fluidRow(
             column(8, div(class = "card",
               div(class = "card-title", icon("globe-europe"), "Geographic Coverage"),
+              div(class = "info-note", style = "margin-top:0;",
+                "Each square is a 10 km grid cell; darker means more of the selected measure. ",
+                "Use the ", tags$strong("Display"), " panel to switch between records, species count, ",
+                "recent activity, and how out-of-date a cell is. Click a cell for details."),
               leafletOutput("spatial_map", height = "520px"))),
             column(4,
               div(class = "card",
@@ -714,7 +835,7 @@ ui <- fluidPage(
             ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
             conditionalPanel(
               condition = "input.temporal_about_toggle % 2 == 1",
-              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+              div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
                 p("This tab shows when biodiversity observations were made. The ", tags$strong("historical trend"),
                   " shows total occurrences per year; the ", tags$strong("seasonal pattern"),
                   " reveals monthly collection biases."),
@@ -774,88 +895,6 @@ ui <- fluidPage(
       ),
 
       # =====================================================================
-      # BASIS OF RECORD TAB
-      # =====================================================================
-      tabPanel(
-        title = tagList(icon("layer-group"), "Record Types"),
-        value = "basis_tab",
-        div(style = "padding: 1.25rem 0;",
-
-          # About section (expandable)
-          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--sand);",
-            actionLink("basis_about_toggle", tagList(
-              icon("info-circle"), " About this tab",
-              icon("chevron-down", style = "float:right; margin-top:3px;")
-            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
-            conditionalPanel(
-              condition = "input.basis_about_toggle % 2 == 1",
-              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
-                p("Each GBIF occurrence record has a ", tags$strong("basis of record"),
-                  " describing how the observation was made. The main types are: ",
-                  tags$em("Human Observation"), " (field sightings, citizen science), ",
-                  tags$em("Preserved Specimen"), " (museum/herbarium collections), ",
-                  tags$em("Machine Observation"), " (camera traps, acoustic sensors), ",
-                  tags$em("Fossil Specimen"), " (paleontological collections), and ",
-                  tags$em("Material Sample"), " (DNA, tissue, environmental samples)."),
-                p(tags$strong("Occurrences by Basis of Record"), " shows the overall share of each record type. ",
-                  "Use the 'Last 12 Months' toggle to see how recent data collection compares to historical records. ",
-                  "When toggled on, bars show prior records (faded) and recent additions (solid)."),
-                p(tags$strong("Temporal Trend"), " shows the time series for a single selected basis type. ",
-                  "The sharp increase in Human Observations since ~2010 reflects the growth of citizen science ",
-                  "(primarily Artportalen and iNaturalist)."),
-                p(tags$strong("Spatial Coverage"), " shows what percentage of Sweden's 10 km grid cells have at least ",
-                  "one record of each type. Human Observations cover the most cells; museum specimens are concentrated ",
-                  "in fewer areas."),
-                p(tags$strong("Species Coverage"), " shows the total number of species detections summed across all cells. ",
-                  "Note: a species recorded in 3 cells counts as 3, not 1. This measures sampling breadth, not unique species count."),
-                p(tags$strong("Spatial Distribution"), " maps where each basis type has data, using binned occurrence categories.")
-              )
-            )
-          ),
-
-          uiOutput("basis_stat_boxes"),
-
-          # Last 12 months toggle
-          div(class = "filter-section", style = "margin-bottom: 1rem;",
-            div(style = "display: flex; align-items: center; gap: 1.5rem;",
-              div(class = "filter-label", style = "margin-bottom: 0; white-space: nowrap;",
-                icon("calendar-alt", style = "margin-right: 0.3rem;"), "HIGHLIGHT LAST 12 MONTHS"),
-              radioButtons("basis_last_year_mode", NULL,
-                choices = setNames(
-                  c("off", "observed"),
-                  c("Off",
-                    paste0("Observed (", last_year_label, ")"))),
-                selected = "off", inline = TRUE)
-            )
-          ),
-
-          fluidRow(
-            column(6, div(class = "card",
-              div(class = "card-title", icon("chart-pie"), "Occurrences by Basis of Record"),
-              plotlyOutput("basis_pie", height = "380px"))),
-            column(6, div(class = "card",
-              div(class = "card-title", icon("chart-line"), "Temporal Trend by Basis"),
-              selectInput("basis_timeline_select", "Select basis:",
-                choices = basis_types_no_all, width = "250px"),
-              plotlyOutput("basis_timeline", height = "330px")))
-          ),
-          fluidRow(
-            column(6, div(class = "card",
-              div(class = "card-title", icon("map"), "Spatial Coverage by Basis of Record"),
-              plotlyOutput("basis_spatial_bar", height = "340px"))),
-            column(6, div(class = "card",
-              div(class = "card-title", icon("dna"), "Unique Species by Basis of Record"),
-              plotlyOutput("basis_species_bar", height = "340px")))
-          ),
-          div(class = "card",
-            div(class = "card-title", icon("map"), "Spatial Distribution per Basis of Record"),
-            selectInput("basis_map_select", NULL,
-              choices = basis_types_no_all, width = "250px"),
-            leafletOutput("basis_map", height = "450px"))
-        )
-      ),
-
-      # =====================================================================
       # TAXONOMIC TAB
       # =====================================================================
       tabPanel(
@@ -871,7 +910,7 @@ ui <- fluidPage(
             ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
             conditionalPanel(
               condition = "input.taxonomic_about_toggle % 2 == 1",
-              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+              div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
                 p("This tab compares GBIF occurrence data against the national taxonomy backbone (Dyntaxa). ",
                   "For each taxonomic group, it shows how many known species have GBIF records and ",
                   "how sampling effort is distributed across groups."),
@@ -1023,7 +1062,7 @@ ui <- fluidPage(
             ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
             conditionalPanel(
               condition = "input.concern_about_toggle % 2 == 1",
-              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+              div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
                 p("This tab focuses on three categories of species that require special attention ",
                   "for conservation monitoring and data mobilisation:"),
                 tags$ul(
@@ -1034,11 +1073,18 @@ ui <- fluidPage(
                     "These are the highest conservation data priority: without occurrence data, ",
                     "range modelling, population trend analysis, and habitat suitability assessments ",
                     "cannot be performed."),
-                  tags$li(tags$strong("Invasive"), " — species flagged as invasive in the national taxonomy ",
-                    "backbone (Dyntaxa). Monitoring invasive species requires spatially and temporally ",
-                    "complete occurrence data to detect range expansion, evaluate management interventions, ",
-                    "and trigger early-warning alerts. Species missing from GBIF represent blind spots ",
-                    "in the national invasive-species surveillance network."),
+                  tags$li(tags$strong("Invasive"), " — species listed as invasive in ",
+                    "GRIIS, the Global Register of Introduced and Invasive Species for Sweden ",
+                    "(only taxa GRIIS explicitly flags as invasive, not all introduced or alien species). ",
+                    "Because GBIF occurrence cubes are aggregated at the species level, this flag is ",
+                    "applied at the species level too: a species is marked invasive if ",
+                    tags$strong("any of its listed forms"), " — including a subspecies or variety — ",
+                    "appears as invasive in GRIIS. The count therefore answers ",
+                    tags$em("\u201cwhich species have an invasive form that may warrant monitoring\u201d"),
+                    ", not whether one specific subspecies is invasive. Monitoring invasive species ",
+                    "requires spatially and temporally complete occurrence data to detect range expansion, ",
+                    "evaluate management interventions, and trigger early-warning alerts. Species missing ",
+                    "from GBIF represent blind spots in the national invasive-species surveillance network."),
                   tags$li(tags$strong("Sensitive"), " — species whose precise location data is restricted ",
                     "in GBIF to protect them from collection pressure, habitat disturbance, or trade. ",
                     "These records may show generalised coordinates (e.g. country centroid or 50 km grid) ",
@@ -1047,9 +1093,13 @@ ui <- fluidPage(
                 ),
                 p("The taxonomy cascade filters at the top apply across all three sub-tabs. ",
                   "Use the ", tags$strong("Scope"), " filter to restrict to native, introduced, ",
-                  "or invasive species (where establishment means data is available). ",
-                  "Threat status classifications come from SLU Artdatabanken's Red List; ",
-                  "invasive and sensitive flags come from the Dyntaxa backbone."),
+                  "or invasive species (where establishment-means data is available). ",
+                  "Threat status comes from SLU Artdatabanken's Red List, the invasive flag from ",
+                  "GRIIS Sweden, and the sensitive flag from the SLU Restricted Access Species list. ",
+                  "The Red List and sensitive flags are matched at the rank each list publishes — a ",
+                  "listed subspecies stays a subspecies — whereas the invasive flag is rolled up to ",
+                  "species level, as described above. A few non-species entries (hybrids, colour morphs, ",
+                  "slash-aggregates) have no species-level occurrence equivalent and are not flagged."),
                 p("Prioritisation tip: start with the Threatened sub-tab to identify missing CR/EN species, ",
                   "then check the Invasive sub-tab for unmonitored invasive species in the same taxonomic groups. ",
                   "Species that are both threatened and invasive (e.g. a threatened native species in a genus ",
@@ -1089,7 +1139,7 @@ ui <- fluidPage(
                     div(class = "stat-value sand", textOutput("concern_en", inline = TRUE)),
                     div(class = "stat-label", "EN Missing")),
                   div(class = "stat-box",
-                    div(class = "stat-value", style = "color:#b8a060;", textOutput("concern_vu", inline = TRUE)),
+                    div(class = "stat-value", style = "color:#EE8866;", textOutput("concern_vu", inline = TRUE)),
                     div(class = "stat-label", "VU Missing")),
                   div(class = "stat-box",
                     div(class = "stat-value sage", textOutput("concern_nt", inline = TRUE)),
@@ -1149,6 +1199,11 @@ ui <- fluidPage(
                     div(class = "stat-value slate", textOutput("concern_inv_pct", inline = TRUE)),
                     div(class = "stat-label", "Coverage"))
                 ),
+                div(class = "info-note", style = "margin: 0.25rem 0 1rem;",
+                  tags$strong("Known Invasive"), " counts species with at least one form ",
+                  "(species, subspecies, or variety) listed as invasive in GRIIS Sweden, ",
+                  "rolled up and matched at species level. ",
+                  tags$em("Missing from GBIF"), " means the species has zero matching occurrence records."),
                 fluidRow(
                   column(6, div(class = "card",
                     div(class = "card-title", icon("chart-bar"), "Invasive Species by Order"),
@@ -1183,7 +1238,7 @@ ui <- fluidPage(
                 div(class = "card",
                   div(class = "card-title", icon("table"), "Invasive Species Details"),
                   div(class = "info-note",
-                    "All species flagged as invasive in the national taxonomy backbone. ",
+                    "Species with at least one form listed as invasive in GRIIS Sweden, matched at species level. ",
                     "Species missing from GBIF cannot be monitored for range expansion."),
                   DTOutput("concern_inv_table"))
               )
@@ -1278,7 +1333,7 @@ ui <- fluidPage(
             ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
             conditionalPanel(
               condition = "input.publisher_about_toggle % 2 == 1",
-              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
+              div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
                 p("This tab shows which organisations publish biodiversity occurrence data ",
                   "to GBIF for this country. Understanding the publisher landscape helps assess ",
                   "data infrastructure resilience, identify potential data partnerships, and ",
@@ -1365,104 +1420,88 @@ ui <- fluidPage(
       ),
 
       # =====================================================================
-      # PRIORITIES TAB
+      # BASIS OF RECORD TAB
       # =====================================================================
       tabPanel(
-        title = tagList(icon("bullseye"), "Priorities"),
-        value = "priorities",
+        title = tagList(icon("layer-group"), "Record Types"),
+        value = "basis_tab",
         div(style = "padding: 1.25rem 0;",
 
           # About section (expandable)
-          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--coral);",
-            actionLink("priorities_about_toggle", tagList(
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--sand);",
+            actionLink("basis_about_toggle", tagList(
               icon("info-circle"), " About this tab",
               icon("chevron-down", style = "float:right; margin-top:3px;")
             ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
             conditionalPanel(
-              condition = "input.priorities_about_toggle % 2 == 1",
-              div(style = "margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);",
-                p("This tab synthesises findings from the spatial, temporal, and taxonomic analyses into ",
-                  tags$strong("actionable priorities"), " for data mobilisation. It is designed for GBIF node ",
-                  "managers and biodiversity data coordinators who need to allocate resources and set targets."),
-                p(tags$strong("Recommended Actions"), " distils the gap analysis into concrete, measurable goals ",
-                  "across four dimensions:"),
-                tags$ul(
-                  tags$li(tags$strong("Spatial:"), " Zero-coverage grid cells (never surveyed) are the highest ",
-                    "priority. Stale cells (data older than 5+ years) need resurvey to track ecological change."),
-                  tags$li(tags$strong("Taxonomic:"), " Missing threatened species (CR/EN with zero GBIF records) are ",
-                    "critical for conservation. Under-sampled orders (high species richness, low occurrence count) ",
-                    "indicate systematic collection biases."),
-                  tags$li(tags$strong("Species of Concern:"), " Sensitive species with degraded coordinates, ",
-                    "invasive species lacking monitoring data, and threatened species without any GBIF records ",
-                    "all require targeted attention."),
-                  tags$li(tags$strong("Temporal:"), " Cells and taxa with only historical records and no recent activity ",
-                    "may represent abandoned monitoring programmes or shifted survey effort."),
-                  tags$li(tags$strong("Infrastructure:"), " Single-publisher cells and under-diversified geographic regions ",
-                    "indicate data resilience risks. Use the Publishers tab to identify taxonomic groups ",
-                    "where additional data sources are needed.")
-                ),
-                p("The ", tags$strong("Next 12 Months"), " section projects realistic targets based on recent performance. ",
-                  "Targets are set at 1.5\u00d7 the rate achieved in the last 12 months — ambitious but achievable. ",
-                  "These projections help frame discussions with funders, data holders, and institutional partners ",
-                  "about what is possible with sustained effort."),
-                p("Use the ", tags$strong("Export"), " button to download the priority lists as a spreadsheet for ",
-                  "sharing with stakeholders, incorporating into grant proposals, or feeding into institutional work plans.")
+              condition = "input.basis_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
+                p("Each GBIF occurrence record has a ", tags$strong("basis of record"),
+                  " describing how the observation was made. The main types are: ",
+                  tags$em("Human Observation"), " (field sightings, citizen science), ",
+                  tags$em("Preserved Specimen"), " (museum/herbarium collections), ",
+                  tags$em("Machine Observation"), " (camera traps, acoustic sensors), ",
+                  tags$em("Fossil Specimen"), " (paleontological collections), and ",
+                  tags$em("Material Sample"), " (DNA, tissue, environmental samples)."),
+                p(tags$strong("Occurrences by Basis of Record"), " shows the overall share of each record type. ",
+                  "Use the 'Last 12 Months' toggle to see how recent data collection compares to historical records. ",
+                  "When toggled on, bars show prior records (faded) and recent additions (solid)."),
+                p(tags$strong("Temporal Trend"), " shows the time series for a single selected basis type. ",
+                  "The sharp increase in Human Observations since ~2010 reflects the growth of citizen science ",
+                  "(primarily Artportalen and iNaturalist)."),
+                p(tags$strong("Spatial Coverage"), " shows what percentage of Sweden's 10 km grid cells have at least ",
+                  "one record of each type. Human Observations cover the most cells; museum specimens are concentrated ",
+                  "in fewer areas."),
+                p(tags$strong("Species Coverage"), " shows the total number of species detections summed across all cells. ",
+                  "Note: a species recorded in 3 cells counts as 3, not 1. This measures sampling breadth, not unique species count."),
+                p(tags$strong("Spatial Distribution"), " maps where each basis type has data, using binned occurrence categories.")
               )
             )
           ),
 
-          # Recommended Actions — one card per gap dimension
-          div(class = "card",
-            div(class = "card-title", icon("tasks"), "Recommended Actions"),
-            div(class = "info-note",
-              "Concrete goals derived from the gap analysis. Each action targets a specific dimension ",
-              "of data completeness with measurable outcomes."),
-            uiOutput("action_goals")),
+          uiOutput("basis_stat_boxes"),
 
-          # Next 12 Months — based on last 12 months performance
-          div(class = "card",
-            div(class = "card-title", icon("chart-line"),
-              paste0("Next 12 Months — Based on ", last_year_label, " Performance")),
-            div(class = "info-note",
-              "What was achieved in the last 12 months, and what could be targeted next. ",
-              "Targets are set at 1.5\u00d7 the recent rate to encourage growth."),
-            uiOutput("next_12_months")),
-
-          # Export
-          div(class = "card",
-            div(style = "display:flex; align-items:center; justify-content:space-between;",
-              div(
-                div(class = "card-title", icon("download"), "Export Action Plan"),
-                div(style = "font-size:0.85rem; color:#6b6b6b;",
-                  "Download all priority items as a single CSV.")),
-              div(style = "padding-left:1rem;",
-                downloadButton("download_action_plan", "Download CSV",
-                  class = "btn-download", style = "white-space:nowrap;"))
-            )),
-
-          # Maps: zero coverage + stale cells
-          fluidRow(
-            column(6, div(class = "card",
-              div(class = "card-title", icon("map-marker-alt"), "Zero Coverage Cells"),
-              leafletOutput("zero_map", height = "400px"),
-              div(style = "margin-top:0.75rem;"),
-              DTOutput("zero_table"))),
-            column(6, div(class = "card",
-              div(class = "card-title", icon("hourglass-half"), "Stale Cells"),
-              leafletOutput("stale_map", height = "400px"),
-              div(style = "margin-top:0.75rem;"),
-              DTOutput("stale_table")))
+          # Last 12 months toggle
+          div(class = "filter-section", style = "margin-bottom: 1rem;",
+            div(style = "display: flex; align-items: center; gap: 1.5rem;",
+              div(class = "filter-label", style = "margin-bottom: 0; white-space: nowrap;",
+                icon("calendar-alt", style = "margin-right: 0.3rem;"), "HIGHLIGHT LAST 12 MONTHS"),
+              radioButtons("basis_last_year_mode", NULL,
+                choices = setNames(
+                  c("off", "observed"),
+                  c("Off",
+                    paste0("Observed (", last_year_label, ")"))),
+                selected = "off", inline = TRUE)
+            )
           ),
 
-          # Taxonomic mobilization targets
+          fluidRow(
+            column(6, div(class = "card",
+              div(class = "card-title", icon("chart-pie"), "Occurrences by Basis of Record"),
+              plotlyOutput("basis_pie", height = "380px"))),
+            column(6, div(class = "card",
+              div(class = "card-title", icon("chart-line"), "Temporal Trend by Basis"),
+              selectInput("basis_timeline_select", "Select basis:",
+                choices = basis_types_no_all, width = "250px"),
+              plotlyOutput("basis_timeline", height = "330px")))
+          ),
+          fluidRow(
+            column(6, div(class = "card",
+              div(class = "card-title", icon("map"), "Spatial Coverage by Basis of Record"),
+              plotlyOutput("basis_spatial_bar", height = "340px"))),
+            column(6, div(class = "card",
+              div(class = "card-title", icon("dna"), "Unique Species by Basis of Record"),
+              plotlyOutput("basis_species_bar", height = "340px")))
+          ),
           div(class = "card",
-            div(class = "card-title", icon("seedling"), "Taxonomic Mobilization Targets"),
-            div(class = "info-note",
-              "Orders and families with the largest gap between known species and GBIF coverage."),
-            fluidRow(
-              column(6, plotlyOutput("priority_undersampled_orders", height = "380px")),
-              column(6, plotlyOutput("priority_undersampled_families", height = "380px"))
-            ))
+            div(class = "card-title", icon("map"), "Spatial Distribution per Basis of Record"),
+            div(class = "info-note", style = "margin-top:0;",
+              "Where records of the selected ", tags$strong("record type"),
+              " come from \u2014 e.g. human observations vs preserved specimens. ",
+              "Each square is a 10 km cell; darker means more records. Click a cell for details."),
+            selectInput("basis_map_select", NULL,
+              choices = basis_types_no_all, width = "250px"),
+            leafletOutput("basis_map", height = "450px"))
         )
       ),
 
@@ -1470,17 +1509,47 @@ ui <- fluidPage(
       # DATA EXPLORER TAB
       # =====================================================================
       tabPanel(
-        title = tagList(icon("database"), "Data"),
+        title = tagList(icon("database"), "Data & sources"),
         value = "explorer",
         div(style = "padding: 1.25rem 0;",
+
+          # 1 — Citable foundation: the cube downloads
           div(class = "card",
-            div(class = "card-title", icon("search"), "Data Explorer"),
+            div(class = "card-title", icon("database"), "Built on these GBIF downloads"),
             div(class = "info-note", style = "margin-bottom: 0.75rem;",
-              "Browse and download any dataset in the analysis bundle. ",
-              "Use the dropdown to select a dataset, then filter and sort using the table controls."),
+              "This entire analysis is built on two citable GBIF occurrence cubes. ",
+              "If you use these results, cite the downloads below \u2014 it is how the ",
+              "data publishers who make this possible receive credit."),
+            uiOutput("ds_cubes")),
+
+          # 2 — Credit the contributing datasets
+          div(class = "card",
+            div(class = "card-title", icon("sitemap"), "The datasets that make this possible"),
+            uiOutput("ds_contrib_headline"),
+            div(class = "info-note", style = "margin: 0.5rem 0 0.75rem;",
+              "Every gap in this dashboard exists because these datasets were shared ",
+              "openly through GBIF. Search and sort the datasets that contributed records ",
+              "to the analysis \u2014 each links to its GBIF page and DOI."),
+            DTOutput("ds_contrib_table")),
+
+          # 3 — National reference lists
+          div(class = "card",
+            div(class = "card-title", icon("list-check"), "National reference lists"),
+            div(class = "info-note", style = "margin-bottom: 0.75rem;",
+              "Species scope \u2014 taxonomy, threat status, invasive and sensitive lists \u2014 ",
+              "is defined by these national authorities, resolved to their current GBIF DOIs."),
+            uiOutput("ds_checklists")),
+
+          # 4 — (secondary) Download derived analysis outputs
+          div(class = "card",
+            div(class = "card-title", icon("download"), "Download analysis outputs"),
+            div(class = "info-note", style = "margin-bottom: 0.75rem;",
+              "These are ", tags$em("derived products"), " of the analysis, not source data. ",
+              "If you reuse them, please cite the GBIF downloads above. ",
+              "Select an output to browse, filter, and export."),
             fluidRow(
               column(6,
-                selectInput("explorer_ds", "Select Dataset:",
+                selectInput("explorer_ds", "Select output:",
                   choices = c(
                     # Spatial
                     "Spatial Gaps (10km)"  = "spatial_gaps_10km",
@@ -1540,6 +1609,11 @@ ui <- fluidPage(
 # =============================================================================
 
 server <- function(input, output, session) {
+
+  # Persona "start here" buttons -> jump to the relevant tab
+  observeEvent(input$goto_taxonomic,  updateTabsetPanel(session, "main_tabs", selected = "taxonomic"))
+  observeEvent(input$goto_publishers, updateTabsetPanel(session, "main_tabs", selected = "publishers"))
+  observeEvent(input$goto_priorities, updateTabsetPanel(session, "main_tabs", selected = "priorities"))
 
   # ---- Reactive filtered data ----
   basis_selected <- reactive({
@@ -1700,7 +1774,7 @@ server <- function(input, output, session) {
           showarrow = FALSE, xref = "paper", yref = "paper", x = 0.5, y = 0.5))))
     }
 
-    month_cols <- colorRampPalette(c(pal$slate, pal$sage, pal$sand, pal$coral))(12)
+    month_cols <- rep(pal$sage, 12)  # single hue: months are labelled on the x-axis
     plot_ly(monthly, x = ~month, y = ~occ, type = "bar",
       marker = list(color = month_cols)) |>
       plotly_layout(
@@ -1724,9 +1798,9 @@ server <- function(input, output, session) {
     scale_mode <- if (!is.null(input$heatmap_scale)) input$heatmap_scale else "log"
 
     heatmap_cs <- list(
-      list(0, "#f6f5f1"), list(0.25, "#c8dbc6"),
-      list(0.5, pal$sage), list(0.75, pal$sand),
-      list(1, pal$coral))
+      list(0, "#f6f5f1"), list(0.25, "#cfe0ee"),
+      list(0.5, "#88b1d4"), list(0.75, "#3f72a8"),
+      list(1, "#1d456b"))
 
     if (scale_mode == "binned") {
       # Categorical bins like the spatial histogram
@@ -1753,10 +1827,10 @@ server <- function(input, output, session) {
 
       # Discrete colorscale mapped to bin integers 0–6
       binned_cs <- list(
-        list(0, "#f6f5f1"), list(0.167, "#e8ede9"),
-        list(0.333, "#c8dbc6"), list(0.5, pal$sage),
-        list(0.667, pal$sand), list(0.833, pal$coral),
-        list(1, "#3d4f6a"))
+        list(0, "#f0efea"), list(0.167, "#dbe6f2"),
+        list(0.333, "#aac4dd"), list(0.5, "#7aa6cc"),
+        list(0.667, "#4f82ad"), list(0.833, "#2f5f8a"),
+        list(1, "#1d456b"))
 
       p <- plot_ly(hm, x = ~month, y = ~year, z = ~occ_bin, type = "heatmap",
         colorscale = binned_cs, customdata = ~occ_label,
@@ -1779,7 +1853,7 @@ server <- function(input, output, session) {
       p <- plot_ly(hm, x = ~month, y = ~year, z = ~log_occ, type = "heatmap",
         colorscale = heatmap_cs, customdata = ~occ,
         hovertemplate = "Year: %{y}<br>Month: %{x}<br>Occurrences: %{customdata:,.0f}<extra></extra>",
-        colorbar = list(title = "log10(occ)"))
+        colorbar = list(title = "Occurrences (log scale)"))
     }
 
     p |> plotly_layout(
@@ -1820,11 +1894,6 @@ server <- function(input, output, session) {
     if (!is.null(overview_last_year) && !is.null(overview_last_year$cells_resolved))
       comma(overview_last_year$cells_resolved)
     else "0"
-  })
-  output$ov_ly_published <- renderText({
-    if (!is.null(overview_last_year) && !is.null(overview_last_year$occ_total))
-      comma(overview_last_year$occ_total)
-    else "N/A"
   })
 
   # Spatial gap panel
@@ -1885,20 +1954,28 @@ server <- function(input, output, session) {
     } else "Threat status data not available in the current backbone. Enable a red list in config.yml to see threatened species analysis."
   })
 
-  # Species of Concern info box
+  # Species of Concern info box — count concern species CURRENTLY IN GBIF
+  # (matched_any), sourced from the same object the Species of Concern tab
+  # filters, so the Overview numbers tie out to that tab's "In GBIF" stats.
   output$ov_n_threatened <- renderText({
-    if (!is.null(species_scope_lookup) && "is_threatened" %in% names(species_scope_lookup))
-      comma(sum(species_scope_lookup$is_threatened, na.rm = TRUE))
-    else "?"
+    if (!is.null(match_summary_full) && "matched_any" %in% names(match_summary_full)) {
+      ms <- as_tibble(match_summary_full)
+      tc <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
+      if (!is.na(tc))
+        comma(sum(ms[[tc]] %in% c("CR", "EN", "VU", "NT") & ms$matched_any, na.rm = TRUE))
+      else "?"
+    } else "?"
   })
   output$ov_n_invasive <- renderText({
-    if (!is.null(species_scope_lookup) && "is_invasive" %in% names(species_scope_lookup))
-      comma(sum(species_scope_lookup$is_invasive, na.rm = TRUE))
+    if (!is.null(match_summary_full) &&
+        all(c("is_invasive", "matched_any") %in% names(match_summary_full)))
+      comma(sum(match_summary_full$is_invasive & match_summary_full$matched_any, na.rm = TRUE))
     else "?"
   })
   output$ov_n_sensitive <- renderText({
-    if (!is.null(species_scope_lookup) && "is_sensitive" %in% names(species_scope_lookup))
-      comma(sum(species_scope_lookup$is_sensitive, na.rm = TRUE))
+    if (!is.null(match_summary_full) &&
+        all(c("is_sensitive", "matched_any") %in% names(match_summary_full)))
+      comma(sum(match_summary_full$is_sensitive & match_summary_full$matched_any, na.rm = TRUE))
     else "?"
   })
   output$ov_concern_detail <- renderText({
@@ -2143,7 +2220,7 @@ server <- function(input, output, session) {
         stale_cat = factor(stale_cat, levels = c(
           "< 1 year", "1–3 years", "3–5 years", "5–10 years", "> 10 years", "No data")))
       stale_pal <- colorFactor(
-        palette = c("#4a9ba5", "#6b8f71", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
+        palette = c("#4a9ba5", "#2A7F62", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
         domain = levels(map_sf$stale_cat), na.color = "#ddd")
       legend_title <- if (class_filter_active) {
         paste0("Data recency (", input$spatial_class_filter, ")")
@@ -2179,7 +2256,7 @@ server <- function(input, output, session) {
         sp_cat = factor(sp_cat, levels = c(
           "1–10", "11–100", "101–1,000", "> 1,000", "No data")))
       sp_pal <- colorFactor(
-        palette = c("#4a9ba5", "#6b8f71", pal$sand, pal$coral, "#ddd"),
+        palette = c("#4a9ba5", "#2A7F62", pal$sand, pal$coral, "#ddd"),
         domain = levels(map_sf$sp_cat), na.color = "#ddd")
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Species: ", comma(n_species))
 
@@ -2238,7 +2315,7 @@ server <- function(input, output, session) {
         occ_cat = factor(occ_cat, levels = c(
           "1–100", "101–1,000", "1,001–10,000", "10,001–100,000", "> 100,000", "No data")))
       occ_pal <- colorFactor(
-        palette = c("#4a9ba5", "#6b8f71", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
+        palette = c("#4a9ba5", "#2A7F62", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
         domain = levels(map_sf$occ_cat), na.color = "#ddd")
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Occurrences: ", comma(occurrences))
 
@@ -2361,20 +2438,20 @@ server <- function(input, output, session) {
 
   # Basis palette
   basis_colors <- c(
-    "HUMAN_OBSERVATION"     = "#6b8f71",
-    "PRESERVED_SPECIMEN"    = "#5c7a99",
-    "MACHINE_OBSERVATION"   = "#c4a882",
-    "OBSERVATION"           = "#8b6d8f",
-    "MATERIAL_SAMPLE"       = "#c47a6c",
+    "HUMAN_OBSERVATION"     = "#2A7F62",
+    "PRESERVED_SPECIMEN"    = "#4477AA",
+    "MACHINE_OBSERVATION"   = "#CCBB44",
+    "OBSERVATION"           = "#AA3377",
+    "MATERIAL_SAMPLE"       = "#EE6677",
     "OCCURRENCE"            = "#7daa90",
     "LITERATURE"            = "#a89060",
     "LIVING_SPECIMEN"       = "#8fa4b8",
     "FOSSIL_SPECIMEN"       = "#b8967a",
-    "humanObservation"      = "#6b8f71",
-    "preservedSpecimen"     = "#5c7a99",
-    "machineObservation"    = "#c4a882",
-    "observation"           = "#8b6d8f",
-    "materialSample"        = "#c47a6c",
+    "humanObservation"      = "#2A7F62",
+    "preservedSpecimen"     = "#4477AA",
+    "machineObservation"    = "#CCBB44",
+    "observation"           = "#AA3377",
+    "materialSample"        = "#EE6677",
     "occurrence"            = "#7daa90",
     "literature"            = "#a89060",
     "livingSpecimen"        = "#8fa4b8",
@@ -2440,7 +2517,7 @@ server <- function(input, output, session) {
 
       plot_ly(df, y = ~reorder(label_text, occ_total), x = prior_vals,
         type = "bar", orientation = "h", name = prior_name,
-        marker = list(color = "#d4c0a0"),
+        marker = list(color = "#EEDD88"),
         hovertemplate = paste0("%{y}<br>", prior_name, ": %{x:,.0f}<extra></extra>")) |>
         add_trace(x = recent_vals, name = recent_name,
           marker = list(color = pal$sage),
@@ -2481,7 +2558,7 @@ server <- function(input, output, session) {
 
       plot_ly(df, labels = ~label_text, values = vals, type = "pie",
         marker = list(colors = cols, line = list(color = "#fff", width = 1.5)),
-        textinfo = "percent",
+        textinfo = "label+percent",
         textposition = "inside",
         insidetextorientation = "horizontal",
         textfont = list(size = 11, color = "#fff"),
@@ -2608,7 +2685,7 @@ server <- function(input, output, session) {
       )
 
     bin_pal <- colorFactor(
-      palette = c("#c8dbc6", "#6b8f71", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
+      palette = c("#c8dbc6", "#2A7F62", pal$sand, pal$coral, "#3d4f6a", "#ddd"),
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     leaflet(map_sf) |>
@@ -2749,7 +2826,7 @@ server <- function(input, output, session) {
       tags$span("Showing:"),
       tags$strong(breadcrumb, style = "color: var(--text-primary, #333);"),
       actionLink("tax_clear_filters", tagList(icon("times-circle"), "Clear"),
-        style = "margin-left: auto; font-size: 0.85rem; color: var(--coral, #c47a6c); text-decoration: none;")
+        style = "margin-left: auto; font-size: 0.85rem; color: var(--coral, #EE6677); text-decoration: none;")
     )
   })
 
@@ -3070,8 +3147,8 @@ server <- function(input, output, session) {
       div(style = "background:#fafaf7; border-radius:8px; padding:0.75rem; text-align:center;",
         div(style = paste0("font-size:1.4rem; font-weight:600; color:", col, ";"),
           icon_char, " ", mult_text),
-        div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;", row$order),
-        div(style = "font-size:0.75rem; color:#999;",
+        div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;", row$order),
+        div(style = "font-size:0.75rem; color:var(--text-muted);",
           comma(row$Historical), " \u2192 ", comma(row$Recent))
       )
     })
@@ -3221,7 +3298,7 @@ server <- function(input, output, session) {
         mutate(pct = round(100 * n_gbif / n_total, 1)) |>
         filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
 
-      threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060", NT = pal$sage, DD = pal$slate)
+      threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#EE8866", NT = pal$sage, DD = pal$slate)
 
       plot_ly(df, x = ~threatStatus, y = ~pct, type = "bar",
         marker = list(color = threat_cols[df$threatStatus]),
@@ -3266,7 +3343,7 @@ server <- function(input, output, session) {
         summarise(n_missing = sum(!matched_any, na.rm = TRUE), .groups = "drop") |>
         filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
 
-      threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060", NT = pal$sage, DD = pal$slate)
+      threat_cols <- c(CR = pal$coral, EN = pal$sand, VU = "#EE8866", NT = pal$sage, DD = pal$slate)
 
       plot_ly(df, x = ~threatStatus, y = ~n_missing, type = "bar",
         marker = list(color = threat_cols[df$threatStatus]),
@@ -3459,7 +3536,7 @@ server <- function(input, output, session) {
       )
 
     inv_map_pal <- colorFactor(
-      palette = c("#d9a090", pal$coral, pal$sand, "#3d4f6a", "#ddd"),
+      palette = c("#FFAABB", pal$coral, pal$sand, "#3d4f6a", "#ddd"),
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     m <- leaflet(map_sf) |>
@@ -3776,10 +3853,10 @@ server <- function(input, output, session) {
 
   # Category color palette for publisher charts
   pub_cat_colors <- c(
-    "Citizen science" = "#6b8f71",
-    "Museum / Herbarium" = "#c4a882",
-    "University" = "#5c7a99",
-    "Government" = "#8b6d8f",
+    "Citizen science" = "#2A7F62",
+    "Museum / Herbarium" = "#CCBB44",
+    "University" = "#4477AA",
+    "Government" = "#AA3377",
     "Other" = "#bbbbbb"
   )
 
@@ -3917,7 +3994,7 @@ server <- function(input, output, session) {
         dep_cat = factor(dep_cat, levels = c("No data", "1 (fragile)", "2\u20133", "4\u20135", "6+")))
 
     dep_pal <- colorFactor(
-      palette = c("#e8e8e8", "#c47a6c", "#d4a860", "#6b8f71", "#5c7a99"),
+      palette = c("#e8e8e8", "#EE6677", "#d4a860", "#2A7F62", "#4477AA"),
       domain = levels(map_sf$dep_cat), na.color = "#ddd")
 
     m <- leaflet(map_sf) |>
@@ -4050,7 +4127,7 @@ server <- function(input, output, session) {
         div(style = paste0(icon_style, " color:", pal$coral, ";"), icon("map")),
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Spatial: Fill zero-coverage cells"),
-          div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+          div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$coral, ";"), comma(n_zero)),
             " grid cells have never been surveyed. Target these for new field campaigns or citizen science events.")),
       ),
@@ -4059,7 +4136,7 @@ server <- function(input, output, session) {
         div(style = paste0(icon_style, " color:", pal$sand, ";"), icon("clock")),
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Temporal: Resurvey stale cells"),
-          div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+          div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$sand, ";"), comma(n_stale)),
             " cells have not been surveyed in over 5 years. Prioritise cells with historically high diversity for resurvey.")),
       ),
@@ -4068,7 +4145,7 @@ server <- function(input, output, session) {
         div(style = paste0(icon_style, " color:", pal$plum, ";"), icon("leaf")),
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Taxonomic: Close species coverage gaps"),
-          div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+          div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$plum, ";"), comma(n_taxa_missing)),
             " species in the national backbone have no GBIF records. Focus on under-sampled orders and families shown below.")),
       ),
@@ -4077,7 +4154,7 @@ server <- function(input, output, session) {
         div(style = paste0(icon_style, " color:", pal$coral, ";"), icon("exclamation-triangle")),
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Threatened: Monitor CR and EN species"),
-          div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+          div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$coral, ";"), comma(n_cr_en)),
             " critically endangered or endangered species lack any GBIF occurrence data. These are the highest priority for targeted surveys.")),
       )
@@ -4090,7 +4167,7 @@ server <- function(input, output, session) {
           div(style = paste0(icon_style, " color:", pal$sage, ";"), icon("seedling")),
           div(style = "flex:1;",
             div(style = "font-size:1.05rem; font-weight:500;", "Native species: Improve baseline coverage"),
-            div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+            div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
               "Native species coverage is ",
               span(style = paste0(num_style, " color:", pal$sage, ";"), paste0(native_cov, "%")),
               " (", comma(n_native_missing), " native species missing). ",
@@ -4116,7 +4193,7 @@ server <- function(input, output, session) {
           div(style = paste0(icon_style, " color:", pal$plum, ";"), icon("eye-slash")),
           div(style = "flex:1;",
             div(style = "font-size:1.05rem; font-weight:500;", "Sensitive species: Assess data availability"),
-            div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+            div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
               span(style = paste0(num_style, " color:", pal$plum, ";"), comma(n_sensitive)),
               " species have restricted coordinates in GBIF (generalised to 5\u201350 km). ",
               comma(n_sensitive_in_gbif), " have occurrence records. ",
@@ -4139,7 +4216,7 @@ server <- function(input, output, session) {
           div(style = paste0(icon_style, " color:", pal$slate, ";"), icon("building")),
           div(style = "flex:1;",
             div(style = "font-size:1.05rem; font-weight:500;", "Infrastructure: Diversify data sources"),
-            div(style = "font-size:0.85rem; color:#6b6b6b; margin-top:0.25rem;",
+            div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
               span(style = paste0(num_style, " color:", pal$slate, ";"), comma(n_single_pub)),
               " of ", comma(n_total_cells), " grid cells depend on a single publisher. ",
               "Engage additional data holders (museums, universities, citizen science platforms) to improve resilience. ",
@@ -4434,6 +4511,79 @@ server <- function(input, output, session) {
         title = list(text = "Most under-sampled families", font = list(size = 14)),
         xaxis = list(title = "Species missing from GBIF"),
         yaxis = list(title = ""))
+  })
+
+  # ===================================================================
+  # DATA & SOURCES  (provenance baked in by 01b -> metadata$data_sources)
+  # ===================================================================
+
+  ds_meta <- reactive({ metadata$data_sources })
+
+  # 1 — Cube downloads: DOI + record count + citation
+  output$ds_cubes <- renderUI({
+    ds <- ds_meta(); cubes <- ds$cubes
+    if (is.null(cubes) || !length(cubes))
+      return(div(class = "info-note", "Source provenance is not available in this bundle."))
+    tagList(lapply(cubes, function(cb) {
+      div(style = "padding: 0.6rem 0; border-bottom: 1px solid #eee;",
+        div(style = "font-weight: 600;",
+          cb$label %||% "GBIF cube",
+          if (!is.null(cb$records) && !is.na(cb$records))
+            tags$span(style = "font-weight: 400; color: var(--text-secondary);",
+              sprintf("  \u2014  %s records", format(cb$records, big.mark = ",")))),
+        if (!is.null(cb$doi) && !is.na(cb$doi))
+          div(tags$a(href = cb$doi, cb$doi, target = "_blank",
+            style = "text-decoration: underline;")),
+        if (!is.null(cb$citation) && !is.na(cb$citation))
+          div(style = "font-size: 0.85rem; color: #555; margin-top: 0.25rem;", cb$citation))
+    }))
+  })
+
+  # 2 — Contributing datasets: headline + searchable table
+  output$ds_contrib_headline <- renderUI({
+    ds <- ds_meta()
+    n <- ds$n_contributing_datasets %||% 0L; p <- ds$n_publishers %||% 0L
+    if (!length(n) || n == 0) return(NULL)
+    div(style = "font-size: 1.05rem; font-weight: 600; color: var(--coral, #c0654f);",
+      sprintf("%s datasets from %s publishers made this analysis possible",
+        format(n, big.mark = ","), format(p, big.mark = ",")))
+  })
+
+  output$ds_contrib_table <- renderDT({
+    ds <- ds_meta(); cd <- ds$contributing_datasets
+    if (is.null(cd) || !nrow(cd))
+      return(datatable(tibble(Message = "Contributing dataset list not available in this bundle."),
+        options = list(dom = "t"), rownames = FALSE))
+    disp <- data.frame(
+      Dataset = ifelse(is.na(cd$dataset_key),
+        htmltools::htmlEscape(cd$title %||% ""),
+        sprintf('<a href="https://www.gbif.org/dataset/%s" target="_blank">%s</a>',
+          cd$dataset_key, htmltools::htmlEscape(cd$title %||% cd$dataset_key))),
+      Publisher = cd$publisher %||% NA_character_,
+      Records   = cd$records,
+      DOI       = ifelse(is.na(cd$doi), "",
+        sprintf('<a href="%s" target="_blank">%s</a>', cd$doi,
+          sub("https://doi.org/", "", cd$doi))),
+      check.names = FALSE, stringsAsFactors = FALSE)
+    datatable(disp, escape = FALSE, rownames = FALSE,
+      options = list(pageLength = 10, order = list(list(2, "desc")), scrollX = TRUE),
+      style = "bootstrap4", filter = "top") |>
+      formatRound("Records", digits = 0)
+  }, server = TRUE)
+
+  # 3 — National reference lists with resolved DOIs
+  output$ds_checklists <- renderUI({
+    ds <- ds_meta(); cl <- ds$checklists
+    if (is.null(cl) || !length(cl))
+      return(div(class = "info-note", "Reference-list provenance is not available in this bundle."))
+    tagList(lapply(cl, function(c1) {
+      div(style = "padding: 0.5rem 0; border-bottom: 1px solid #eee;",
+        tags$strong(tools::toTitleCase(c1$label %||% c1$name %||% "Reference list")), ": ",
+        c1$title %||% c1$name %||% "",
+        if (!is.null(c1$doi) && !is.na(c1$doi))
+          tagList("  ", tags$a(href = c1$doi, sub("https://doi.org/", "", c1$doi),
+            target = "_blank", style = "text-decoration: underline;")))
+    }))
   })
 
   # ===================================================================

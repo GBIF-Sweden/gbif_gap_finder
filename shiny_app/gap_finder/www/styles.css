@@ -24,7 +24,7 @@
   /* Text */
   --text-primary:   #2d2d2d;
   --text-secondary: #6b6b6b;
-  --text-muted:     #9a9a9a;
+  --text-muted:     #6a6a6a;
 
   /* Borders */
   --border:       #e0dfda;
@@ -41,6 +41,13 @@
   --coral-light: rgba(238, 102, 119, 0.12);
   --plum:     #AA3377;
   --plum-light: rgba(170, 51, 119, 0.12);
+
+  /* Darker, AA-passing shades of the same hues, for use as TEXT/badges */
+  --sage-ink:  #1d6048;
+  --sand-ink:  #6f6210;
+  --slate-ink: #2f567f;
+  --coral-ink: #b32e44;
+  --plum-ink:  #8a2a61;
 
   /* Semantic */
   --success:  #2A7F62;
@@ -64,7 +71,7 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   line-height: 1.6;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -87,7 +94,7 @@ body {
 .main-header .selectize-input {
   min-height: 30px !important;
   padding: 4px 10px !important;
-  font-size: 0.8rem !important;
+  font-size: 0.88rem !important;
 }
 
 .main-title {
@@ -102,7 +109,7 @@ body {
 
 .main-subtitle {
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  font-size: 1rem;
   margin-top: 0.15rem;
 }
 
@@ -110,7 +117,7 @@ body {
   display: flex;
   gap: 2rem;
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .header-stat-value {
@@ -133,7 +140,7 @@ body {
 
 .card-title {
   font-family: 'Fraunces', serif;
-  font-size: 1.05rem;
+  font-size: 1.28rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
   color: var(--text-primary);
@@ -144,7 +151,7 @@ body {
 
 .card-title .fa, .card-title .fas, .card-title .far {
   color: var(--sage);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 
 /* ---------------------------------------------------------------------------
@@ -186,12 +193,12 @@ body {
 
 .stat-value.sage  { color: var(--sage); }
 .stat-value.slate { color: var(--slate); }
-.stat-value.sand  { color: var(--sand); }
-.stat-value.coral { color: var(--coral); }
+.stat-value.sand  { color: var(--sand-ink); }
+.stat-value.coral { color: var(--coral-ink); }
 .stat-value.plum  { color: var(--plum); }
 
 .stat-label {
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -210,7 +217,7 @@ body {
 }
 
 .gap-detail {
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -226,7 +233,7 @@ body {
   padding: 0.6rem 1.1rem;
   margin-right: 0.4rem;
   margin-bottom: 0.4rem;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 500;
   transition: all 0.2s ease;
 }
@@ -242,6 +249,38 @@ body {
   color: #fff;
 }
 
+/* Sub-tabs (type="tabs") — the Concern tab's threatened / invasive / restricted
+   switcher. Made bold and clearly visible with an underline active state, so
+   the sub-tabs read as real tabs rather than faint text. */
+.nav-tabs {
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 1.25rem;
+}
+.nav-tabs > li > a {
+  font-size: 1.08rem;
+  font-weight: 600;
+  padding: 0.65rem 1.25rem;
+  color: var(--text-secondary);
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  margin-bottom: -2px;
+}
+.nav-tabs > li > a:hover {
+  color: var(--text-primary);
+  background: var(--slate-light);
+  border-color: transparent transparent var(--border);
+}
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:hover,
+.nav-tabs > li.active > a:focus {
+  color: var(--coral-ink);
+  font-weight: 700;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid var(--coral);
+}
+
 /* ---------------------------------------------------------------------------
    FORMS & INPUTS
    --------------------------------------------------------------------------- */
@@ -253,7 +292,7 @@ body {
 }
 
 .filter-label {
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -266,7 +305,7 @@ body {
   border: 1px solid var(--border) !important;
   color: var(--text-primary) !important;
   border-radius: var(--radius-sm) !important;
-  font-size: 0.9rem !important;
+  font-size: 0.95rem !important;
 }
 
 .form-control:focus,
@@ -310,7 +349,7 @@ table.dataTable thead th {
   color: var(--text-secondary) !important;
   border-bottom: 2px solid var(--border) !important;
   background: transparent !important;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -318,7 +357,7 @@ table.dataTable thead th {
 .dataTables_info, .dataTables_length,
 .dataTables_filter, .dataTables_paginate {
   color: var(--text-secondary) !important;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .dataTables_length select,
@@ -353,6 +392,33 @@ table.dataTable thead th {
    --------------------------------------------------------------------------- */
 .leaflet-container {
   border-radius: var(--radius);
+  font-size: 0.92rem;
+}
+
+/* Legends, info boxes, popups and tooltips — larger and higher-contrast
+   than Leaflet's small defaults, so map keys are actually readable. */
+.leaflet-container .legend,
+.leaflet-container .info {
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.leaflet-container .legend i {
+  width: 16px;
+  height: 16px;
+  margin-right: 7px;
+  opacity: 0.95;
+  border-radius: 3px;
+}
+.leaflet-popup-content,
+.leaflet-tooltip {
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text-primary);
 }
 
 /* ---------------------------------------------------------------------------
@@ -369,29 +435,29 @@ table.dataTable thead th {
   display: inline-block;
   padding: 0.2rem 0.65rem;
   border-radius: 20px;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.03em;
 }
 
-.priority-high   { background: var(--coral-light); color: var(--coral); }
-.priority-medium { background: var(--sand-light);  color: var(--sand); }
-.priority-low    { background: var(--sage-light);   color: var(--sage); }
+.priority-high   { background: var(--coral-light); color: var(--coral-ink); }
+.priority-medium { background: var(--sand-light);  color: var(--sand-ink); }
+.priority-low    { background: var(--sage-light);   color: var(--sage-ink); }
 
 .threat-badge {
   display: inline-block;
   padding: 0.3rem 0.65rem;
   border-radius: 20px;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 600;
   text-transform: uppercase;
 }
 
-.threat-CR { background: var(--coral-light); color: var(--coral); }
-.threat-EN { background: var(--sand-light);  color: #b8860b; }
-.threat-VU { background: rgba(196,168,130,0.15); color: var(--sand); }
-.threat-NT { background: var(--sage-light);  color: var(--sage); }
-.threat-LC { background: rgba(107,143,113,0.08); color: #7aa17e; }
+.threat-CR { background: var(--coral-light); color: var(--coral-ink); }
+.threat-EN { background: var(--sand-light);  color: var(--sand-ink); }
+.threat-VU { background: rgba(196,168,130,0.25); color: var(--sand-ink); }
+.threat-NT { background: var(--sage-light);  color: var(--sage-ink); }
+.threat-LC { background: rgba(107,143,113,0.12); color: var(--text-secondary); }
 
 /* ---------------------------------------------------------------------------
    ACTION TABLE
@@ -400,7 +466,7 @@ table.dataTable thead th {
 .action-table td {
   padding: 0.85rem 0.75rem;
   border-bottom: 1px solid var(--border-light);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 .action-table tr:last-child td { border-bottom: none; }
 
@@ -425,7 +491,7 @@ table.dataTable thead th {
 
 .species-taxonomy {
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   margin-bottom: 0.75rem;
 }
 
@@ -451,7 +517,7 @@ table.dataTable thead th {
   color: var(--text-secondary);
   text-align: center;
   margin-bottom: 1rem;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 /* ---------------------------------------------------------------------------
@@ -466,7 +532,7 @@ table.dataTable thead th {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .btn-primary:hover, .random-btn:hover {
@@ -481,7 +547,7 @@ table.dataTable thead th {
   padding: 0.5rem 1rem;
   border-radius: var(--radius-sm);
   font-weight: 500;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
 }
 
 .btn-download:hover {
@@ -497,7 +563,7 @@ table.dataTable thead th {
   padding: 0.75rem 1rem;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   margin: 0.75rem 0;
-  font-size: 0.88rem;
+  font-size: 1rem;
   color: var(--text-secondary);
 }
 
@@ -510,7 +576,7 @@ table.dataTable thead th {
   text-align: center;
   padding: 1.5rem;
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   border-top: 1px solid var(--border-light);
   margin-top: 1rem;
 }
@@ -526,3 +592,19 @@ hr { border-color: var(--border-light); }
 ::-webkit-scrollbar-track { background: var(--bg-base); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ---------------------------------------------------------------------------
+   FOCUS VISIBILITY (keyboard accessibility)
+   --------------------------------------------------------------------------- */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.random-btn:focus-visible,
+.btn-download:focus-visible,
+.nav-pills .nav-link:focus-visible,
+.paginate_button:focus-visible,
+.form-control:focus-visible {
+  outline: 3px solid var(--slate);
+  outline-offset: 2px;
+}

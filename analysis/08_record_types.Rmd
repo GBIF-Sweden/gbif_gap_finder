@@ -1,0 +1,187 @@
+---
+title: "Record Types Analysis"
+subtitle: "Basis of Record — How Biodiversity Is Documented"
+author: "GBIF Gap Finder"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    fig_width: 10
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 6, dpi = 150
+)
+
+library(here); library(dplyr); library(tidyr); library(ggplot2)
+library(scales); library(sf); library(knitr); library(kableExtra)
+
+data_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
+app_data <- readRDS(data_path)
+safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
+
+spatial_gaps   <- safe_get("spatial_gaps_10km")
+time_summary   <- safe_get("time_summary_10km")
+grid_10km      <- safe_get("grid_10km")
+admin_level1   <- safe_get("admin_level1")
+
+pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
+            coral = "#EE6677", plum = "#AA3377")
+theme_gaps <- theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(color = "#666", size = 11),
+        panel.grid.minor = element_blank(), legend.position = "bottom")
+theme_set(theme_gaps)
+```
+
+# Overview
+
+GBIF distinguishes several basis-of-record categories, each representing a different method of documenting biodiversity: human observations (citizen science, surveys), preserved specimens (museums, herbaria), material samples (DNA, tissue), machine observations (camera traps, acoustics), and others. Understanding this composition reveals biases and complementarities in the data.
+
+# Occurrence Volume
+
+```{r bor-volume, fig.height=5}
+if (!is.null(spatial_gaps)) {
+  df <- spatial_gaps |>
+    filter(basisofrecord != "all") |>
+    group_by(basisofrecord) |>
+    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    mutate(pct = round(100 * occurrences / sum(occurrences), 1),
+           bor_label = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
+    arrange(desc(occurrences))
+
+  ggplot(df, aes(x = reorder(bor_label, occurrences), y = occurrences)) +
+    geom_col(fill = pal$sage) +
+    geom_text(aes(label = paste0(comma(occurrences), " (", pct, "%)")),
+              hjust = -0.05, size = 3.2) +
+    coord_flip() +
+    scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.25))) +
+    labs(title = "Total Occurrences by Basis of Record", x = "", y = "Occurrences")
+
+  kable(df |> select(`Basis of Record` = bor_label, Occurrences = occurrences,
+    `% of total` = pct), align = c("l", "r", "r")) |> kable_styling(full_width = FALSE)
+}
+```
+
+# Spatial Coverage
+
+```{r bor-spatial, fig.height=5}
+if (!is.null(spatial_gaps) && !is.null(grid_10km)) {
+  n_cells <- nrow(grid_10km)
+  df <- spatial_gaps |>
+    filter(basisofrecord != "all") |>
+    group_by(basisofrecord) |>
+    summarise(cells = sum(has_data, na.rm = TRUE), .groups = "drop") |>
+    mutate(pct = round(100 * cells / n_cells, 1),
+           bor_label = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
+    arrange(desc(pct))
+
+  ggplot(df, aes(x = reorder(bor_label, pct), y = pct)) +
+    geom_col(fill = pal$slate) +
+    geom_text(aes(label = paste0(pct, "%")), hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_y_continuous(limits = c(0, 105)) +
+    labs(title = "Spatial Coverage by Record Type",
+         subtitle = paste0("% of ", comma(n_cells), " grid cells with ≥1 occurrence"),
+         x = "", y = "Coverage (%)")
+}
+```
+
+# Spatial Distribution Maps
+
+```{r bor-maps, fig.height=8, results='asis'}
+if (!is.null(grid_10km) && !is.null(spatial_gaps)) {
+  top_bor <- spatial_gaps |>
+    filter(basisofrecord != "all") |>
+    group_by(basisofrecord) |>
+    summarise(occ = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    arrange(desc(occ)) |> head(4) |> pull(basisofrecord)
+
+  for (bor in top_bor) {
+    sg <- spatial_gaps |> filter(basisofrecord == bor)
+    map_sf <- grid_10km |>
+      left_join(sg |> select(eeacellcode, occurrences), by = "eeacellcode") |>
+      mutate(has_data = !is.na(occurrences) & occurrences > 0)
+
+    bor_label <- gsub("_", " ", bor) |> tools::toTitleCase()
+
+    p <- ggplot(map_sf) +
+      geom_sf(aes(fill = has_data), color = NA) +
+      scale_fill_manual(values = c(`TRUE` = pal$sage, `FALSE` = "#e0e0e0"),
+                        labels = c("No data", "Has data"), name = "") +
+      labs(title = paste0(bor_label, " — Spatial Coverage")) +
+      theme_void() + theme(legend.position = "right", plot.title = element_text(size = 13))
+    if (!is.null(admin_level1)) {
+      admin_t <- st_transform(admin_level1, st_crs(map_sf))
+      p <- p + geom_sf(data = admin_t, fill = NA, color = "#888", linewidth = 0.3)
+    }
+    print(p)
+    cat("\n\n")
+  }
+}
+```
+
+# Temporal Trends
+
+```{r bor-temporal, fig.height=6}
+if (!is.null(time_summary)) {
+  df <- time_summary |>
+    filter(basisofrecord != "all", !is.na(year), year >= 1970) |>
+    mutate(bor_label = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
+    group_by(year, bor_label) |>
+    summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+  top4 <- df |> group_by(bor_label) |> summarise(t = sum(occ)) |>
+    arrange(desc(t)) |> head(4) |> pull(bor_label)
+  df <- df |> filter(bor_label %in% top4)
+
+  bor_colors <- c("Human Observation" = pal$sage, "Preserved Specimen" = pal$slate,
+                  "Material Sample" = pal$sand, "Machine Observation" = pal$coral)
+
+  ggplot(df, aes(x = year, y = occ, fill = bor_label)) +
+    geom_area(alpha = 0.7, position = "stack") +
+    scale_fill_manual(values = bor_colors) +
+    scale_y_continuous(labels = label_comma()) +
+    labs(title = "Record Volume Over Time by Type", x = "Year", y = "Occurrences", fill = "")
+}
+```
+
+# Proportional Composition
+
+```{r bor-proportional, fig.height=5}
+if (!is.null(time_summary)) {
+  df <- time_summary |>
+    filter(basisofrecord != "all", !is.na(year), year >= 1970) |>
+    mutate(bor_label = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
+    group_by(year, bor_label) |>
+    summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+    group_by(year) |> mutate(pct = 100 * occ / sum(occ)) |> ungroup()
+
+  top4 <- df |> group_by(bor_label) |> summarise(t = sum(occ)) |>
+    arrange(desc(t)) |> head(4) |> pull(bor_label)
+  df <- df |> filter(bor_label %in% top4)
+
+  bor_colors <- c("Human Observation" = pal$sage, "Preserved Specimen" = pal$slate,
+                  "Material Sample" = pal$sand, "Machine Observation" = pal$coral)
+
+  ggplot(df, aes(x = year, y = pct, fill = bor_label)) +
+    geom_area(alpha = 0.7, position = "stack") +
+    scale_fill_manual(values = bor_colors) +
+    scale_y_continuous(labels = label_percent(scale = 1)) +
+    labs(title = "Proportional Composition Over Time", x = "Year", y = "% of occurrences", fill = "")
+}
+```
+
+---
+
+*Report generated by `gbif_gap_finder` on `r Sys.time()`.*

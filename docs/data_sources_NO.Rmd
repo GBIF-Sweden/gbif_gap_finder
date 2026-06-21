@@ -1,0 +1,282 @@
+# Data Sources — Norway
+
+Documentation of all external datasets for the Norway gap finder pipeline.
+
+> **Location:** All raw data in `data/NO/raw/`. Never edited manually.
+> All processing outputs go to `data/NO/proc/`.
+
+```{r ds-setup, include=FALSE}
+# Citations are resolved + validated once by scripts/01b_resolve_data_sources.R
+# and cached here. This document, the app, and the reports all read this same
+# object, so DOIs never drift. If it's missing, run 01b first.
+ds_meta_path <- here::here("data", "NO", "proc", "data_sources_meta.rds")
+ds <- if (file.exists(ds_meta_path)) readRDS(ds_meta_path) else NULL
+
+# Inline helpers so checklist citations are read from the resolved metadata
+# (config download/dataset key -> GBIF API) instead of being hand-typed in prose.
+ck_doi <- function(key) {
+  x <- if (!is.null(ds)) ds$checklists[[key]] else NULL
+  if (is.null(x) || is.null(x$doi) || is.na(x$doi)) return("\u2014")
+  sprintf("[%s](%s)", sub("https://doi.org/", "", x$doi), x$doi)
+}
+ck_dataset <- function(key) {
+  x <- if (!is.null(ds)) ds$checklists[[key]] else NULL
+  if (is.null(x) || is.null(x$dataset_key) || is.na(x$dataset_key)) return("\u2014")
+  sprintf("[%s](https://www.gbif.org/dataset/%s)", x$dataset_key, x$dataset_key)
+}
+```
+
+---
+
+## 1. GBIF Occurrence Cubes (SQL API)
+
+**Purpose:** Species-level, gridded occurrence summaries for Norway.
+
+**Source:** GBIF SQL Download API
+**Downloaded:** 2026-04-17
+**Format:** SQL_TSV_ZIP → CSV → Parquet (converted by pipeline)
+
+### SQL Query
+
+Both cubes use the same query, differing only in grid resolution (10000 vs 50000 meters):
+
+```sql
+SELECT
+  specieskey, species, kingdom, phylum, class, "order", family,
+  basisofrecord, publishingorgkey, datasetkey,
+  GBIF_EEARGCode(10000, decimallatitude, decimallongitude, 0) AS eeacellcode,
+  "year", "month",
+  COUNT(*) AS occurrences
+FROM occurrence
+WHERE countrycode = 'NO'
+  AND hascoordinate = TRUE
+  AND hasgeospatialissues = FALSE
+  AND occurrencestatus = 'PRESENT'
+  AND specieskey IS NOT NULL
+GROUP BY specieskey, species, kingdom, phylum, class, "order", family,
+  basisofrecord, publishingorgkey, datasetkey,
+  GBIF_EEARGCode(10000, decimallatitude, decimallongitude, 0),
+  "year", "month"
+```
+
+### Columns (14)
+
+| # | Column | Description |
+|--:|--------|-------------|
+| 1 | specieskey | GBIF species identifier (backbone key) |
+| 2 | species | Scientific name (GBIF backbone) |
+| 3 | kingdom | Kingdom name |
+| 4 | phylum | Phylum name |
+| 5 | class | Class name |
+| 6 | order | Order name |
+| 7 | family | Family name |
+| 8 | basisofrecord | Record type (HUMAN_OBSERVATION, PRESERVED_SPECIMEN, etc.) |
+| 9 | publishingorgkey | UUID of the publishing organisation |
+| 10 | datasetkey | UUID of the source dataset |
+| 11 | eeacellcode | EEA reference-grid cell code (10 km or 50 km) |
+| 12 | year | Observation/collection year |
+| 13 | month | Observation/collection month |
+| 14 | occurrences | Record count for the species × cell × year × month |
+
+### Downloads
+
+```{r ds-cubes, echo=FALSE, results='asis'}
+if (is.null(ds)) {
+  cat("> *Run `scripts/01b_resolve_data_sources.R` to populate resolved DOIs,",
+      "record counts and validation status.*\n")
+} else {
+  cat("| Resolution | Records | Download Key | DOI | Resolves |\n")
+  cat("|-----------|--------:|--------------|-----|:--------:|\n")
+  for (nm in names(ds$cubes)) {
+    cb  <- ds$cubes[[nm]]
+    res <- sub("grid", "", nm); res <- sub("km", " km", res)
+    recs <- if (isTRUE(cb$resolves) && !is.na(cb$records)) format(cb$records, big.mark = ",") else "—"
+    doi  <- if (isTRUE(cb$resolves)) sprintf("[%s](%s)", sub("https://doi.org/", "", cb$doi), cb$doi) else "—"
+    ok   <- if (isTRUE(cb$resolves)) "✅" else "❌"
+    cat(sprintf("| %s | %s | `%s` | %s | %s |\n", res, recs, cb$download_key, doi, ok))
+  }
+  cat(sprintf("\n*Resolved from download keys via the GBIF API on %s.*\n",
+              format(as.Date(ds$resolved_at))))
+}
+```
+
+
+### Files
+
+```
+data/NO/raw/cubes/
+├── cube_10km.csv
+└── cube_50km.csv
+```
+
+> **Note:** the Norway cubes were downloaded with an earlier cube SQL that also
+> carried two publication-date columns (`year_published`, `month_published`).
+> Those columns are now retired — the current 14-column SQL above omits them, and
+> the pipeline ignores any extra columns, so these downloads still load unchanged.
+> Re-download with the query above whenever you next refresh the cubes.
+
+### Key differences from previous cube downloads
+
+- **Single file per resolution** instead of 9 files per basis of record
+- **Publisher and dataset** columns included (publishingorgkey, datasetkey)
+- **All basis of record types** in one file (basisofrecord as a column)
+- Downloaded via SQL API instead of pre-built cube DOIs
+
+---
+
+## 2. EEA Reference Grids (shared)
+
+Both grids are Europe-wide and shared across all European countries. They live in `data/shared/grids/` and the pipeline clips to Norway's extent automatically.
+
+### 2.1 EEA 10km Grid (Europe)
+
+**Source:** [EEA GeoNetwork](https://sdi.eea.europa.eu/datastore/public?path=/eea_v_3035_10_km_eea-ref-grid-europe_p_2011_v01_r00)
+**Version:** 2011
+**CRS:** ETRS89-LAEA Europe (EPSG:3035)
+**Coverage:** All of Europe (clipped to Norway at runtime)
+
+```
+data/shared/grids/
+├── Grid_ETRS89-LAEA_10K.shp (+ .dbf, .prj, .shx)  # Europe-wide
+```
+
+### 2.2 EEA 50km Grid (Europe)
+
+**Source:** [EEA GeoNetwork](https://sdi.eea.europa.eu/catalogue/srv/eng/catalog.search#/metadata/aac8379a-5c4e-445c-b2ef-23a6a2701ef0)
+**Version:** v2024
+
+```
+data/shared/grids/
+└── EEA_50km_grid_v2024.gpkg
+```
+
+---
+
+## 3. Taxonomic Reference Datasets
+
+### 3.1 Nortaxa — Norwegian Species Nomenclature Database
+
+**Purpose:** National taxonomy backbone for Norwegian taxa.
+**DOI:** `r ck_doi("taxonomy")`
+**GBIF Dataset:** `r ck_dataset("taxonomy")`
+**Published by:** Norwegian Biodiversity Information Centre (Artsdatabanken)
+**Export URL:** https://ipt.artsdatabanken.no/archive.do?r=artsnavnebase
+
+```
+data/NO/raw/taxonomy/
+├── taxon.txt
+├── distribution.txt
+├── meta.xml
+└── eml.xml
+```
+
+### 3.2 Norwegian Red List 2015
+
+**Purpose:** Threat status enrichment for the taxonomy backbone.
+**DOI:** `r ck_doi("redlist")`
+**GBIF Dataset:** `r ck_dataset("redlist")`
+**Published by:** Norwegian Biodiversity Information Centre (Artsdatabanken)
+**Export URL:** https://ipt.gbif.no/archive.do?r=redlist-norway
+
+```
+data/NO/raw/redlist/
+├── taxon.txt
+├── distribution.txt
+├── meta.xml
+└── eml.xml
+```
+
+**Note:** The 2021 Norwegian Red List exists (4,957 species assessed) but is not yet
+published as a DwC-A on GBIF. The 2015 edition (21,402 species assessed) is used here.
+Swap the `dataset_key` in `config_NO.yml` once the 2021 edition is available — the DOI
+and citation above resolve automatically from the new key via `01b`.
+
+---
+
+## 4. Invasive Species Registry
+
+### GRIIS — Global Register of Introduced and Invasive Species - Norway
+
+**Purpose:** Flag invasive alien species in the taxonomy backbone.
+**DOI:** `r ck_doi("invasives")`
+**GBIF Dataset:** `r ck_dataset("invasives")`
+**Published by:** Invasive Species Specialist Group (ISSG)
+**Export URL:** https://cloud.gbif.org/griis/archive.do?r=griis-norway
+
+```
+data/NO/raw/invasives/
+├── taxon.txt
+├── distribution.txt
+├── speciesprofile.txt   # isInvasive flag (Invasive / Null)
+├── meta.xml
+└── eml.xml
+```
+
+This is the GRIIS international checklist for Norway, not a national Norwegian
+registry. It contains validated records of introduced (alien) and invasive alien
+species. The `isInvasive` field (in `speciesprofile.txt`) marks species with
+documented negative impact on biodiversity. Script 03 joins it to the taxonomy
+backbone as `is_invasive` (TRUE/FALSE), flagging a species when any of its listed
+forms appears as invasive.
+
+> **Note:** Norway's national alien species assessment (Fremmedartslista) is
+> maintained by Artsdatabanken but is not currently published as a DwC-A on GBIF.
+> The GRIIS checklist is the best available alternative.
+
+---
+
+## 5. Sensitive Species List
+
+**DOI:** —
+**Status:** ❌ Not available
+
+No Norwegian sensitive/restricted species DwC-A checklist was found on GBIF.
+The pipeline runs without it — `is_sensitive = FALSE` for all taxa, and the
+sensitive scope is automatically skipped by script 09c.
+
+Set `sensitive.enabled: true` and add a `dataset_key` in `config_NO.yml` when a
+list becomes available. Search for future availability:
+https://www.gbif.org/dataset/search?q=sensitive&publishingCountry=NO&type=CHECKLIST
+
+---
+
+## 6. Administrative Boundaries (GADM)
+
+**Purpose:** Region and municipality overlays for maps and regional filtering.
+**Source:** [GADM v4.1](https://gadm.org/)
+
+```
+data/NO/raw/admin/
+├── admin_level1.gpkg    # Fylker (counties)
+└── admin_level2.gpkg    # Kommuner (municipalities)
+```
+
+Downloaded automatically via the `geodata` R package.
+
+---
+
+## Updating Data
+
+**Red list / Invasive species update:**
+1. Delete files in the relevant `data/NO/raw/{source}/` directory
+2. Update the `dataset_key` in `configs/config_NO.yml` if the source moved to a new GBIF dataset
+3. Run `source("scripts/01a_download_raw_data.R")`
+4. Re-run pipeline from script 03 (DOIs in this document resolve automatically via `01b`)
+
+**New occurrence cubes:**
+1. Submit the SQL query above at https://www.gbif.org/occurrence/download/sql with `countrycode = 'NO'`
+2. Unzip downloaded file, rename to `cube_10km.csv` / `cube_50km.csv`
+3. Place in `data/NO/raw/cubes/`
+4. Delete old parquets in `data/NO/proc/cubes/`
+5. Update the two `download_key` values in `configs/config_NO.yml` (the DOIs in this document resolve automatically from those keys via `01b`)
+6. Re-run pipeline from script 04
+
+**Taxonomy update:**
+1. Delete files in `data/NO/raw/taxonomy/`
+2. Run `source("scripts/01a_download_raw_data.R")`
+3. Re-run full pipeline from script 03
+
+---
+
+**Last updated:** 2026-06-21
+**Maintainer:** Lena Thöle

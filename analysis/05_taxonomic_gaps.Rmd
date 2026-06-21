@@ -56,8 +56,8 @@ tax_by_family  <- norm_tax(tax_by_family)
 tax_by_threat  <- norm_tax(tax_by_threat)
 tax_estab      <- norm_tax(tax_estab)
 
-pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
-            coral = "#c47a6c", plum = "#8b6d8f")
+pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
+            coral = "#EE6677", plum = "#AA3377")
 theme_gaps <- theme_minimal(base_size = 13) +
   theme(plot.title = element_text(face = "bold", size = 14),
         plot.subtitle = element_text(color = "#666", size = 11),
@@ -132,7 +132,7 @@ if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
     filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
     mutate(threatStatus = factor(threatStatus, c("CR", "EN", "VU", "NT", "DD")))
 
-  threat_colors <- c(CR = pal$coral, EN = pal$sand, VU = "#b8a060",
+  threat_colors <- c(CR = pal$coral, EN = pal$sand, VU = "#EE8866",
                      NT = pal$sage, DD = pal$slate)
 
   ggplot(df, aes(x = threatStatus, y = pct_coverage, fill = threatStatus)) +

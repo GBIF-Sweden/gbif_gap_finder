@@ -606,21 +606,63 @@ if (invasives_available) {
     }
   }
 
-  # Create invasive species lookup by scientificName
+  # --- Restrict to GRIIS-flagged invasive taxa (isInvasive in speciesprofile) -
+  # GRIIS lists ALL alien taxa; only those with isInvasive == "Invasive" are
+  # actually invasive. That flag lives in the SpeciesProfile extension
+  # (speciesprofile.txt), keyed to the taxon by id and NOT in taxon.txt. Without
+  # this filter the whole alien register gets mislabelled invasive.
+  sp_profile_path <- file.path(dir_invasives, "speciesprofile.txt")
+  if (file.exists(sp_profile_path) && "id" %in% names(invasives_taxon)) {
+    sp_profile <- read_table_safe(sp_profile_path)
+    id_col   <- intersect(c("id", "coreid"), names(sp_profile))[1]
+    flag_col <- names(sp_profile)[str_to_lower(names(sp_profile)) == "isinvasive"][1]
+    if (!is.na(id_col) && !is.na(flag_col)) {
+      invasive_ids <- as.character(
+        sp_profile[[id_col]][str_to_lower(sp_profile[[flag_col]]) == "invasive"]
+      )
+      n_before <- nrow(invasives_taxon)
+      invasives_taxon <- invasives_taxon |>
+        filter(as.character(id) %in% invasive_ids)
+      cli_alert_info(
+        "isInvasive filter: {scales::comma(nrow(invasives_taxon))} invasive of {scales::comma(n_before)} alien taxa"
+      )
+    }
+  } else {
+    cli_alert_warning(
+      "speciesprofile.txt not found \u2014 treating all alien taxa as invasive"
+    )
+  }
+
+  # --- Canonical-name matching (strip authorship; collapse infraspecifics) ----
+  # GRIIS scientificName carries authorship (e.g. 'Lupinus polyphyllus Lindl.')
+  # and includes sub-species/varieties, so a raw scientificName join misses
+  # almost everything against the canonical backbone. Reduce both sides to the
+  # binomial (genus + epithet) before joining.
+  canonical_binomial <- function(x) {
+    vapply(strsplit(trimws(as.character(x)), "\\s+"), function(p) {
+      if (length(p) >= 2) paste(p[1], p[2])
+      else if (length(p) == 1 && nzchar(p[1])) p[1]
+      else NA_character_
+    }, character(1))
+  }
+
   invasive_lookup <- invasives_taxon |>
     filter(!is.na(scientificName)) |>
-    select(scientificName) |>
-    distinct(scientificName) |>
+    mutate(canon = canonical_binomial(scientificName)) |>
+    filter(!is.na(canon)) |>
+    distinct(canon) |>
     mutate(is_invasive = TRUE)
 
   cli_alert_info(
-    "Invasive species lookup: {scales::comma(nrow(invasive_lookup))} taxa"
+    "Invasive species lookup: {scales::comma(nrow(invasive_lookup))} canonical taxa"
   )
 
-  # Join to taxa_reference
+  # Join to taxa_reference on the canonical binomial (backbone is canonical)
   taxa_reference <- taxa_reference |>
-    left_join(invasive_lookup, by = "scientificName") |>
-    mutate(is_invasive = replace_na(is_invasive, FALSE))
+    mutate(canon = canonical_binomial(scientificName)) |>
+    left_join(invasive_lookup, by = "canon") |>
+    mutate(is_invasive = replace_na(is_invasive, FALSE)) |>
+    select(-canon)
 
   n_invasive_matched <- sum(taxa_reference$is_invasive, na.rm = TRUE)
   cli_alert_success(

@@ -1,0 +1,131 @@
+# Data Sources — [COUNTRY]
+
+Documentation of all external datasets for the [COUNTRY] gap analysis.
+
+> **Location:** All raw data in `data/[CC]/raw/`. Never edited manually.
+
+---
+
+## 1. GBIF Occurrence Cubes (SQL API)
+
+**Status:** Not yet downloaded
+
+Submit the SQL query from `scripts/01_download_raw_data.R` at
+https://www.gbif.org/occurrence/download/sql with `countrycode = '[CC]'`.
+
+Replace `[CC]` with your ISO 3166-1 alpha-2 country code.
+
+| Resolution | Download Key | DOI |
+|-----------|-------------|-----|
+| 10 km | — | — |
+| 50 km | — | — |
+
+Files to place:
+```
+data/[CC]/raw/cubes/
+├── cube_10km.csv
+└── cube_50km.csv
+```
+
+---
+
+## 2. EEA Reference Grids (shared)
+
+> **Note:** EEA grids cover Europe only. For non-European countries, use
+> ISEA3H hexagonal grids via the `dggridR` package (see ROADMAP Phase 3).
+
+Shared across all European countries in `data/shared/grids/`.
+The pipeline clips to your country's extent automatically.
+
+Download from:
+- 10km: https://sdi.eea.europa.eu/datastore/public?path=/eea_v_3035_10_km_eea-ref-grid-europe_p_2011_v01_r00
+- 50km: https://sdi.eea.europa.eu/data/aac8379a-5c4e-445c-b2ef-23a6a2701ef0
+
+```
+data/shared/grids/
+├── Grid_ETRS89-LAEA_10K.shp (+ .dbf, .prj, .shx)
+└── EEA_50km_grid_v2024.gpkg
+```
+
+---
+
+## 3. Taxonomic Reference Datasets
+
+### 3.1 National Taxonomy Backbone
+
+Find your national checklist: https://www.gbif.org/dataset/search?type=CHECKLIST
+
+**DOI:** [TODO]
+**GBIF Dataset:** [TODO]
+
+```
+data/[CC]/raw/taxonomy/
+├── Taxon.csv (or taxon.txt)
+├── Distribution.csv (or SpeciesDistribution.csv)
+└── ...
+```
+
+### 3.2 National Red List (optional)
+
+**DOI:** [TODO]
+**GBIF Dataset:** [TODO]
+
+```
+data/[CC]/raw/redlist/
+├── taxon.txt
+├── distribution.txt
+└── ...
+```
+
+### 3.3 Invasive Species Registry (optional)
+
+Search: https://www.gbif.org/dataset/search?q=invasive&publishingCountry=[CC]&type=CHECKLIST
+
+**DOI:** [TODO]
+**GBIF Dataset:** [TODO]
+
+```
+data/[CC]/raw/invasives/
+├── taxon.txt
+├── distribution.txt
+└── ...
+```
+
+### 3.4 Sensitive Species List (optional)
+
+Search: https://www.gbif.org/dataset/search?q=sensitive&publishingCountry=[CC]&type=CHECKLIST
+
+**DOI:** [TODO]
+**GBIF Dataset:** [TODO]
+
+```
+data/[CC]/raw/sensitive/
+├── taxon.txt
+└── ...
+```
+
+---
+
+## 4. Administrative Boundaries (GADM)
+
+Downloaded automatically via `geodata` package when
+`admin_boundaries.enabled: true` in the config.
+
+```
+data/[CC]/raw/admin/
+├── admin_level1.gpkg
+└── admin_level2.gpkg
+```
+
+---
+
+## Setup
+
+```r
+Sys.setenv(GBIF_GAP_COUNTRY = "[CC]")
+source("scripts/01_download_raw_data.R")
+```
+
+---
+
+**Last updated:** [DATE]

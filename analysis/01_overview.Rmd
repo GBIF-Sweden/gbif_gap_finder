@@ -61,8 +61,8 @@ norm_tax <- function(df) {
 tax_by_threat <- norm_tax(tax_by_threat)
 
 # Theme
-pal <- list(sage = "#6b8f71", slate = "#5c7a99", sand = "#c4a882",
-            coral = "#c47a6c", plum = "#8b6d8f")
+pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
+            coral = "#EE6677", plum = "#AA3377")
 
 theme_gaps <- theme_minimal(base_size = 13) +
   theme(
@@ -203,13 +203,11 @@ if (!is.null(spatial_gaps)) {
 if (!is.null(overview_ly)) {
   ly_stats <- tibble(
     Metric = c("Observations dated in period",
-               "Published to GBIF (cumulative)",
                "Cells with active recording",
                "Newly covered cells",
                "Priority cells resolved"),
     Value = c(
       comma(overview_ly$occ_last_year),
-      comma(overview_ly$occ_total),
       comma(overview_ly$cells_active_last_year),
       comma(overview_ly$cells_newly_covered),
       comma(overview_ly$cells_resolved %||% 0)
