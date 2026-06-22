@@ -68,6 +68,11 @@ COPY shiny_app/gap_finder/app.R         ./shiny_app/gap_finder/app.R
 COPY shiny_app/gap_finder/data/shiny_data.rds ./shiny_app/gap_finder/data/shiny_data.rds
 COPY shiny_app/gap_finder/www/styles.css ./shiny_app/gap_finder/www/styles.css
 
+# Fail the build if Git LFS was not fetched and the bundle is still a pointer
+# file (~130 bytes) instead of the real ~90 MB RDS. Catches a broken image at
+# build time (red CI) rather than at container start.
+RUN R -q -e "stopifnot(file.exists('shiny_app/gap_finder/data/shiny_data.rds')); invisible(readRDS('shiny_app/gap_finder/data/shiny_data.rds')); cat('OK: data bundle is a real RDS\n')"
+
 EXPOSE 3838
 
 WORKDIR /opt/project/shiny_app/gap_finder
