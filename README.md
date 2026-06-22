@@ -78,6 +78,14 @@ gbif_gap_finder/
 
 ## Quick Start
 
+> **Clone with Git LFS.** The prebuilt Shiny data bundle (`shiny_app/gap_finder/data/shiny_data.rds`, ~90 MB) is tracked with [Git LFS](https://git-lfs.com). Install it *before* cloning, or the bundle arrives as a small pointer file instead of the real data:
+>
+> ```
+> git lfs install
+> git clone git@github.com:GBIF-Sweden/gbif_gap_finder.git
+> # already cloned without LFS? cd into the repo and run: git lfs pull
+> ```
+
 ### 1. Configure
 
 Copy `configs/config_template.yml` to `configs/config_SE.yml` (or your country code) and fill in the taxonomy, red list, invasive species, and admin boundary settings.
@@ -216,6 +224,7 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 ## Requirements
 
 - R >= 4.1.0
+- [Git LFS](https://git-lfs.com) — the app data bundle (`shiny_data.rds`) is LFS-tracked
 - ~16 GB RAM recommended
 - ~20 GB disk space for full pipeline
 - Pipeline packages: `sf`, `data.table`, `arrow`, `dplyr`, `scales`, `stringr`, `cli` (see `R/packages.R`)
