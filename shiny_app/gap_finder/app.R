@@ -440,6 +440,11 @@ ui <- fluidPage(
               tags$strong(if (nchar(country_name) > 0) country_name else "the country"),
               "'s national species checklist, so the numbers stay consistent as you explore."),
 
+            p(style = "margin: 0 0 1.25rem; line-height: 1.7; padding: 0.7rem 0.9rem; background: var(--slate-light); border-left: 3px solid var(--slate); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--text-secondary);",
+              tags$strong("One important caveat:"), " a gap here means missing ", tags$em("GBIF"), " records \u2014 not ",
+              "that a species is absent, unstudied, or unmonitored. Recent or non-digitised data may exist outside ",
+              "GBIF, so treat these views as a guide to where to look, not as conclusions."),
+
             div(style = "font-family: 'Fraunces', serif; font-size: 1.28rem; font-weight: 600; color: var(--text-primary); margin: 0 0 0.85rem;",
               "New here? Jump straight to what matters to you:"),
             fluidRow(
@@ -474,7 +479,7 @@ ui <- fluidPage(
           div(class = "stat-grid",
             div(class = "stat-box",
               div(class = "stat-value sage", textOutput("ov_total_occ", inline = TRUE)),
-              div(class = "stat-label", "Total Occurrences")),
+              div(class = "stat-label", if (nchar(country_name) > 0) paste0("Total Occurrences in ", country_name) else "Total Occurrences")),
             div(class = "stat-box",
               div(class = "stat-value slate", textOutput("ov_species", inline = TRUE)),
               div(class = "stat-label", "Species in GBIF")),
@@ -653,8 +658,9 @@ ui <- fluidPage(
                 p("The ", tags$strong("Recommended Actions"), " below are concrete, countable goals, ",
                   "grouped by the kind of gap each one closes:"),
                 tags$ul(
-                  tags$li(tags$strong("Spatial:"), " Zero-coverage grid cells (never surveyed) are the highest ",
-                    "priority. Stale cells (data older than 5+ years) need resurvey to track ecological change."),
+                  tags$li(tags$strong("Spatial:"), " Grid cells with no GBIF records are the highest ",
+                    "priority. Stale cells (no GBIF records newer than 5 years) may warrant resurvey \u2014 after ",
+                    "checking whether recent data exists outside GBIF."),
                   tags$li(tags$strong("Taxonomic:"), " Missing threatened species (CR/EN with zero GBIF records) are ",
                     "critical for conservation. Under-sampled orders (high species richness, low occurrence count) ",
                     "indicate systematic collection biases."),
@@ -712,15 +718,15 @@ ui <- fluidPage(
               div(class = "card-title", icon("map-marker-alt"), "Zero Coverage Cells"),
               div(class = "info-note", style = "margin-top:0;",
                 "Each square is a 10 km grid cell with ", tags$strong("no records at all"),
-                " \u2014 never surveyed, or not yet digitised. Click a cell for its code."),
+                " \u2014 never recorded in GBIF (which may mean never surveyed, surveyed but not digitised, or recorded only outside GBIF). Click a cell for its code."),
               leafletOutput("zero_map", height = "400px"),
               div(style = "margin-top:0.75rem;"),
               DTOutput("zero_table"))),
             column(6, div(class = "card",
               div(class = "card-title", icon("hourglass-half"), "Stale Cells"),
               div(class = "info-note", style = "margin-top:0;",
-                "Cells whose newest record is ", tags$strong("over five years old"),
-                " \u2014 they may need resurveying to catch ecological change. Click a cell for details."),
+                "Cells whose newest ", tags$strong("GBIF record"), " is over five years old. ",
+                "Recent data may exist outside GBIF \u2014 check other sources before treating these as survey gaps. Click a cell for details."),
               leafletOutput("stale_map", height = "400px"),
               div(style = "margin-top:0.75rem;"),
               DTOutput("stale_table")))
@@ -764,7 +770,7 @@ ui <- fluidPage(
                   "can reveal sampling gaps that are otherwise hidden. The ", tags$strong("Class filter"),
                   " allows further refinement within a kingdom."),
                 p(tags$strong("Data recency"), " shows how stale each cell's most recent observation is. ",
-                  "Red cells have not been surveyed in over 10 years and should be prioritised for resurvey. ",
+                  "Red cells have no GBIF-mediated records dated within the last 10 years \u2014 recent data may exist outside GBIF, so check national/regional sources before prioritising resurvey. ",
                   "Orange cells (5\u201310 years) are approaching staleness. Green cells have data from the ",
                   "last 5 years."),
                 p(tags$strong("Occurrence distribution"), " (histogram) shows how records are spread across cells. ",
@@ -1349,8 +1355,9 @@ ui <- fluidPage(
                   "Bars in the charts are colour-coded by category."),
                 p(tags$strong("Publisher Dependency per Cell"), " maps each 10 km grid cell by the number ",
                   "of distinct publishers contributing data. ",
-                  "Cells with only one publisher are fragile — if that organisation stops contributing, ",
-                  "the cell loses all coverage. These are high-priority targets for diversifying data sources."),
+                  "Cells with a single publisher are both a resilience risk and a partnership opportunity \u2014 ",
+                  "if that organisation paused contributing, the cell would lose coverage, so broadening the ",
+                  "contributor base safeguards it. This reflects the publishing infrastructure, not the publisher."),
                 p("The ", tags$strong("All Publishers"), " table shows every contributing organisation with ",
                   "their occurrence count, species count, category, and percentage share.")
               )
@@ -1409,7 +1416,7 @@ ui <- fluidPage(
             column(12, div(class = "card",
               div(class = "card-title", icon("map"), "Publisher Dependency per Cell"),
               div(class = "info-note", "Cells coloured by the number of publishers contributing data. ",
-                "Cells with only one publisher lose all coverage if that organisation stops contributing."),
+                "Cells with a single publisher are a resilience risk and a partnership opportunity \u2014 broadening the contributor base safeguards their coverage."),
               leafletOutput("pub_dependency_map", height = "450px")))
           ),
 
@@ -4138,7 +4145,7 @@ server <- function(input, output, session) {
           div(style = "font-size:1.05rem; font-weight:500;", "Temporal: Resurvey stale cells"),
           div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$sand, ";"), comma(n_stale)),
-            " cells have not been surveyed in over 5 years. Prioritise cells with historically high diversity for resurvey.")),
+            " cells have no GBIF records newer than 5 years. After checking for data outside GBIF, prioritise cells with historically high diversity for resurvey.")),
       ),
       # Taxonomic
       div(style = goal_style,
