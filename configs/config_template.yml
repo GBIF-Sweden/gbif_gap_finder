@@ -6,7 +6,7 @@
 # Fill in all TODO items, then run:
 #   Sys.setenv(GBIF_GAP_COUNTRY = "CC")
 #   source("scripts/00_setup.R")
-#   source("scripts/01a_download_raw_data.R")
+#   source("scripts/01_download_raw_data.R")
 #
 # Data: data/{CC}/raw/ and data/{CC}/proc/
 # Grids: data/shared/grids/ (shared across European countries)
@@ -34,10 +34,10 @@ admin_boundaries:
 # National Taxonomy Backbone
 # ============================================================================
 # Find your national checklist: https://www.gbif.org/dataset/search?type=CHECKLIST
-# Provide dataset_key only — the DOI + citation are resolved from it by 01b.
 taxonomy:
   name: ""                           # TODO: e.g. "Nortaxa"
   dataset_key: ""                    # TODO: GBIF dataset UUID
+  doi: ""                            # TODO: dataset DOI
   export_url: ""                     # TODO: DwC-A download URL
 
 # ============================================================================
@@ -47,6 +47,7 @@ taxonomy:
 redlist:
   enabled: false                     # TODO: set true if available
   dataset_key: ""                    # TODO: GBIF dataset UUID
+  doi: ""                            # TODO: dataset DOI
   export_url: ""                     # TODO: DwC-A download URL
 
 # ============================================================================
@@ -58,6 +59,7 @@ redlist:
 invasives:
   enabled: false                     # TODO: set true if available
   dataset_key: ""                    # TODO: GBIF dataset UUID
+  doi: ""                            # TODO: dataset DOI
   export_url: ""                     # TODO: DwC-A download URL (IPT archive)
   name: ""                           # TODO: e.g. "National Invasive Species Registry"
 
@@ -70,6 +72,7 @@ invasives:
 sensitive:
   enabled: false                     # TODO: set true if available
   dataset_key: ""                    # TODO: GBIF dataset UUID
+  doi: ""                            # TODO: dataset DOI
   export_url: ""                     # TODO: DwC-A download URL (IPT archive)
   name: ""                           # TODO: e.g. "Restricted Access Species List"
 
@@ -79,16 +82,14 @@ sensitive:
 # Download via https://www.gbif.org/occurrence/download/sql
 # Script 01 prints the SQL query for your country.
 # Unzip and place CSVs in data/{CC}/raw/cubes/
-#
-# Maintain ONLY download_key (copy it from the GBIF download landing page).
-# The DOI, citation and record count are resolved + validated from the key by
-# scripts/01b_resolve_data_sources.R — do not hand-enter a DOI here.
 cubes:
   source: "sql_api"
   grid10km:
-    download_key: null               # TODO: fill after download
+    download_key: null               # filled after download
+    doi: null
   grid50km:
-    download_key: null               # TODO: fill after download
+    download_key: null
+    doi: null
 
 # ============================================================================
 # Paths (optional overrides)
@@ -149,6 +150,10 @@ parameters:
   taxonomic:
     min_occurrences: 10
     min_cells: 5
+    gap_species_only: true                                 # gap denominator = species-rank backbone taxa only
+    exclude_kingdoms: ["Bacteria", "Archaea", "Viruses"]   # non-multicellular kingdoms to drop from the gap (national backbone may still list them)
+    exclude_orders: ["Primates"]                           # drops Homo sapiens from the gap; CLEAR this list (or remove Primates) for countries with native non-human primates
+    year_published_format: "mjd"     # Modified Julian Date — GBIF SQL API default
 
   processing:
     large_order_threshold: 500000

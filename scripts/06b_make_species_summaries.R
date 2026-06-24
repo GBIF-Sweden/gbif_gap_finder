@@ -59,6 +59,59 @@ MAKE_SPECIES_CELL_TIME <- cfg_get("parameters.processing.make_species_cell_time"
 
 # read_cube(), safe_sum(), safe_max(), clean_for_filename() are in R/globals.R
 
+# ---------------------------------------------------------------------------
+# Scope filter: restrict the cube to the backbone's taxonomic scope
+# ---------------------------------------------------------------------------
+# Drops occurrence rows whose KINGDOM is absent from the national backbone
+# (Bacteria, Archaea, Viruses, and any protist/chromist kingdom the backbone
+# doesn't cover) -- groups that can never match in reconciliation and only
+# inflate totals. KINGDOM is used (not class) because it is a small, stable
+# vocabulary: reptiles stay (Animalia is in the backbone) even though their
+# class is blank, so they survive to be bucketed as "Unclassified" downstream.
+# NA/blank kingdom is KEPT. Allowed kingdoms are read once from the backbone and
+# cached. Config-gated. Promote this block to R/globals.R for a single shared
+# copy (the guard keeps a globals copy authoritative if present).
+if (!exists("read_cube_scoped")) {
+  .scope_allowed_kingdoms <- function() {
+    a <- getOption("gapfinder.scope_kingdoms", NULL)
+    if (is.null(a)) {
+      a <- character(0)
+      bb_path <- here(p_data_proc, "taxa_reference_current.rds")
+      if (file.exists(bb_path)) {
+        bb <- data.table::as.data.table(readRDS(bb_path))
+        kcol <- intersect(c("kingdom", "Kingdom"), names(bb))[1]
+        if (!is.na(kcol)) {
+          a <- unique(as.character(bb[[kcol]]))
+          a <- a[!is.na(a) & a != ""]
+        }
+      }
+      options(gapfinder.scope_kingdoms = a)
+    }
+    a
+  }
+  scope_filter_rows <- function(dt, label = "cube") {
+    if (!isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE)) ||
+        !"kingdom" %in% names(dt)) return(dt)
+    allowed <- .scope_allowed_kingdoms()
+    if (length(allowed) == 0) return(dt)
+    n0 <- nrow(dt)
+    dt <- dt[is.na(kingdom) | kingdom == "" | kingdom %in% allowed]
+    cli_alert_info("Scope filter [{label}]: kept {scales::comma(nrow(dt))}/{scales::comma(n0)} rows (in-backbone kingdoms)")
+    dt
+  }
+  read_cube_scoped <- function(pf, cols, grid_label = NULL, ...) {
+    on <- isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE))
+    want_kingdom <- "kingdom" %in% cols
+    cols2 <- if (on && !want_kingdom) unique(c(cols, "kingdom")) else cols
+    dt <- read_cube(pf, cols = cols2, grid_label = grid_label, ...)
+    if (on && "kingdom" %in% names(dt)) {
+      dt <- scope_filter_rows(dt)
+      if (!want_kingdom && "kingdom" %in% names(dt)) dt[, kingdom := NULL]
+    }
+    dt
+  }
+}
+
 #' Add relative occurrence columns (bias correction)
 #' Computed from order/family/class totals in the data
 add_relative_occurrences <- function(dt) {
@@ -142,6 +195,12 @@ for (grid_name in names(grid_map)) {
     dt[, yearmonth := year * 100L + as.integer(month)]
   }
   dt[, grid := grid_name]
+
+  # Restrict to the backbone's taxonomic scope (drops occurrence rows whose
+  # kingdom is absent from the backbone; NA/blank kept, so reptiles survive).
+  # Keeps the species summaries -> 09a -> the whole pipeline on the same
+  # in-scope universe as 06a/08.
+  dt <- scope_filter_rows(dt)
 
   # Recode missing taxonomy
   dt[is.na(order)  | order  == "", order  := "Unplaced"]

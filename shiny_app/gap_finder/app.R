@@ -53,6 +53,22 @@ tax_by_kingdom  <- safe_get("tax_by_kingdom")
 tax_by_phylum   <- safe_get("tax_by_phylum")
 tax_by_class    <- safe_get("tax_by_class")
 priority_zero   <- safe_get("priority_zero_cells")
+# DERIVE zero-coverage cells from spatial_gaps — the single 10km source the
+# Overview and Spatial tab already use — rather than the priority file, which 07
+# builds by stacking 10km AND 50km empties. This makes Priorities == Overview by
+# construction, regardless of that file's columns or grid labels.
+if (!is.null(spatial_gaps) &&
+    all(c("basisofrecord", "has_data", "eeacellcode") %in% names(spatial_gaps))) {
+  priority_zero <- spatial_gaps |>
+    dplyr::filter(basisofrecord == "all", !has_data) |>
+    dplyr::transmute(
+      eeacellcode,
+      n_species       = 0L,
+      occurrences     = 0,
+      priority_reason = "Zero coverage - never sampled",
+      priority_level  = "HIGH"
+    )
+}
 priority_stale  <- safe_get("priority_stale_cells")
 comparison_grids <- safe_get("comparison_grids")
 metadata        <- safe_get("metadata")
@@ -75,14 +91,7 @@ family_time_summary  <- safe_get("family_time_summary")
 last_year_ref        <- safe_get("last_year")  # observed cutoff (yearmonth), e.g. 202504
 recent_label_stored  <- safe_get("recent_label")  # e.g. "Apr 2025 - Mar 2026"
 
-# Dyntaxa-filtered versions (for scope toggle)
-dyntaxa_time_summary        <- safe_get("dyntaxa_time_summary")
-dyntaxa_order_time_summary  <- safe_get("dyntaxa_order_time_summary")
-dyntaxa_family_time_summary <- safe_get("dyntaxa_family_time_summary")
-dyntaxa_cell_summary        <- safe_get("dyntaxa_cell_summary")
-dyntaxa_cell_recency        <- safe_get("dyntaxa_cell_recency")
-dyntaxa_spatial_gaps         <- safe_get("dyntaxa_spatial_gaps")
-dyntaxa_basis_recent        <- safe_get("dyntaxa_basis_recent")
+# Full-GBIF per-basis recent layer (Record Types tab + Overview)
 all_basis_recent            <- safe_get("all_basis_recent")
 
 # Establishment means / scope data
@@ -91,27 +100,17 @@ tax_by_establishment <- safe_get("tax_by_establishment")
 has_establishment    <- !is.null(match_summary_full) &&
                         "establishmentMeans" %in% names(match_summary_full)
 
-# Exclude orders from analysis (e.g. Primates = Homo sapiens in Dyntaxa)
-# This should match parameters.taxonomic.exclude_orders in config.yml
-EXCLUDE_ORDERS <- c("Primates")
+# Order exclusions (e.g. Primates = Homo sapiens) are applied once at the source,
+# in the pipeline, via parameters.taxonomic.exclude_orders in the country config
+# (script 09b). Every taxonomic table the app loads — match summary, by-order /
+# by-family coverage, Troudet bias — is therefore already filtered, so no in-app
+# exclusion is needed.
 
-if (!is.null(match_summary_full) && length(EXCLUDE_ORDERS) > 0 &&
-    "order" %in% names(match_summary_full)) {
-  n_before <- nrow(match_summary_full)
-  match_summary_full <- match_summary_full |>
-    dplyr::filter(!order %in% EXCLUDE_ORDERS)
-  n_excluded <- n_before - nrow(match_summary_full)
-  if (n_excluded > 0) message("Excluded ", n_excluded, " taxa from orders: ",
-                               paste(EXCLUDE_ORDERS, collapse = ", "))
-}
-
-# Dyntaxa scope / invasive species data
+# Scope-flag lookup (in_dyntaxa / invasive / sensitive / threatened) for the Concern tab + data browser
 species_scope_lookup  <- safe_get("species_scope_lookup")
 tax_by_invasive       <- safe_get("tax_by_invasive")
 kingdom_cell_recency  <- safe_get("kingdom_cell_recency")
 tax_cell_recency      <- safe_get("tax_cell_recency")
-has_dyntaxa_scope     <- !is.null(species_scope_lookup) &&
-                         "in_dyntaxa" %in% names(species_scope_lookup)
 
 # Species of Concern — scope-specific data (from 09c via 11)
 threatened_spatial_gaps <- safe_get("threatened_spatial_gaps")
@@ -129,19 +128,6 @@ sensitive_cell_summary   <- safe_get("sensitive_cell_summary")
 publisher_taxonomy      <- safe_get("publisher_taxonomy")
 publisher_cell_taxonomy <- safe_get("publisher_cell_taxonomy")
 
-# Apply order exclusion to pre-computed tables
-if (length(EXCLUDE_ORDERS) > 0) {
-  filter_orders <- function(df) {
-    if (!is.null(df) && "order" %in% names(df))
-      df |> dplyr::filter(!order %in% EXCLUDE_ORDERS)
-    else df
-  }
-  troudet_bias        <- filter_orders(troudet_bias)
-  troudet_bias_order  <- filter_orders(troudet_bias_order)
-  troudet_bias_family <- filter_orders(troudet_bias_family)
-  tax_by_order        <- filter_orders(tax_by_order)
-  tax_by_family       <- filter_orders(tax_by_family)
-}
 has_kingdom_recency   <- !is.null(kingdom_cell_recency)
 has_tax_cell_recency  <- !is.null(tax_cell_recency) &&
                          "class" %in% names(tax_cell_recency)
@@ -193,11 +179,14 @@ truncate_name <- function(x, max_chars = 40) {
 classify_publisher <- function(name) {
   name_lc <- tolower(name)
   dplyr::case_when(
-    grepl("artdatabanken|artportalen|inaturalist|naturalist|ebird|bird\\.se|observation\\.org|svalan|fågelskådning", name_lc) ~ "Citizen science",
-    grepl("museum|herbari|naturhist|natural.hist|botanic.garden|museet|musée", name_lc) ~ "Museum / Herbarium",
-    grepl("universit|högskola|academy|académie|academ|institut.+sci|school.+bio", name_lc) ~ "University",
-    grepl("smhi|naturvård|environment.+agenc|survey|geological|lantbruk|jordbruk|skogsstyr|ministry|department|govt|government|myndigh", name_lc) ~ "Government",
-    TRUE ~ "Other"
+    # Citizen science — public observation platforms & recording networks
+    grepl("artdatabanken|artportalen|inaturalist|naturalist|ebird|bird\\.se|observation\\.org|svalan|fågel|naturgucker|naturglucker", name_lc) ~ "Citizen science",
+    # Private sector — consultancies & companies
+    grepl("\\bab\\b|aktiebolag|consult|calluna|ecocom|ecogain|naturcentrum|medins|pelagia|enetjärn|greensway|\\bwsp\\b|sweco|niras|\\bafry\\b|\\bltd\\b|\\bllc\\b|\\binc\\b|gmbh|corporation", name_lc) ~ "Private sector",
+    # Research data — universities, museums, herbaria, government agencies,
+    # sequencing facilities, field stations & marine institutes, and any other
+    # research/institutional publisher (default). Derived from publisher_name.
+    TRUE ~ "Research data"
   )
 }
 
@@ -389,19 +378,11 @@ ui <- fluidPage(
             span("Datasets: ", span(class = "header-stat-value", metadata$n_datasets)))
         ),
         div(style = "display:flex; align-items:center; gap:0.4rem;",
-          span(style = "font-size:0.8rem; color:#6b6b6b;", "Record type:"),
+          span(style = "font-size:1rem; color:#6b6b6b;", "Record type:"),
           selectInput("basis_filter", NULL,
             choices = basis_types,
             selected = "all",
-            width = "180px")),
-        if (has_dyntaxa_scope) div(style = "display:flex; align-items:center; gap:0.4rem;",
-          span(style = "font-size:0.8rem; color:#6b6b6b;", "Scope:"),
-          selectInput("dyntaxa_scope", NULL,
-            choices = c(
-              "Dyntaxa species (gap analysis)" = "dyntaxa",
-              "All GBIF Sweden (overview)" = "all_gbif"),
-            selected = "dyntaxa",
-            width = "240px"))
+            width = "180px"))
       )
     )
   ),
@@ -440,6 +421,11 @@ ui <- fluidPage(
               tags$strong(if (nchar(country_name) > 0) country_name else "the country"),
               "'s national species checklist, so the numbers stay consistent as you explore."),
 
+            p(style = "margin: 0 0 1.25rem; line-height: 1.7; padding: 0.7rem 0.9rem; background: var(--slate-light); border-left: 3px solid var(--slate); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--text-secondary);",
+              tags$strong("One important caveat:"), " a gap here means missing ", tags$em("GBIF"), " records \u2014 not ",
+              "that a species is absent, unstudied, or unmonitored. Recent or non-digitised data may exist outside ",
+              "GBIF, so treat these views as a guide to where to look, not as conclusions."),
+
             div(style = "font-family: 'Fraunces', serif; font-size: 1.28rem; font-weight: 600; color: var(--text-primary); margin: 0 0 0.85rem;",
               "New here? Jump straight to what matters to you:"),
             fluidRow(
@@ -460,7 +446,7 @@ ui <- fluidPage(
                 actionButton("goto_priorities", tagList(icon("bullseye"), " See Priorities"), class = "btn-primary")))
             ),
 
-            p(style = "font-size: 0.9rem; color: var(--text-muted); margin: 1.25rem 0 0; line-height: 1.6;",
+            p(style = "font-size:1rem; color: var(--text-muted); margin: 1.25rem 0 0; line-height: 1.6;",
               "Built from GBIF occurrence records, ",
               tags$strong(if (nchar(country_name) > 0) country_name else "the country"),
               "'s national Red List, the GRIIS register of invasive species, and a 10 km reference grid. ",
@@ -474,7 +460,7 @@ ui <- fluidPage(
           div(class = "stat-grid",
             div(class = "stat-box",
               div(class = "stat-value sage", textOutput("ov_total_occ", inline = TRUE)),
-              div(class = "stat-label", "Total Occurrences")),
+              div(class = "stat-label", if (nchar(country_name) > 0) paste0("Total Occurrences in ", country_name) else "Total Occurrences")),
             div(class = "stat-box",
               div(class = "stat-value slate", textOutput("ov_species", inline = TRUE)),
               div(class = "stat-label", "Species in GBIF")),
@@ -540,31 +526,54 @@ ui <- fluidPage(
             )
           ),
 
-          # Species of Concern + Publisher + BOR info boxes
+          # Species of Concern: Currently in GBIF + Unmonitored
           fluidRow(
-            column(4,
+            column(6,
               div(class = "card",
-                div(class = "card-title", icon("shield-alt"), "Species of Concern in GBIF"),
-                div(class = "info-note", style = "margin: -0.25rem 0 0.6rem; font-size: 0.85rem;",
-                  "Concern species ", tags$strong("currently in GBIF"), " \u2014 i.e. with at least one ",
-                  "occurrence record. Those with no records yet are counted as missing on the ",
-                  tags$strong("Species of Concern"), " tab."),
+                div(class = "card-title", icon("shield-alt"), "Species of Concern Currently in GBIF"),
+                div(class = "info-note", style = "margin: -0.25rem 0 0.6rem; font-size:1rem;",
+                  "Species ", tags$strong("in GBIF"), " (at least one occurrence record) out of the ",
+                  "total on the national backbone, by category."),
                 div(class = "stat-grid", style = "grid-template-columns: repeat(3, 1fr);",
                   div(class = "stat-box",
-                    div(class = "stat-value coral", textOutput("ov_n_threatened", inline = TRUE)),
-                    div(class = "stat-label", "Threatened")),
+                    div(class = "stat-value coral ratio", textOutput("ov_concern_threat", inline = TRUE)),
+                    div(class = "stat-label", "Threatened"),
+                    div(class = "stat-sublabel", "in GBIF / total")),
                   div(class = "stat-box",
-                    div(class = "stat-value sand", textOutput("ov_n_invasive", inline = TRUE)),
-                    div(class = "stat-label", "Invasive")),
+                    div(class = "stat-value sand ratio", textOutput("ov_concern_inv", inline = TRUE)),
+                    div(class = "stat-label", "Invasive"),
+                    div(class = "stat-sublabel", "in GBIF / total")),
                   div(class = "stat-box",
-                    div(class = "stat-value plum", textOutput("ov_n_sensitive", inline = TRUE)),
-                    div(class = "stat-label", "Sensitive"))
-                ),
-                div(class = "gap-detail", style = "margin-top: 0.5rem;",
-                  textOutput("ov_concern_detail", inline = TRUE))
+                    div(class = "stat-value plum ratio", textOutput("ov_concern_sens", inline = TRUE)),
+                    div(class = "stat-label", "Sensitive"),
+                    div(class = "stat-sublabel", "in GBIF / total"))
+                )
               )
             ),
-            column(4,
+            column(6,
+              div(class = "card",
+                div(class = "card-title", icon("exclamation-triangle"), "Unmonitored"),
+                div(class = "info-note", style = "margin: -0.25rem 0 0.6rem; font-size:1rem;",
+                  "Species of concern with ", tags$strong("no GBIF records yet"), " — ",
+                  "explore them on the ", tags$strong("Species of Concern"), " tab."),
+                div(class = "stat-grid", style = "grid-template-columns: repeat(3, 1fr);",
+                  div(class = "stat-box",
+                    div(class = "stat-value coral", textOutput("ov_unmon_cr", inline = TRUE)),
+                    div(class = "stat-label", "CR Species")),
+                  div(class = "stat-box",
+                    div(class = "stat-value coral", textOutput("ov_unmon_en", inline = TRUE)),
+                    div(class = "stat-label", "EN Species")),
+                  div(class = "stat-box",
+                    div(class = "stat-value sand", textOutput("ov_unmon_inv", inline = TRUE)),
+                    div(class = "stat-label", "Invasive Species"))
+                )
+              )
+            )
+          ),
+
+          # Publishers + Basis of Record
+          fluidRow(
+            column(6,
               div(class = "card",
                 div(class = "card-title", icon("building"), "Publishers"),
                 div(class = "stat-grid", style = "grid-template-columns: repeat(2, 1fr);",
@@ -579,7 +588,7 @@ ui <- fluidPage(
                   textOutput("ov_publisher_detail", inline = TRUE))
               )
             ),
-            column(4,
+            column(6,
               div(class = "card",
                 div(class = "card-title", icon("clipboard-list"), "Basis of Record"),
                 div(class = "stat-grid", style = "grid-template-columns: repeat(2, 1fr);",
@@ -653,8 +662,9 @@ ui <- fluidPage(
                 p("The ", tags$strong("Recommended Actions"), " below are concrete, countable goals, ",
                   "grouped by the kind of gap each one closes:"),
                 tags$ul(
-                  tags$li(tags$strong("Spatial:"), " Zero-coverage grid cells (never surveyed) are the highest ",
-                    "priority. Stale cells (data older than 5+ years) need resurvey to track ecological change."),
+                  tags$li(tags$strong("Spatial:"), " Grid cells with no GBIF records are the highest ",
+                    "priority. Stale cells (no GBIF records newer than 5 years) may warrant resurvey \u2014 after ",
+                    "checking whether recent data exists outside GBIF."),
                   tags$li(tags$strong("Taxonomic:"), " Missing threatened species (CR/EN with zero GBIF records) are ",
                     "critical for conservation. Under-sampled orders (high species richness, low occurrence count) ",
                     "indicate systematic collection biases."),
@@ -699,7 +709,7 @@ ui <- fluidPage(
             div(style = "display:flex; align-items:center; justify-content:space-between;",
               div(
                 div(class = "card-title", icon("download"), "Export Action Plan"),
-                div(style = "font-size:0.85rem; color:#6b6b6b;",
+                div(style = "font-size:1rem; color:#6b6b6b;",
                   "Download all priority items as a single CSV.")),
               div(style = "padding-left:1rem;",
                 downloadButton("download_action_plan", "Download CSV",
@@ -712,15 +722,15 @@ ui <- fluidPage(
               div(class = "card-title", icon("map-marker-alt"), "Zero Coverage Cells"),
               div(class = "info-note", style = "margin-top:0;",
                 "Each square is a 10 km grid cell with ", tags$strong("no records at all"),
-                " \u2014 never surveyed, or not yet digitised. Click a cell for its code."),
+                " \u2014 never recorded in GBIF (which may mean never surveyed, surveyed but not digitised, or recorded only outside GBIF). Click a cell for its code."),
               leafletOutput("zero_map", height = "400px"),
               div(style = "margin-top:0.75rem;"),
               DTOutput("zero_table"))),
             column(6, div(class = "card",
               div(class = "card-title", icon("hourglass-half"), "Stale Cells"),
               div(class = "info-note", style = "margin-top:0;",
-                "Cells whose newest record is ", tags$strong("over five years old"),
-                " \u2014 they may need resurveying to catch ecological change. Click a cell for details."),
+                "Cells whose newest ", tags$strong("GBIF record"), " is over five years old. ",
+                "Recent data may exist outside GBIF \u2014 check other sources before treating these as survey gaps. Click a cell for details."),
               leafletOutput("stale_map", height = "400px"),
               div(style = "margin-top:0.75rem;"),
               DTOutput("stale_table")))
@@ -764,7 +774,7 @@ ui <- fluidPage(
                   "can reveal sampling gaps that are otherwise hidden. The ", tags$strong("Class filter"),
                   " allows further refinement within a kingdom."),
                 p(tags$strong("Data recency"), " shows how stale each cell's most recent observation is. ",
-                  "Red cells have not been surveyed in over 10 years and should be prioritised for resurvey. ",
+                  "Red cells have no GBIF-mediated records dated within the last 10 years \u2014 recent data may exist outside GBIF, so check national/regional sources before prioritising resurvey. ",
                   "Orange cells (5\u201310 years) are approaching staleness. Green cells have data from the ",
                   "last 5 years."),
                 p(tags$strong("Occurrence distribution"), " (histogram) shows how records are spread across cells. ",
@@ -858,8 +868,9 @@ ui <- fluidPage(
                   value = c(1970, current_year), step = 1, sep = "")),
               column(2,
                 div(class = "filter-label", "Kingdom"),
-                selectInput("temp_kingdom", NULL,
-                  choices = c("All" = "", kingdom_choices), selected = "")),
+                selectizeInput("temp_kingdom", NULL,
+                  choices = c("All" = "", kingdom_choices), selected = "",
+                  options = list(allowEmptyOption = TRUE))),
               column(2,
                 div(class = "filter-label", "Phylum"),
                 uiOutput("temp_phylum_ui")),
@@ -911,9 +922,12 @@ ui <- fluidPage(
             conditionalPanel(
               condition = "input.taxonomic_about_toggle % 2 == 1",
               div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
-                p("This tab compares GBIF occurrence data against the national taxonomy backbone (Dyntaxa). ",
-                  "For each taxonomic group, it shows how many known species have GBIF records and ",
-                  "how sampling effort is distributed across groups."),
+                p(tags$strong("What this tab measures: "),
+                  "GBIF-mediated occurrence data assessed against the national taxonomy backbone (Dyntaxa). ",
+                  "Unlike the Spatial, Temporal, Record Types and Publisher tabs — which show ", tags$strong("all"),
+                  " GBIF records for Sweden with no reference filter — every completeness and gap figure here is ",
+                  "relative to the national checklist: of the species Dyntaxa lists, how many have GBIF records, ",
+                  "and how sampling effort is distributed across groups."),
                 p("The ", tags$strong("Taxonomic Bias"), " chart (following Troudet et al., 2017) reveals whether groups are ",
                   "over- or under-represented relative to their known species richness. ",
                   "If a group has 10% of all known species but only 1% of all occurrences, it is under-sampled. ",
@@ -933,9 +947,10 @@ ui <- fluidPage(
                 p(tags$strong("Species Count by Order"), " and ", tags$strong("Species Coverage by Family"),
                   " show how many species in each group are present in GBIF vs the national backbone. ",
                   "Green bars indicate species found in GBIF; sand-coloured bars show missing species."),
-                p(tags$strong("Note:"), " Gap metrics are only meaningful when the Dyntaxa scope is active. ",
-                  "When viewing 'All GBIF Sweden', completeness percentages are not shown because there is no ",
-                  "reference checklist to measure against for non-Dyntaxa taxa.")
+                p(tags$strong("Reference population: "),
+                  "completeness percentages use the species-rank taxa in the national checklist (Dyntaxa) ",
+                  "as the denominator \u2014 excluding microbial kingdoms (Bacteria, Archaea, Viruses) and ",
+                  "Homo sapiens. A species counts as \u201Cin GBIF\u201D when at least one occurrence resolves to it.")
               )
             )
           ),
@@ -945,9 +960,9 @@ ui <- fluidPage(
             fluidRow(
               column(2,
                 div(class = "filter-label", "Kingdom"),
-                selectInput("tax_kingdom", NULL,
+                selectizeInput("tax_kingdom", NULL,
                   choices = c("All" = "", kingdom_choices),
-                  selected = "")),
+                  selected = "", options = list(allowEmptyOption = TRUE))),
               column(2,
                 div(class = "filter-label", "Phylum"),
                 uiOutput("tax_phylum_ui")),
@@ -1022,16 +1037,16 @@ ui <- fluidPage(
                   width = "100%"))
             ),
 
-            plotlyOutput("troudet_bias_chart", height = "500px")),
+            plotlyOutput("troudet_bias_chart", height = "720px")),
 
           # Coverage: species count vs coverage %
           fluidRow(
             column(6, div(class = "card",
               div(class = "card-title", icon("layer-group"), "Species Count by Order"),
-              plotlyOutput("tax_order", height = "450px"))),
+              plotlyOutput("tax_order", height = "720px"))),
             column(6, div(class = "card",
               div(class = "card-title", icon("folder-tree"), "Coverage (%) by Family"),
-              plotlyOutput("tax_family", height = "450px")))
+              plotlyOutput("tax_family", height = "720px")))
           ),
 
           # Recent vs Historical — as info cards
@@ -1111,14 +1126,15 @@ ui <- fluidPage(
           # Shared taxonomy cascade filters
           div(class = "filter-section",
             fluidRow(
-              column(2, selectInput("concern_kingdom", "Kingdom",
-                choices = c("All" = "", kingdom_choices), selected = "")),
+              column(2, selectizeInput("concern_kingdom", "Kingdom",
+                choices = c("All" = "", kingdom_choices), selected = "",
+                options = list(allowEmptyOption = TRUE))),
               column(2, uiOutput("concern_phylum_ui")),
               column(2, uiOutput("concern_class_ui")),
               column(2, uiOutput("concern_order_ui")),
               column(2,
                 if (has_establishment) selectInput("concern_scope", "Scope",
-                  choices = scope_choices, selected = "present")
+                  choices = scope_choices, selected = "all")
               )
             )),
 
@@ -1148,6 +1164,9 @@ ui <- fluidPage(
                     div(class = "stat-value slate", textOutput("concern_dd", inline = TRUE)),
                     div(class = "stat-label", "DD Missing"))
                 ),
+                div(style = "margin: 0.1rem 0 0.9rem; font-size: 0.95rem; color: #555;",
+                  icon("shield-alt"), " ",
+                  textOutput("concern_threat_coverage_line", inline = TRUE)),
                 fluidRow(
                   column(6, div(class = "card",
                     div(class = "card-title", icon("shield-alt"), "Coverage by Threat Status"),
@@ -1210,10 +1229,10 @@ ui <- fluidPage(
                     div(class = "info-note",
                       "Orders with many unmonitored invasive species are high priorities ",
                       "for targeted data mobilisation."),
-                    plotlyOutput("concern_inv_by_order", height = "400px"))),
+                    plotlyOutput("concern_inv_by_order", height = "480px"))),
                   column(6, div(class = "card",
                     div(class = "card-title", icon("chart-bar"), "Invasive Species by Family"),
-                    plotlyOutput("concern_inv_by_family", height = "400px")))
+                    plotlyOutput("concern_inv_by_family", height = "480px")))
                 ),
                 fluidRow(
                   column(6, div(class = "card",
@@ -1342,15 +1361,17 @@ ui <- fluidPage(
                   "publishers contribute data for specific taxonomic groups. This reveals whether bird data ",
                   "comes mainly from citizen science while insect data depends on museum collections, for example. ",
                   "The dependency map also updates to show per-cell publisher coverage for the selected group."),
-                p(tags$strong("Publisher category:"), " Publishers are classified by name into institutional ",
+                p(tags$strong("Publisher category:"), " Publishers are classified by name into three ",
                   "categories: ", tags$em("Citizen science"), " (Artdatabanken/Artportalen, iNaturalist, eBird, etc.), ",
-                  tags$em("Museum / Herbarium"), ", ", tags$em("University"), ", ",
-                  tags$em("Government"), " agencies, and ", tags$em("Other"), ". ",
+                  tags$em("Private sector"), " (environmental consultancies and companies), and ",
+                  tags$em("Research data"), " (universities, museums, herbaria, government agencies, ",
+                  "sequencing facilities, field stations and marine institutes). ",
                   "Bars in the charts are colour-coded by category."),
                 p(tags$strong("Publisher Dependency per Cell"), " maps each 10 km grid cell by the number ",
                   "of distinct publishers contributing data. ",
-                  "Cells with only one publisher are fragile — if that organisation stops contributing, ",
-                  "the cell loses all coverage. These are high-priority targets for diversifying data sources."),
+                  "Cells with a single publisher are both a resilience risk and a partnership opportunity \u2014 ",
+                  "if that organisation paused contributing, the cell would lose coverage, so broadening the ",
+                  "contributor base safeguards it. This reflects the publishing infrastructure, not the publisher."),
                 p("The ", tags$strong("All Publishers"), " table shows every contributing organisation with ",
                   "their occurrence count, species count, category, and percentage share.")
               )
@@ -1360,20 +1381,21 @@ ui <- fluidPage(
           # Taxonomy + type filter row
           div(class = "filter-section",
             fluidRow(
-              column(2, selectInput("pub_kingdom", "Kingdom",
-                choices = c("All" = "", pub_kingdom_choices), selected = "")),
+              column(2, selectizeInput("pub_kingdom", "Kingdom",
+                choices = c("All" = "", pub_kingdom_choices), selected = "",
+                options = list(allowEmptyOption = TRUE))),
               column(2, selectizeInput("pub_class", "Class",
-                choices = c("All" = ""), selected = "", options = list(maxOptions = 500))),
+                choices = c("All" = ""), selected = "",
+                options = list(maxOptions = 500, allowEmptyOption = TRUE))),
               column(2, selectizeInput("pub_order", "Order",
-                choices = c("All" = ""), selected = "", options = list(maxOptions = 500))),
-              column(2, selectInput("pub_type_filter", "Publisher category",
+                choices = c("All" = ""), selected = "",
+                options = list(maxOptions = 500, allowEmptyOption = TRUE))),
+              column(2, selectizeInput("pub_type_filter", "Publisher category",
                 choices = c("All categories" = "",
                   "Citizen science" = "Citizen science",
-                  "Museum / Herbarium" = "Museum / Herbarium",
-                  "University" = "University",
-                  "Government" = "Government",
-                  "Other" = "Other"),
-                selected = ""))
+                  "Private sector" = "Private sector",
+                  "Research data" = "Research data"),
+                selected = "", options = list(allowEmptyOption = TRUE)))
             )),
 
           # Publisher stats
@@ -1409,7 +1431,7 @@ ui <- fluidPage(
             column(12, div(class = "card",
               div(class = "card-title", icon("map"), "Publisher Dependency per Cell"),
               div(class = "info-note", "Cells coloured by the number of publishers contributing data. ",
-                "Cells with only one publisher lose all coverage if that organisation stops contributing."),
+                "Cells with a single publisher are a resilience risk and a partnership opportunity \u2014 broadening the contributor base safeguards their coverage."),
               leafletOutput("pub_dependency_map", height = "450px")))
           ),
 
@@ -1621,10 +1643,81 @@ server <- function(input, output, session) {
     if (is.null(b) || b == "") "all" else b
   })
 
-  # Dyntaxa scope reactive: TRUE = gap analysis mode, FALSE = all GBIF overview
-  dyntaxa_mode <- reactive({
-    scope <- input$dyntaxa_scope
-    is.null(scope) || scope == "dyntaxa"
+  # ===================================================================
+  # SINGLE SOURCES OF TRUTH
+  # Every headline number shown in more than one place is computed ONCE
+  # here, from the SAME full-GBIF dataset the dedicated tab reads. Overview
+  # and Priorities consume these instead of the precomputed `dashboard`
+  # object, so the tabs never disagree. Nothing here is hardcoded.
+  # (Occurrence tabs are all full GBIF; only Taxonomy and Species of Concern
+  # are measured against the national checklist — labelled on those tabs.)
+  # ===================================================================
+
+  # Spatial coverage — mirrors the Spatial tab's `spatial_stats`
+  # (spatial_gaps, basis "all"). Overview's spatial panel == Spatial tab.
+  truth_spatial <- reactive({
+    sg <- spatial_gaps
+    req(sg)
+    sf <- sg |> filter(basisofrecord == "all")
+    total <- nrow(sf)
+    with_data <- sum(sf$has_data, na.rm = TRUE)
+    list(
+      total_cells  = total,
+      cells_data   = with_data,
+      cells_zero   = total - with_data,
+      pct_coverage = if (total > 0) round(100 * mean(sf$has_data, na.rm = TRUE), 1) else 0,
+      total_occ    = sum(as.numeric(sf$occurrences), na.rm = TRUE)
+    )
+  })
+
+  # Taxonomic coverage — from match_summary_full (matched_any), the SAME
+  # object the Species of Concern tab and the Overview threat panel use,
+  # so taxonomic coverage, concern figures and the Concern tab all agree
+  # on one (denominator-corrected) population.
+  truth_taxonomic <- reactive({
+    req(match_summary_full)
+    ms <- as_tibble(match_summary_full)
+    n_ref  <- nrow(ms)
+    n_gbif <- sum(ms$matched_any, na.rm = TRUE)
+    list(
+      n_reference  = n_ref,
+      n_in_gbif    = n_gbif,
+      n_missing    = n_ref - n_gbif,
+      pct_coverage = if (n_ref > 0) round(100 * n_gbif / n_ref, 1) else 0
+    )
+  })
+
+  # Record types — mirrors the Record Types tab's `basis_stat_boxes`
+  # (all_basis_recent, the correct per-basis cube totals), with the same
+  # spatial_gaps fallback.
+  truth_basis <- reactive({
+    br <- if (!is.null(all_basis_recent)) all_basis_recent else NULL
+    if (is.null(br)) {
+      req(spatial_gaps)
+      br <- spatial_gaps |> filter(basisofrecord != "all") |>
+        group_by(basisofrecord) |>
+        summarise(occ_total = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+    } else {
+      br <- br |> filter(basisofrecord != "all")
+    }
+    total <- sum(as.numeric(br$occ_total), na.rm = TRUE)
+    getp  <- function(b) sum(as.numeric(br$occ_total[br$basisofrecord == b]), na.rm = TRUE)
+    list(
+      total    = total,
+      obs_pct  = if (total > 0) round(100 * getp("HUMAN_OBSERVATION")  / total, 1) else 0,
+      spec_pct = if (total > 0) round(100 * getp("PRESERVED_SPECIMEN") / total, 1) else 0,
+      n_types  = sum(br$occ_total > 0, na.rm = TRUE)
+    )
+  })
+
+  # Year span — from the same time_summary the Temporal tab reads.
+  truth_years <- reactive({
+    ts <- time_summary
+    req(ts)
+    yrs <- ts$year[!is.na(ts$year)]
+    list(min = if (length(yrs)) min(yrs) else NA_real_,
+         max = if (length(yrs)) max(yrs) else NA_real_,
+         span = if (length(yrs)) (max(yrs) - min(yrs) + 1) else NA_real_)
   })
 
   # ===================================================================
@@ -1648,7 +1741,7 @@ server <- function(input, output, session) {
       ph <- order_tax_map |> filter(kingdom == input$temp_kingdom) |> pull(phylum) |> unique() |> sort()
       ch <- c("All" = "", setNames(ph, ph))
     }
-    selectInput("temp_phylum", NULL, choices = ch, selected = "")
+    selectizeInput("temp_phylum", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Temporal taxonomy cascade — Class
@@ -1661,7 +1754,7 @@ server <- function(input, output, session) {
       cl <- sort(unique(df$class))
       ch <- c("All" = "", setNames(cl, cl))
     }
-    selectInput("temp_class", NULL, choices = ch, selected = "")
+    selectizeInput("temp_class", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Temporal taxonomy cascade — Order
@@ -1675,7 +1768,7 @@ server <- function(input, output, session) {
       ord <- sort(unique(df$order))
       if (length(ord) <= 200) ch <- c("All" = "", setNames(ord, ord))
     }
-    selectInput("temp_order", NULL, choices = ch, selected = "")
+    selectizeInput("temp_order", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Temporal taxonomy cascade — Family
@@ -1690,7 +1783,7 @@ server <- function(input, output, session) {
       fam <- sort(unique(df$family))
       if (length(fam) <= 200) ch <- c("All" = "", setNames(fam, fam))
     }
-    selectInput("temp_family", NULL, choices = ch, selected = "")
+    selectizeInput("temp_family", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Helper: get filtered orders based on temporal taxonomy selections
@@ -1711,7 +1804,7 @@ server <- function(input, output, session) {
     input$temp_family
   })
 
-  # Temporal data: use Dyntaxa-filtered versions when scope toggle is active.
+  # Temporal data: full GBIF time summaries (occurrence tab, no reference filter).
   # Within each scope, use family_time_summary if family filter active,
   # order_time_summary if order/class/phylum/kingdom active, else time_summary.
   temp_data <- reactive({
@@ -1719,12 +1812,9 @@ server <- function(input, output, session) {
     orders <- temp_filtered_orders()
     has_tax_filter <- !is.null(input$temp_kingdom) && input$temp_kingdom != ""
 
-    # Select data source based on Dyntaxa scope toggle
-    use_dyntaxa <- dyntaxa_mode()
-
-    ts       <- if (use_dyntaxa && !is.null(dyntaxa_time_summary)) dyntaxa_time_summary else time_summary
-    ots      <- if (use_dyntaxa && !is.null(dyntaxa_order_time_summary)) dyntaxa_order_time_summary else order_time_summary
-    fts      <- if (use_dyntaxa && !is.null(dyntaxa_family_time_summary)) dyntaxa_family_time_summary else family_time_summary
+    ts  <- time_summary
+    ots <- order_time_summary
+    fts <- family_time_summary
 
     if (!is.null(sel_family) && !is.null(fts)) {
       # Family-level filtering
@@ -1866,18 +1956,17 @@ server <- function(input, output, session) {
   # ===================================================================
 
   output$ov_total_occ <- renderText({
-    if (!is.null(dashboard)) comma(dashboard$total_occurrences[1]) else "?"
+    comma(truth_spatial()$total_occ)
   })
   output$ov_species <- renderText({
-    if (!is.null(dashboard)) comma(dashboard$taxa_in_gbif[1]) else "?"
+    comma(truth_taxonomic()$n_in_gbif)
   })
   output$ov_year_range <- renderText({
-    if (!is.null(dashboard))
-      paste0(dashboard$year_min[1], "\u2013", dashboard$year_max[1])
-    else "?"
+    ty <- truth_years()
+    if (!is.na(ty$min)) paste0(ty$min, "\u2013", ty$max) else "?"
   })
   output$ov_cells_total <- renderText({
-    if (!is.null(grid_10km)) comma(nrow(grid_10km)) else "?"
+    comma(truth_spatial()$total_cells)
   })
 
   # Last year stats
@@ -1896,18 +1985,15 @@ server <- function(input, output, session) {
     else "0"
   })
 
-  # Spatial gap panel
+  # Spatial gap panel — from truth_spatial (same source as the Spatial tab)
   output$ov_spatial_pct <- renderText({
-    if (!is.null(dashboard)) paste0(dashboard$cells_10km_pct_coverage[1], "% coverage")
-    else "?"
+    paste0(truth_spatial()$pct_coverage, "% coverage")
   })
   output$ov_spatial_detail <- renderText({
-    if (!is.null(dashboard))
-      paste0(comma(dashboard$cells_10km_with_data[1]), " of ",
-             comma(dashboard$cells_10km_total[1]),
-             " 10km grid cells have occurrence data. ",
-             comma(dashboard$cells_10km_zero[1]), " cells have zero records.")
-    else ""
+    ts <- truth_spatial()
+    paste0(comma(ts$cells_data), " of ", comma(ts$total_cells),
+           " 10km grid cells have occurrence data. ",
+           comma(ts$cells_zero), " cells have zero records.")
   })
 
   # Temporal gap panel
@@ -1916,80 +2002,95 @@ server <- function(input, output, session) {
     else "?"
   })
   output$ov_temporal_detail <- renderText({
+    ty <- truth_years()
+    span_txt <- paste0("Data spans ", ty$span, " years (", ty$min, "\u2013", ty$max, "). ")
+    # Cell-staleness figures read the precomputed `dashboard` (computed in 10
+    # from the full cell_recency). With the scope toggle removed, that is the
+    # same full population the Spatial tab's recency map reads, so they agree.
     if (!is.null(dashboard))
-      paste0("Data spans ", dashboard$year_span[1], " years (",
-             dashboard$year_min[1], "\u2013", dashboard$year_max[1], "). ",
+      paste0(span_txt,
              "Median cell staleness: ", dashboard$median_staleness_months_10km[1], " months. ",
              round(dashboard$pct_stale_1y_10km[1], 1), "% of cells not sampled in the past year.")
-    else ""
+    else span_txt
   })
 
-  # Taxonomic gap panel
+  # Taxonomic gap panel — from truth_taxonomic (match_summary_full, same as Concern)
   output$ov_tax_pct <- renderText({
-    if (!is.null(dashboard)) paste0(dashboard$taxa_pct_coverage[1], "% coverage")
-    else "?"
+    paste0(truth_taxonomic()$pct_coverage, "% coverage")
   })
   output$ov_tax_detail <- renderText({
-    if (!is.null(dashboard))
-      paste0(comma(dashboard$taxa_in_gbif[1]), " of ",
-             comma(dashboard$taxa_in_reference[1]),
-             " backbone species found in GBIF. ",
-             comma(dashboard$taxa_missing[1]), " species have no occurrence records.")
-    else ""
+    tt <- truth_taxonomic()
+    paste0(comma(tt$n_in_gbif), " of ", comma(tt$n_reference),
+           " backbone species found in GBIF. ",
+           comma(tt$n_missing), " species have no occurrence records.")
   })
 
   # Threatened panel
-  output$ov_threat_pct <- renderText({
-    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat) && nrow(tax_by_threat) > 0) {
-      n_miss <- sum(tax_by_threat$n_missing[tax_by_threat$threatStatus %in% c("CR", "EN", "VU", "NT")], na.rm = TRUE)
-      paste0(comma(n_miss), " missing")
-    } else "No threat data"
-  })
-  output$ov_threat_detail <- renderText({
-    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat) && nrow(tax_by_threat) > 0) {
-      df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT"))
-      paste0(comma(sum(df$n_ref_total)), " threatened species in backbone, ",
-             comma(sum(df$n_in_gbif)), " found in GBIF (",
-             round(100 * sum(df$n_in_gbif) / sum(df$n_ref_total), 1), "% coverage).")
-    } else "Threat status data not available in the current backbone. Enable a red list in config.yml to see threatened species analysis."
-  })
-
-  # Species of Concern info box — count concern species CURRENTLY IN GBIF
-  # (matched_any), sourced from the same object the Species of Concern tab
-  # filters, so the Overview numbers tie out to that tab's "In GBIF" stats.
-  output$ov_n_threatened <- renderText({
+  # Derived from the SAME object the Species of Concern tab uses
+  # (match_summary_full + matched_any), so the Overview gap panel, the
+  # "Species of Concern in GBIF" box, and the Concern tab always agree. (The
+  # old tax_by_threat source could drift: a different "in GBIF" definition.)
+  # Threatened set = CR/EN/VU/NT, matching the tab.
+  ov_threat_stats <- {
     if (!is.null(match_summary_full) && "matched_any" %in% names(match_summary_full)) {
       ms <- as_tibble(match_summary_full)
       tc <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
-      if (!is.na(tc))
-        comma(sum(ms[[tc]] %in% c("CR", "EN", "VU", "NT") & ms$matched_any, na.rm = TRUE))
-      else "?"
-    } else "?"
+      if (!is.na(tc)) {
+        in_set <- ms[[tc]] %in% c("CR", "EN", "VU", "NT")
+        n_ref  <- sum(in_set, na.rm = TRUE)
+        n_gbif <- sum(in_set & ms$matched_any, na.rm = TRUE)
+        list(available = n_ref > 0, n_ref_total = n_ref, n_in_gbif = n_gbif,
+             n_missing = n_ref - n_gbif,
+             pct = if (n_ref > 0) round(100 * n_gbif / n_ref, 1) else 0)
+      } else list(available = FALSE)
+    } else list(available = FALSE)
+  }
+
+  output$ov_threat_pct <- renderText({
+    if (isTRUE(ov_threat_stats$available))
+      paste0(comma(ov_threat_stats$n_missing), " missing")
+    else "No threat data"
   })
-  output$ov_n_invasive <- renderText({
-    if (!is.null(match_summary_full) &&
-        all(c("is_invasive", "matched_any") %in% names(match_summary_full)))
-      comma(sum(match_summary_full$is_invasive & match_summary_full$matched_any, na.rm = TRUE))
-    else "?"
+  output$ov_threat_detail <- renderText({
+    if (isTRUE(ov_threat_stats$available))
+      paste0(comma(ov_threat_stats$n_ref_total), " threatened species in backbone, ",
+             comma(ov_threat_stats$n_in_gbif), " found in GBIF (",
+             ov_threat_stats$pct, "% coverage).")
+    else "Threat status data not available in the current backbone. Enable a red list in config.yml to see threatened species analysis."
   })
-  output$ov_n_sensitive <- renderText({
-    if (!is.null(match_summary_full) &&
-        all(c("is_sensitive", "matched_any") %in% names(match_summary_full)))
-      comma(sum(match_summary_full$is_sensitive & match_summary_full$matched_any, na.rm = TRUE))
-    else "?"
+
+  # Species of Concern info boxes (Overview) — all counts come from
+  # match_summary_full, the same object the Species of Concern tab filters, so
+  # the Overview ties out to it. "In GBIF" = matched_any (>= 1 occurrence);
+  # "unmonitored" = a species of concern with no GBIF records at all.
+  ov_concern <- reactive({
+    ms <- match_summary_full
+    if (is.null(ms)) return(NULL)
+    ms  <- as_tibble(ms)
+    tc  <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
+    thr <- if (!is.na(tc)) ms[[tc]] else rep(NA_character_, nrow(ms))
+    matched <- if ("matched_any" %in% names(ms)) ms$matched_any else rep(FALSE, nrow(ms))
+    inv <- if ("is_invasive" %in% names(ms)) ms$is_invasive else rep(FALSE, nrow(ms))
+    sen <- if ("is_sensitive" %in% names(ms)) ms$is_sensitive else rep(FALSE, nrow(ms))
+    is_thr <- thr %in% c("CR", "EN", "VU", "NT")
+    list(
+      thr_total   = sum(is_thr, na.rm = TRUE),
+      thr_in_gbif = sum(is_thr & matched, na.rm = TRUE),
+      inv_total   = sum(inv, na.rm = TRUE),
+      inv_in_gbif = sum(inv & matched, na.rm = TRUE),
+      sen_total   = sum(sen, na.rm = TRUE),
+      sen_in_gbif = sum(sen & matched, na.rm = TRUE),
+      unmon_cr    = sum(thr == "CR" & !matched, na.rm = TRUE),
+      unmon_en    = sum(thr == "EN" & !matched, na.rm = TRUE),
+      unmon_inv   = sum(inv & !matched, na.rm = TRUE)
+    )
   })
-  output$ov_concern_detail <- renderText({
-    if (!is.null(match_summary_full)) {
-      ms <- match_summary_full |> as_tibble()
-      threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
-      n_cr_en_miss <- if (!is.na(threat_col)) {
-        ms |> filter(.data[[threat_col]] %in% c("CR", "EN"), !matched_any) |> nrow()
-      } else 0
-      n_inv_miss <- if ("is_invasive" %in% names(ms)) sum(ms$is_invasive & !ms$matched_any, na.rm = TRUE) else 0
-      paste0(comma(n_cr_en_miss), " CR/EN species missing from GBIF. ",
-             comma(n_inv_miss), " invasive species unmonitored.")
-    } else ""
-  })
+  output$ov_concern_threat <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else paste0(comma(cc$thr_in_gbif), " / ", comma(cc$thr_total)) })
+  output$ov_concern_inv    <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else paste0(comma(cc$inv_in_gbif), " / ", comma(cc$inv_total)) })
+  output$ov_concern_sens   <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else paste0(comma(cc$sen_in_gbif), " / ", comma(cc$sen_total)) })
+  output$ov_unmon_cr  <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else comma(cc$unmon_cr) })
+  output$ov_unmon_en  <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else comma(cc$unmon_en) })
+  output$ov_unmon_inv <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else comma(cc$unmon_inv) })
 
   # Publisher info box
   output$ov_n_publishers <- renderText({
@@ -2012,29 +2113,15 @@ server <- function(input, output, session) {
     } else ""
   })
 
-  # Basis of Record info box
+  # Basis of Record info box — from truth_basis (same source as the Record Types tab)
   output$ov_bor_obs_pct <- renderText({
-    if (!is.null(spatial_gaps)) {
-      sg <- spatial_gaps |> filter(basisofrecord != "all")
-      total <- sum(sg$occurrences, na.rm = TRUE)
-      obs <- sum(sg$occurrences[sg$basisofrecord == "HUMAN_OBSERVATION"], na.rm = TRUE)
-      if (total > 0) paste0(round(100 * obs / total, 1), "%") else "?"
-    } else "?"
+    paste0(truth_basis()$obs_pct, "%")
   })
   output$ov_bor_spec_pct <- renderText({
-    if (!is.null(spatial_gaps)) {
-      sg <- spatial_gaps |> filter(basisofrecord != "all")
-      total <- sum(sg$occurrences, na.rm = TRUE)
-      spec <- sum(sg$occurrences[sg$basisofrecord == "PRESERVED_SPECIMEN"], na.rm = TRUE)
-      if (total > 0) paste0(round(100 * spec / total, 1), "%") else "?"
-    } else "?"
+    paste0(truth_basis()$spec_pct, "%")
   })
   output$ov_bor_detail <- renderText({
-    if (!is.null(spatial_gaps)) {
-      sg <- spatial_gaps |> filter(basisofrecord != "all")
-      n_types <- length(unique(sg$basisofrecord[sg$occurrences > 0]))
-      paste0(n_types, " record types represented across the dataset.")
-    } else ""
+    paste0(truth_basis()$n_types, " record types represented across the dataset.")
   })
 
   # Overview coverage chart — REMOVED (Coverage Overview deleted)
@@ -2053,11 +2140,12 @@ server <- function(input, output, session) {
 
   # Spatial progress bar
   output$ov_spatial_bar <- renderUI({
-    pct <- if (!is.null(dashboard)) as.numeric(dashboard$cells_10km_pct_coverage[1]) else 0
-    make_progress_bar(pct, pal$sage, "#e8ede9")
+    make_progress_bar(truth_spatial()$pct_coverage, pal$sage, "#e8ede9")
   })
 
   # Temporal progress bar (inverse: % not stale = freshness)
+  # Staleness reads the precomputed `dashboard` (full cell_recency, via 10) —
+  # the same full population the recency map uses now the scope toggle is gone.
   output$ov_temporal_bar <- renderUI({
     pct <- if (!is.null(dashboard)) 100 - as.numeric(dashboard$pct_stale_5y_10km[1]) else 0
     make_progress_bar(pct, pal$slate, "#e2e8ee")
@@ -2065,18 +2153,13 @@ server <- function(input, output, session) {
 
   # Taxonomic progress bar
   output$ov_tax_bar <- renderUI({
-    pct <- if (!is.null(dashboard)) as.numeric(dashboard$taxa_pct_coverage[1]) else 0
-    make_progress_bar(pct, pal$sand, "#ede8df")
+    make_progress_bar(truth_taxonomic()$pct_coverage, pal$sand, "#ede8df")
   })
 
   # Threatened progress bar
   output$ov_threat_bar <- renderUI({
-    if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat) && nrow(tax_by_threat) > 0) {
-      df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT"))
-      if (sum(df$n_ref_total) > 0) {
-        pct <- round(100 * sum(df$n_in_gbif) / sum(df$n_ref_total), 1)
-      } else { pct <- 0 }
-      make_progress_bar(pct, pal$coral, "#ede3e0")
+    if (isTRUE(ov_threat_stats$available)) {
+      make_progress_bar(ov_threat_stats$pct, pal$coral, "#ede3e0")
     } else {
       tags$div(
         style = "background:#eee; border-radius:6px; height:10px; width:100%;",
@@ -2129,25 +2212,17 @@ server <- function(input, output, session) {
       setView(lng = 16, lat = 63, zoom = 5)
   })
 
-  # Spatial kingdom filter — filtered by Dyntaxa scope when active
+  # Spatial kingdom filter -- all GBIF kingdoms (no reference filter).
   output$spatial_kingdom_filter_ui <- renderUI({
     kingdoms <- if (has_kingdom_recency) {
       sort(unique(kingdom_cell_recency$kingdom))
     } else character(0)
 
-    # Filter to Dyntaxa kingdoms when in Dyntaxa mode
-    if (dyntaxa_mode() && has_dyntaxa_scope) {
-      dyntaxa_kingdoms <- species_scope_lookup |>
-        filter(in_dyntaxa == TRUE, !is.na(kingdom), kingdom != "") |>
-        pull(kingdom) |> unique()
-      kingdoms <- intersect(kingdoms, dyntaxa_kingdoms)
-    }
-
     ch <- c("All kingdoms" = "", setNames(sort(kingdoms), sort(kingdoms)))
-    selectInput("spatial_kingdom_filter", "Kingdom", choices = ch, selected = "")
+    selectizeInput("spatial_kingdom_filter", "Kingdom", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
-  # Spatial class filter — cascading from kingdom selection, filtered by Dyntaxa scope
+  # Spatial class filter — cascading from kingdom selection
   output$spatial_class_filter_ui <- renderUI({
     ch <- c("All classes" = "")
     if (has_tax_cell_recency &&
@@ -2157,29 +2232,17 @@ server <- function(input, output, session) {
         filter(kingdom == input$spatial_kingdom_filter, class != "Unplaced") |>
         pull(class) |> unique() |> sort()
 
-      # Filter to Dyntaxa classes when in Dyntaxa mode
-      if (dyntaxa_mode() && has_dyntaxa_scope) {
-        dyntaxa_classes <- species_scope_lookup |>
-          filter(in_dyntaxa == TRUE,
-                 kingdom == input$spatial_kingdom_filter,
-                 !is.na(class), class != "") |>
-          pull(class) |> unique()
-        classes <- intersect(classes, dyntaxa_classes)
-      }
-
       ch <- c("All classes" = "", setNames(sort(classes), sort(classes)))
     }
-    selectInput("spatial_class_filter", "Class", choices = ch, selected = "")
+    selectizeInput("spatial_class_filter", "Class", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Reactive map update when map_var, basis, or taxonomy filter changes
   observe({
     req(grid_10km, spatial_gaps, input$map_var)
 
-    # Select data source based on Dyntaxa scope toggle
-    use_dyntaxa <- dyntaxa_mode()
-    active_spatial   <- if (use_dyntaxa && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
-    active_recency   <- if (use_dyntaxa && !is.null(dyntaxa_cell_recency)) dyntaxa_cell_recency else cell_recency
+    active_spatial <- spatial_gaps
+    active_recency <- cell_recency
 
     sf_base <- active_spatial |> filter(basisofrecord == basis_selected())
 
@@ -2377,13 +2440,14 @@ server <- function(input, output, session) {
 
   output$spatial_stats <- renderTable({
     req(spatial_gaps)
-    active_sg <- if (dyntaxa_mode() && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    active_sg <- spatial_gaps
     sf <- active_sg |> filter(basisofrecord == basis_selected())
     tibble(
-      Metric = c("Total 10km Cells", "Cells with Data", "Coverage",
+      Metric = c("Total 10km Cells", "Cells with Data", "Empty Cells", "Coverage",
                   "Total Occurrences", "Median per Cell"),
       Value = c(comma(nrow(sf)),
                 comma(sum(sf$has_data, na.rm = TRUE)),
+                comma(nrow(sf) - sum(sf$has_data, na.rm = TRUE)),
                 paste0(round(100 * mean(sf$has_data, na.rm = TRUE), 1), "%"),
                 comma(sum(sf$occurrences, na.rm = TRUE)),
                 comma(median(sf$occurrences[sf$occurrences > 0], na.rm = TRUE)))
@@ -2461,9 +2525,7 @@ server <- function(input, output, session) {
 
   # Stat boxes — use basis_recent data (correct per-basis totals from cube)
   output$basis_stat_boxes <- renderUI({
-    br <- if (dyntaxa_mode() && !is.null(dyntaxa_basis_recent)) dyntaxa_basis_recent
-          else if (!is.null(all_basis_recent)) all_basis_recent
-          else NULL
+    br <- if (!is.null(all_basis_recent)) all_basis_recent else NULL
 
     if (is.null(br)) {
       # Fallback to spatial_gaps
@@ -2497,9 +2559,7 @@ server <- function(input, output, session) {
 
   # Pie / stacked bar — switches based on last-12-months toggle
   output$basis_pie <- renderPlotly({
-    br <- if (dyntaxa_mode() && !is.null(dyntaxa_basis_recent)) dyntaxa_basis_recent
-          else if (!is.null(all_basis_recent)) all_basis_recent
-          else NULL
+    br <- if (!is.null(all_basis_recent)) all_basis_recent else NULL
 
     ly_mode <- if (!is.null(input$basis_last_year_mode)) input$basis_last_year_mode else "off"
 
@@ -2576,10 +2636,10 @@ server <- function(input, output, session) {
     req(time_summary, input$basis_timeline_select)
     sel <- input$basis_timeline_select
 
-    ts <- if (dyntaxa_mode() && !is.null(dyntaxa_time_summary)) dyntaxa_time_summary else time_summary
+    ts <- time_summary
 
     df <- ts |>
-      filter(basisofrecord == sel, !is.na(year), year >= 1970) |>
+      filter(basisofrecord == sel, !is.na(year), year >= 1500, year <= current_year) |>
       group_by(year) |>
       summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
 
@@ -2604,7 +2664,7 @@ server <- function(input, output, session) {
   # Spatial coverage bar — uses scope-aware spatial_gaps (zero-filled grid)
   output$basis_spatial_bar <- renderPlotly({
     req(spatial_gaps)
-    active_sg <- if (dyntaxa_mode() && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    active_sg <- spatial_gaps
     df <- active_sg |>
       filter(basisofrecord != "all") |>
       group_by(basisofrecord) |>
@@ -2634,7 +2694,7 @@ server <- function(input, output, session) {
   # Species coverage bar — uses scope-aware spatial_gaps (zero-filled grid)
   output$basis_species_bar <- renderPlotly({
     req(spatial_gaps)
-    active_sg <- if (dyntaxa_mode() && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    active_sg <- spatial_gaps
     df <- active_sg |>
       filter(basisofrecord != "all") |>
       group_by(basisofrecord) |>
@@ -2664,7 +2724,7 @@ server <- function(input, output, session) {
     req(grid_10km, spatial_gaps, input$basis_map_select)
     sel <- input$basis_map_select
 
-    active_sg <- if (dyntaxa_mode() && !is.null(dyntaxa_spatial_gaps)) dyntaxa_spatial_gaps else spatial_gaps
+    active_sg <- spatial_gaps
     sg <- active_sg |> filter(basisofrecord == sel)
     map_sf <- grid_10km |> left_join(sg |> select(eeacellcode, occurrences, n_species), by = "eeacellcode")
 
@@ -2715,7 +2775,7 @@ server <- function(input, output, session) {
       ph <- sort(unique(df$phylum[!is.na(df$phylum) & df$phylum != ""]))
       choices <- c("All" = "", setNames(ph, ph))
     }
-    selectInput("tax_phylum", NULL, choices = choices, selected = "")
+    selectizeInput("tax_phylum", NULL, choices = choices, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Reactive: filtered class choices based on selected kingdom + phylum
@@ -2732,7 +2792,7 @@ server <- function(input, output, session) {
       cl <- sort(unique(df$class[!is.na(df$class) & df$class != ""]))
       choices <- c("All" = "", setNames(cl, cl))
     }
-    selectInput("tax_class", NULL, choices = choices, selected = "")
+    selectizeInput("tax_class", NULL, choices = choices, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Reactive: filtered order choices (for additional narrowing)
@@ -2754,7 +2814,7 @@ server <- function(input, output, session) {
         choices <- c("All" = "", setNames(ord, ord))
       }
     }
-    selectInput("tax_order_filter", NULL, choices = choices, selected = "")
+    selectizeInput("tax_order_filter", NULL, choices = choices, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Reactive: filtered family choices
@@ -2771,7 +2831,7 @@ server <- function(input, output, session) {
         choices <- c("All" = "", setNames(fam, fam))
       }
     }
-    selectInput("tax_family_filter", NULL, choices = choices, selected = "")
+    selectizeInput("tax_family_filter", NULL, choices = choices, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
 
@@ -2819,14 +2879,14 @@ server <- function(input, output, session) {
         "margin-bottom: 1rem; padding: 0.5rem 1rem; ",
         "background: var(--bg-card, #f8f6f3); border-radius: 6px; ",
         "border-left: 4px solid var(--sage, #7a9a7e); ",
-        "font-size: 0.9rem; color: var(--text-secondary, #666); ",
+        "font-size:1rem; color: var(--text-secondary, #666); ",
         "display: flex; align-items: center; gap: 0.5rem;"
       ),
       icon("filter", style = "color: var(--sage, #7a9a7e);"),
       tags$span("Showing:"),
       tags$strong(breadcrumb, style = "color: var(--text-primary, #333);"),
       actionLink("tax_clear_filters", tagList(icon("times-circle"), "Clear"),
-        style = "margin-left: auto; font-size: 0.85rem; color: var(--coral, #EE6677); text-decoration: none;")
+        style = "margin-left: auto; font-size:1rem; color: var(--coral, #EE6677); text-decoration: none;")
     )
   })
 
@@ -3011,7 +3071,8 @@ server <- function(input, output, session) {
       xaxis = list(
         title = "Deviation from proportional sampling (occurrences)",
         zeroline = TRUE, zerolinecolor = "#666", zerolinewidth = 1),
-      yaxis = list(title = ""),
+      yaxis = list(title = "", tickmode = "linear", dtick = 1,
+        automargin = TRUE, tickfont = list(size = 11)),
       legend = list(orientation = "h", y = -0.15),
       shapes = list(
         list(type = "line", x0 = 0, x1 = 0, y0 = -0.5, y1 = n - 0.5,
@@ -3073,7 +3134,9 @@ server <- function(input, output, session) {
     p |> plotly_layout(
         barmode = "stack",
         xaxis = list(title = "Number of species", automargin = TRUE),
-        yaxis = list(title = "", categoryorder = "total ascending"),
+        yaxis = list(title = "", categoryorder = "total ascending",
+          tickmode = "linear", dtick = 1, automargin = TRUE,
+          tickfont = list(size = 11)),
         margin = list(r = 160),
         legend = list(orientation = "h", y = -0.15))
   })
@@ -3095,7 +3158,9 @@ server <- function(input, output, session) {
       orientation = "h") |>
       plotly_layout(
         xaxis = list(title = "Coverage (%)", range = c(0, 105)),
-        yaxis = list(title = "", categoryorder = "total ascending"))
+        yaxis = list(title = "", categoryorder = "total ascending",
+          tickmode = "linear", dtick = 1, automargin = TRUE,
+          tickfont = list(size = 11)))
   })
 
   # Recent vs Historical — info cards showing multiplier
@@ -3120,7 +3185,15 @@ server <- function(input, output, session) {
       mutate(era = ifelse(period_start >= 2000, "Recent", "Historical")) |>
       group_by(order, era) |>
       summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
-      pivot_wider(names_from = era, values_from = occ, values_fill = 0) |>
+      pivot_wider(names_from = era, values_from = occ, values_fill = 0)
+
+    # A filter selection — or data sitting entirely on one side of the year-2000
+    # cutoff — can leave only one era column after the pivot. Guarantee both so
+    # the comparison below never references a missing column.
+    if (!"Historical" %in% names(df)) df$Historical <- 0
+    if (!"Recent" %in% names(df)) df$Recent <- 0
+
+    df <- df |>
       filter(Historical > 0) |>
       mutate(
         multiplier = round(Recent / Historical, 1),
@@ -3147,8 +3220,8 @@ server <- function(input, output, session) {
       div(style = "background:#fafaf7; border-radius:8px; padding:0.75rem; text-align:center;",
         div(style = paste0("font-size:1.4rem; font-weight:600; color:", col, ";"),
           icon_char, " ", mult_text),
-        div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;", row$order),
-        div(style = "font-size:0.75rem; color:var(--text-muted);",
+        div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;", row$order),
+        div(style = "font-size:0.92rem; color:var(--text-muted);",
           comma(row$Historical), " \u2192 ", comma(row$Recent))
       )
     })
@@ -3167,7 +3240,7 @@ server <- function(input, output, session) {
       ph <- tax_by_order |> filter(kingdom == input$concern_kingdom) |> pull(phylum) |> unique() |> sort()
       ch <- c("All" = "", setNames(ph, ph))
     }
-    selectInput("concern_phylum", "Phylum", choices = ch, selected = "")
+    selectizeInput("concern_phylum", "Phylum", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   output$concern_class_ui <- renderUI({
@@ -3179,7 +3252,7 @@ server <- function(input, output, session) {
       cl <- sort(unique(df$class))
       ch <- c("All" = "", setNames(cl, cl))
     }
-    selectInput("concern_class", "Class", choices = ch, selected = "")
+    selectizeInput("concern_class", "Class", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   output$concern_order_ui <- renderUI({
@@ -3192,13 +3265,18 @@ server <- function(input, output, session) {
       ord <- sort(unique(df$order))
       if (length(ord) <= 100) ch <- c("All" = "", setNames(ord, ord))
     }
-    selectInput("concern_order", "Order", choices = ch, selected = "")
+    selectizeInput("concern_order", "Order", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
   # Shared reactive: filter match_summary by concern-tab filters + scope
   concern_filtered_taxa <- reactive({
-    req(safe_get("taxonomic_match_summary"))
-    ms <- safe_get("taxonomic_match_summary") |> as_tibble()
+    req(match_summary_full)
+    # Use the SAME base object as the Overview. match_summary_full is
+    # taxonomic_match_summary with the Primates (Homo sapiens) exclusion applied
+    # and inherits 09b's species-rank / kingdom scoping, so the Concern tab's
+    # totals tie out to the Overview's Species-of-Concern figures instead of
+    # silently counting a different population.
+    ms <- match_summary_full |> as_tibble()
 
     # Apply scope filter
     scope <- input$concern_scope
@@ -3236,7 +3314,7 @@ server <- function(input, output, session) {
     threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
     if (is.na(threat_col)) return(NULL)
     ms |> mutate(threatStatus = .data[[threat_col]]) |>
-      filter(!is.na(threatStatus), threatStatus %in% c("CR", "EN", "VU", "NT", "LC", "DD"))
+      filter(!is.na(threatStatus), threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
   })
 
   output$concern_cr <- renderText({
@@ -3258,6 +3336,21 @@ server <- function(input, output, session) {
   output$concern_dd <- renderText({
     ms <- concern_threat_data()
     if (!is.null(ms)) comma(sum(!ms$matched_any[ms$threatStatus == "DD"], na.rm = TRUE)) else "0"
+  })
+
+  # Aggregate threatened coverage, computed identically to the Overview's
+  # ov_threat_stats (CR/EN/VU/NT over the same population). At the default
+  # scope this equals the Overview figure exactly; it then tracks the Concern
+  # tab's scope/taxonomy filters so the two never silently disagree.
+  output$concern_threat_coverage_line <- renderText({
+    ms <- concern_threat_data()
+    if (is.null(ms)) return("Threat coverage unavailable")
+    thr <- ms[ms$threatStatus %in% c("CR", "EN", "VU", "NT"), ]
+    n_ref <- nrow(thr)
+    if (n_ref == 0) return("No threatened (CR/EN/VU/NT) species in the current selection")
+    n_gbif <- sum(thr$matched_any, na.rm = TRUE)
+    paste0(round(100 * n_gbif / n_ref, 1), "% of threatened species in GBIF \u2014 ",
+           comma(n_gbif), " of ", comma(n_ref), " (CR/EN/VU/NT)")
   })
 
   output$concern_threat_coverage <- renderPlotly({
@@ -3473,7 +3566,9 @@ server <- function(input, output, session) {
       name = "In GBIF", marker = list(color = pal$sage), orientation = "h") |>
       add_trace(x = ~n_missing, name = "Missing", marker = list(color = pal$coral)) |>
       plotly_layout(barmode = "stack",
-        xaxis = list(title = "Number of species"), yaxis = list(title = ""),
+        xaxis = list(title = "Number of species"),
+        yaxis = list(title = "", tickmode = "linear", dtick = 1,
+          automargin = TRUE, tickfont = list(size = 11)),
         legend = list(orientation = "h", y = -0.15))
   })
 
@@ -3492,7 +3587,9 @@ server <- function(input, output, session) {
       name = "In GBIF", marker = list(color = pal$sage), orientation = "h") |>
       add_trace(x = ~n_missing, name = "Missing", marker = list(color = pal$sand)) |>
       plotly_layout(barmode = "stack",
-        xaxis = list(title = "Number of species"), yaxis = list(title = ""),
+        xaxis = list(title = "Number of species"),
+        yaxis = list(title = "", tickmode = "linear", dtick = 1,
+          automargin = TRUE, tickfont = list(size = 11)),
         legend = list(orientation = "h", y = -0.15))
   })
 
@@ -3735,6 +3832,19 @@ server <- function(input, output, session) {
   publisher_summary <- safe_get("publisher_summary")
   publisher_cell_dep <- safe_get("publisher_cell_dependency")
 
+  # Drop the "GBIF Sweden" placeholder publisher — a holding record for
+  # orphaned/legacy datasets, not a real data publisher (ROADMAP D10). Capture
+  # its org key(s) first so taxonomy-filtered views (which re-aggregate
+  # publisher_taxonomy by orgkey) exclude it as well.
+  gbif_sweden_keys <- character(0)
+  if (!is.null(publisher_summary) && "publisher_name" %in% names(publisher_summary)) {
+    is_gbif_se <- !is.na(publisher_summary$publisher_name) &
+      grepl("^gbif[ _-]?sweden$", trimws(tolower(publisher_summary$publisher_name)))
+    if ("publishingorgkey" %in% names(publisher_summary))
+      gbif_sweden_keys <- unique(publisher_summary$publishingorgkey[is_gbif_se])
+    publisher_summary <- publisher_summary[!is_gbif_se, , drop = FALSE]
+  }
+
   # Cascading taxonomy filters — server-side selectize to avoid large-option warnings
   observe({
     choices <- c("All" = "")
@@ -3786,6 +3896,7 @@ server <- function(input, output, session) {
   pub_filtered <- reactive({
     if (pub_tax_active() && !is.null(pub_tax_filtered())) {
       pub_agg <- pub_tax_filtered() |>
+        filter(!publishingorgkey %in% gbif_sweden_keys) |>
         group_by(publishingorgkey) |>
         summarise(
           total_occurrences = sum(total_occurrences, na.rm = TRUE),
@@ -3854,10 +3965,8 @@ server <- function(input, output, session) {
   # Category color palette for publisher charts
   pub_cat_colors <- c(
     "Citizen science" = "#2A7F62",
-    "Museum / Herbarium" = "#CCBB44",
-    "University" = "#4477AA",
-    "Government" = "#AA3377",
-    "Other" = "#bbbbbb"
+    "Private sector"  = "#CCBB44",
+    "Research data"   = "#4477AA"
   )
 
   output$pub_top_chart <- renderPlotly({
@@ -4070,7 +4179,7 @@ server <- function(input, output, session) {
     if (!is.null(priority_stale)) comma(nrow(priority_stale)) else "0"
   })
   output$stat_taxa <- renderText({
-    if (!is.null(dashboard)) comma(dashboard$n_priority_taxa[1]) else "0"
+    comma(truth_taxonomic()$n_missing)
   })
   output$stat_resolved <- renderText({
     if (!is.null(priority_resolved)) comma(nrow(priority_resolved)) else "0"
@@ -4082,7 +4191,7 @@ server <- function(input, output, session) {
       if (!is.null(dashboard)) dashboard$n_zero_coverage_cells[1] else 0
     }
     n_stale <- if (!is.null(priority_stale)) nrow(priority_stale) else 0
-    n_taxa_missing <- if (!is.null(dashboard)) dashboard$n_priority_taxa[1] else 0
+    n_taxa_missing <- truth_taxonomic()$n_missing
 
     # Threatened missing (CR + EN specifically)
     n_cr_en <- 0
@@ -4127,7 +4236,7 @@ server <- function(input, output, session) {
         div(style = paste0(icon_style, " color:", pal$coral, ";"), icon("map")),
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Spatial: Fill zero-coverage cells"),
-          div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
+          div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$coral, ";"), comma(n_zero)),
             " grid cells have never been surveyed. Target these for new field campaigns or citizen science events.")),
       ),
@@ -4136,16 +4245,16 @@ server <- function(input, output, session) {
         div(style = paste0(icon_style, " color:", pal$sand, ";"), icon("clock")),
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Temporal: Resurvey stale cells"),
-          div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
+          div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$sand, ";"), comma(n_stale)),
-            " cells have not been surveyed in over 5 years. Prioritise cells with historically high diversity for resurvey.")),
+            " cells have no GBIF records newer than 5 years. After checking for data outside GBIF, prioritise cells with historically high diversity for resurvey.")),
       ),
       # Taxonomic
       div(style = goal_style,
         div(style = paste0(icon_style, " color:", pal$plum, ";"), icon("leaf")),
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Taxonomic: Close species coverage gaps"),
-          div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
+          div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$plum, ";"), comma(n_taxa_missing)),
             " species in the national backbone have no GBIF records. Focus on under-sampled orders and families shown below.")),
       ),
@@ -4154,7 +4263,7 @@ server <- function(input, output, session) {
         div(style = paste0(icon_style, " color:", pal$coral, ";"), icon("exclamation-triangle")),
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Threatened: Monitor CR and EN species"),
-          div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
+          div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
             span(style = paste0(num_style, " color:", pal$coral, ";"), comma(n_cr_en)),
             " critically endangered or endangered species lack any GBIF occurrence data. These are the highest priority for targeted surveys.")),
       )
@@ -4167,7 +4276,7 @@ server <- function(input, output, session) {
           div(style = paste0(icon_style, " color:", pal$sage, ";"), icon("seedling")),
           div(style = "flex:1;",
             div(style = "font-size:1.05rem; font-weight:500;", "Native species: Improve baseline coverage"),
-            div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
+            div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
               "Native species coverage is ",
               span(style = paste0(num_style, " color:", pal$sage, ";"), paste0(native_cov, "%")),
               " (", comma(n_native_missing), " native species missing). ",
@@ -4193,7 +4302,7 @@ server <- function(input, output, session) {
           div(style = paste0(icon_style, " color:", pal$plum, ";"), icon("eye-slash")),
           div(style = "flex:1;",
             div(style = "font-size:1.05rem; font-weight:500;", "Sensitive species: Assess data availability"),
-            div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
+            div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
               span(style = paste0(num_style, " color:", pal$plum, ";"), comma(n_sensitive)),
               " species have restricted coordinates in GBIF (generalised to 5\u201350 km). ",
               comma(n_sensitive_in_gbif), " have occurrence records. ",
@@ -4216,7 +4325,7 @@ server <- function(input, output, session) {
           div(style = paste0(icon_style, " color:", pal$slate, ";"), icon("building")),
           div(style = "flex:1;",
             div(style = "font-size:1.05rem; font-weight:500;", "Infrastructure: Diversify data sources"),
-            div(style = "font-size:0.95rem; color:var(--text-secondary); margin-top:0.25rem;",
+            div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
               span(style = paste0(num_style, " color:", pal$slate, ";"), comma(n_single_pub)),
               " of ", comma(n_total_cells), " grid cells depend on a single publisher. ",
               "Engage additional data holders (museums, universities, citizen science platforms) to improve resilience. ",
@@ -4237,19 +4346,16 @@ server <- function(input, output, session) {
     ly_new_cells <- if (!is.null(overview_last_year)) overview_last_year$cells_newly_covered else 0
     ly_resolved <- if (!is.null(priority_resolved)) nrow(priority_resolved) else 0
 
-    # Compute species added in last 12 months (approximate from match_summary)
-    ly_species <- 0
-    if (!is.null(match_summary_full)) {
-      # Species with any occurrence in the recent period — approximate from total
-      # Use overview data if available
-      ly_species <- if (!is.null(overview_last_year$species_last_year))
-        overview_last_year$species_last_year else round(ly_occ / 50)  # rough estimate
-    }
+    # Target-setting parameters — planning goals, NOT measured data.
+    # Lifted to named, tunable constants so there are no buried magic numbers.
+    target_mult            <- 1.5   # aspirational multiplier on last-12-months achievement
+    min_resolved_floor     <- 5L    # floor so the resolved target is never trivially small
+    cr_en_target_cap       <- 20L   # per-year cap on the CR/EN survey target
+    single_pub_target_frac <- 0.1   # share of single-publisher cells to diversify
+    single_pub_target_cap  <- 50L   # cap on the single-publisher diversification target
 
-    # Targets: 1.5× what was achieved (aspirational but grounded)
-    target_mult <- 1.5
     target_new_cells <- ceiling(ly_new_cells * target_mult)
-    target_resolved <- ceiling(max(ly_resolved, 5) * target_mult)
+    target_resolved  <- ceiling(max(ly_resolved, min_resolved_floor) * target_mult)
 
     n_zero <- if (!is.null(priority_zero)) nrow(priority_zero) else 0
     n_stale <- if (!is.null(priority_stale)) nrow(priority_stale) else 0
@@ -4262,7 +4368,7 @@ server <- function(input, output, session) {
     }
 
     row_style <- "display:flex; align-items:center; padding:0.6rem 0; border-bottom:1px solid #f0f0f0;"
-    label_style <- "flex:2; font-size:0.95rem;"
+    label_style <- "flex:2; font-size:1rem;"
     achieved_style <- "flex:1; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:1.05rem;"
     target_style <- "flex:1; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:1.05rem; font-weight:600;"
     header_style <- "display:flex; padding:0.4rem 0; border-bottom:2px solid #ddd; margin-bottom:0.25rem;"
@@ -4298,14 +4404,14 @@ server <- function(input, output, session) {
         div(style = label_style, "CR/EN species with new records"),
         div(style = achieved_style, "\u2014"),
         div(style = paste0(target_style, " color:", pal$coral, ";"),
-          paste0("Target: ", comma(min(n_cr_en, 20)), " of ", comma(n_cr_en), " missing"))
+          paste0("Target: ", comma(min(n_cr_en, cr_en_target_cap)), " of ", comma(n_cr_en), " missing"))
       ),
       div(style = paste0(row_style, " border-bottom:none;"),
         div(style = label_style, "Single-publisher cells diversified"),
         div(style = achieved_style, "\u2014"),
         div(style = paste0(target_style, " color:", pal$slate, ";"), {
           n_sp <- if (!is.null(publisher_cell_dep)) sum(publisher_cell_dep$n_publishers == 1) else 0
-          if (n_sp > 0) paste0("Target: ", comma(min(ceiling(n_sp * 0.1), 50)),
+          if (n_sp > 0) paste0("Target: ", comma(min(ceiling(n_sp * single_pub_target_frac), single_pub_target_cap)),
             " of ", comma(n_sp)) else "\u2014"
         })
       )
@@ -4535,7 +4641,7 @@ server <- function(input, output, session) {
           div(tags$a(href = cb$doi, cb$doi, target = "_blank",
             style = "text-decoration: underline;")),
         if (!is.null(cb$citation) && !is.na(cb$citation))
-          div(style = "font-size: 0.85rem; color: #555; margin-top: 0.25rem;", cb$citation))
+          div(style = "font-size:1rem; color: #555; margin-top: 0.25rem;", cb$citation))
     }))
   })
 

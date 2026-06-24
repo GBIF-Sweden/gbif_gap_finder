@@ -20,7 +20,6 @@
 source(here::here("scripts", "00_setup.R"))
 
 # Script-specific packages (everything else loaded by 00_setup.R)
-library(httr)
 library(jsonlite)
 
 if (!requireNamespace("rgbif", quietly = TRUE)) install.packages("rgbif")

@@ -56,6 +56,14 @@ tax_by_family  <- norm_tax(tax_by_family)
 tax_by_threat  <- norm_tax(tax_by_threat)
 tax_estab      <- norm_tax(tax_estab)
 
+# Source of truth: taxonomic coverage from the match summary (matched_any),
+# exactly as the app's truth_taxonomic — one population for coverage + concern.
+truth_taxonomic <- if (!is.null(match_summary)) {
+  n_ref <- nrow(match_summary); n_gbif <- sum(match_summary$matched_any, na.rm = TRUE)
+  list(n_reference = n_ref, n_in_gbif = n_gbif, n_missing = n_ref - n_gbif,
+       pct_coverage = if (n_ref > 0) round(100 * n_gbif / n_ref, 1) else 0)
+} else NULL
+
 pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
             coral = "#EE6677", plum = "#AA3377")
 theme_gaps <- theme_minimal(base_size = 13) +
@@ -70,15 +78,15 @@ theme_set(theme_gaps)
 This report analyses how well GBIF occurrence data covers the national taxonomy backbone (**`r metadata$taxonomy_name %||% "National checklist"`**). Every species in the backbone is checked against GBIF records through a 4-tier reconciliation: direct name match, synonym resolution, infraspecific collapse, and GBIF Species API lookup.
 
 ```{r recon-stats}
-if (!is.null(dashboard)) {
+if (!is.null(truth_taxonomic)) {
   stats <- tibble(
     Metric = c("Species in backbone", "Species in GBIF",
                "Matched to backbone", "Coverage", "Missing from GBIF"),
-    Value = c(comma(dashboard$taxa_in_reference[1]),
-              comma(dashboard$taxa_in_gbif[1]),
-              comma(dashboard$taxa_in_gbif[1]),
-              paste0(dashboard$taxa_pct_coverage[1], "%"),
-              comma(dashboard$taxa_missing[1]))
+    Value = c(comma(truth_taxonomic$n_reference),
+              comma(truth_taxonomic$n_in_gbif),
+              comma(truth_taxonomic$n_in_gbif),
+              paste0(truth_taxonomic$pct_coverage, "%"),
+              comma(truth_taxonomic$n_missing))
   )
   kable(stats, align = c("l", "r")) |> kable_styling(full_width = FALSE)
 }

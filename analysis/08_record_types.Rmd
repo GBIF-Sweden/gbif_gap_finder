@@ -32,6 +32,7 @@ safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else 
 
 spatial_gaps   <- safe_get("spatial_gaps_10km")
 time_summary   <- safe_get("time_summary_10km")
+all_basis_recent <- safe_get("all_basis_recent")
 grid_10km      <- safe_get("grid_10km")
 admin_level1   <- safe_get("admin_level1")
 
@@ -51,11 +52,16 @@ GBIF distinguishes several basis-of-record categories, each representing a diffe
 # Occurrence Volume
 
 ```{r bor-volume, fig.height=5}
-if (!is.null(spatial_gaps)) {
-  df <- spatial_gaps |>
-    filter(basisofrecord != "all") |>
+bor_src <- if (!is.null(all_basis_recent)) {
+  all_basis_recent |> filter(basisofrecord != "all") |>
+    transmute(basisofrecord, occurrences = as.numeric(occ_total))
+} else if (!is.null(spatial_gaps)) {
+  spatial_gaps |> filter(basisofrecord != "all") |>
     group_by(basisofrecord) |>
-    summarise(occurrences = sum(occurrences, na.rm = TRUE), .groups = "drop") |>
+    summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+} else NULL
+if (!is.null(bor_src)) {
+  df <- bor_src |>
     mutate(pct = round(100 * occurrences / sum(occurrences), 1),
            bor_label = gsub("_", " ", basisofrecord) |> tools::toTitleCase()) |>
     arrange(desc(occurrences))

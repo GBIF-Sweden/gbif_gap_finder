@@ -54,6 +54,59 @@ MAKE_PUBLISHER_SUMMARY <- TRUE
 
 # read_cube(), safe_sum(), safe_max() are defined in R/globals.R
 
+# ---------------------------------------------------------------------------
+# Scope filter: restrict the cube to the backbone's taxonomic scope
+# ---------------------------------------------------------------------------
+# Drops occurrence rows whose KINGDOM is absent from the national backbone
+# (Bacteria, Archaea, Viruses, and any protist/chromist kingdom the backbone
+# doesn't cover) -- groups that can never match in reconciliation and only
+# inflate totals. KINGDOM is used (not class) because it is a small, stable
+# vocabulary: reptiles stay (Animalia is in the backbone) even though their
+# class is blank, so they survive to be bucketed as "Unclassified" downstream.
+# NA/blank kingdom is KEPT. Allowed kingdoms are read once from the backbone and
+# cached. Config-gated. Promote this block to R/globals.R for a single shared
+# copy (the guard keeps a globals copy authoritative if present).
+if (!exists("read_cube_scoped")) {
+  .scope_allowed_kingdoms <- function() {
+    a <- getOption("gapfinder.scope_kingdoms", NULL)
+    if (is.null(a)) {
+      a <- character(0)
+      bb_path <- here(p_data_proc, "taxa_reference_current.rds")
+      if (file.exists(bb_path)) {
+        bb <- data.table::as.data.table(readRDS(bb_path))
+        kcol <- intersect(c("kingdom", "Kingdom"), names(bb))[1]
+        if (!is.na(kcol)) {
+          a <- unique(as.character(bb[[kcol]]))
+          a <- a[!is.na(a) & a != ""]
+        }
+      }
+      options(gapfinder.scope_kingdoms = a)
+    }
+    a
+  }
+  scope_filter_rows <- function(dt, label = "cube") {
+    if (!isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE)) ||
+        !"kingdom" %in% names(dt)) return(dt)
+    allowed <- .scope_allowed_kingdoms()
+    if (length(allowed) == 0) return(dt)
+    n0 <- nrow(dt)
+    dt <- dt[is.na(kingdom) | kingdom == "" | kingdom %in% allowed]
+    cli_alert_info("Scope filter [{label}]: kept {scales::comma(nrow(dt))}/{scales::comma(n0)} rows (in-backbone kingdoms)")
+    dt
+  }
+  read_cube_scoped <- function(pf, cols, grid_label = NULL, ...) {
+    on <- isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE))
+    want_kingdom <- "kingdom" %in% cols
+    cols2 <- if (on && !want_kingdom) unique(c(cols, "kingdom")) else cols
+    dt <- read_cube(pf, cols = cols2, grid_label = grid_label, ...)
+    if (on && "kingdom" %in% names(dt)) {
+      dt <- scope_filter_rows(dt)
+      if (!want_kingdom && "kingdom" %in% names(dt)) dt[, kingdom := NULL]
+    }
+    dt
+  }
+}
+
 # ============================================================================
 # Locate Parquet Files
 # ============================================================================
@@ -115,7 +168,7 @@ if (MAKE_CORE_SUMMARIES) {
     pf <- grid_map[[grid_name]]
     cli_h3("{grid_name}")
 
-    dt <- read_cube(pf, cols = c("specieskey", "species", "basisofrecord",
+    dt <- read_cube_scoped(pf, cols = c("specieskey", "species", "basisofrecord",
       "eeacellcode", "year", "month", "occurrences",
       "publishingorgkey", "datasetkey"), grid_label = grid_name)
 
@@ -186,7 +239,7 @@ if (MAKE_CELL_TIME) {
     pf <- grid_map[[grid_name]]
     cli_h3("{grid_name}")
 
-    dt <- read_cube(pf, cols = c("specieskey", "species", "basisofrecord",
+    dt <- read_cube_scoped(pf, cols = c("specieskey", "species", "basisofrecord",
       "eeacellcode", "year", "month", "occurrences"), grid_label = grid_name)
 
     ct_dt <- dt[, .(
@@ -218,7 +271,7 @@ if (MAKE_ORDER_SUMMARIES) {
     pf <- grid_map[[grid_name]]
     cli_h3("{grid_name}")
 
-    dt <- read_cube(pf, cols = c("specieskey", "species", "basisofrecord",
+    dt <- read_cube_scoped(pf, cols = c("specieskey", "species", "basisofrecord",
       "eeacellcode", "year", "month", "order", "family", "occurrences"),
       grid_label = grid_name)
 
@@ -275,7 +328,7 @@ if (MAKE_PUBLISHER_SUMMARY) {
     pf <- grid_map[[grid_name]]
     cli_h3("{grid_name}")
 
-    dt <- read_cube(pf, cols = c("specieskey", "species", "basisofrecord",
+    dt <- read_cube_scoped(pf, cols = c("specieskey", "species", "basisofrecord",
       "publishingorgkey", "datasetkey", "eeacellcode",
       "kingdom", "phylum", "class", "order", "family",
       "year", "month",
@@ -288,8 +341,8 @@ if (MAKE_PUBLISHER_SUMMARY) {
       n_species = as.double(uniqueN(specieskey)),
       n_cells = as.double(uniqueN(eeacellcode)),
       n_datasets = if (has_dataset) as.double(uniqueN(datasetkey)) else NA_real_,
-      min_year = as.double(min(as.integer(year), na.rm = TRUE)),
-      max_year = as.double(max(as.integer(year), na.rm = TRUE))
+      min_year = as.double(suppressWarnings(min(as.integer(year), na.rm = TRUE))),
+      max_year = as.double(suppressWarnings(max(as.integer(year), na.rm = TRUE)))
     ), by = .(grid, publishingorgkey)]
 
     pub_dt[is.infinite(min_year), min_year := NA_real_]
@@ -311,21 +364,29 @@ if (MAKE_PUBLISHER_SUMMARY) {
     fwrite(pub_dt, here(p_derived, glue("publisher_summary_{grid_suffix}.csv")))
     cli_alert_success("publisher_summary_{grid_suffix}.csv: {nrow(pub_dt)} publishers")
 
-    # Publisher x taxonomy cross-tab: publisher x order (for taxonomic filtering)
-    pub_tax <- dt[!is.na(publishingorgkey) & publishingorgkey != "" &
-                  !is.na(order) & order != "", .(
+    # Publisher x taxonomy cross-tab (publisher x kingdom/class/order, for the
+    # app's taxonomic filtering). Blank ranks are bucketed as "Unclassified"
+    # rather than dropped, so order-less and higher-level-only records (incl. the
+    # groups rescued by the rank-bucketing fix, e.g. reptiles) stay filterable.
+    pub_tax <- dt[!is.na(publishingorgkey) & publishingorgkey != "", .(
       total_occurrences = safe_sum(occurrences),
       n_species = as.double(uniqueN(specieskey)),
       n_cells = as.double(uniqueN(eeacellcode))
-    ), by = .(grid, publishingorgkey, kingdom, class, order)]
+    ), by = .(grid, publishingorgkey,
+      kingdom = fifelse(is.na(kingdom) | kingdom == "", "Unclassified", kingdom),
+      class   = fifelse(is.na(class)   | class   == "", "Unclassified", class),
+      order   = fifelse(is.na(order)   | order   == "", "Unclassified", order))]
     fwrite(pub_tax, here(p_derived, glue("publisher_taxonomy_{grid_suffix}.csv")))
     cli_alert_success("publisher_taxonomy_{grid_suffix}.csv: {scales::comma(nrow(pub_tax))} rows")
 
-    # Publisher x cell x order: for taxonomy-filtered dependency maps
-    pub_cell_tax <- dt[!is.na(publishingorgkey) & publishingorgkey != "" &
-                       !is.na(order) & order != "", .(
+    # Publisher x cell x taxonomy: for taxonomy-filtered dependency maps
+    # (same Unclassified bucketing as above).
+    pub_cell_tax <- dt[!is.na(publishingorgkey) & publishingorgkey != "", .(
       occurrences = safe_sum(occurrences)
-    ), by = .(grid, eeacellcode, publishingorgkey, kingdom, class, order)]
+    ), by = .(grid, eeacellcode, publishingorgkey,
+      kingdom = fifelse(is.na(kingdom) | kingdom == "", "Unclassified", kingdom),
+      class   = fifelse(is.na(class)   | class   == "", "Unclassified", class),
+      order   = fifelse(is.na(order)   | order   == "", "Unclassified", order))]
     fwrite(pub_cell_tax, here(p_derived, glue("publisher_cell_taxonomy_{grid_suffix}.csv")))
     cli_alert_success("publisher_cell_taxonomy_{grid_suffix}.csv: {scales::comma(nrow(pub_cell_tax))} rows")
 

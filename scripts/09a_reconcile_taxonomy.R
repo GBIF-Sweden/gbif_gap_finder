@@ -89,14 +89,20 @@ if (length(sum_files) == 0) {
 cli_alert_info("Reading {length(sum_files)} species_summary files")
 
 gbif_raw <- rbindlist(lapply(sum_files, fread,
-  select = c("specieskey", "species", "basisofrecord", "occurrences")
-))
+  select = c("specieskey", "species", "basisofrecord", "occurrences", "class")
+), fill = TRUE)
 
 # Aggregate: one row per specieskey with total occurrences.
 # A species may appear in multiple files (by_order + by_family splits).
+# Carry a representative class (first non-blank) so we can scope-filter the
+# GBIF universe to the backbone before matching (see Step 2b).
 gbif_species <- gbif_raw[
   basisofrecord == "all",
-  .(total_occ = sum(as.numeric(occurrences), na.rm = TRUE)),
+  .(total_occ = sum(as.numeric(occurrences), na.rm = TRUE),
+    class     = {
+      v <- class[!is.na(class) & class != ""]
+      if (length(v)) v[1L] else NA_character_
+    }),
   by = .(specieskey, species)
 ]
 setorder(gbif_species, -total_occ)
@@ -136,6 +142,81 @@ cli_alert_info("Backbone accepted: {scales::comma(nrow(accepted_taxa))}")
 cli_alert_info("Backbone synonyms: {scales::comma(nrow(synonym_taxa))}")
 cli_alert_info("Unique accepted names: {scales::comma(length(accepted_names))}")
 cli_alert_info("Combined unique names: {scales::comma(length(all_backbone_names))}")
+
+
+# ============================================================================
+# Step 2b: Restrict GBIF to the backbone's taxonomic scope (pre-match)
+# ============================================================================
+# The GBIF species universe includes groups the (multicellular) national
+# backbone never covers -- bacteria, archaea, many protists/algae. They can
+# never match a backbone taxon, so they only deflate the match rate and inflate
+# the "unmatched" set. We drop GBIF species whose CLASS is absent from the
+# backbone (kingdom isn't in the species summaries, but class is, and a class
+# the backbone has no taxa in cannot produce a match). NA/blank class is KEPT
+# so legitimate taxa with a missing class still go through name matching.
+# Self-calibrating: the allowed set is read from the backbone itself, so it
+# tracks whatever the backbone actually covers. Downstream, "All GBIF" therefore
+# means "all GBIF within the backbone's scope". Toggle off via config if needed.
+if (isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE)) &&
+    "class" %in% names(gbif_species)) {
+
+  class_col_ref <- intersect(c("class", "Class"), names(accepted_taxa))[1]
+  if (!is.na(class_col_ref)) {
+    cli_h2("Step 2b: Restricting GBIF to backbone classes")
+
+    # Build the allowed-class set from the MULTICELLULAR backbone only. The
+    # national backbone (Dyntaxa) does carry some non-multicellular kingdoms
+    # (Bacteria/Archaea/Viruses), so deriving allowed classes from the whole
+    # backbone would silently re-admit them. Exclude those kingdoms' classes so
+    # "backbone scope" means the multicellular scope. Config-gated; empty = off.
+    exclude_kingdoms <- unlist(cfg_get("parameters.taxonomic.exclude_kingdoms", character(0)))
+    acc_scope <- if (length(exclude_kingdoms) && "kingdom" %in% names(accepted_taxa)) {
+      accepted_taxa[is.na(kingdom) | !(kingdom %in% exclude_kingdoms)]
+    } else accepted_taxa
+
+    allowed_classes <- unique(acc_scope[[class_col_ref]])
+    allowed_classes <- allowed_classes[!is.na(allowed_classes) & allowed_classes != ""]
+
+    # Safety net: never drop a GBIF species whose name is already a backbone
+    # name, whatever its class string says. GBIF and the backbone occasionally
+    # disagree on a species' class concept; without this, such a mismatch would
+    # cut a species that WOULD have matched and flip its backbone taxon to
+    # "missing" -- inflating the very gap we are trying to measure honestly.
+    keep <- is.na(gbif_species$class) | gbif_species$class == "" |
+            gbif_species$class %in% allowed_classes |
+            gbif_species$name_std %in% all_backbone_names
+
+    n_before   <- nrow(gbif_species)
+    occ_before <- sum(as.numeric(gbif_species$total_occ))
+    dropped    <- gbif_species[!keep]
+    gbif_species <- gbif_species[keep]
+
+    cli_alert_info("Backbone classes: {scales::comma(length(allowed_classes))}")
+    cli_alert_success(
+      "Kept {scales::comma(nrow(gbif_species))} / {scales::comma(n_before)} GBIF species \\
+      ({scales::comma(n_before - nrow(gbif_species))} dropped as out-of-scope)"
+    )
+
+    if (nrow(dropped) > 0) {
+      occ_dropped <- sum(as.numeric(dropped$total_occ))
+      cli_alert_info("Dropped occurrences: {scales::comma(occ_dropped)} ({round(100 * occ_dropped / occ_before, 2)}% of GBIF occ)")
+      drop_summary <- dropped[, .(n_species = .N, occ = sum(as.numeric(total_occ))),
+                              by = class][order(-n_species)]
+      for (i in seq_len(min(nrow(drop_summary), 15L))) {
+        cli_alert_info("  - {drop_summary$class[i] %||% 'NA'}: {scales::comma(drop_summary$n_species[i])} species, {scales::comma(drop_summary$occ[i])} occ")
+      }
+      if (nrow(drop_summary) > 15L)
+        cli_alert_info("  ... and {nrow(drop_summary) - 15L} more classes")
+    }
+
+    # Refresh the GBIF total used in downstream match-rate reporting.
+    n_gbif <- nrow(gbif_species)
+  } else {
+    cli_alert_warning("Backbone has no 'class' column -- scope filter skipped")
+  }
+} else {
+  cli_alert_info("Scope filter disabled or no class column -- using full GBIF universe")
+}
 
 
 # ============================================================================

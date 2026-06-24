@@ -58,6 +58,23 @@ get_threat_col <- function(ms) {
   tc <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))
   if (length(tc) > 0) tc[1] else NA
 }
+
+# Species-of-concern counts computed exactly as the app's ov_concern boxes
+# (match_summary, matched_any = in GBIF), so this report ties out to the app.
+concern_stats <- if (!is.null(match_summary)) {
+  tc  <- get_threat_col(match_summary)
+  thr <- if (!is.na(tc)) match_summary[[tc]] else rep(NA_character_, nrow(match_summary))
+  matched <- if ("matched_any"  %in% names(match_summary)) match_summary$matched_any else rep(FALSE, nrow(match_summary))
+  inv <- if ("is_invasive"  %in% names(match_summary)) match_summary$is_invasive  else rep(FALSE, nrow(match_summary))
+  sen <- if ("is_sensitive" %in% names(match_summary)) match_summary$is_sensitive else rep(FALSE, nrow(match_summary))
+  is_thr <- thr %in% c("CR","EN","VU","NT")
+  list(thr_total = sum(is_thr, na.rm = TRUE), thr_gbif = sum(is_thr & matched, na.rm = TRUE),
+       inv_total = sum(inv, na.rm = TRUE),    inv_gbif = sum(inv & matched, na.rm = TRUE),
+       sen_total = sum(sen, na.rm = TRUE),    sen_gbif = sum(sen & matched, na.rm = TRUE),
+       unmon_cr  = sum(thr == "CR" & !matched, na.rm = TRUE),
+       unmon_en  = sum(thr == "EN" & !matched, na.rm = TRUE),
+       unmon_inv = sum(inv & !matched, na.rm = TRUE))
+} else NULL
 ```
 
 # Overview
@@ -65,18 +82,19 @@ get_threat_col <- function(ms) {
 This report analyses three categories of species requiring special attention: **threatened** species on the national Red List, **invasive** species, and **sensitive** species with restricted location data.
 
 ```{r scope-summary}
-if (!is.null(species_scope)) {
+if (!is.null(concern_stats)) {
+  cs <- concern_stats
   df <- tibble(
-    Category = c("Threatened (CR/EN/VU/NT)", "Invasive", "Sensitive"),
-    `Species in scope` = c(
-      sum(species_scope$is_threatened, na.rm = TRUE),
-      sum(species_scope$is_invasive, na.rm = TRUE),
-      sum(species_scope$is_sensitive, na.rm = TRUE)
-    )
+    Category      = c("Threatened (CR/EN/VU/NT)", "Invasive", "Sensitive"),
+    `In backbone` = c(cs$thr_total, cs$inv_total, cs$sen_total),
+    `In GBIF`     = c(cs$thr_gbif,  cs$inv_gbif,  cs$sen_gbif),
+    Unmonitored   = c(cs$thr_total - cs$thr_gbif, cs$inv_total - cs$inv_gbif, cs$sen_total - cs$sen_gbif)
   )
-  kable(df, align = c("l", "r")) |> kable_styling(full_width = FALSE)
+  kable(df, align = c("l", "r", "r", "r")) |> kable_styling(full_width = FALSE)
 }
 ```
+
+Of the threatened species with **no GBIF records at all**, `r if (!is.null(concern_stats)) concern_stats$unmon_cr else 0` are Critically Endangered (CR) and `r if (!is.null(concern_stats)) concern_stats$unmon_en else 0` Endangered (EN); `r if (!is.null(concern_stats)) concern_stats$unmon_inv else 0` invasive species are entirely unmonitored.
 
 # Threatened Species {.tabset}
 
