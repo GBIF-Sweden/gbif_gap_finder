@@ -1,4 +1,4 @@
-cff-version: 1.2.0
+cff-version: 1.3.0
 message: "If you use this software, please cite it using the metadata below."
 title: "gbif_gap_finder: a reproducible pipeline for biodiversity data gap analysis"
 abstract: >-
@@ -13,12 +13,12 @@ authors:
   - family-names: "Thöle"
     given-names: "Lena"
     affiliation: "GBIF Sweden, Swedish Museum of Natural History (NRM)"
-    # orcid: "https://orcid.org/0000-0000-0000-0000"  # add your ORCID
+    # orcid: "https://orcid.org/0000-0002-5405-3613"  # add your ORCID
 repository-code: "https://github.com/GBIF-Sweden/gbif_gap_finder"
-url: "https://github.com/GBIF-Sweden/gbif_gap_finder"
+url: "https://test.gbif.se/gap-finder/"
 license: MIT
-version: "0.4.1"
-date-released: "2026-06-22"
+version: "0.4.3"
+date-released: "2026-06-24"
 keywords:
   - biodiversity
   - GBIF

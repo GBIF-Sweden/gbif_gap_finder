@@ -64,6 +64,14 @@
 /* ---------------------------------------------------------------------------
    BASE
    --------------------------------------------------------------------------- */
+html {
+  /* Base size for the whole UI. Everything below is sized in rem, so raising
+     this scales fonts AND spacing together for readability while preserving the
+     visual hierarchy. 106.25% = 17px, midway between the original 16px and the
+     earlier 18px (which caused some content to overflow its boxes). */
+  font-size: 106.25%;
+}
+
 body {
   font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   font-weight: 400;
@@ -71,7 +79,7 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   line-height: 1.6;
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 /* ---------------------------------------------------------------------------
@@ -94,7 +102,7 @@ body {
 .main-header .selectize-input {
   min-height: 30px !important;
   padding: 4px 10px !important;
-  font-size: 0.88rem !important;
+  font-size: 1rem !important;
 }
 
 .main-title {
@@ -117,7 +125,7 @@ body {
   display: flex;
   gap: 2rem;
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .header-stat-value {
@@ -151,7 +159,7 @@ body {
 
 .card-title .fa, .card-title .fas, .card-title .far {
   color: var(--sage);
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 /* ---------------------------------------------------------------------------
@@ -198,11 +206,21 @@ body {
 .stat-value.plum  { color: var(--plum); }
 
 .stat-label {
-  font-size: 0.82rem;
+  font-size: 0.92rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-top: 0.4rem;
+}
+
+/* Narrower variant for "in GBIF / total" ratios so they don't overflow */
+.stat-value.ratio { font-size: 1.3rem; white-space: nowrap; }
+
+.stat-sublabel {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+  letter-spacing: 0.02em;
 }
 
 /* ---------------------------------------------------------------------------
@@ -217,7 +235,7 @@ body {
 }
 
 .gap-detail {
-  font-size: 0.95rem;
+  font-size: 1rem;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -233,7 +251,7 @@ body {
   padding: 0.6rem 1.1rem;
   margin-right: 0.4rem;
   margin-bottom: 0.4rem;
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 500;
   transition: all 0.2s ease;
 }
@@ -292,7 +310,7 @@ body {
 }
 
 .filter-label {
-  font-size: 0.8rem;
+  font-size: 0.92rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -305,7 +323,7 @@ body {
   border: 1px solid var(--border) !important;
   color: var(--text-primary) !important;
   border-radius: var(--radius-sm) !important;
-  font-size: 0.95rem !important;
+  font-size: 1rem !important;
 }
 
 .form-control:focus,
@@ -349,7 +367,7 @@ table.dataTable thead th {
   color: var(--text-secondary) !important;
   border-bottom: 2px solid var(--border) !important;
   background: transparent !important;
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -357,7 +375,7 @@ table.dataTable thead th {
 .dataTables_info, .dataTables_length,
 .dataTables_filter, .dataTables_paginate {
   color: var(--text-secondary) !important;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .dataTables_length select,
@@ -392,14 +410,14 @@ table.dataTable thead th {
    --------------------------------------------------------------------------- */
 .leaflet-container {
   border-radius: var(--radius);
-  font-size: 0.92rem;
+  font-size: 1rem;
 }
 
 /* Legends, info boxes, popups and tooltips — larger and higher-contrast
    than Leaflet's small defaults, so map keys are actually readable. */
 .leaflet-container .legend,
 .leaflet-container .info {
-  font-size: 0.92rem;
+  font-size: 1rem;
   line-height: 1.65;
   color: var(--text-primary);
   background: var(--bg-card);
@@ -416,7 +434,7 @@ table.dataTable thead th {
 }
 .leaflet-popup-content,
 .leaflet-tooltip {
-  font-size: 0.92rem;
+  font-size: 1rem;
   line-height: 1.6;
   color: var(--text-primary);
 }
@@ -435,7 +453,7 @@ table.dataTable thead th {
   display: inline-block;
   padding: 0.2rem 0.65rem;
   border-radius: 20px;
-  font-size: 0.8rem;
+  font-size: 0.92rem;
   font-weight: 600;
   letter-spacing: 0.03em;
 }
@@ -448,7 +466,7 @@ table.dataTable thead th {
   display: inline-block;
   padding: 0.3rem 0.65rem;
   border-radius: 20px;
-  font-size: 0.8rem;
+  font-size: 0.92rem;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -466,7 +484,7 @@ table.dataTable thead th {
 .action-table td {
   padding: 0.85rem 0.75rem;
   border-bottom: 1px solid var(--border-light);
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 .action-table tr:last-child td { border-bottom: none; }
 
@@ -491,7 +509,7 @@ table.dataTable thead th {
 
 .species-taxonomy {
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  font-size: 1rem;
   margin-bottom: 0.75rem;
 }
 
@@ -517,7 +535,7 @@ table.dataTable thead th {
   color: var(--text-secondary);
   text-align: center;
   margin-bottom: 1rem;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 /* ---------------------------------------------------------------------------
@@ -532,7 +550,7 @@ table.dataTable thead th {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .btn-primary:hover, .random-btn:hover {
@@ -547,7 +565,7 @@ table.dataTable thead th {
   padding: 0.5rem 1rem;
   border-radius: var(--radius-sm);
   font-weight: 500;
-  font-size: 0.88rem;
+  font-size: 1rem;
 }
 
 .btn-download:hover {
@@ -576,7 +594,7 @@ table.dataTable thead th {
   text-align: center;
   padding: 1.5rem;
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: 0.92rem;
   border-top: 1px solid var(--border-light);
   margin-top: 1rem;
 }

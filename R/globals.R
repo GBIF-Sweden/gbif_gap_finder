@@ -289,8 +289,65 @@ ensure_dirs <- function() {
 }
 
 # ============================================================================
-# Rmd Placeholders (referenced by analysis/*.Rmd, resolved by tar_render)
+# Grid Completion (zero-fill to the full grid)
 # ============================================================================
+
+#' Complete a per-cell count table to the FULL grid universe and flag gaps.
+#'
+#' Both 07 (full cube) and 09c (scope-filtered cube) need the same operation:
+#' take counts keyed by cell (+ basis, + grid), expand to every grid cell so
+#' empty cells are present as explicit zeros, then flag `has_data`/`gap_zero`.
+#' Centralising it here guarantees the two never drift, and — crucially — the
+#' full grid is REQUIRED: there is no silent fall-back to "cells that appear in
+#' the data", because that collapses the denominator onto the numerator and
+#' reports ~100 % coverage with zero empty cells (the bug that made the app's
+#' Spatial/Overview disagree with the Priorities zero-cell count).
+#'
+#' @param counts        data.table/data.frame of counts. Must contain `cell_col`,
+#'                      every column in `facet_cols`, and the `value_cols`.
+#' @param all_cellcodes Character vector of EVERY cell in the grid (from the grid
+#'                      file, not from the data). Required and non-empty.
+#' @param facet_cols    Columns crossed with the grid cells (e.g. "basisofrecord",
+#'                      or c("grid", "basisofrecord")). Each existing level is kept.
+#' @param cell_col      Name of the cell-code column (default "eeacellcode").
+#' @param value_cols    Count columns zero-filled on completion.
+#' @return data.table with one row per (cell x facet combo), zeros filled, plus
+#'         logical `has_data` (occurrences > 0) and `gap_zero` (occurrences == 0).
+complete_to_grid <- function(counts, all_cellcodes,
+                             facet_cols = "basisofrecord",
+                             cell_col   = "eeacellcode",
+                             value_cols = c("occurrences", "n_species")) {
+  if (is.null(all_cellcodes) || length(all_cellcodes) == 0L) {
+    cli_abort(c(
+      "complete_to_grid(): the full grid cell list is empty or missing.",
+      "i" = "Coverage and zero-cell counts are measured against the whole grid.",
+      "x" = "Refusing to fall back to data-only cells (that reports ~100% coverage \\
+             and hides every empty cell). Check the grid GeoPackage exists and \\
+             that {.fn st_read} returned a cell-code column."
+    ))
+  }
+  counts        <- data.table::as.data.table(data.table::copy(counts))
+  all_cellcodes <- unique(as.character(all_cellcodes))
+
+  # Universe = every grid cell x every existing combination of the facet levels.
+  facet_levels <- lapply(facet_cols, function(fc) unique(counts[[fc]]))
+  universe_args <- c(stats::setNames(list(all_cellcodes), cell_col),
+                     stats::setNames(facet_levels, facet_cols),
+                     list(unique = TRUE))
+  universe <- do.call(data.table::CJ, universe_args)
+
+  key_cols <- c(cell_col, facet_cols)
+  keep     <- c(key_cols, intersect(value_cols, names(counts)))
+  complete <- merge(universe, counts[, ..keep], by = key_cols, all.x = TRUE)
+
+  for (vc in value_cols) {
+    if (vc %in% names(complete)) complete[is.na(get(vc)), (vc) := 0]
+  }
+  complete[, has_data := occurrences > 0]
+  complete[, gap_zero := occurrences == 0]
+  complete[]
+}
+
 has_threat_data <- TRUE
 grid10          <- NULL
 

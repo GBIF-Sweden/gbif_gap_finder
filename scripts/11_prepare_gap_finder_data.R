@@ -35,6 +35,38 @@ source(here::here("scripts", "00_setup.R"))
 cli_h1("Preparing Data for Shiny App (Script 11)")
 
 # ==============================================================================
+# Unclassified-rank bucketing (taxonomy)
+# ==============================================================================
+# Canonical rank order — extend here and every rank-grouped table below covers
+# the new level automatically. Maps NA/"" ranks to an explicit "Unclassified"
+# bucket so no taxon is dropped when a parent rank is blank (e.g. reptiles with
+# order "Squamata" but no class). Promote to R/globals.R to share one copy.
+if (!exists("RANK_COLS_CANON")) {
+  RANK_COLS_CANON <- c("kingdom", "phylum", "class", "order",
+                       "superfamily", "family", "subfamily", "tribe", "genus")
+}
+if (!exists("bucket_unclassified")) {
+  bucket_unclassified <- function(df, cols = RANK_COLS_CANON, label = "Unclassified") {
+    cols <- intersect(cols, names(df))
+    if (length(cols) == 0) return(df)
+    if (data.table::is.data.table(df)) {
+      for (col in cols) {
+        v <- as.character(df[[col]])
+        v[is.na(v) | trimws(v) == ""] <- label
+        data.table::set(df, j = col, value = v)
+      }
+    } else {
+      for (col in cols) {
+        v <- as.character(df[[col]])
+        v[is.na(v) | trimws(v) == ""] <- label
+        df[[col]] <- v
+      }
+    }
+    df
+  }
+}
+
+# ==============================================================================
 # Configuration
 # ==============================================================================
 
@@ -166,6 +198,35 @@ recent_label     <- shiny_data$recent_label
 
 
 # ==============================================================================
+# Critical-input gate
+# ==============================================================================
+# safe_read() and the `if (!is.null(...))` guards throughout this script are
+# deliberately soft, so one missing optional file never aborts the whole bundle.
+# But a handful of inputs are load-bearing: without them the app renders blanks
+# or NA. Fail loudly and early if any are missing, rather than writing a broken
+# shiny_data.rds that only surfaces its gaps once a user opens the app.
+cli_h2("Checking Critical Inputs")
+
+critical_inputs <- c(
+  dashboard     = here(p_tables,    "dashboard_summary.csv"),         # 10
+  match_summary = here(p_gaps,      "taxonomic_match_summary.csv"),    # 09b (Taxonomic/Concern)
+  spatial_gaps  = here(p_gaps,      "spatial_gaps_10km.csv"),          # 07 (Spatial/Overview)
+  grid_10km     = here(p_data_proc, "grids_10km.gpkg"),                # 02 (maps + completion)
+  basis_recent  = here(p_derived,   "basis_recent_all_10km.csv")       # 09c all-scope (Record Types)
+)
+missing_inputs <- critical_inputs[!file.exists(critical_inputs)]
+if (length(missing_inputs)) {
+  cli_abort(c(
+    "Cannot build shiny_data.rds: {length(missing_inputs)} critical input file{?s} missing.",
+    "x" = "Missing: {.path {unname(missing_inputs)}}",
+    "i" = "Re-run the producing scripts before 11 \\
+           (02 grid, 07 spatial, 09b match-summary, 09c all-scope, 10 dashboard)."
+  ))
+}
+cli_alert_success("All {length(critical_inputs)} critical inputs present")
+
+
+# ==============================================================================
 # 3. Dashboard Summary
 # ==============================================================================
 
@@ -187,7 +248,7 @@ if (!is.null(dashboard_long)) shiny_data$dashboard_long <- as_tibble(dashboard_l
 
 cli_h2("Loading Per-Scope Summaries (from 09c)")
 
-SCOPES <- c("all", "dyntaxa", "threatened", "invasive", "sensitive")
+SCOPES <- c("all", "threatened", "invasive", "sensitive")  # dyntaxa scope removed
 GRID <- "10km"
 
 load_scope_file <- function(summary_type, scope, grid = GRID) {
@@ -346,6 +407,10 @@ cli_h2("Loading Taxonomic Coverage Tables")
 
 match_summary <- safe_read(here(p_gaps, "taxonomic_match_summary.csv"))
 if (!is.null(match_summary)) {
+  # Bucket blank higher-rank labels (NA/"") into "Unclassified" before the app
+  # copy is taken and before every rank grouping below. Idempotent if 09b
+  # already did it; also fixes the bundle when only 11 is re-run.
+  match_summary <- bucket_unclassified(match_summary)
   shiny_data$taxonomic_match_summary <- as_tibble(match_summary)
   cli_alert_success("Match summary: {scales::comma(nrow(match_summary))} taxa")
 
@@ -380,7 +445,11 @@ if (!is.null(match_summary)) {
   # Hierarchy-level coverage (kingdom / phylum / class / order / family)
   grp_fn <- function(df, grp_cols) {
     df |> as_tibble() |>
-      filter(if_all(all_of(grp_cols), ~ !is.na(.x) & .x != "")) |>
+      # Bucket NA/"" in ANY grouping rank to "Unclassified" instead of dropping
+      # the row, so a valid lower rank (e.g. order Squamata) is never lost just
+      # because a higher rank (class) is blank. Generic across current + future
+      # levels.
+      bucket_unclassified(cols = grp_cols) |>
       group_by(across(all_of(grp_cols))) |>
       summarise(
         n_taxa = n(),
@@ -468,17 +537,17 @@ for (key in names(spatial_files)) {
   if (!is.null(df)) shiny_data[[key]] <- as_tibble(df)
 }
 
-# Priority cells (zero / low / stale) from 10
+# Priority cells (zero / low / stale) from 10. Filenames are canonical and match
+# 10's write_integrated() outputs exactly — no alias fallback (the old alt names
+# were never written by any script, so the fallback could only ever load a stale
+# leftover file).
 priority_files <- list(
-  list(primary = "priority_cells_zero_coverage.csv", alt = "priority_zero_coverage_cells.csv", key = "priority_zero_cells"),
-  list(primary = "priority_cells_low_coverage.csv",  alt = NULL,                                 key = "priority_low_cells"),
-  list(primary = "priority_cells_stale.csv",          alt = "priority_stale_cells.csv",          key = "priority_stale_cells")
+  list(file = "priority_cells_zero_coverage.csv", key = "priority_zero_cells"),
+  list(file = "priority_cells_low_coverage.csv",  key = "priority_low_cells"),
+  list(file = "priority_cells_stale.csv",          key = "priority_stale_cells")
 )
 for (spec in priority_files) {
-  df <- safe_read(here(p_integrated, spec$primary))
-  if ((is.null(df) || nrow(df) == 0) && !is.null(spec$alt)) {
-    df <- safe_read(here(p_integrated, spec$alt))
-  }
+  df <- safe_read(here(p_integrated, spec$file))
   if (!is.null(df) && nrow(df) > 0) {
     shiny_data[[spec$key]] <- as_tibble(df)
     cli_alert_success("{spec$key}: {scales::comma(nrow(df))}")
@@ -827,6 +896,21 @@ if (file.exists(pub_cell_path)) {
   shiny_data$publisher_cell_dependency <- as_tibble(fread(pub_cell_path))
 }
 
+# Publisher x taxonomy cross-tab — drives the Publishers tab kingdom/class/order
+# filters. Without it those dropdowns render but have no options to choose.
+pub_tax_path <- here(p_derived, "publisher_taxonomy_10km.csv")
+if (file.exists(pub_tax_path)) {
+  shiny_data$publisher_taxonomy <- as_tibble(fread(pub_tax_path))
+  cli_alert_success("Publisher taxonomy: {nrow(shiny_data$publisher_taxonomy)} rows")
+}
+
+# Publisher x cell x taxonomy — drives the taxonomy-filtered dependency map.
+pub_cell_tax_path <- here(p_derived, "publisher_cell_taxonomy_10km.csv")
+if (file.exists(pub_cell_tax_path)) {
+  shiny_data$publisher_cell_taxonomy <- as_tibble(fread(pub_cell_tax_path))
+  cli_alert_success("Publisher cell taxonomy: {nrow(shiny_data$publisher_cell_taxonomy)} rows")
+}
+
 
 # ==============================================================================
 # 15. Metadata
@@ -868,7 +952,6 @@ shiny_data$metadata <- list(
 
   # Per-scope flags
   has_all_scope         = !is.null(shiny_data$all_time_summary),
-  has_dyntaxa_scope_data = !is.null(shiny_data$dyntaxa_time_summary),
   has_threatened_scope  = !is.null(shiny_data$threatened_time_summary),
   has_invasive_scope    = !is.null(shiny_data$invasive_time_summary),
   has_sensitive_scope   = !is.null(shiny_data$sensitive_time_summary),
@@ -918,4 +1001,4 @@ cli_alert_info("")
 cli_alert_success("Shiny data preparation complete!")
 cli_alert_info("Bundle size: {round(file_size_mb, 2)} MB")
 cli_alert_info("Recent period: {shiny_data$metadata$recent_label}")
-cli_alert_info("Scopes available: {paste(c('all','dyntaxa','threatened','invasive','sensitive')[c(shiny_data$metadata$has_all_scope, shiny_data$metadata$has_dyntaxa_scope_data, shiny_data$metadata$has_threatened_scope, shiny_data$metadata$has_invasive_scope, shiny_data$metadata$has_sensitive_scope)], collapse = ', ')}")
+cli_alert_info("Scopes available: {paste(c('all','threatened','invasive','sensitive')[c(shiny_data$metadata$has_all_scope, shiny_data$metadata$has_threatened_scope, shiny_data$metadata$has_invasive_scope, shiny_data$metadata$has_sensitive_scope)], collapse = ', ')}")

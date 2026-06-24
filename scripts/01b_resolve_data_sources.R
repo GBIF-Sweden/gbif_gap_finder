@@ -251,5 +251,3 @@ if (length(bad_cubes)) {
 
 cli_alert_success("All data-source citations resolved and validated.")
 invisible(data_sources_meta)
-
-cli_alert_success("Done! Next: source('scripts/01b_resolve_data_sources.R')")

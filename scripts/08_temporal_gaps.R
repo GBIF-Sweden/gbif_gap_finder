@@ -65,6 +65,59 @@ cli_alert_info("Staleness thresholds: {STALE_12M} months, {STALE_60M} months")
 
 # parse_yearmonth, safe_sum, read_cube, read_derived_summary are in R/globals.R
 
+# ---------------------------------------------------------------------------
+# Scope filter: restrict the cube to the backbone's taxonomic scope
+# ---------------------------------------------------------------------------
+# Drops occurrence rows whose KINGDOM is absent from the national backbone
+# (Bacteria, Archaea, Viruses, and any protist/chromist kingdom the backbone
+# doesn't cover) -- groups that can never match in reconciliation and only
+# inflate totals. KINGDOM is used (not class) because it is a small, stable
+# vocabulary: reptiles stay (Animalia is in the backbone) even though their
+# class is blank, so they survive to be bucketed as "Unclassified" downstream.
+# NA/blank kingdom is KEPT. Allowed kingdoms are read once from the backbone and
+# cached. Config-gated. Promote this block to R/globals.R for a single shared
+# copy (the guard keeps a globals copy authoritative if present).
+if (!exists("read_cube_scoped")) {
+  .scope_allowed_kingdoms <- function() {
+    a <- getOption("gapfinder.scope_kingdoms", NULL)
+    if (is.null(a)) {
+      a <- character(0)
+      bb_path <- here(p_data_proc, "taxa_reference_current.rds")
+      if (file.exists(bb_path)) {
+        bb <- data.table::as.data.table(readRDS(bb_path))
+        kcol <- intersect(c("kingdom", "Kingdom"), names(bb))[1]
+        if (!is.na(kcol)) {
+          a <- unique(as.character(bb[[kcol]]))
+          a <- a[!is.na(a) & a != ""]
+        }
+      }
+      options(gapfinder.scope_kingdoms = a)
+    }
+    a
+  }
+  scope_filter_rows <- function(dt, label = "cube") {
+    if (!isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE)) ||
+        !"kingdom" %in% names(dt)) return(dt)
+    allowed <- .scope_allowed_kingdoms()
+    if (length(allowed) == 0) return(dt)
+    n0 <- nrow(dt)
+    dt <- dt[is.na(kingdom) | kingdom == "" | kingdom %in% allowed]
+    cli_alert_info("Scope filter [{label}]: kept {scales::comma(nrow(dt))}/{scales::comma(n0)} rows (in-backbone kingdoms)")
+    dt
+  }
+  read_cube_scoped <- function(pf, cols, grid_label = NULL, ...) {
+    on <- isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE))
+    want_kingdom <- "kingdom" %in% cols
+    cols2 <- if (on && !want_kingdom) unique(c(cols, "kingdom")) else cols
+    dt <- read_cube(pf, cols = cols2, grid_label = grid_label, ...)
+    if (on && "kingdom" %in% names(dt)) {
+      dt <- scope_filter_rows(dt)
+      if (!want_kingdom && "kingdom" %in% names(dt)) dt[, kingdom := NULL]
+    }
+    dt
+  }
+}
+
 #' Read time summary (wrapper around read_derived_summary)
 read_time_summary <- function(filename) {
   read_derived_summary(filename,
@@ -274,7 +327,7 @@ compute_cell_recency <- function(grid_label, cubes_dir) {
   cli_alert_info("Reading: {basename(parquet_file)}")
   
   cols <- c("basisofrecord", "eeacellcode", "year", "month", "occurrences")
-  dt <- read_cube(parquet_file, cols = cols, recode_taxonomy = FALSE)
+  dt <- read_cube_scoped(parquet_file, cols = cols, recode_taxonomy = FALSE)
   
   dt <- dt[as.numeric(occurrences) > 0]
   dt[, ym := parse_yearmonth(yearmonth)]

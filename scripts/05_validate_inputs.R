@@ -48,33 +48,6 @@ read_rds_safe <- function(path) {
   )
 }
 
-#' Read a sample from a cube parquet file
-#'
-#' @param path Path to parquet file
-#' @param n    Number of rows to sample
-#' @return A data.frame
-read_cube_sample <- function(path, n = 5000) {
-  if (!file_exists_safe(path)) {
-    cli_abort("Cube file not found: {.path {path}}")
-  }
-
-  ext <- tools::file_ext(path)
-
-  if (ext == "parquet" && requireNamespace("arrow", quietly = TRUE)) {
-    ds <- arrow::open_dataset(path)
-    return(as.data.frame(head(ds, n) |> dplyr::collect()))
-  }
-
-  if (ext == "rds") {
-    data <- readRDS(path)
-    if (inherits(data, c("data.table", "data.frame"))) {
-      return(as.data.frame(head(data, n)))
-    }
-  }
-
-  cli_abort("Unsupported file format: {ext}")
-}
-
 # ============================================================================
 # Markdown Report Builder
 # ============================================================================
@@ -99,10 +72,6 @@ md_check <- function(text,
     fail = "\u274c"
   )
   md_add("- ", icon, " ", text, "\n")
-}
-
-md_code_block <- function(text, lang = "text") {
-  md_add("\n```", lang, "\n", text, "\n```\n")
 }
 
 # ============================================================================

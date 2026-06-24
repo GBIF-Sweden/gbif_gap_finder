@@ -156,25 +156,34 @@ for (grid_name in names(grid_configs)) {
 
   # Clip to country extent
   if (grid_name == "grid10km" && !is.null(country_cells_10km)) {
-    # Use admin boundary (GADM) if available, otherwise convex hull of data cells
+    # Assign each cell to the country by CENTROID-in-boundary (not mere
+    # intersection), and always keep any cell that actually carries this
+    # country's data. The previous logic kept every cell that *intersected* an
+    # outward-buffered boundary, which pulled in border cells sitting mostly in
+    # neighbouring countries (Norway/Finland) and then surfaced them as
+    # "zero-coverage" Swedish gaps (T-D7). Centroid-in-country drops the foreign
+    # spill; the `has_data` clause guarantees no real border records are lost.
     admin_path <- here(raw_admin_dir, "admin_level1.gpkg")
     if (file.exists(admin_path)) {
-      cli_alert_info("Clipping to admin boundary (GADM level 1)")
+      cli_alert_info("Clipping to admin boundary (GADM level 1, centroid-in-country)")
       admin <- st_read(admin_path, quiet = TRUE) |> st_transform(target_crs)
-      country_boundary <- st_union(admin) |> st_buffer(1000)  # 1km buffer for edge cells
-      n_before <- nrow(grid)
-      grid <- grid[st_intersects(grid, country_boundary, sparse = FALSE)[, 1], ]
+      country_boundary <- st_union(admin)
+      in_country <- st_intersects(st_centroid(st_geometry(grid)),
+                                  country_boundary, sparse = FALSE)[, 1]
     } else {
-      # Fallback: convex hull of data cells with minimal buffer
-      cli_alert_info("No admin boundary found — using convex hull of data cells")
+      # Fallback: convex hull of data cells, centroid-in-hull (no outward buffer)
+      cli_alert_info("No admin boundary found — using convex hull of data cells (centroid-in-hull)")
       cells_with_data <- grid |> filter(eeacellcode %in% country_cells_10km)
-      country_hull <- st_convex_hull(st_union(cells_with_data)) |> st_buffer(5000)
-      n_before <- nrow(grid)
-      grid <- grid[st_intersects(grid, country_hull, sparse = FALSE)[, 1], ]
+      country_hull <- st_convex_hull(st_union(cells_with_data))
+      in_country <- st_intersects(st_centroid(st_geometry(grid)),
+                                  country_hull, sparse = FALSE)[, 1]
     }
+    has_data <- grid$eeacellcode %in% country_cells_10km
+    n_before <- nrow(grid)
+    grid <- grid[in_country | has_data, ]
     n_with_data <- sum(grid$eeacellcode %in% country_cells_10km)
     n_empty <- nrow(grid) - n_with_data
-    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells ({n_with_data} with data, {n_empty} empty)")
+    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells ({n_with_data} with data, {n_empty} empty, centroid-in-country)")
   } else if (grid_name == "grid50km" && !is.null(country_cells_50km)) {
     n_before <- nrow(grid)
     grid <- grid |> filter(eeacellcode %in% country_cells_50km)

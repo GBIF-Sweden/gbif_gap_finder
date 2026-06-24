@@ -115,43 +115,27 @@ filter_coarse_grid_to_country <- function(
   unique(as.character(coarse_grid[[code_field]][intersects]))
 }
 
-#' Create complete cell universe (all cells × all basis types)
-make_cell_universe <- function(cell_data, all_cellcodes) {
-  setDT(cell_data)
-
-  grids        <- unique(cell_data$grid)
-  basis_levels <- unique(cell_data$basisofrecord)
-
-  CJ(
-    grid          = grids,
-    eeacellcode   = all_cellcodes,
-    basisofrecord = basis_levels
-  )
-}
-
 #' Compute comprehensive spatial gaps
+#'
+#' Completion to the full grid (every cell x basis, zeros filled, with
+#' `has_data` / `gap_zero` flags) is delegated to `complete_to_grid()` in
+#' R/globals.R — the same helper 09c uses, so the two zero-fills cannot drift.
+#' `all_cellcodes` is the full set of grid cells from the grid file;
+#' `complete_to_grid()` aborts if it is empty rather than silently zero-filling
+#' to data-only cells (which would report ~100% coverage and hide empty cells).
 compute_spatial_gaps <- function(cell_data,
-                                 cell_universe,
+                                 all_cellcodes,
                                  quantiles = QUANTILE_THRESHOLDS) {
   setDT(cell_data)
-  setDT(cell_universe)
 
   cell_data[, occurrences := as.numeric(occurrences)]
   cell_data[is.na(occurrences), occurrences := 0]
 
-  # Left join universe with observed data
-  complete_data <- merge(
-    cell_universe,
+  complete_data <- complete_to_grid(
     cell_data[, .(grid, eeacellcode, basisofrecord, occurrences, n_species)],
-    by = c("grid", "eeacellcode", "basisofrecord"),
-    all.x = TRUE
+    all_cellcodes,
+    facet_cols = c("grid", "basisofrecord")
   )
-  complete_data[is.na(occurrences), occurrences := 0]
-  complete_data[is.na(n_species), n_species := 0]
-
-  # Gap flags
-  complete_data[, gap_zero := (occurrences == 0)]
-  complete_data[, has_data := (occurrences > 0)]
 
   # Quantile thresholds per grid × basis (non-zero cells only)
   thresholds <- complete_data[occurrences > 0, {
@@ -283,17 +267,6 @@ cli_alert_info(
   "Filtered 50km to {country_name}: {scales::comma(nrow(cell50))} rows"
 )
 
-# Create universes
-universe10 <- make_cell_universe(cell10, codes10)
-universe50 <- make_cell_universe(cell50, codes50_country)
-
-cli_alert_success(
-  "Universe 10km: {scales::comma(nrow(universe10))} combinations"
-)
-cli_alert_success(
-  "Universe 50km: {scales::comma(nrow(universe50))} combinations"
-)
-
 # ============================================================================
 # Compute Spatial Gaps
 # ============================================================================
@@ -301,10 +274,10 @@ cli_alert_success(
 cli_h2("Computing Spatial Gaps")
 
 cli_alert_info("Processing 10km grid...")
-gaps10 <- compute_spatial_gaps(cell10, universe10)
+gaps10 <- compute_spatial_gaps(cell10, codes10)
 
 cli_alert_info("Processing 50km grid...")
-gaps50 <- compute_spatial_gaps(cell50, universe50)
+gaps50 <- compute_spatial_gaps(cell50, codes50_country)
 
 cli_alert_success("Gap analysis complete")
 

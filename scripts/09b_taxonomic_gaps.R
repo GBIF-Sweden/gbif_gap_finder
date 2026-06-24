@@ -42,6 +42,43 @@ source(here::here("scripts", "00_setup.R"))
 timer_start <- Sys.time()
 
 # ===========================================================================
+# Unclassified-rank bucketing (taxonomy)
+# ===========================================================================
+# Canonical rank order. Add new ranks here and every rank-grouped summary
+# (in this script, in 11, and in the app) covers them automatically.
+if (!exists("RANK_COLS_CANON")) {
+  RANK_COLS_CANON <- c("kingdom", "phylum", "class", "order",
+                       "superfamily", "family", "subfamily", "tribe", "genus")
+}
+
+# Replace NA / "" in the given rank columns with an explicit "Unclassified"
+# bucket, so a taxon with a blank parent rank (e.g. a reptile that has order
+# "Squamata" but no class in the backbone) is NEVER dropped from a rank-grouped
+# summary. Level-agnostic; works on data.table (by reference) or data.frame.
+# (Promote to R/globals.R to share one definition across all scripts + the app;
+#  the guard above keeps that copy authoritative if present.)
+if (!exists("bucket_unclassified")) {
+  bucket_unclassified <- function(df, cols = RANK_COLS_CANON, label = "Unclassified") {
+    cols <- intersect(cols, names(df))
+    if (length(cols) == 0) return(df)
+    if (data.table::is.data.table(df)) {
+      for (col in cols) {
+        v <- as.character(df[[col]])
+        v[is.na(v) | trimws(v) == ""] <- label
+        data.table::set(df, j = col, value = v)
+      }
+    } else {
+      for (col in cols) {
+        v <- as.character(df[[col]])
+        v[is.na(v) | trimws(v) == ""] <- label
+        df[[col]] <- v
+      }
+    }
+    df
+  }
+}
+
+# ===========================================================================
 # CONFIGURATION
 # ===========================================================================
 
@@ -190,6 +227,61 @@ match_summary <- merge(
 match_summary[, matched_any := !is.na(n_gbif_species)]
 match_summary[is.na(n_gbif_species), n_gbif_species := 0L]
 match_summary[is.na(gbif_total_occ), gbif_total_occ := 0]
+
+# ---------------------------------------------------------------------------
+# Scope the gap denominator to the organisms we actually compare against GBIF.
+#  (1) Species-rank only: a genus/family/order name cannot match a GBIF species
+#      binomial, so higher ranks would otherwise be counted as "missing" and
+#      massively inflate the gap. The national checklist carries ~30k such
+#      higher-rank accepted taxa.
+#  (2) Drop non-multicellular kingdoms the backbone happens to list (Dyntaxa
+#      does carry Bacteria/Archaea/Viruses). Protozoa/Chromista are KEPT.
+# Both are config-gated so portability/other countries can opt out.
+# ---------------------------------------------------------------------------
+if (isTRUE(cfg_get("parameters.taxonomic.gap_species_only", TRUE)) &&
+    "taxonRank" %in% names(match_summary)) {
+  species_ranks <- c("species", "subspecies", "variety", "form")
+  n_before <- nrow(match_summary)
+  match_summary <- match_summary[tolower(taxonRank) %in% species_ranks]
+  cli_alert_info(
+    "Gap scoped to species rank: {scales::comma(n_before)} -> \\
+    {scales::comma(nrow(match_summary))} taxa"
+  )
+}
+exclude_kingdoms <- unlist(cfg_get("parameters.taxonomic.exclude_kingdoms", character(0)))
+if (length(exclude_kingdoms) && "kingdom" %in% names(match_summary)) {
+  n_before <- nrow(match_summary)
+  match_summary <- match_summary[is.na(kingdom) | !(kingdom %in% exclude_kingdoms)]
+  cli_alert_info(
+    "Excluded kingdoms ({paste(exclude_kingdoms, collapse = ', ')}): \\
+    {scales::comma(n_before)} -> {scales::comma(nrow(match_summary))} taxa"
+  )
+}
+
+#  (3) Drop specific orders, the same config-driven way kingdoms are dropped.
+#      Primates lives here so Homo sapiens is removed from the reference
+#      population ONCE, in the pipeline — feeding match_summary, the rank/threat
+#      coverage tables, and therefore every dashboard count, identically.
+#      Previously the app excluded Primates on its own (a hardcoded
+#      EXCLUDE_ORDERS), which made the Overview's taxonomic totals disagree with
+#      the Concern tab. Set `parameters.taxonomic.exclude_orders: [Primates]` in
+#      the country config to activate; with no config entry this is a no-op.
+exclude_orders <- unlist(cfg_get("parameters.taxonomic.exclude_orders", character(0)))
+if (length(exclude_orders) && "order" %in% names(match_summary)) {
+  n_before <- nrow(match_summary)
+  match_summary <- match_summary[is.na(order) | !(order %in% exclude_orders)]
+  cli_alert_info(
+    "Excluded orders ({paste(exclude_orders, collapse = ', ')}): \\
+    {scales::comma(n_before)} -> {scales::comma(nrow(match_summary))} taxa"
+  )
+}
+
+# Route blank higher-rank labels (NA/"") to an explicit "Unclassified" bucket
+# BEFORE any rank-grouped summary below and before this table is written out.
+# Everything downstream (09b's family/order summaries, the
+# taxonomic_match_summary.csv that 11 and the app read) inherits the bucket, so
+# no taxon is dropped just because a parent rank is missing in the backbone.
+match_summary <- bucket_unclassified(match_summary)
 
 n_backbone_matched <- sum(match_summary$matched_any)
 cli_alert_success("Backbone taxa matched: {scales::comma(n_backbone_matched)} / {scales::comma(nrow(match_summary))}")

@@ -67,6 +67,38 @@ timer_start <- Sys.time()
 cli_h1("09c -- Scope-Filtered Summaries & Recent-Period Layer")
 
 # ==============================================================================
+# Unclassified-rank bucketing (taxonomy)
+# ==============================================================================
+# Maps NA/"" ranks to an explicit "Unclassified" bucket so cube-derived
+# order/class/family summaries never silently drop occurrences with a blank
+# rank. Level-agnostic; extend RANK_COLS_CANON to cover new ranks everywhere.
+# (Promote to R/globals.R to share one copy across all scripts + the app.)
+if (!exists("RANK_COLS_CANON")) {
+  RANK_COLS_CANON <- c("kingdom", "phylum", "class", "order",
+                       "superfamily", "family", "subfamily", "tribe", "genus")
+}
+if (!exists("bucket_unclassified")) {
+  bucket_unclassified <- function(df, cols = RANK_COLS_CANON, label = "Unclassified") {
+    cols <- intersect(cols, names(df))
+    if (length(cols) == 0) return(df)
+    if (data.table::is.data.table(df)) {
+      for (col in cols) {
+        v <- as.character(df[[col]])
+        v[is.na(v) | trimws(v) == ""] <- label
+        data.table::set(df, j = col, value = v)
+      }
+    } else {
+      for (col in cols) {
+        v <- as.character(df[[col]])
+        v[is.na(v) | trimws(v) == ""] <- label
+        df[[col]] <- v
+      }
+    }
+    df
+  }
+}
+
+# ==============================================================================
 # Configuration
 # ==============================================================================
 
@@ -77,11 +109,17 @@ THREATENED_CODES <- c("CR", "EN", "VU", "NT")
 
 SCOPE_FLAGS <- c(
   all        = "is_all",
-  dyntaxa    = "in_dyntaxa",
   threatened = "is_threatened",
   invasive   = "is_invasive",
   sensitive  = "is_sensitive"
 )
+# Note: the "dyntaxa" scope was removed. With the app's scope toggle gone, the
+# occurrence-based tabs (Spatial / Temporal / Record Types / Publisher) read the
+# full-GBIF outputs (07 / 06a / the "all" scope here), and only the Taxonomic and
+# Concern tabs are reference-relative — and those run off the backbone *match*
+# (09a reconciliation + 09b match_summary), not a scope-filtered cube summary.
+# The in_dyntaxa flag is still computed in the scope lookup below (it is cheap and
+# documents the backbone membership), it just no longer drives a scope output.
 
 
 # ==============================================================================
@@ -374,6 +412,7 @@ for (grid_label in names(grid_map)) {
         n_families = uniqueN(family)), by = .(grid, order, eeacellcode)]
       oc_all[, basisofrecord := "all"]
       oc_result <- rbindlist(list(oc_dt, oc_all), use.names = TRUE, fill = TRUE)
+      oc_result <- bucket_unclassified(oc_result)
       fwrite(oc_result, here(p_derived, glue("order_cell_summary_{scope_name}_{grid_label}.csv")))
       rm(oc_dt, oc_all, oc_result)
     }
@@ -392,6 +431,7 @@ for (grid_label in names(grid_map)) {
         year = as.integer(substr(as.character(yearmonth), 1, 4)),
         month = as.integer(substr(as.character(yearmonth), 5, 6))
       )]
+      ot_result <- bucket_unclassified(ot_result)
       fwrite(ot_result, here(p_derived, glue("order_time_summary_{scope_name}_{grid_label}.csv")))
       rm(ot_dt, ot_all, ot_result)
     }
@@ -410,6 +450,7 @@ for (grid_label in names(grid_map)) {
         year = as.integer(substr(as.character(yearmonth), 1, 4)),
         month = as.integer(substr(as.character(yearmonth), 5, 6))
       )]
+      ft_result <- bucket_unclassified(ft_result)
       fwrite(ft_result, here(p_derived, glue("family_time_summary_{scope_name}_{grid_label}.csv")))
       rm(ft_dt, ft_all, ft_result)
     }
@@ -444,9 +485,11 @@ for (grid_label in names(grid_map)) {
   cli_alert_info("Recent-period layer for {grid_label}")
 
   all_cells_this_grid <- grid_cells[[grid_label]]
-  if (is.null(all_cells_this_grid)) {
-    all_cells_this_grid <- unique(cube$eeacellcode)
-  }
+  # No fall-back to cube cells. complete_to_grid() (the spatial layer below)
+  # aborts loudly if this is NULL/empty rather than silently zero-filling to
+  # data-only cells, which would report ~100% coverage and hide every empty
+  # cell. A genuinely missing grid should stop the run, not produce a
+  # misleading spatial_gaps.
 
   global_max_ym <- max(cube$yearmonth, na.rm = TRUE)
   latest_date_grid <- if (!is.na(global_max_ym) && !is.infinite(global_max_ym)) {
@@ -502,36 +545,26 @@ for (grid_label in names(grid_map)) {
     fwrite(basis_recent, here(p_derived, glue("basis_recent_{scope_name}_{grid_label}.csv")))
     rm(br, br_all, basis_recent)
 
-    # Spatial gaps (zero-filled)
-    all_basis <- unique(dt_s$basisofrecord)
-
-    sg_basis <- dt_s[, .(
+    # Spatial gaps (zero-filled to the FULL grid via the shared helper).
+    # Per-basis counts plus a synthetic "all" basis row, then complete_to_grid()
+    # expands to every grid cell (aborting if the grid is missing) and adds the
+    # has_data / gap_zero flags. Identical code path to 07, so the two zero-fills
+    # cannot drift.
+    sg_basis_raw <- dt_s[, .(
       occurrences = safe_sum(occ_num), n_species = uniqueN(specieskey)
     ), by = .(eeacellcode, basisofrecord)]
 
-    complete_grid <- as.data.table(expand.grid(
-      eeacellcode = all_cells_this_grid,
-      basisofrecord = all_basis,
-      stringsAsFactors = FALSE
-    ))
-    sg_basis <- merge(complete_grid, sg_basis,
-      by = c("eeacellcode", "basisofrecord"), all.x = TRUE)
-    sg_basis[is.na(occurrences), occurrences := 0]
-    sg_basis[is.na(n_species), n_species := 0]
-    sg_basis[, has_data := occurrences > 0]
-
     sg_all_raw <- dt_s[, .(
       occurrences = safe_sum(occ_num), n_species = uniqueN(specieskey)
-    ), by = .(eeacellcode)]
-    sg_all_complete <- data.table(eeacellcode = all_cells_this_grid)
-    sg_all <- merge(sg_all_complete, sg_all_raw, by = "eeacellcode", all.x = TRUE)
-    sg_all[is.na(occurrences), occurrences := 0]
-    sg_all[is.na(n_species), n_species := 0]
-    sg_all[, `:=`(basisofrecord = "all", has_data = occurrences > 0)]
+    ), by = .(eeacellcode)][, basisofrecord := "all"]
 
-    spatial_gaps <- rbindlist(list(sg_basis, sg_all), use.names = TRUE, fill = TRUE)
+    sg_counts <- rbindlist(list(sg_basis_raw, sg_all_raw), use.names = TRUE)
+
+    spatial_gaps <- complete_to_grid(
+      sg_counts, all_cells_this_grid, facet_cols = "basisofrecord"
+    )
     fwrite(spatial_gaps, here(p_derived, glue("spatial_gaps_{scope_name}_{grid_label}.csv")))
-    rm(sg_basis, sg_all_raw, sg_all, sg_all_complete, complete_grid, spatial_gaps)
+    rm(sg_basis_raw, sg_all_raw, sg_counts, spatial_gaps)
 
     # Cell last year (per-cell observed last-12-months split)
     cly <- dt_s[, .(
@@ -571,6 +604,7 @@ for (grid_label in names(grid_map)) {
       tcr[, staleness_months := NA_real_]
     }
 
+    tcr <- bucket_unclassified(tcr)
     fwrite(tcr, here(p_derived, glue("tax_cell_recency_{grid_label}.csv")))
     cli_alert_success("tax_cell_recency_{grid_label}: {scales::comma(nrow(tcr))} rows")
     rm(tcr)
@@ -604,6 +638,11 @@ for (flag in SCOPE_FLAGS) {
     species_scope[, (flag) := FALSE]
   }
 }
+
+# Bucket blank ranks so the app's Dyntaxa-mode class/kingdom dropdowns (which
+# filter this table on !is.na(class)) keep an explicit "Unclassified" option
+# instead of dropping reptiles and other blank-rank taxa.
+species_scope <- bucket_unclassified(species_scope)
 
 fwrite(species_scope, here(p_derived, "species_scope_summary.csv"))
 cli_alert_success("species_scope_summary.csv: {scales::comma(nrow(species_scope))} species")

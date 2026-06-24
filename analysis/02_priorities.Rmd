@@ -35,7 +35,15 @@ admin_level1     <- safe_get("admin_level1")
 dashboard        <- safe_get("dashboard")
 match_summary    <- safe_get("taxonomic_match_summary")
 species_scope    <- safe_get("species_scope_lookup")
-priority_zero    <- safe_get("priority_zero_cells")
+spatial_gaps     <- safe_get("spatial_gaps_10km")
+# Zero-coverage cells derived the same way as the app's Priorities tab — from
+# the 10 km spatial gaps (basisofrecord == "all", no data) — so the count ties
+# out to the Overview and Spatial reports (no 10/50 km mixing).
+priority_zero    <- if (!is.null(spatial_gaps)) {
+  spatial_gaps |> filter(basisofrecord == "all", !has_data) |>
+    transmute(eeacellcode, n_species = 0L, occurrences = 0,
+              priority_reason = "No GBIF records", priority_level = "Critical")
+} else safe_get("priority_zero_cells")
 priority_stale   <- safe_get("priority_stale_cells")
 overview_ly      <- safe_get("overview_last_year")
 publisher_cell_dep <- safe_get("publisher_cell_dependency")
@@ -66,7 +74,7 @@ This report synthesises the gap analysis into actionable priorities for data mob
 ```{r actions}
 n_zero  <- if (!is.null(priority_zero)) nrow(priority_zero) else 0
 n_stale <- if (!is.null(priority_stale)) nrow(priority_stale) else 0
-n_taxa_missing <- if (!is.null(dashboard)) dashboard$taxa_missing[1] else 0
+n_taxa_missing <- if (!is.null(match_summary)) sum(!match_summary$matched_any, na.rm = TRUE) else 0
 
 n_cr_en <- 0
 if (!is.null(match_summary)) {

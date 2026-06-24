@@ -81,6 +81,18 @@ spatial_summary_grid <- safe_read_gap("spatial_summary_by_grid.csv")
 spatial_thresholds <- safe_read_gap("spatial_thresholds_by_basis.csv")
 spatial_zero_cells <- safe_read_gap("spatial_zero_coverage_cells.csv")
 spatial_low_cells <- safe_read_gap("spatial_low_coverage_cells_q10.csv")
+# 07 writes these two files for BOTH grid resolutions (10km + 50km rbind'd).
+# The dashboard fields and the integrated priority lists below feed the 10km
+# app, so drop the 50km rows here — otherwise the zero/low counts mix
+# resolutions and disagree with cells_10km_zero and the 10km app tabs. (The
+# 50km empties remain in spatial_gaps_50km for the resolution comparison; they
+# just must not leak into the 10km outputs.)
+if (!is.null(spatial_zero_cells) && "grid" %in% names(spatial_zero_cells)) {
+  spatial_zero_cells <- spatial_zero_cells[grid == "grid10km"]
+}
+if (!is.null(spatial_low_cells) && "grid" %in% names(spatial_low_cells)) {
+  spatial_low_cells <- spatial_low_cells[grid == "grid10km"]
+}
 
 # --- Temporal ---
 temporal_year_10 <- safe_read_gap("temporal_overview_year_10km.csv")
@@ -130,8 +142,16 @@ cli_alert_success("Derived summaries loaded")
 cli_h2("Creating Master Dashboard Summary")
 
 # Calculate key metrics
+# On failure, log which expression failed (and why) before falling back to the
+# default, so malformed/missing upstream files surface as a named warning rather
+# than a silent NA in the dashboard. Capture the expression text first, before
+# the promise is forced.
 calc_metric <- function(expr, default = NA) {
-  tryCatch(expr, error = function(e) default)
+  expr_txt <- paste(deparse(substitute(expr)), collapse = " ")
+  tryCatch(expr, error = function(e) {
+    cli_alert_warning("calc_metric failed [{expr_txt}]: {conditionMessage(e)} \u2014 using default")
+    default
+  })
 }
 
 dashboard <- data.table(
