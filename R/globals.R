@@ -673,3 +673,41 @@ resolve_threat_status <- function(dt, cols = c("threatStatus_redlist",
   cli_alert_info("Threat status resolved from: {paste(available, collapse = ' > ')}")
   dt
 }
+
+# ============================================================================
+# Snapshot / Download Date (recency + staleness reference)
+# ============================================================================
+
+#' Reference date for recency/staleness: the GBIF cube download (snapshot) date.
+#'
+#' Reads the `created` date that 01b resolves from GBIF into
+#' data/{CC}/proc/data_sources_meta.rds (list element `cubes`). "Months since
+#' last record" is then measured against WHEN THE DATA WAS PULLED from GBIF —
+#' reproducible across reruns and meaningful as real elapsed time — instead of
+#' Sys.Date() (non-reproducible) or the data's own max month (only a proxy).
+#' Used by scripts 08 and 09c so cell staleness has one shared reference.
+#'
+#' @param fallback Date returned when no snapshot date is found (default NA);
+#'   if that is also NA, falls back to Sys.Date() with a warning.
+#' @return A single Date.
+get_snapshot_date <- function(fallback = as.Date(NA)) {
+  meta_path <- here(p_data_proc, "data_sources_meta.rds")
+  if (file.exists(meta_path)) {
+    meta  <- tryCatch(readRDS(meta_path), error = function(e) NULL)
+    cubes <- meta$cubes
+    if (!is.null(cubes) && length(cubes)) {
+      dates <- do.call(c, lapply(cubes, function(x) {
+        d <- x$created
+        if (is.null(d) || all(is.na(d))) as.Date(NA) else as.Date(d)
+      }))
+      dates <- dates[!is.na(dates)]
+      if (length(dates)) return(max(dates))
+    }
+  }
+  if (!is.na(fallback)) {
+    cli_alert_warning("get_snapshot_date(): no cube snapshot date in metadata; using fallback {fallback}")
+    return(as.Date(fallback))
+  }
+  cli_alert_warning("get_snapshot_date(): no snapshot date and no fallback; using Sys.Date() (non-reproducible)")
+  Sys.Date()
+}

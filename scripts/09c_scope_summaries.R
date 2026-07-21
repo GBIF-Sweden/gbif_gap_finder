@@ -337,6 +337,15 @@ load_cube_scoped <- function(parquet_path, grid_label) {
     dt[is.na(get(flag)), (flag) := FALSE]
   }
 
+  # The "all" scope is genuinely ALL of GBIF (project decision 2026-07-21): every
+  # occurrence, including taxa outside the backbone/reconciliation set. Only the
+  # backbone-relative scopes (threatened/invasive/sensitive) stay match-driven.
+  # Without this override, "all" was keyed to `recon` via scope_lookup and
+  # silently dropped cube species that never entered reconciliation (e.g.
+  # microbial kingdoms), so the app's Overview/Spatial/Record-Types totals did
+  # not match the full-GBIF dashboard figures.
+  dt[, is_all := TRUE]
+
   dt
 }
 
@@ -492,12 +501,15 @@ for (grid_label in names(grid_map)) {
   # misleading spatial_gaps.
 
   global_max_ym <- max(cube$yearmonth, na.rm = TRUE)
-  latest_date_grid <- if (!is.na(global_max_ym) && !is.infinite(global_max_ym)) {
+  data_max_date <- if (!is.na(global_max_ym) && !is.infinite(global_max_ym)) {
     as.Date(paste0(
       substr(as.character(global_max_ym), 1, 4), "-",
       substr(as.character(global_max_ym), 5, 6), "-01"
     ))
-  } else NA
+  } else as.Date(NA)
+  # Staleness reference = cube snapshot date (01b), consistent with script 08.
+  # Falls back to the data's own max month if the download metadata is absent.
+  latest_date_grid <- get_snapshot_date(fallback = data_max_date)
 
   for (scope_name in active_scopes) {
     flag <- SCOPE_FLAGS[[scope_name]]

@@ -191,7 +191,10 @@ dashboard <- data.table(
   ),
   
   # --- Threatened species ---
-  threatened_in_reference = calc_metric(nrow(tax_coverage_threat[threatStatus %in% c("CR", "EN", "VU", "NT")])),
+  # tax_coverage_threat has ONE row per threat status, so nrow() here returned
+  # the number of categories (<=4), not the number of threatened reference taxa.
+  # Sum n_ref_total instead (mirrors threatened_in_gbif on the next line).
+  threatened_in_reference = calc_metric(sum(tax_coverage_threat[threatStatus %in% c("CR", "EN", "VU", "NT")]$n_ref_total, na.rm = TRUE)),
   threatened_in_gbif = calc_metric(
     sum(tax_coverage_threat[threatStatus %in% c("CR", "EN", "VU", "NT")]$n_in_gbif, na.rm = TRUE)
   ),

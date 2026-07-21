@@ -434,14 +434,27 @@ if (redlist_available && !is.null(redlist_distr)) {
     }
   }
 
-  # Create threat lookup by scientificName
+  # Create threat lookup, matched on the CANONICAL binomial (strip authorship).
+  # The red-list DwC-A scientificName can carry authorship (same IPT
+  # infrastructure as the GRIIS invasives), so a raw scientificName join
+  # under-matches the canonical backbone and silently undercounts threatened
+  # taxa. Canonicalise BOTH sides, mirroring the invasive path below.
+  canonical_binomial <- function(x) {
+    vapply(strsplit(trimws(as.character(x)), "\\s+"), function(p) {
+      if (length(p) >= 2) paste(p[1], p[2])
+      else if (length(p) == 1 && nzchar(p[1])) p[1]
+      else NA_character_
+    }, character(1))
+  }
   redlist_threat_lookup <- redlist_combined |>
     filter(
       !is.na(scientificName),
       !is.na(threatStatus)
     ) |>
-    select(scientificName, threatStatus) |>
-    distinct(scientificName, .keep_all = TRUE) |>
+    mutate(canon = canonical_binomial(scientificName)) |>
+    filter(!is.na(canon)) |>
+    select(canon, threatStatus) |>
+    distinct(canon, .keep_all = TRUE) |>
     rename(threatStatus_redlist = threatStatus)
 
   cli_alert_info(
@@ -457,13 +470,17 @@ if (redlist_available && !is.null(redlist_distr)) {
     )
     taxa_reference <- taxa_reference |>
       rename(threatStatus_backbone = threatStatus) |>
-      left_join(redlist_threat_lookup, by = "scientificName")
+      mutate(canon = canonical_binomial(scientificName)) |>
+      left_join(redlist_threat_lookup, by = "canon") |>
+      select(-canon)
   } else {
     cli_alert_info(
       "Adding red list threat status (backbone has none)"
     )
     taxa_reference <- taxa_reference |>
-      left_join(redlist_threat_lookup, by = "scientificName") |>
+      mutate(canon = canonical_binomial(scientificName)) |>
+      left_join(redlist_threat_lookup, by = "canon") |>
+      select(-canon) |>
       mutate(threatStatus_backbone = NA_character_)
   }
 
@@ -786,29 +803,42 @@ if (sensitive_available) {
     print(cat_summary)
   }
 
-  # Create sensitive species lookup by scientificName
+  # Create sensitive lookup, matched on the CANONICAL binomial (strip authorship),
+  # mirroring the invasive path — a raw scientificName join under-matches the
+  # canonical backbone and undercounts sensitive taxa.
+  canonical_binomial <- function(x) {
+    vapply(strsplit(trimws(as.character(x)), "\\s+"), function(p) {
+      if (length(p) >= 2) paste(p[1], p[2])
+      else if (length(p) == 1 && nzchar(p[1])) p[1]
+      else NA_character_
+    }, character(1))
+  }
   sensitive_lookup <- sensitive_taxon |>
     filter(!is.na(scientificName)) |>
-    distinct(scientificName, .keep_all = TRUE) |>
+    mutate(canon = canonical_binomial(scientificName)) |>
+    filter(!is.na(canon)) |>
+    distinct(canon, .keep_all = TRUE) |>
     mutate(is_sensitive = TRUE)
 
   # Include sensitivity category if available
   if (!is.null(sensitivity_category_col)) {
     sensitive_lookup <- sensitive_lookup |>
-      select(scientificName, is_sensitive,
+      select(canon, is_sensitive,
              sensitivity_category = all_of(sensitivity_category_col))
   } else {
     sensitive_lookup <- sensitive_lookup |>
-      select(scientificName, is_sensitive)
+      select(canon, is_sensitive)
   }
 
   cli_alert_info(
     "Sensitive species lookup: {scales::comma(nrow(sensitive_lookup))} taxa"
   )
 
-  # Join to taxa_reference
+  # Join to taxa_reference on the canonical binomial (backbone is canonical)
   taxa_reference <- taxa_reference |>
-    left_join(sensitive_lookup, by = "scientificName") |>
+    mutate(canon = canonical_binomial(scientificName)) |>
+    left_join(sensitive_lookup, by = "canon") |>
+    select(-canon) |>
     mutate(is_sensitive = replace_na(is_sensitive, FALSE))
 
   # Fill sensitivity_category NA for non-sensitive species

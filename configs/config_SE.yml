@@ -235,11 +235,23 @@ parameters:
     stale_months_12: 12
     stale_months_60: 60
   taxonomic:
+    # Occurrence-based tabs (Overview/Spatial/Temporal/Record Types/Publisher)
+    # report ALL of GBIF; only Taxonomic + Species-of-Concern are backbone-
+    # relative. When true, this switch kingdom-scopes the 06a/08 cube ("all") to
+    # backbone kingdoms. Set FALSE so "all" is genuinely all of GBIF and the
+    # dashboard totals reconcile with the app. (Project decision 2026-07-21.)
+    restrict_to_backbone_scope: false
     min_occurrences: 1
     min_cells: 1
-    gap_species_only: true                                 # gap denominator = species-rank Dyntaxa taxa only
+    # Taxonomic-gap denominator keeps backbone taxa at species/subspecies/variety/
+    # form rank (all four — see 09b:241). Microbial kingdoms + Primates excluded.
+    gap_species_only: true
     exclude_kingdoms: ["Bacteria", "Archaea", "Viruses"]   # drop non-multicellular kingdoms from the gap
     exclude_orders: ["Primates"]
+    # "Poorly sampled" (Priorities): a matched taxon in the bottom quantile of
+    # occurrences OR occupying fewer than N cells. (Project decision 2026-07-21.)
+    poorly_sampled_occ_quantile: 0.10
+    poorly_sampled_min_cells: 3
     year_published_format: "mjd"   # Modified Julian Date — convert in script 04
   processing:
     large_order_threshold: 500000

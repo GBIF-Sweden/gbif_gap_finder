@@ -184,19 +184,38 @@ for (grid_name in names(grid_configs)) {
     n_with_data <- sum(grid$eeacellcode %in% country_cells_10km)
     n_empty <- nrow(grid) - n_with_data
     cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells ({n_with_data} with data, {n_empty} empty, centroid-in-country)")
-  } else if (grid_name == "grid50km" && !is.null(country_cells_50km)) {
-    n_before <- nrow(grid)
-    grid <- grid |> filter(eeacellcode %in% country_cells_50km)
-    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells")
-  } else if (grid_name == "grid50km" && !is.null(country_cells_10km)) {
-    # Fallback: clip 50km grid using 10km grid extent
-    cli_alert_info("Clipping 50km grid by 10km extent")
-    if ("grid10km" %in% names(grids_processed)) {
-      bbox_10km <- st_bbox(grids_processed$grid10km) |> st_as_sfc()
-      n_before <- nrow(grid)
-      grid <- grid[st_intersects(grid, bbox_10km, sparse = FALSE)[, 1], ]
-      cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells")
+  } else if (grid_name == "grid50km") {
+    # Clip the 50km grid the SAME way as 10km: assign each cell to the country by
+    # CENTROID-in-admin-boundary, and always keep any cell that carries data. Do
+    # NOT derive the 50km universe from data-bearing cells (the old
+    # `eeacellcode %in% country_cells_50km` filter) — that collapses the coverage
+    # denominator onto the data and reports ~100% coverage with zero empty 50km
+    # cells. Empty in-country cells must survive so the downstream zero-fill can
+    # flag them as gaps. (Fix 2026-07-21.)
+    admin_path <- here(raw_admin_dir, "admin_level1.gpkg")
+    if (file.exists(admin_path)) {
+      cli_alert_info("Clipping 50km to admin boundary (GADM level 1, centroid-in-country)")
+      admin <- st_read(admin_path, quiet = TRUE) |> st_transform(target_crs)
+      country_boundary <- st_union(admin)
+      in_country <- st_intersects(st_centroid(st_geometry(grid)),
+                                  country_boundary, sparse = FALSE)[, 1]
+    } else if (!is.null(country_cells_10km) && "grid10km" %in% names(grids_processed)) {
+      cli_alert_info("No admin boundary — clipping 50km by the (centroid-clipped) 10km hull")
+      hull_10km <- st_convex_hull(st_union(grids_processed$grid10km))
+      in_country <- st_intersects(st_centroid(st_geometry(grid)),
+                                  hull_10km, sparse = FALSE)[, 1]
+    } else {
+      cli_alert_warning("No admin boundary or 10km grid — keeping full 50km grid (coverage may be biased)")
+      in_country <- rep(TRUE, nrow(grid))
     }
+    has_data <- if (!is.null(country_cells_50km)) {
+      grid$eeacellcode %in% country_cells_50km
+    } else rep(FALSE, nrow(grid))
+    n_before <- nrow(grid)
+    grid <- grid[in_country | has_data, ]
+    n_with_data <- sum(grid$eeacellcode %in% country_cells_50km)
+    n_empty <- nrow(grid) - n_with_data
+    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells ({n_with_data} with data, {n_empty} empty, centroid-in-country)")
   }
 
   cli_alert_info("Writing: {.path {basename(gc$output)}}")

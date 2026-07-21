@@ -80,7 +80,7 @@ for (grid_name in names(cube_files)) {
     # Still add to manifest
     ds <- open_dataset(cf$parquet)
     manifest[[grid_name]] <- data.frame(
-      grid = grid_name, rows = ds$metadata$num_rows %||% NA_integer_,
+      grid = grid_name, rows = ds$num_rows %||% NA_integer_,
       parquet_mb = pq_size, status = "skipped"
     )
     next
@@ -99,12 +99,23 @@ for (grid_name in names(cube_files)) {
   dt <- fread(cf$csv, showProgress = TRUE, encoding = "UTF-8")
   cli_alert_success("Read {scales::comma(nrow(dt))} rows, {ncol(dt)} columns")
 
-  # Validate columns
-  missing_cols <- setdiff(expected_cols, names(dt))
-  extra_cols <- setdiff(names(dt), expected_cols)
-
+  # Validate columns. Analytically-required columns are a HARD STOP: a shifted or
+  # absent basisofrecord/kingdom silently zeroes the by-basis and taxonomic
+  # analyses downstream, so fail here rather than write a corrupt parquet.
+  missing_cols  <- setdiff(expected_cols, names(dt))
+  extra_cols    <- setdiff(names(dt), expected_cols)
+  required_cols <- c("specieskey", "eeacellcode", "year", "month", "occurrences",
+                     "basisofrecord", "kingdom", "publishingorgkey", "datasetkey")
+  missing_required <- setdiff(required_cols, names(dt))
+  if (length(missing_required) > 0) {
+    cli_abort(c(
+      "Cube {grid_name} is missing required column(s): {paste(missing_required, collapse = ', ')}",
+      "x" = "Refusing to write parquet — downstream coverage/taxonomic analyses would be silently wrong.",
+      "i" = "Check the SQL API download column order for {.path {basename(cf$csv)}}."
+    ))
+  }
   if (length(missing_cols) > 0) {
-    cli_alert_warning("Missing expected columns: {paste(missing_cols, collapse = ', ')}")
+    cli_alert_warning("Missing (non-required) expected columns: {paste(missing_cols, collapse = ', ')}")
   }
   if (length(extra_cols) > 0) {
     cli_alert_info("Extra columns: {paste(extra_cols, collapse = ', ')}")
@@ -150,6 +161,7 @@ for (grid_name in names(cube_files)) {
     n_species = uniqueN(dt$specieskey),
     n_cells = uniqueN(dt$eeacellcode),
     total_occ = sum(as.numeric(dt$occurrences)),
+    n_dropped_empty_cell = n_empty,
     status = "converted"
   )
 
@@ -179,7 +191,7 @@ for (grid_name in names(cube_files)) {
   pq <- cube_files[[grid_name]]$parquet
   if (file.exists(pq)) {
     ds <- open_dataset(pq)
-    cli_alert_success("{grid_name}: {scales::comma(ds$metadata$num_rows)} rows, {length(ds$schema)} columns")
+    cli_alert_success("{grid_name}: {scales::comma(ds$num_rows)} rows, {length(ds$schema)} columns")
   }
 }
 

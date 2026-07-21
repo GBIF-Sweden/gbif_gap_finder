@@ -148,11 +148,18 @@ parameters:
     stale_months_60: 60
 
   taxonomic:
+    # When true, kingdom-scopes the 06a/08 cube ("all") to backbone kingdoms.
+    # Keep FALSE so the occurrence-based tabs report all of GBIF and dashboard
+    # totals reconcile with the app; only Taxonomic/Concern are backbone-relative.
+    restrict_to_backbone_scope: false
     min_occurrences: 10
     min_cells: 5
-    gap_species_only: true                                 # gap denominator = species-rank backbone taxa only
+    gap_species_only: true                                 # keeps species/subspecies/variety/form ranks in the gap denominator
     exclude_kingdoms: ["Bacteria", "Archaea", "Viruses"]   # non-multicellular kingdoms to drop from the gap (national backbone may still list them)
     exclude_orders: ["Primates"]                           # drops Homo sapiens from the gap; CLEAR this list (or remove Primates) for countries with native non-human primates
+    # "Poorly sampled" = bottom-quantile occurrences OR fewer than N cells.
+    poorly_sampled_occ_quantile: 0.10
+    poorly_sampled_min_cells: 3
     year_published_format: "mjd"     # Modified Julian Date — GBIF SQL API default
 
   processing:

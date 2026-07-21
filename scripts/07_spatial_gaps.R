@@ -173,8 +173,11 @@ compute_spatial_gaps <- function(cell_data,
     )]
   }
 
-  # Cell-level aggregates (across all basis types)
-  cell_agg <- result[, .(
+  # Cell-level aggregates (across REAL basis types only).
+  # Exclude the synthetic basisofrecord == "all" row: it already equals the sum
+  # over the real bases, so including it double-counted total_occurrences_cell
+  # (~2x) and added a phantom basis to n_basis_with_data / n_basis_zero.
+  cell_agg <- result[basisofrecord != "all", .(
     total_occurrences_cell = sum(occurrences),
     n_basis_with_data      = sum(has_data),
     n_basis_zero           = sum(gap_zero),

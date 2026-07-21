@@ -94,7 +94,7 @@ THREATENED_CODES <- c("CR", "EN", "VU", "NT")
 CELLCODE_FIELD <- cfg_get("parameters.grid.cellcode_field", "eeacellcode")
 
 cli_h1("09b -- Taxonomic Gap Analysis")
-cli_alert_info("Poorly sampled: <{MIN_OCCURRENCES} occ OR <{MIN_CELLS} cells")
+cli_alert_info("Poorly sampled: bottom-quantile occurrences OR few cells (see config parameters.taxonomic.poorly_sampled_*)")
 cli_alert_info("Threatened categories: {paste(THREATENED_CODES, collapse = ', ')}")
 
 
@@ -531,11 +531,23 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
     }
   }
 
-  # Flag poorly sampled
-  spatial_coverage[, poorly_sampled_spatial :=
-    (n_cells_10km < MIN_CELLS & n_cells_50km < MIN_CELLS)]
-  spatial_coverage[, poorly_sampled_abundance :=
-    (total_occ_10km < MIN_OCCURRENCES & total_occ_50km < MIN_OCCURRENCES)]
+  # Flag poorly sampled (project decision 2026-07-21): a matched taxon is poorly
+  # sampled if it is in the bottom quantile of occurrences OR occupies few cells.
+  # (Replaces the old absolute MIN_OCCURRENCES/MIN_CELLS test, which was
+  # degenerate under config 1/1 — nothing could be < 1.)
+  PS_OCC_Q     <- cfg_get("parameters.taxonomic.poorly_sampled_occ_quantile", 0.10)
+  PS_MIN_CELLS <- cfg_get("parameters.taxonomic.poorly_sampled_min_cells", 3)
+  ps_occ_threshold <- as.numeric(stats::quantile(
+    spatial_coverage[total_occ_10km > 0, total_occ_10km],
+    probs = PS_OCC_Q, na.rm = TRUE))
+  if (!is.finite(ps_occ_threshold)) ps_occ_threshold <- 0
+  spatial_coverage[, poorly_sampled := (total_occ_10km <= ps_occ_threshold) |
+                                       (n_cells_10km < PS_MIN_CELLS)]
+  # Back-compat aliases: downstream code (priority list) still references the old
+  # flag names; both now mirror the single `poorly_sampled` definition.
+  spatial_coverage[, poorly_sampled_spatial   := poorly_sampled]
+  spatial_coverage[, poorly_sampled_abundance := poorly_sampled]
+  cli_alert_info("Poorly-sampled threshold: occ <= {round(ps_occ_threshold)} (q{round(PS_OCC_Q*100)}) OR < {PS_MIN_CELLS} cells")
 
   cli_alert_success("Spatial coverage: {scales::comma(nrow(spatial_coverage))} taxa")
 }

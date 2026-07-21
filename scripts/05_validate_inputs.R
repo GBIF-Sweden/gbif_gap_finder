@@ -26,6 +26,11 @@ source(here::here("scripts", "00_setup.R"))
 ts_label    <- format(Sys.time(), "%Y%m%d_%H%M%S")
 report_path <- here(p_logs, glue("validation_report_{ts_label}.md"))
 
+# CRITICAL failures accumulate here; the script writes the full report and then
+# aborts at the end if any are present, so bad inputs stop the pipeline instead
+# of flowing silently into wrong coverage/taxonomic numbers.
+critical_failures <- character(0)
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -225,14 +230,18 @@ if (file_exists_safe(manifest_file)) {
         md_add("- Columns: `", length(pq_cols), "`\n")
         md_add("- Column names: `", paste(pq_cols, collapse = ", "), "`\n")
 
-        # Check required columns
-        required_cols <- c("specieskey", "eeacellcode", "year", "month", "occurrences")
+        # Check required columns (basisofrecord + kingdom drive the by-basis and
+        # taxonomic analyses; treat any missing required column as CRITICAL).
+        required_cols <- c("specieskey", "eeacellcode", "year", "month", "occurrences",
+                           "basisofrecord", "kingdom")
         missing_cols <- setdiff(required_cols, pq_cols)
 
         if (length(missing_cols) == 0) {
           md_check("All required columns present", "ok")
         } else {
-          md_check(glue("Missing: {paste(missing_cols, collapse = ', ')}"), "warn")
+          md_check(glue("Missing required columns: {paste(missing_cols, collapse = ', ')}"), "fail")
+          critical_failures <<- c(critical_failures,
+            glue("{basename(pq_file)}: missing required columns {paste(missing_cols, collapse = ', ')}"))
         }
 
         # Check new columns
@@ -254,6 +263,41 @@ if (file_exists_safe(manifest_file)) {
   md_check("Cube manifest MISSING — run script 04 first", "fail")
   cli_alert_danger("Manifest missing")
 }
+
+# ============================================================================
+# Section 2b: Cube cells ⊆ Grid (orphan check)
+# ============================================================================
+# complete_to_grid() joins cube counts onto the GRID universe with all.x = TRUE,
+# so any cube cell absent from the grid is silently dropped and its occurrences
+# vanish from coverage and totals. Assert cube cell codes are a subset of the
+# grid (a resolution mismatch or a marine/border cell surfaces here).
+
+md_hr(); md_h2("2b) Cube ↔ Grid Alignment")
+
+check_cube_in_grid <- function(pq_file, grid_gpkg, label) {
+  if (!file_exists_safe(pq_file) || !file_exists_safe(grid_gpkg)) {
+    md_check(glue("{label}: parquet or grid missing — skipped"), "warn")
+    return(invisible(NULL))
+  }
+  grid       <- sf::st_read(grid_gpkg, quiet = TRUE)
+  gcol       <- guess_cellcode_field(names(grid))
+  grid_codes <- unique(as.character(grid[[gcol]]))
+  cube_codes <- unique(as.character(
+    dplyr::collect(dplyr::select(arrow::open_dataset(pq_file), eeacellcode))$eeacellcode))
+  orphans    <- setdiff(cube_codes, grid_codes)
+  md_add("- ", label, ": `", scales::comma(length(cube_codes)), "` cube cells, `",
+         scales::comma(length(orphans)), "` not in grid\n")
+  if (length(orphans) == 0) {
+    md_check(glue("{label}: all cube cells present in the grid"), "ok")
+  } else {
+    md_check(glue("{label}: {scales::comma(length(orphans))} cube cell(s) absent from grid — occurrences silently dropped"), "fail")
+    critical_failures <<- c(critical_failures,
+      glue("{label}: {length(orphans)} cube cell(s) not in the grid"))
+  }
+}
+
+check_cube_in_grid(here(p_data_proc, "cubes", "cube_10km.parquet"), out_grid_10km_gpkg, "10km")
+check_cube_in_grid(here(p_data_proc, "cubes", "cube_50km.parquet"), out_grid_50km_gpkg, "50km")
 
 # ============================================================================
 # Section 3: Taxa Reference
@@ -354,6 +398,13 @@ writeLines(md_lines, report_path)
 cli_alert_success(
   "Validation report: {.path {report_path}}"
 )
+
+if (length(critical_failures) > 0) {
+  cli_alert_danger("Validation found {length(critical_failures)} CRITICAL failure(s):")
+  for (f in critical_failures) cli_alert_warning(f)
+  cli_abort("Input validation failed — see {.path {report_path}}. Fix inputs before continuing.")
+}
+
 cli_alert_info("Review report for any warnings or failures")
 cli_alert_info(
   "Next: source('scripts/06a_make_core_summaries.R')"

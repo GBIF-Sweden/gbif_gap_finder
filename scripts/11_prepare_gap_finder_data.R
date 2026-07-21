@@ -681,7 +681,12 @@ if (!is.null(overview_ts)) {
     cutoff_ym = recent_cutoff_ym,
     occ_last_year = recent_occ$total_occ[1],
     occ_prior = prior_occ$total_occ[1],
-    cells_active_last_year = recent_occ$n_cells[1]
+    # Distinct cells active in the recent window. Count cells with any recent
+    # record from the per-cell layer (overview_cly$occ_last_year > 0). Do NOT
+    # use sum(recent_occ$n_cells): that sums a distinct-cell count over ~12
+    # monthly rows, counting a cell once per active month (up to ~12x overcount).
+    cells_active_last_year = if (!is.null(overview_cly))
+      sum(overview_cly$occ_last_year > 0, na.rm = TRUE) else NA_integer_
   )
   cli_alert_success(
     "Overview last-year: {scales::comma(recent_occ$total_occ[1])} occurrences in {recent_label}"

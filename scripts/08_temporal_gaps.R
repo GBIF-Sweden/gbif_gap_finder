@@ -59,6 +59,12 @@ STALE_60M <- cfg_get("parameters.temporal.stale_months_60", 60)
 cli_h1("Temporal Gap Analysis (Script 08)")
 cli_alert_info("Staleness thresholds: {STALE_12M} months, {STALE_60M} months")
 
+# Staleness reference date = the GBIF cube download (snapshot) date resolved by
+# 01b (globals::get_snapshot_date), NOT Sys.Date(). Reproducible across reruns
+# and consistent with 09c. Falls back to Sys.Date() only if metadata is absent.
+REFERENCE_DATE <- get_snapshot_date(fallback = Sys.Date())
+cli_alert_info("Staleness reference date (cube snapshot): {REFERENCE_DATE}")
+
 # ===========================================================================
 # HELPER FUNCTIONS
 # ===========================================================================
@@ -365,8 +371,10 @@ compute_cell_recency <- function(grid_label, cubes_dir) {
   
   rm(dt, tmp_basis, tmp_all); gc()
   
-  # Calculate derived metrics
-  today <- Sys.Date()
+  # Calculate derived metrics. Reference date = cube snapshot date (set above),
+  # so "months since last record" is reproducible and measured against when the
+  # data was pulled from GBIF, not the wall clock. Matches 09c's cell recency.
+  today <- REFERENCE_DATE
   
   out[, staleness_months := as.integer(
     interval(last_ym, today) / months(1)
