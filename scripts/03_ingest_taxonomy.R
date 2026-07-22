@@ -434,27 +434,19 @@ if (redlist_available && !is.null(redlist_distr)) {
     }
   }
 
-  # Create threat lookup, matched on the CANONICAL binomial (strip authorship).
-  # The red-list DwC-A scientificName can carry authorship (same IPT
-  # infrastructure as the GRIIS invasives), so a raw scientificName join
-  # under-matches the canonical backbone and silently undercounts threatened
-  # taxa. Canonicalise BOTH sides, mirroring the invasive path below.
-  canonical_binomial <- function(x) {
-    vapply(strsplit(trimws(as.character(x)), "\\s+"), function(p) {
-      if (length(p) >= 2) paste(p[1], p[2])
-      else if (length(p) == 1 && nzchar(p[1])) p[1]
-      else NA_character_
-    }, character(1))
-  }
+  # Create threat lookup by exact scientificName. The Swedish Red List DwC-A keeps
+  # authorship in a separate scientificNameAuthorship column, so scientificName is
+  # already the clean canonical name and matches the Dyntaxa backbone directly.
+  # Do NOT reduce to a genus+species binomial: Dyntaxa lists hybrids
+  # ("Dactylorhiza incarnata × maculata") at species rank, and a binomial
+  # reduction falsely matches them to the species and over-counts threatened taxa.
   redlist_threat_lookup <- redlist_combined |>
     filter(
       !is.na(scientificName),
       !is.na(threatStatus)
     ) |>
-    mutate(canon = canonical_binomial(scientificName)) |>
-    filter(!is.na(canon)) |>
-    select(canon, threatStatus) |>
-    distinct(canon, .keep_all = TRUE) |>
+    select(scientificName, threatStatus) |>
+    distinct(scientificName, .keep_all = TRUE) |>
     rename(threatStatus_redlist = threatStatus)
 
   cli_alert_info(
@@ -470,17 +462,13 @@ if (redlist_available && !is.null(redlist_distr)) {
     )
     taxa_reference <- taxa_reference |>
       rename(threatStatus_backbone = threatStatus) |>
-      mutate(canon = canonical_binomial(scientificName)) |>
-      left_join(redlist_threat_lookup, by = "canon") |>
-      select(-canon)
+      left_join(redlist_threat_lookup, by = "scientificName")
   } else {
     cli_alert_info(
       "Adding red list threat status (backbone has none)"
     )
     taxa_reference <- taxa_reference |>
-      mutate(canon = canonical_binomial(scientificName)) |>
-      left_join(redlist_threat_lookup, by = "canon") |>
-      select(-canon) |>
+      left_join(redlist_threat_lookup, by = "scientificName") |>
       mutate(threatStatus_backbone = NA_character_)
   }
 
@@ -674,11 +662,18 @@ if (invasives_available) {
     "Invasive species lookup: {scales::comma(nrow(invasive_lookup))} canonical taxa"
   )
 
-  # Join to taxa_reference on the canonical binomial (backbone is canonical)
+  # Join to taxa_reference on the canonical binomial. GRIIS scientificName carries
+  # authorship, so both sides are reduced to a genus+species binomial to strip it.
+  # But only flag genuine species-rank, NON-HYBRID backbone taxa: Dyntaxa lists
+  # hybrids ("A × B") and infraspecific taxa at/near species rank whose first two
+  # words collapse to a listed species, which double-counts the invasive species
+  # (490 flagged vs 337 real species). Restrict the flag to real species.
   taxa_reference <- taxa_reference |>
     mutate(canon = canonical_binomial(scientificName)) |>
     left_join(invasive_lookup, by = "canon") |>
-    mutate(is_invasive = replace_na(is_invasive, FALSE)) |>
+    mutate(is_invasive = replace_na(is_invasive, FALSE) &
+             !is.na(taxonRank) & tolower(taxonRank) == "species" &
+             !replace_na(stringr::str_detect(scientificName, "\\s[×x]\\s|^[×x]\\s"), FALSE)) |>
     select(-canon)
 
   n_invasive_matched <- sum(taxa_reference$is_invasive, na.rm = TRUE)
@@ -803,42 +798,32 @@ if (sensitive_available) {
     print(cat_summary)
   }
 
-  # Create sensitive lookup, matched on the CANONICAL binomial (strip authorship),
-  # mirroring the invasive path — a raw scientificName join under-matches the
-  # canonical backbone and undercounts sensitive taxa.
-  canonical_binomial <- function(x) {
-    vapply(strsplit(trimws(as.character(x)), "\\s+"), function(p) {
-      if (length(p) >= 2) paste(p[1], p[2])
-      else if (length(p) == 1 && nzchar(p[1])) p[1]
-      else NA_character_
-    }, character(1))
-  }
+  # Create sensitive species lookup by exact scientificName. The restricted-access
+  # list uses clean canonical names (no authorship), so an exact join matches the
+  # Dyntaxa backbone directly. Do NOT reduce to a binomial: that falsely matches
+  # backbone hybrids / infraspecific taxa and over-counts sensitive species.
   sensitive_lookup <- sensitive_taxon |>
     filter(!is.na(scientificName)) |>
-    mutate(canon = canonical_binomial(scientificName)) |>
-    filter(!is.na(canon)) |>
-    distinct(canon, .keep_all = TRUE) |>
+    distinct(scientificName, .keep_all = TRUE) |>
     mutate(is_sensitive = TRUE)
 
   # Include sensitivity category if available
   if (!is.null(sensitivity_category_col)) {
     sensitive_lookup <- sensitive_lookup |>
-      select(canon, is_sensitive,
+      select(scientificName, is_sensitive,
              sensitivity_category = all_of(sensitivity_category_col))
   } else {
     sensitive_lookup <- sensitive_lookup |>
-      select(canon, is_sensitive)
+      select(scientificName, is_sensitive)
   }
 
   cli_alert_info(
     "Sensitive species lookup: {scales::comma(nrow(sensitive_lookup))} taxa"
   )
 
-  # Join to taxa_reference on the canonical binomial (backbone is canonical)
+  # Join to taxa_reference by exact scientificName
   taxa_reference <- taxa_reference |>
-    mutate(canon = canonical_binomial(scientificName)) |>
-    left_join(sensitive_lookup, by = "canon") |>
-    select(-canon) |>
+    left_join(sensitive_lookup, by = "scientificName") |>
     mutate(is_sensitive = replace_na(is_sensitive, FALSE))
 
   # Fill sensitivity_category NA for non-sensitive species
