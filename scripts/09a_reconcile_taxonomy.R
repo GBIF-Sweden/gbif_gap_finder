@@ -23,6 +23,7 @@
 #
 # Outputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds       Main lookup table
+#   - data/{CC}/proc/taxa_reference_classified.rds      Classified backbone (read by 09b, T-R5)
 #   - data/{CC}/proc/gbif_name_cache.rds                Cached GBIF API responses
 #   - data/{CC}/proc/gaps/taxonomic_match_table.csv      Reconciliation as CSV
 #   - data/{CC}/proc/gaps/taxonomic_reconciliation_summary.csv  Tier-level summary
@@ -131,6 +132,12 @@ taxa[, name_std := tolower(trimws(scientificName))]
 
 # Classify rows: accepted vs synonym (NA-safe, uses taxonomicStatus first)
 taxa <- classify_accepted(taxa)
+
+# Persist the classified backbone so 09b consumes the SAME accepted/synonym
+# split instead of re-loading taxa_reference_current.rds and re-running
+# classify_accepted() -- removes the duplicate-load drift risk (T-R5).
+saveRDS(taxa, here(p_data_proc, "taxa_reference_classified.rds"))
+cli_alert_success("Saved classified backbone: taxa_reference_classified.rds")
 
 accepted_taxa <- taxa[is_accepted == TRUE]
 synonym_taxa  <- taxa[is_accepted == FALSE]

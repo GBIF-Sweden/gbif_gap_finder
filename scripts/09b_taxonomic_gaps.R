@@ -128,16 +128,22 @@ cli_alert_info("Unmatched: {scales::comma(n_unmatched)}")
 
 cli_h2("Loading Backbone Reference")
 
-taxa_path <- here(p_data_proc, "taxa_reference_current.rds")
-if (!file.exists(taxa_path)) {
-  cli_abort("Backbone not found: {.path {taxa_path}}. Run script 03 first.")
+# Prefer the classified backbone persisted by 09a, so 09b uses the identical
+# accepted/synonym split instead of re-loading the raw reference and re-running
+# classify_accepted() (T-R5 -- removes the duplicate load+classify drift risk).
+classified_path <- here(p_data_proc, "taxa_reference_classified.rds")
+taxa_path       <- here(p_data_proc, "taxa_reference_current.rds")
+if (file.exists(classified_path)) {
+  backbone <- as.data.table(readRDS(classified_path))
+  cli_alert_success("Loaded classified backbone from 09a: {scales::comma(nrow(backbone))} rows")
+} else if (file.exists(taxa_path)) {
+  backbone <- classify_accepted(as.data.table(readRDS(taxa_path)))
+  cli_alert_warning("Classified backbone missing -- loaded + classified raw reference (run 09a to skip this).")
+} else {
+  cli_abort("Backbone not found: {.path {taxa_path}}. Run script 03 (then 09a) first.")
 }
 
-backbone <- as.data.table(readRDS(taxa_path))
-cli_alert_success("Loaded backbone: {scales::comma(nrow(backbone))} rows")
-
 # Keep only accepted taxa (synonyms are handled by 09a's matching)
-backbone <- classify_accepted(backbone)
 tax_accepted <- backbone[is_accepted == TRUE]
 cli_alert_info("Accepted taxa: {scales::comma(nrow(tax_accepted))}")
 
