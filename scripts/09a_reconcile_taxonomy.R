@@ -759,7 +759,7 @@ cli_h2("Enriching with higher taxonomy from matched backbone taxa")
 taxa_hier_cols <- intersect(
   c("taxonID", "taxonRank", "kingdom", "phylum", "class", "order", "family",
     "threatStatus_backbone", "threatStatus_redlist",
-    "is_invasive", "is_sensitive", "in_dyntaxa",
+    "is_invasive", "is_sensitive", "sensitivity_category", "in_dyntaxa",
     "establishmentMeans", "occurrenceStatus"),
   names(accepted_taxa)
 )

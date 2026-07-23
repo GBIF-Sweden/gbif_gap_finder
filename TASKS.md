@@ -182,8 +182,10 @@
 - [ ] **D3** — Default to the last *complete* year on the temporal tab; keep the current partial
   year selectable but visually distinguished (greyed/dashed).
 - [ ] Rename "Select Dataset" → "Select Gap Explorer Dataset" on the Data tab.
-- [ ] Confirm sensitive `sensitivity_category` flows end-to-end; add it to the species scope
-  lookup CSV for the Data tab.
+- [x] Confirm sensitive `sensitivity_category` flows end-to-end; add it to the species scope
+  lookup CSV for the Data tab. — *done 2026-07-23 (`gap_finder_sensitivity_scope_lookup.patch`):
+  09a carries it into `recon`, 09c writes it to `species_scope_summary.csv`; surfaces as a column
+  in the Data-tab "Species Scope Lookup" (SE: 134 sensitive spp × 5/25/50 km).*
 
 ### Metadata, citation & docs
 - [ ] Recommended citation for the app (separate from the data DOI, which is done).

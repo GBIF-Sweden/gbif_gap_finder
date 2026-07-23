@@ -650,7 +650,7 @@ cli_h2("Writing Species Scope Summary")
 
 species_scope_cols <- intersect(
   c("specieskey", "species", "kingdom", "phylum", "class", "order", "family",
-    "match_tier", "establishmentMeans", "occurrenceStatus",
+    "match_tier", "establishmentMeans", "occurrenceStatus", "sensitivity_category",
     "threatStatus", "threatStatus_redlist", "threatStatus_backbone"),
   names(recon)
 )
