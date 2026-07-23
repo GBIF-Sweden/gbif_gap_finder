@@ -95,17 +95,27 @@ filter_coarse_grid_to_country <- function(
   }
 
   coarse_grid <- st_read(coarse_path, quiet = TRUE)
-  fine_grid   <- st_read(fine_path, quiet = TRUE)
+  code_field  <- guess_cellcode_field(names(coarse_grid))
 
-  code_field <- guess_cellcode_field(names(coarse_grid))
-
-  # Ensure same CRS
-  if (st_crs(coarse_grid) != st_crs(fine_grid)) {
-    fine_grid <- st_transform(fine_grid, st_crs(coarse_grid))
+  # Country mask = the dissolved fine-grid extent. The st_union() over every
+  # fine cell is the costliest step here, so cache it and reuse while the fine
+  # grid is unchanged (T-I3). Auto-invalidated whenever grids_10km.gpkg is
+  # rewritten (script 02): recompute when the cache is older than the fine grid.
+  cache_path <- here(p_data_proc, "country_boundary_10km.rds")
+  if (file.exists(cache_path) && file.mtime(cache_path) >= file.mtime(fine_path)) {
+    country_mask <- readRDS(cache_path)
+    if (st_crs(country_mask) != st_crs(coarse_grid)) {
+      country_mask <- st_transform(country_mask, st_crs(coarse_grid))
+    }
+  } else {
+    fine_grid <- st_read(fine_path, quiet = TRUE)
+    if (st_crs(coarse_grid) != st_crs(fine_grid)) {
+      fine_grid <- st_transform(fine_grid, st_crs(coarse_grid))
+    }
+    country_mask <- st_union(st_geometry(fine_grid))
+    tryCatch(saveRDS(country_mask, cache_path),
+             error = function(e) cli_alert_warning("Could not cache country boundary: {e$message}"))
   }
-
-  # Create country mask from fine grid extent
-  country_mask <- st_union(st_geometry(fine_grid))
 
   # Find coarse cells that intersect the country
   intersects <- st_intersects(
