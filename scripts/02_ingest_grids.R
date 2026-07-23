@@ -237,6 +237,13 @@ for (grid_name in names(grid_configs)) {
   st_write(grid, gc$output, delete_dsn = TRUE, quiet = TRUE)
   cli_alert_success("{nrow(grid)} cells")
 
+  # T-A1: cache the clipped cell-code list as a sidecar .txt so 07 (and future
+  # consumers) can read codes without re-opening the gpkg geometry.
+  # grid10km -> cellcodes_10km.txt, grid50km -> cellcodes_50km.txt.
+  codes_path <- file.path(p_data_proc, paste0("cellcodes_", sub("^grid", "", grid_name), ".txt"))
+  writeLines(unique(as.character(grid$eeacellcode)), codes_path)
+  cli_alert_success("Cached {basename(codes_path)}")
+
   grids_processed[[grid_name]] <- grid
 }
 

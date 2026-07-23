@@ -64,6 +64,15 @@ get_all_cellcodes <- function(grid_path) {
     cli_abort("Grid file not found: {.path {grid_path}}")
   }
 
+  # T-A1: prefer the sidecar cellcodes_*.txt written by 02 (skips opening the
+  # gpkg geometry just to pull the code column). Use it only when it is at least
+  # as new as the grid; otherwise fall back to reading the gpkg.
+  codes_path <- file.path(dirname(grid_path),
+    sub("grids_(.*)\\.gpkg$", "cellcodes_\\1.txt", basename(grid_path)))
+  if (file.exists(codes_path) && file.mtime(codes_path) >= file.mtime(grid_path)) {
+    return(unique(readLines(codes_path, warn = FALSE)))
+  }
+
   grid       <- st_read(grid_path, quiet = TRUE)
   code_field <- guess_cellcode_field(names(grid))
 
