@@ -32,7 +32,6 @@ safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else 
 
 match_summary   <- safe_get("taxonomic_match_summary")
 species_scope   <- safe_get("species_scope_lookup")
-tax_by_threat   <- safe_get("tax_by_threat")
 grid_10km       <- safe_get("grid_10km")
 admin_level1    <- safe_get("admin_level1")
 
@@ -75,6 +74,25 @@ concern_stats <- if (!is.null(match_summary)) {
        unmon_en  = sum(thr == "EN" & !matched, na.rm = TRUE),
        unmon_inv = sum(inv & !matched, na.rm = TRUE))
 } else NULL
+
+# Per-status Red List coverage from match_summary (matched_any) — the same
+# object and definition the app's concern_threat_coverage chart uses, so the
+# report ties out to the dashboard. All statuses (incl. DD) are shown; only
+# CR/EN/VU/NT are counted as threatened.
+threat_cov <- if (!is.null(match_summary)) {
+  tc <- get_threat_col(match_summary)
+  if (!is.na(tc)) {
+    match_summary |> as_tibble() |>
+      mutate(threatStatus = .data[[tc]]) |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
+      group_by(threatStatus) |>
+      summarise(n_taxa = n(),
+                n_in_gbif = sum(matched_any, na.rm = TRUE),
+                n_missing = n_taxa - n_in_gbif,
+                pct_coverage = round(100 * n_in_gbif / n_taxa, 1),
+                .groups = "drop")
+  } else NULL
+} else NULL
 ```
 
 # Overview
@@ -101,8 +119,8 @@ Of the threatened species with **no GBIF records at all**, `r if (!is.null(conce
 ## Coverage by Status
 
 ```{r threat-coverage}
-if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
-  df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+if (!is.null(threat_cov) && nrow(threat_cov) > 0) {
+  df <- threat_cov |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
   threat_colors <- c(CR = pal$coral, EN = pal$sand, VU = "#EE8866",
                      NT = pal$sage, DD = pal$slate)
 
@@ -112,7 +130,8 @@ if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
     geom_text(aes(label = paste0(pct_coverage, "%")), vjust = -0.3, size = 4) +
     scale_fill_manual(values = threat_colors) +
     scale_y_continuous(limits = c(0, 110)) +
-    labs(title = "GBIF Coverage by Red List Category", x = "", y = "Coverage (%)")
+    labs(title = "GBIF Coverage by Red List Category", x = "", y = "Coverage (%)",
+         subtitle = "CR/EN/VU/NT are threatened; DD (Data Deficient) is shown for completeness, not counted as threatened")
 }
 ```
 

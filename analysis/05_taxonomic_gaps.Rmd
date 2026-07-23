@@ -35,7 +35,6 @@ tax_by_rank    <- safe_get("tax_by_rank")
 tax_by_kingdom <- safe_get("tax_by_kingdom")
 tax_by_order   <- safe_get("tax_by_order")
 tax_by_family  <- safe_get("tax_by_family")
-tax_by_threat  <- safe_get("tax_by_threat")
 troudet_order  <- safe_get("troudet_bias_order")
 troudet_family <- safe_get("troudet_bias_family")
 tax_estab      <- safe_get("tax_by_establishment")
@@ -53,7 +52,6 @@ tax_by_rank    <- norm_tax(tax_by_rank)
 tax_by_kingdom <- norm_tax(tax_by_kingdom)
 tax_by_order   <- norm_tax(tax_by_order)
 tax_by_family  <- norm_tax(tax_by_family)
-tax_by_threat  <- norm_tax(tax_by_threat)
 tax_estab      <- norm_tax(tax_estab)
 
 # Source of truth: taxonomic coverage from the match summary (matched_any),
@@ -62,6 +60,25 @@ truth_taxonomic <- if (!is.null(match_summary)) {
   n_ref <- nrow(match_summary); n_gbif <- sum(match_summary$matched_any, na.rm = TRUE)
   list(n_reference = n_ref, n_in_gbif = n_gbif, n_missing = n_ref - n_gbif,
        pct_coverage = if (n_ref > 0) round(100 * n_gbif / n_ref, 1) else 0)
+} else NULL
+
+# Per-status Red List coverage from match_summary (matched_any) — the same
+# object and definition script 11 uses to build tax_by_threat and the app uses
+# for its "Coverage by Threat Status" chart, so the report ties out to the
+# dashboard. All statuses (incl. DD) are shown; only CR/EN/VU/NT are threatened.
+threat_cov <- if (!is.null(match_summary)) {
+  tc <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(match_summary))[1]
+  if (!is.na(tc)) {
+    match_summary |> as_tibble() |>
+      mutate(threatStatus = .data[[tc]]) |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
+      group_by(threatStatus) |>
+      summarise(n_taxa = n(),
+                n_in_gbif = sum(matched_any, na.rm = TRUE),
+                n_missing = n_taxa - n_in_gbif,
+                pct_coverage = round(100 * n_in_gbif / n_taxa, 1),
+                .groups = "drop")
+  } else NULL
 } else NULL
 
 pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
@@ -126,8 +143,10 @@ if (!is.null(tax_by_kingdom)) {
 # Coverage by Threat Status
 
 ```{r by-threat}
-if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
-  df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+if (!is.null(threat_cov) && nrow(threat_cov) > 0) {
+  df <- threat_cov |>
+    mutate(threatStatus = factor(threatStatus, c("CR", "EN", "VU", "NT", "DD"))) |>
+    arrange(threatStatus)
   kable(df |> select(Status = threatStatus, Total = n_taxa,
     `In GBIF` = n_in_gbif, Missing = n_missing, `Coverage %` = pct_coverage),
     align = c("l", rep("r", 4))) |> kable_styling(full_width = FALSE)
@@ -135,8 +154,8 @@ if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
 ```
 
 ```{r threat-chart, fig.height=4}
-if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
-  df <- tax_by_threat |>
+if (!is.null(threat_cov) && nrow(threat_cov) > 0) {
+  df <- threat_cov |>
     filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
     mutate(threatStatus = factor(threatStatus, c("CR", "EN", "VU", "NT", "DD")))
 
@@ -148,7 +167,8 @@ if (!is.null(tax_by_threat) && nrow(tax_by_threat) > 0) {
     geom_text(aes(label = paste0(pct_coverage, "%")), vjust = -0.3, size = 3.5) +
     scale_fill_manual(values = threat_colors) +
     scale_y_continuous(limits = c(0, 110)) +
-    labs(title = "GBIF Coverage by Threat Status", x = "Red List category", y = "Coverage (%)")
+    labs(title = "GBIF Coverage by Threat Status", x = "Red List category", y = "Coverage (%)",
+         subtitle = "CR/EN/VU/NT are threatened; DD (Data Deficient) is shown for completeness, not counted as threatened")
 }
 ```
 

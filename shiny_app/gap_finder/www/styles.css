@@ -562,14 +562,20 @@ table.dataTable thead th {
   background: var(--slate);
   border: none;
   color: white;
-  padding: 0.5rem 1rem;
+  padding: 0.65rem 1.35rem;
   border-radius: var(--radius-sm);
-  font-weight: 500;
-  font-size: 1rem;
+  font-weight: 600;
+  font-size: 1.05rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10);
 }
+
+.btn-download .fa,
+.btn-download .fas,
+.btn-download .far { margin-right: 0.4rem; }
 
 .btn-download:hover {
   background: #4d6a85;
+  box-shadow: 0 2px 8px rgba(68, 119, 170, 0.25);
 }
 
 /* ---------------------------------------------------------------------------
@@ -625,4 +631,123 @@ button:focus-visible,
 .form-control:focus-visible {
   outline: 3px solid var(--slate);
   outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   EAA ACCESSIBILITY — headings, glossary tooltips, methods panel
+   --------------------------------------------------------------------------- */
+
+/* Card titles are now <h2> and persona headings <h3>; keep the tight card
+   spacing (browsers add a default heading top-margin). */
+h1.main-title { margin: 0; }
+h2.card-title { margin-top: 0; }
+
+/* Visually-hidden text, still read by screen readers */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0);
+  white-space: nowrap; border: 0;
+}
+
+/* Accessible inline glossary term: dotted underline; reveals a short definition
+   on hover AND keyboard focus; screen readers get it via aria-label. */
+.gloss {
+  border-bottom: 1px dotted var(--slate);
+  cursor: help;
+  position: relative;
+  color: inherit;
+}
+.gloss:focus-visible { outline: 3px solid var(--slate); outline-offset: 2px; }
+.gloss::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0; top: 100%;
+  margin-top: 4px;
+  width: max-content; max-width: 300px;
+  background: var(--text-primary); color: #fff;
+  padding: 0.5rem 0.7rem; border-radius: var(--radius-sm);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.86rem; font-weight: 400; line-height: 1.45;
+  text-transform: none; letter-spacing: normal;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.20);
+  opacity: 0; visibility: hidden; transition: opacity 0.12s ease;
+  z-index: 1000; pointer-events: none;
+}
+.gloss:hover::after,
+.gloss:focus::after,
+.gloss:focus-visible::after { opacity: 1; visibility: visible; }
+
+/* Methods & limitations expandable (native <details> — keyboard accessible) */
+.methods-details {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border-light);
+  padding-top: 0.85rem;
+}
+.methods-details > summary {
+  font-family: 'Fraunces', serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--slate-ink);
+  cursor: pointer;
+  list-style: none;
+  display: flex; align-items: center; gap: 0.4rem;
+}
+.methods-details > summary::-webkit-details-marker { display: none; }
+.methods-details > summary::before {
+  content: "\25b6";
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+.methods-details[open] > summary::before { transform: rotate(90deg); }
+.methods-details > summary:focus-visible {
+  outline: 3px solid var(--slate);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+.methods-details h3 {
+  font-family: 'Fraunces', serif;
+  font-size: 1.02rem;
+  margin: 1rem 0 0.4rem;
+  color: var(--text-primary);
+}
+.methods-details p,
+.methods-details li { color: var(--text-secondary); line-height: 1.6; }
+
+/* Glossary definition list */
+dl.glossary { margin: 0.4rem 0 0; }
+dl.glossary dt { font-weight: 600; color: var(--text-primary); margin-top: 0.6rem; }
+dl.glossary dd { margin: 0.1rem 0 0; color: var(--text-secondary); line-height: 1.55; }
+
+/* ---------------------------------------------------------------------------
+   "MEASUREMENT -> INTERPRETATION -> ACTION" TAB GUIDE
+   --------------------------------------------------------------------------- */
+.read-guide {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+}
+@media (max-width: 800px) { .read-guide { grid-template-columns: 1fr; } }
+.read-guide > div {
+  background: var(--bg-subtle);
+  border-left: 3px solid var(--slate);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.read-guide > div:nth-child(1) { border-left-color: var(--slate); }
+.read-guide > div:nth-child(2) { border-left-color: var(--sand); }
+.read-guide > div:nth-child(3) { border-left-color: var(--sage); }
+.read-guide .rg-label {
+  display: block;
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  margin-bottom: 0.15rem;
 }

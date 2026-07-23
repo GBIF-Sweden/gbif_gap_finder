@@ -182,6 +182,11 @@ if (!is.null(shiny_data$grid_10km) && !is.null(shiny_data$admin_level1)) {
 
 cli_h2("Loading Recent-Period Cutoff")
 
+# Snapshot year (cube download date) — the single wall-clock-free reference for
+# the temporal windows below, so the order-trend and fallback figures are
+# reproducible across reruns instead of drifting with the run date (T-R3).
+snapshot_year <- year(get_snapshot_date())
+
 recent_cutoff <- safe_read(here(p_data_proc, "recent_cutoff.rds"), type = "rds")
 if (!is.null(recent_cutoff)) {
   shiny_data$last_year    <- recent_cutoff$cutoff_ym
@@ -189,8 +194,8 @@ if (!is.null(recent_cutoff)) {
   cli_alert_success("Recent period: {recent_cutoff$label} (cutoff: {recent_cutoff$cutoff_ym})")
 } else {
   cli_alert_warning("recent_cutoff.rds not found -- run 09c first. Using default.")
-  shiny_data$last_year    <- as.integer(paste0(year(Sys.Date()) - 1, "01"))
-  shiny_data$recent_label <- as.character(year(Sys.Date()) - 1)
+  shiny_data$last_year    <- as.integer(paste0(snapshot_year - 1, "01"))
+  shiny_data$recent_label <- as.character(snapshot_year - 1)
 }
 
 recent_cutoff_ym <- shiny_data$last_year
@@ -583,50 +588,16 @@ order_temporal <- safe_read(here(p_integrated, "order_temporal_trends.csv"))
 if (!is.null(order_temporal)) {
   shiny_data$order_temporal <- as_tibble(order_temporal)
   cli_alert_success("Order temporal trends loaded")
-
-  current_year <- year(Sys.Date())
-
-  # 5-year bins
-  shiny_data$order_5yr <- shiny_data$order_temporal |>
-    filter(year >= 1970, year <= current_year) |>
-    mutate(
-      period_start = floor(year / 5) * 5,
-      period = paste0(period_start, "-", period_start + 4)
-    ) |>
-    group_by(grid, order, period, period_start) |>
-    summarise(
-      occurrences = sum(total_occurrences, na.rm = TRUE),
-      n_cells = sum(n_cells, na.rm = TRUE),
-      .groups = "drop"
-    )
-
-  # Top 25 orders
-  shiny_data$top_orders <- shiny_data$order_temporal |>
-    group_by(order) |>
-    summarise(total = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
-    arrange(desc(total)) |> slice_head(n = 25)
-
-  # Recent vs historical change for top 12
-  recent_cutoff_year <- current_year - 10
-  historical_cutoff <- current_year - 20
-  shiny_data$order_change <- shiny_data$order_temporal |>
-    filter(order %in% shiny_data$top_orders$order[1:12]) |>
-    mutate(era = case_when(
-      year >= recent_cutoff_year ~ "Recent",
-      year >= historical_cutoff ~ "Historical",
-      TRUE ~ NA_character_
-    )) |>
-    filter(!is.na(era)) |>
-    group_by(order, era) |>
-    summarise(occurrences = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
-    pivot_wider(names_from = era, values_from = occurrences, values_fill = 0) |>
-    filter(Historical > 0) |>
-    mutate(
-      pct_change = round(100 * (Recent - Historical) / Historical, 1),
-      direction = ifelse(pct_change >= 0, "Increased", "Decreased")
-    ) |>
-    arrange(desc(pct_change))
 }
+
+# Order-trend views (order_5yr / top_orders / order_change) are computed in
+# script 10 now (T-R3); load them here.
+o5  <- safe_read(here(p_integrated, "order_5yr.csv"))
+if (!is.null(o5))  shiny_data$order_5yr    <- as_tibble(o5)
+oto <- safe_read(here(p_integrated, "order_top25.csv"))
+if (!is.null(oto)) shiny_data$top_orders   <- as_tibble(oto)
+oc  <- safe_read(here(p_integrated, "order_change.csv"))
+if (!is.null(oc))  shiny_data$order_change <- as_tibble(oc)
 
 family_summary <- safe_read(here(p_integrated, "family_summary.csv"))
 if (!is.null(family_summary)) shiny_data$family_summary <- as_tibble(family_summary)
@@ -646,241 +617,58 @@ if (is.null(shiny_data$priority_taxa_missing)) {
 
 
 # ==============================================================================
-# 12. Overview Last-Year Stats
+# 12. Overview Last-Year Stats — computed in script 10 (T-R3); loaded here.
 # ==============================================================================
-# Derived from already-loaded time_summary + cell_last_year (both from 09c).
 
-cli_h2("Computing Overview Last-Year Stats")
+cli_h2("Loading Overview Last-Year Stats")
 
-overview_ts <- shiny_data$all_time_summary %||% shiny_data$dyntaxa_time_summary
-overview_cly <- shiny_data$all_cell_last_year %||% shiny_data$dyntaxa_cell_last_year
+yt <- safe_read(here(p_integrated, "yearly_totals.csv"))
+if (!is.null(yt)) shiny_data$yearly_totals <- as_tibble(yt)
 
-if (!is.null(overview_ts)) {
-  ts_all <- overview_ts |> filter(basisofrecord == "all")
+oly <- safe_read(here(p_integrated, "overview_last_year.csv"))
+if (!is.null(oly)) shiny_data$overview_last_year <- as.list(as.data.frame(oly)[1, ])
 
-  shiny_data$yearly_totals <- ts_all |>
-    group_by(year) |>
-    summarise(
-      total_occ = sum(as.numeric(occurrences), na.rm = TRUE),
-      n_cells = sum(as.numeric(n_cells), na.rm = TRUE),
-      .groups = "drop"
-    )
-
-  recent_occ <- ts_all |>
-    filter(yearmonth >= recent_cutoff_ym) |>
-    summarise(
-      total_occ = sum(as.numeric(occurrences), na.rm = TRUE),
-      n_cells = sum(as.numeric(n_cells), na.rm = TRUE)
-    )
-  prior_occ <- ts_all |>
-    filter(yearmonth < recent_cutoff_ym) |>
-    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE))
-
-  shiny_data$overview_last_year <- list(
-    label = recent_label,
-    cutoff_ym = recent_cutoff_ym,
-    occ_last_year = recent_occ$total_occ[1],
-    occ_prior = prior_occ$total_occ[1],
-    # Distinct cells active in the recent window. Count cells with any recent
-    # record from the per-cell layer (overview_cly$occ_last_year > 0). Do NOT
-    # use sum(recent_occ$n_cells): that sums a distinct-cell count over ~12
-    # monthly rows, counting a cell once per active month (up to ~12x overcount).
-    cells_active_last_year = if (!is.null(overview_cly))
-      sum(overview_cly$occ_last_year > 0, na.rm = TRUE) else NA_integer_
-  )
-  cli_alert_success(
-    "Overview last-year: {scales::comma(recent_occ$total_occ[1])} occurrences in {recent_label}"
-  )
-}
-
-if (!is.null(overview_cly) && !is.null(shiny_data$overview_last_year)) {
-  shiny_data$overview_last_year$cells_newly_covered <- sum(overview_cly$newly_covered, na.rm = TRUE)
-  cli_alert_success(
-    "Cells newly covered: {scales::comma(shiny_data$overview_last_year$cells_newly_covered)}"
-  )
-}
-
-# Resolved cells
-if (!is.null(overview_cly) && !is.null(shiny_data$priority_zero_cells)) {
-  zero_codes <- shiny_data$priority_zero_cells$eeacellcode
-  resolved <- overview_cly |>
-    filter(eeacellcode %in% zero_codes, occ_last_year > 0)
-  shiny_data$priority_resolved_last_year <- resolved
-  if (!is.null(shiny_data$overview_last_year)) {
-    shiny_data$overview_last_year$cells_resolved <- nrow(resolved)
-  }
-  cli_alert_success("Priority resolved: {nrow(resolved)} formerly-zero cells got data")
-}
+prl <- safe_read(here(p_integrated, "priority_resolved_last_year.csv"))
+if (!is.null(prl)) shiny_data$priority_resolved_last_year <- as_tibble(prl)
 
 
 # ==============================================================================
-# 13. Troudet-Style Bias Data
+# 13. Troudet-Style Bias Data — computed in script 10 (T-R3); loaded here.
 # ==============================================================================
-# Known species richness (match_summary) vs occurrence count (order_temporal),
-# split by prior/last_year. The app's scope toggles handle establishmentMeans
-# on the fly; the dyntaxa/threatened/invasive/sensitive scope toggles use the
-# pre-computed scope summaries (see section 4).
 
-cli_h2("Computing Troudet-Style Bias Data")
+cli_h2("Loading Troudet-Style Bias Data")
 
-if (!is.null(match_summary) && !is.null(order_temporal)) {
-  year_cutoff <- as.integer(substr(as.character(recent_cutoff_ym), 1, 4))
+tb <- safe_read(here(p_integrated, "troudet_bias_class.csv"))
+if (!is.null(tb)) shiny_data$troudet_bias <- as_tibble(tb)
+tbo <- safe_read(here(p_integrated, "troudet_bias_order.csv"))
+if (!is.null(tbo)) shiny_data$troudet_bias_order <- as_tibble(tbo)
+tbf <- safe_read(here(p_integrated, "troudet_bias_family.csv"))
+if (!is.null(tbf)) shiny_data$troudet_bias_family <- as_tibble(tbf)
 
-  # Class level
-  known_by_class <- match_summary |> as_tibble() |>
-    filter(!is.na(class), class != "") |>
-    group_by(kingdom, phylum, class) |>
-    summarise(
-      n_known_species = n(),
-      n_in_gbif = sum(matched_any, na.rm = TRUE),
-      .groups = "drop"
-    )
-
-  order_to_class <- match_summary |> as_tibble() |>
-    filter(!is.na(order), order != "", !is.na(class), class != "") |>
-    distinct(kingdom, phylum, class, order)
-
-  occ_by_class <- order_temporal |> as_tibble() |>
-    inner_join(order_to_class, by = "order") |>
-    mutate(era = ifelse(year >= year_cutoff, "last_year", "prior")) |>
-    group_by(kingdom, phylum, class, era) |>
-    summarise(occurrences = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
-    pivot_wider(names_from = era, values_from = occurrences, values_fill = 0)
-
-  if (!"prior" %in% names(occ_by_class)) occ_by_class$prior <- 0
-  if (!"last_year" %in% names(occ_by_class)) occ_by_class$last_year <- 0
-
-  shiny_data$troudet_bias <- known_by_class |>
-    left_join(occ_by_class, by = c("kingdom", "phylum", "class")) |>
+# Join occ_prior/occ_last_year into tax_by_order (used by the tax bar charts)
+if (!is.null(shiny_data$tax_by_order) && !is.null(shiny_data$troudet_bias_order)) {
+  to_add_order <- shiny_data$troudet_bias_order |>
+    select(kingdom, phylum, class, order, occ_prior, occ_last_year, total_occ)
+  shiny_data$tax_by_order <- shiny_data$tax_by_order |>
+    left_join(to_add_order, by = c("kingdom", "phylum", "class", "order")) |>
     mutate(
-      prior = replace_na(prior, 0),
-      last_year = replace_na(last_year, 0),
-      total_occ = prior + last_year,
-      total_known = sum(n_known_species),
-      total_occ_all = sum(total_occ),
-      pct_known = n_known_species / total_known,
-      ideal_occ = pct_known * total_occ_all,
-      bias = total_occ - ideal_occ
-    ) |>
-    select(kingdom, phylum, class, n_known_species, n_in_gbif,
-           occ_prior = prior, occ_last_year = last_year, total_occ,
-           ideal_occ, bias) |>
-    arrange(desc(abs(bias)))
-  cli_alert_success("Troudet bias (class): {nrow(shiny_data$troudet_bias)} classes")
+      occ_prior = replace_na(occ_prior, 0),
+      occ_last_year = replace_na(occ_last_year, 0),
+      total_occ = replace_na(total_occ, 0)
+    )
+}
 
-  # Order level
-  known_by_order <- match_summary |> as_tibble() |>
-    filter(!is.na(order), order != "") |>
-    group_by(kingdom, phylum, class, order) |>
-    summarise(n_known_species = n(), n_in_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop")
-
-  occ_by_order <- order_temporal |> as_tibble() |>
-    inner_join(order_to_class, by = "order") |>
-    mutate(era = ifelse(year >= year_cutoff, "last_year", "prior")) |>
-    group_by(kingdom, phylum, class, order, era) |>
-    summarise(occurrences = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
-    pivot_wider(names_from = era, values_from = occurrences, values_fill = 0)
-
-  if (!"prior" %in% names(occ_by_order)) occ_by_order$prior <- 0
-  if (!"last_year" %in% names(occ_by_order)) occ_by_order$last_year <- 0
-
-  shiny_data$troudet_bias_order <- known_by_order |>
-    left_join(occ_by_order, by = c("kingdom", "phylum", "class", "order")) |>
+# Also join into tax_by_family
+if (!is.null(shiny_data$tax_by_family) && !is.null(shiny_data$troudet_bias_family)) {
+  to_add_family <- shiny_data$troudet_bias_family |>
+    select(kingdom, phylum, class, order, family, occ_prior, occ_last_year, total_occ)
+  shiny_data$tax_by_family <- shiny_data$tax_by_family |>
+    left_join(to_add_family, by = c("kingdom", "phylum", "class", "order", "family")) |>
     mutate(
-      prior = replace_na(prior, 0),
-      last_year = replace_na(last_year, 0),
-      total_occ = prior + last_year,
-      total_known = sum(n_known_species),
-      total_occ_all = sum(total_occ),
-      pct_known = n_known_species / total_known,
-      ideal_occ = pct_known * total_occ_all,
-      bias = total_occ - ideal_occ
-    ) |>
-    select(kingdom, phylum, class, order, n_known_species, n_in_gbif,
-           occ_prior = prior, occ_last_year = last_year, total_occ,
-           ideal_occ, bias) |>
-    arrange(desc(abs(bias)))
-  cli_alert_success("Troudet bias (order): {nrow(shiny_data$troudet_bias_order)} orders")
-
-  # ----- Family-level Troudet bias -----
-  # Needed by the app's Troudet chart when the user drills down to an order
-  # (the chart shows families within that order). Uses family_time_summary
-  # from 09c ("all" scope) plus match_summary for the known species counts.
-
-  fts_all <- shiny_data$all_family_time_summary
-  if (!is.null(fts_all) && "family" %in% names(match_summary) && "order" %in% names(match_summary)) {
-
-    # Build order+family -> higher taxonomy map from match_summary
-    order_to_family <- match_summary |> as_tibble() |>
-      filter(!is.na(family), family != "",
-             !is.na(order), order != "",
-             !is.na(class), class != "") |>
-      distinct(kingdom, phylum, class, order, family)
-
-    # Observed occurrence splits by family
-    occ_by_family <- fts_all |> as_tibble() |>
-      filter(basisofrecord == "all") |>
-      inner_join(order_to_family, by = c("order", "family")) |>
-      mutate(era = ifelse(year >= year_cutoff, "last_year", "prior")) |>
-      group_by(kingdom, phylum, class, order, family, era) |>
-      summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
-      pivot_wider(names_from = era, values_from = occurrences, values_fill = 0)
-
-    if (!"prior" %in% names(occ_by_family)) occ_by_family$prior <- 0
-    if (!"last_year" %in% names(occ_by_family)) occ_by_family$last_year <- 0
-
-    # Known species per family from match_summary
-    known_by_family <- match_summary |> as_tibble() |>
-      filter(!is.na(family), family != "") |>
-      group_by(kingdom, phylum, class, order, family) |>
-      summarise(n_known_species = n(), n_in_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop")
-
-    shiny_data$troudet_bias_family <- known_by_family |>
-      left_join(occ_by_family, by = c("kingdom", "phylum", "class", "order", "family")) |>
-      mutate(
-        prior = replace_na(prior, 0),
-        last_year = replace_na(last_year, 0),
-        total_occ = prior + last_year,
-        total_known = sum(n_known_species),
-        total_occ_all = sum(total_occ),
-        pct_known = n_known_species / total_known,
-        ideal_occ = pct_known * total_occ_all,
-        bias = total_occ - ideal_occ
-      ) |>
-      select(kingdom, phylum, class, order, family, n_known_species, n_in_gbif,
-             occ_prior = prior, occ_last_year = last_year, total_occ,
-             ideal_occ, bias) |>
-      arrange(desc(abs(bias)))
-    cli_alert_success("Troudet bias (family): {nrow(shiny_data$troudet_bias_family)} families")
-  } else {
-    cli_alert_warning("Cannot build troudet_bias_family (family_time_summary or match_summary family column missing)")
-  }
-
-  # Join occ_prior/occ_last_year into tax_by_order (used by the tax bar charts)
-  if (!is.null(shiny_data$tax_by_order)) {
-    to_add_order <- shiny_data$troudet_bias_order |>
-      select(kingdom, phylum, class, order, occ_prior, occ_last_year, total_occ)
-    shiny_data$tax_by_order <- shiny_data$tax_by_order |>
-      left_join(to_add_order, by = c("kingdom", "phylum", "class", "order")) |>
-      mutate(
-        occ_prior = replace_na(occ_prior, 0),
-        occ_last_year = replace_na(occ_last_year, 0),
-        total_occ = replace_na(total_occ, 0)
-      )
-  }
-
-  # Also join into tax_by_family
-  if (!is.null(shiny_data$tax_by_family) && !is.null(shiny_data$troudet_bias_family)) {
-    to_add_family <- shiny_data$troudet_bias_family |>
-      select(kingdom, phylum, class, order, family, occ_prior, occ_last_year, total_occ)
-    shiny_data$tax_by_family <- shiny_data$tax_by_family |>
-      left_join(to_add_family, by = c("kingdom", "phylum", "class", "order", "family")) |>
-      mutate(
-        occ_prior = replace_na(occ_prior, 0),
-        occ_last_year = replace_na(occ_last_year, 0),
-        total_occ = replace_na(total_occ, 0)
-      )
-  }
+      occ_prior = replace_na(occ_prior, 0),
+      occ_last_year = replace_na(occ_last_year, 0),
+      total_occ = replace_na(total_occ, 0)
+    )
 }
 
 

@@ -44,20 +44,26 @@ theme_gaps <- theme_minimal(base_size = 13) +
         panel.grid.minor = element_blank(), legend.position = "bottom")
 theme_set(theme_gaps)
 
-# Publisher classification by name
+# Publisher classification — IDENTICAL to the Shiny app's classify_publisher()
+# (app.R) so the report's categories tie out to the dashboard. Three buckets:
+# Citizen science, Private sector, and Research data (the default: universities,
+# museums, herbaria, government agencies, field stations, etc.).
 classify_publisher <- function(name) {
   name_lc <- tolower(name)
   dplyr::case_when(
-    grepl("artdatabanken|artportalen|inaturalist|naturalist|ebird|observation\\.org|svalan", name_lc) ~ "Citizen science",
-    grepl("museum|herbari|naturhist|natural.hist|botanic.garden|museet", name_lc) ~ "Museum / Herbarium",
-    grepl("universit|högskola|academy|institut.+sci", name_lc) ~ "University",
-    grepl("smhi|naturvård|environment.+agenc|survey|geological|lantbruk|skogsstyr|ministry|myndigh", name_lc) ~ "Government",
-    TRUE ~ "Other"
+    # Citizen science — public observation platforms & recording networks
+    grepl("artdatabanken|artportalen|inaturalist|naturalist|ebird|bird\\.se|observation\\.org|svalan|fågel|naturgucker|naturglucker", name_lc) ~ "Citizen science",
+    # Private sector — consultancies & companies
+    grepl("\\bab\\b|aktiebolag|consult|calluna|ecocom|ecogain|naturcentrum|medins|pelagia|enetjärn|greensway|\\bwsp\\b|sweco|niras|\\bafry\\b|\\bltd\\b|\\bllc\\b|\\binc\\b|gmbh|corporation", name_lc) ~ "Private sector",
+    # Research data — universities, museums, herbaria, government agencies, etc.
+    TRUE ~ "Research data"
   )
 }
 
-cat_colors <- c("Citizen science" = pal$sage, "Museum / Herbarium" = pal$sand,
-                "University" = pal$slate, "Government" = pal$plum, "Other" = "#bbbbbb")
+# Category palette — identical to the app's pub_cat_colors
+cat_colors <- c("Citizen science" = "#2A7F62",
+                "Private sector"  = "#CCBB44",
+                "Research data"   = "#4477AA")
 
 truncate_name <- function(x, n = 40) ifelse(nchar(x) > n, paste0(substr(x, 1, n-1), "\u2026"), x)
 ```
@@ -94,7 +100,7 @@ if (!is.null(publisher_summary) && "publisher_name" %in% names(publisher_summary
     mutate(
       name = ifelse(!is.na(publisher_name), publisher_name, publishingorgkey),
       short = truncate_name(name),
-      category = classify_publisher(name)
+      category = classify_publisher(ifelse(!is.na(publisher_name), publisher_name, ""))
     )
 
   ggplot(df, aes(x = reorder(short, total_occurrences), y = total_occurrences, fill = category)) +
@@ -117,7 +123,7 @@ if (!is.null(publisher_summary) && "publisher_name" %in% names(publisher_summary
     mutate(
       name = ifelse(!is.na(publisher_name), publisher_name, publishingorgkey),
       short = truncate_name(name),
-      category = classify_publisher(name)
+      category = classify_publisher(ifelse(!is.na(publisher_name), publisher_name, ""))
     )
 
   ggplot(df, aes(x = reorder(short, n_species), y = n_species, fill = category)) +
@@ -209,7 +215,7 @@ if (!is.null(publisher_taxonomy) && !is.null(publisher_summary) &&
                 by = "publishingorgkey") |>
       mutate(name = ifelse(!is.na(publisher_name), publisher_name, publishingorgkey),
              short = truncate_name(name, 35),
-             category = classify_publisher(name)) |>
+             category = classify_publisher(ifelse(!is.na(publisher_name), publisher_name, ""))) |>
       arrange(desc(occ)) |> head(10)
 
     p <- ggplot(pt, aes(x = reorder(short, occ), y = occ, fill = category)) +

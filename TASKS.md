@@ -3,9 +3,11 @@
 > Companion to `ROADMAP.Rmd`. This is the **doing** list, sorted into three tiers:
 > **major work**, **technical**, and **minor / cosmetic**.
 >
-> **Current focus: app alignment & cosmetic work (Tier 3).** The analytical scope and the
-> pipeline-heavy work are essentially complete — what's left in the short term is
-> consistency, readability, and communication.
+> **Correctness round complete (2026-07).** A full audit reconciled every headline number
+> across Overview / Taxonomic / Concern, fixed the miscalculations (see *Recently closed*),
+> and added `scripts/12_reconcile.R` as a build-time guardrail. **Current focus now:**
+> (1) align the analysis reports (`analysis/*.Rmd`) with the corrected app numbers, then
+> (2) the Tier-3 UX / framing / accessibility polish. The analytical scope is complete.
 >
 > Task IDs (`T-R*` refactor · `T-I*`/`T-A*` integrity/perf · `T-D*` data/decision · `T-Q*`
 > quality) match the roadmap. **File/line references drift — verify against the current tree
@@ -55,22 +57,30 @@
 *Pipeline and code: correctness, portability, hygiene. No UI.*
 
 ### Pipeline refactor stragglers
-- [ ] **T-R3** — Migrate computation out of script 11: Section 12 (overview last-year stats) and
-  Section 13 (Troudet bias) → 09c or a new 09d; reduce 11 to a true pure loader; update
-  `_targets.R` deps.
+- [x] **T-R3** — *done 2026-07 (two patches).* **Correctness** (`gap_finder_tr3_snapshot_window.patch`):
+  script 11's order-trend / fallback windows now anchor on the cube snapshot year, not
+  `year(Sys.Date())`, so `order_change`/`order_5yr` stop drifting with the run date. **Relocation**
+  (`gap_finder_tr3_pure_loader.patch`): the order-trend, overview-last-year, and Troudet computation
+  moved into script 10 (writes CSVs); script 11 is now a **pure loader** (~260 lines lighter). No
+  `_targets.R` change — script 10's output glob picks up the new CSVs. *(rerun: `tar_destroy()` → `tar_make()`.)*
 - [ ] **T-R5** — Stop 09b re-classifying the backbone (line ~103): read 09a's classified output
   instead of reloading `taxa_reference_current.rds` and re-running `classify_accepted()`.
 - [ ] **T-R6** — Remove `add_yearmonth_cols()` (script 11, line ~50, 6 call sites) once all 09c
   outputs are confirmed to carry year/month.
-- [ ] **T-R7** — Rename `dyntaxa_*` data keys → `backbone_*` across 09c filename suffixes, the
-  script 11 loader, and `app.R`. **Before Norway ships publicly.**
+- [x] **T-R7** — Rename `dyntaxa_*` data keys → `backbone_*`. *Done (app.R + main keys clean).* Minor
+  mop-up left: two legacy fallback keys (`dyntaxa_time_summary`/`_cell_last_year`, 11:655–656) and the
+  `has_dyntaxa_scope` flag (11:956); `dyntaxa_redlist_category` (09b:152) is a real Dyntaxa source column — keep.
 
 ### Data integrity & robustness
-- [ ] **T-I1** — 03: strip authorship / match canonical name in the red-list join (matters for
-  non-Swedish backbones).
+- [x] **T-I1** — 03 red-list/sensitive join. *Resolved (2026-07), opposite to the original hunch:*
+  the Swedish red-list and sensitive DwC-A keep authorship in a separate column, so **exact
+  `scientificName` match is correct** (canonicalising over-matched Dyntaxa hybrids). Only GRIIS
+  invasive carries authorship — its canonical join now also restricts to species-rank, non-hybrid
+  taxa (490→337). Revisit only if a non-Swedish backbone bundles authorship into `scientificName`.
 - [ ] **T-I2** — 02: warn if `parse_10km()`-derived 50 km codes don't exist in the grid.
 - [ ] **T-I3** — 07: cache the country boundary (avoid full-grid `st_union`).
-- [ ] **T-I4** — 09b/06b: staleness check before 06b reruns (`by_order` / `by_family` double-count risk).
+- [x] **T-I4** — 09b/06b `by_order`/`by_family` double-count. *Verified clean (2026-07 audit):*
+  order/family files are disjoint and aggregation is by key, so no double-count. No action.
 
 ### Performance & hygiene
 - [ ] **T-A1** — 02→07: cache `cellcodes_10km.txt` / `cellcodes_50km.txt`.
@@ -98,39 +108,57 @@
 *App alignment, readability, and communication. This is the active sprint.*
 
 ### Calculations & cross-tab alignment
-- [ ] **Verify numbers reconcile after the rerun** — gap / coverage figures consistent across
-  Overview, Taxonomic, and Concern (post-rerun check on the denominator + Overview↔Concern
-  fixes; use `diagnose_unmatched.R`).
-- [ ] Confirm the Overview "threatened" figure matches the Concern tab exactly.
+- [x] **Numbers reconcile after the rerun** — done in the 2026-07 audit; `scripts/12_reconcile.R`
+  now enforces it on every build. Overview / Taxonomic / Concern agree.
+- [x] **Overview "threatened" matches Concern exactly** — verified; both read `match_summary_full`.
+- [x] **Align `analysis/*.Rmd` reports with the app** — *done 2026-07 (`gap_finder_report_parity.patch`).*
+  Reports now compute threatened/concern counts from `match_summary` (not `tax_by_threat`), keep
+  **DD** out of the threatened set, and use the app's 3-category publisher classifier. Verified in R:
+  report `threat_cov` == app `ov_threat_stats`; classifier output identical to the app's. *(re-knit reports.)*
 - [ ] Decide whether the publisher dependency map should respond to the category filter.
+  *(Note: the Publishers **count** 434 vs 419 is not a bug — 419 is the count for a selected
+  taxonomic group; at "All" it is 434, matching the Overview.)*
 
 ### Look & readability
-- [ ] Finish the font-size pass (readable ~1rem throughout).
-- [ ] Clearer, plainer descriptions on every tab.
-- [ ] Larger, more visible download buttons.
-- [ ] Make the stale-cell colour scale legible.
-- [ ] **P1.5 / T-D6.2** — Log-transformed view for publisher charts; Record Types pie chart-choice
-  fix (log-scaled bar or "minor types" rollup) so minor basis classes aren't swamped by ~119 M
-  human observations.
-- [ ] Data download buttons on all tables and maps (coverage, beyond button size above).
+- [x] Finish the font-size pass (readable ~1rem throughout) — *done 2026-07 (`gap_finder_readability_2.patch`): every sub-11px chart label bumped to 11.*
+- [x] Clearer, plainer descriptions on every tab — *done 2026-07 (`gap_finder_framing_1.patch`): per-tab measurement → interpretation → action guide.*
+- [x] Larger, more visible download buttons — *done 2026-07 (`gap_finder_readability_1.patch`).*
+- [x] Make the stale-cell colour scale legible — *done 2026-07 (`gap_finder_eaa_cb_maps.patch`): binned + colour-blind-safe.*
+- [x] **P1.5 / T-D6.2** — Log-transformed view for publisher charts; Record Types pie fix — *done 2026-07:
+  Record Types "minor types" rollup (`readability_1`) + optional Linear/Log toggle on the publisher
+  volume charts (`readability_2`).*
+- [ ] Data download buttons on all tables and maps — *in progress (2026-07, `gap_finder_framing_2.patch`):
+  CSV export (DT Buttons) added to the concern, priority & publisher tables; Data & Sources table + maps still pending.*
 - [ ] Bar titles in downloaded chart images when > 20 groups.
 
 ### Framing & communication
-- [ ] Consistent **measurement → interpretation → action** structure in tab text.
-- [ ] Reword spatial staleness ("no GBIF-mediated records in the last 10 years"; suggest checking
-  national/regional data before prioritising resurvey).
-- [ ] Frame single-publisher cells as infrastructure vulnerability / partnership opportunity.
-- [ ] Label "Total Swedish Occurrences" (not "Total Occurrences").
-- [ ] Make the observed-vs-published distinction visible in charts/labels.
-- [ ] Short "how to interpret…" examples (stale cell, missing threatened species, taxonomic bias).
-- [ ] Hyperlinks in Overview graph headers to jump to the relevant tab.
+- [x] Consistent **measurement → interpretation → action** structure in tab text — *done 2026-07
+  (`gap_finder_framing_1.patch`): guide strip on the 6 analysis tabs.*
+- [x] Reword spatial staleness ("no GBIF-mediated records in the last 10 years"; check national/regional
+  data before prioritising resurvey) — *already in place; confirmed 2026-07.*
+- [x] Frame single-publisher cells as infrastructure vulnerability / partnership opportunity — *done 2026-07
+  (`gap_finder_framing_1.patch`).*
+- [x] Label "Total Swedish Occurrences" (not "Total Occurrences") — *done 2026-07 (`gap_finder_framing_1.patch`),
+  demonym-aware so the Norway port reads correctly.*
+- [x] Make the observed-vs-published distinction visible in charts/labels — *done 2026-07
+  (`gap_finder_framing_2.patch`): glossary entry + temporal guide note.*
+- [x] Short "how to interpret…" examples — *done 2026-07: the per-tab "How to read it" guide + glossary
+  cover stale cells, missing threatened species, and taxonomic bias.*
+- [x] Hyperlinks in Overview graph panels to jump to the relevant tab — *done 2026-07
+  (`gap_finder_framing_2.patch`).*
 
 ### Accessibility — EAA (legal obligation)
-- [ ] Glossary / "what does this mean?" tooltips for technical terms (occurrence cubes, backbone,
-  scope-filtered summaries, establishment means, basis of record, single-publisher cells, Troudet
-  bias) — support the terms, don't remove them.
-- [ ] Colour-blind-safe per-chart palettes (per-chart, not a wholesale swap); avoid red/green.
-- [ ] Logical header structure; a "methods & limitations" expandable section.
+- [x] Glossary / "what does this mean?" tooltips for technical terms — *done 2026-07
+  (`gap_finder_eaa_a11y_structure.patch`): accessible `gloss()` tooltips (hover **and** keyboard
+  focus, screen-reader `aria-label`) plus a full Glossary inside the Methods panel.* *(redeploy.)*
+- [x] Colour-blind-safe per-chart palettes; avoid red/green — *done 2026-07
+  (`gap_finder_eaa_cb_palettes.patch` + `gap_finder_eaa_cb_maps.patch`): categorical charts
+  (in-GBIF/missing, threat, establishment), all choropleth maps (RdYlBu — blue = covered/recent,
+  red = gap/stale), dependency map, and the Priorities stale map binned. Sensitive map was already
+  CB-safe.* *(redeploy.)*
+- [x] Logical header structure; a "methods & limitations" expandable section — *done 2026-07
+  (`gap_finder_eaa_a11y_structure.patch`): `h1` → `h2` (59 card titles) → `h3`; native `<details>`
+  Methods, limitations & glossary panel on the Overview.* *(redeploy.)*
 
 ### Taxonomic UX
 - [ ] External taxon links (Wikipedia / Artfakta) for non-specialists.
@@ -173,6 +201,18 @@
 *Compacted so the tiers above stay scannable. Items tagged "(rerun)" ride the next `tar_make()`;
 "(redeploy)" takes effect on the next `app.R` deploy.*
 
+**Audit & correctness round (2026-07)** — full reconciliation of every headline number, shipped as pipeline fixes on `fix/audit`:
+- [x] **`threatened_in_reference` miscount** — script 10 counted threat *categories* (≤4); now sums species (`n_ref_total`). *(rerun)*
+- [x] **"Cells active last year" ~12× overcount** — script 11 summed monthly distinct-cell counts; now counts each cell once. *(rerun)*
+- [x] **Per-cell occurrence double-count** — script 07 summed the synthetic `"all"` basis row; now excluded. *(rerun)*
+- [x] **"All GBIF" = all GBIF** — `restrict_to_backbone_scope: false`; occurrence tabs count every kingdom and 09c's `all` scope is genuinely all. Overrides part of T-R4. *(rerun)*
+- [x] **Cell staleness anchored to the cube snapshot date** (`globals::get_snapshot_date`), replacing `Sys.Date()` / data-max — reproducible, consistent across 08/09c. *(rerun)*
+- [x] **50 km grid clipped centroid-in-country** (like 10 km) instead of derived from data cells — fixes the structural 100 %-coverage / 0-empty-cells at 50 km. *(rerun)*
+- [x] **"Poorly sampled" redefined** — bottom-10 % occurrences OR < 3 cells (config-driven), replacing the degenerate `< 1` test. *(rerun)*
+- [x] **Concern checklist matching corrected** — red-list/sensitive back to exact match (178 sensitive, 4 859 threatened); invasive de-duped to species-rank non-hybrid (490→337). *(rerun)* *(T-I1)*
+- [x] **Input guards (04/05)** — 04 aborts on missing required cube columns + fixes `ds$num_rows`; 05 hard-stops on cube cells absent from the grid. *(rerun)*
+- [x] **`scripts/12_reconcile.R`** — new build-time guardrail asserting the headline numbers agree across layers.
+
 - [x] **T-S1** — App made metadata-driven; kills the Norway "Sweden/Dyntaxa" title bug. *(redeploy)*
 - [x] **Species of Concern tab** built — Threatened / Invasive / Sensitive sub-tabs (replaced the old Threatened tab).
 - [x] **Persona "start here" navigation** (jump-to-tab by user group). *(D13)*
@@ -199,6 +239,11 @@
 ---
 
 ### Suggested next session
-Start with the **Tier 3 calculations check** (verify the rerun numbers reconcile across
-Overview / Taxonomic / Concern), then take the highest-visibility **look & framing** items —
-that is the bulk of what "next updates" means now.
+Report↔app parity, **EAA accessibility**, **readability & chart legibility**, and **plain-language
+framing** are all **done** (2026-07, redeploy pending) — seven `gap_finder_*.patch` files in the repo
+root. Small Tier-3 leftovers: CSV download buttons on the remaining tables (Data & Sources) + maps,
+and bar titles baked into downloaded chart images (>20 groups). With the communication layer
+essentially complete, and **T-R3** (script 11 → pure loader) and **T-R7** (`dyntaxa_*`→`backbone_*`)
+are now done, the remaining pipeline-hygiene refactors are **T-R5** (stop 09b re-classifying the
+backbone) and **T-R6** (drop `add_yearmonth_cols`), plus the smaller T-I/T-A/T-Q items. Norway
+replication is deprioritised.

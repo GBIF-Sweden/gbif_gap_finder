@@ -41,7 +41,6 @@ safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else 
 dashboard       <- safe_get("dashboard")
 grid_10km       <- safe_get("grid_10km")
 spatial_gaps    <- safe_get("spatial_gaps_10km")
-tax_by_threat   <- safe_get("tax_by_threat")
 tax_by_order    <- safe_get("tax_by_order")
 overview_ly     <- safe_get("overview_last_year")
 metadata        <- safe_get("metadata")
@@ -60,7 +59,6 @@ norm_tax <- function(df) {
     df <- df |> rename(n_taxa = n_ref_total)
   df
 }
-tax_by_threat <- norm_tax(tax_by_threat)
 
 # ---- Sources of truth: computed exactly as the Shiny app's truth_* reactives
 # and ov_concern, so this report ties out to the dashboard. Spatial from
@@ -98,6 +96,25 @@ concern_stats <- if (!is.null(match_summary)) {
        unmon_cr  = sum(thr == "CR" & !matched, na.rm = TRUE),
        unmon_en  = sum(thr == "EN" & !matched, na.rm = TRUE),
        unmon_inv = sum(inv & !matched, na.rm = TRUE))
+} else NULL
+
+# Per-status Red List coverage, computed from match_summary (matched_any) —
+# identical to how script 11 builds tax_by_threat and to the app's
+# concern_threat_coverage, so this ties out to the dashboard. "Threatened" is
+# CR/EN/VU/NT only; DD (Data Deficient) is a separate status, not threatened.
+threat_cov <- if (!is.null(match_summary)) {
+  tc <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(match_summary))[1]
+  if (!is.na(tc)) {
+    match_summary |> as_tibble() |>
+      mutate(threatStatus = .data[[tc]]) |>
+      filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
+      group_by(threatStatus) |>
+      summarise(n_taxa = n(),
+                n_in_gbif = sum(matched_any, na.rm = TRUE),
+                n_missing = n_taxa - n_in_gbif,
+                pct_coverage = round(100 * n_in_gbif / n_taxa, 1),
+                .groups = "drop")
+  } else NULL
 } else NULL
 
 # Theme
@@ -171,13 +188,18 @@ if (!is.null(truth_spatial) && !is.null(truth_taxonomic)) {
 ## Threatened Species
 
 ```{r threatened-summary}
-if (!is.null(tax_by_threat) && "threatStatus" %in% names(tax_by_threat)) {
-  df <- tax_by_threat |> filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+if (!is.null(threat_cov) && nrow(threat_cov) > 0) {
+  df <- threat_cov |>
+    filter(threatStatus %in% c("CR", "EN", "VU", "NT")) |>
+    mutate(threatStatus = factor(threatStatus, c("CR", "EN", "VU", "NT"))) |>
+    arrange(threatStatus)
   kable(df |> select(Status = threatStatus, `In backbone` = n_taxa,
     `In GBIF` = n_in_gbif, Missing = n_missing, `Coverage %` = pct_coverage),
     align = c("l", "r", "r", "r", "r")) |> kable_styling(full_width = FALSE)
 }
 ```
+
+*Threatened counts use the CR/EN/VU/NT set, exactly as the dashboard. Data Deficient (DD) species are a separate Red List status (not counted as threatened) and are shown in the Taxonomic Gaps and Species of Concern reports.*
 
 ## Species of Concern
 
