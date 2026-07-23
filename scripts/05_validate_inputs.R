@@ -241,13 +241,15 @@ if (file_exists_safe(manifest_file)) {
         } else {
           md_check(glue("Missing required columns: {paste(missing_cols, collapse = ', ')}"), "fail")
           critical_failures <<- c(critical_failures,
-            glue("{basename(pq_file)}: missing required columns {paste(missing_cols, collapse = ', ')}"))
+            glue("{basename(pq_file)}: missing required columns \\
+                 {paste(missing_cols, collapse = ', ')}"))
         }
 
         # Check new columns
         new_cols <- c("publishingorgkey", "datasetkey")
         present_new <- intersect(new_cols, pq_cols)
-        md_check(glue("{length(present_new)}/2 new columns present ({paste(present_new, collapse = ', ')})"), "ok")
+        md_check(glue("{length(present_new)}/2 new columns present \\
+                      ({paste(present_new, collapse = ', ')})"), "ok")
 
         cli_alert_success("{basename(pq_file)}: {length(pq_cols)} columns, {pq_size} MB")
       }, error = function(e) {
@@ -290,7 +292,8 @@ check_cube_in_grid <- function(pq_file, grid_gpkg, label) {
   if (length(orphans) == 0) {
     md_check(glue("{label}: all cube cells present in the grid"), "ok")
   } else {
-    md_check(glue("{label}: {scales::comma(length(orphans))} cube cell(s) absent from grid — occurrences silently dropped"), "fail")
+    md_check(glue("{label}: {scales::comma(length(orphans))} cube cell(s) absent from grid \\
+                  — occurrences silently dropped"), "fail")
     critical_failures <<- c(critical_failures,
       glue("{label}: {length(orphans)} cube cell(s) not in the grid"))
   }

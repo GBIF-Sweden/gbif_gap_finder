@@ -2,16 +2,25 @@
 # ============================================================================
 # Reconciliation Guardrail
 # ============================================================================
-# Fails the build if headline numbers disagree across pipeline layers. Run
-# after scripts 10 and 11:   source("scripts/12_reconcile.R")
+# Purpose:
+#   Fail the build if headline numbers disagree across pipeline layers. Run
+#   after scripts 10 and 11:   source("scripts/12_reconcile.R")
 #
-# Encodes the project's source-of-truth decisions (2026-07-21):
-#   * "all" scope = all of GBIF; Taxonomic / Concern = backbone match
-#   * threatened = CR/EN/VU/NT; the reference is a SPECIES count, not categories
-#   * spatial coverage is measured against the FULL grid (zero-filled)
+#   Encodes the project's source-of-truth decisions (2026-07-21):
+#     * "all" scope = all of GBIF; Taxonomic / Concern = backbone match
+#     * threatened = CR/EN/VU/NT; the reference is a SPECIES count, not categories
+#     * spatial coverage is measured against the FULL grid (zero-filled)
 #
-# Each check is defensive: a missing input is skipped (not a failure), so this
-# can run at any pipeline stage. Real disagreements call stop().
+#   Each check is defensive: a missing input is skipped (not a failure), so this
+#   can run at any pipeline stage. Real disagreements call stop().
+#
+# Inputs:
+#   - data/{CC}/output/tables/dashboard_summary_long.csv         (from 10)
+#   - data/{CC}/proc/derived/spatial_gaps_all_*.csv + grid_lookup_*.csv (09c/06a)
+#   - data/{CC}/proc/gaps/taxonomic_*.csv                        (from 09b)
+#
+# Outputs:
+#   - None. Asserts headline consistency; calls stop() on any disagreement.
 # ============================================================================
 
 source(here::here("scripts", "00_setup.R"))
@@ -38,7 +47,8 @@ dval <- function(m) if (is.null(dash)) NA_real_ else
 if (!is.null(dash)) {
   tir <- dval("threatened_in_reference"); tig <- dval("threatened_in_gbif")
   note(is.na(tir) || is.na(tig) || tir >= tig, sprintf(
-    "threatened_in_reference (%s) < threatened_in_gbif (%s): counting categories, not species (B1).",
+    paste0("threatened_in_reference (%s) < threatened_in_gbif (%s): counting ",
+           "categories, not species (B1)."),
     tir, tig))
 
   bt <- rd(first_existing(here(p_tables, "overview_taxonomic_by_threat.csv"),
@@ -60,7 +70,8 @@ for (res in c("10km", "50km")) {
     n_all  <- nrow(sg[basisofrecord == "all"])
     n_grid <- data.table::uniqueN(gl$eeacellcode)
     note(n_all == n_grid, sprintf(
-      "%s: spatial_gaps 'all' rows (%s) != full grid cells (%s): coverage not measured against the full grid.",
+      paste0("%s: spatial_gaps 'all' rows (%s) != ",
+             "full grid cells (%s): coverage not measured against the full grid."),
       res, n_all, n_grid))
   }
 }
@@ -70,7 +81,8 @@ mt <- rd(first_existing(here(p_gaps, "taxonomic_missing_threatened.csv")))
 if (!is.null(dash) && !is.null(mt)) {
   tm <- dval("threatened_missing")
   note(is.na(tm) || tm == nrow(mt), sprintf(
-    "dashboard threatened_missing (%s) != nrow(taxonomic_missing_threatened) (%s): Overview vs Concern drift.",
+    paste0("dashboard threatened_missing (%s) != ",
+           "nrow(taxonomic_missing_threatened) (%s): Overview vs Concern drift."),
     tm, nrow(mt)))
 }
 

@@ -378,7 +378,9 @@ validate_schema <- function(dt, schema, label = "dataset") {
         (any(spec$type == "numeric")   && actual %in% c("numeric", "integer", "double")) ||
         (any(spec$type == "character") && actual %in% c("character", "factor"))
       if (!ok) {
-        issues <- c(issues, paste0(col, ": expected ", paste(spec$type, collapse = "/"), " but got ", actual))
+        issues <- c(
+          issues, paste0(col, ": expected ", paste(spec$type, collapse = "/"), " but got ", actual)
+        )
       }
     }
   }
@@ -390,7 +392,9 @@ validate_schema <- function(dt, schema, label = "dataset") {
   }
   n_required <- sum(vapply(schema, function(s) isTRUE(s$required), logical(1)))
   n_present  <- sum(names(schema) %in% col_names)
-  cli_alert_success("Schema OK: {label} ({n_present}/{length(schema)} columns, {scales::comma(nrow(dt))} rows)")
+  cli_alert_success(
+    "Schema OK: {label} ({n_present}/{length(schema)} columns, {scales::comma(nrow(dt))} rows)"
+  )
   invisible(TRUE)
 }
 
@@ -413,7 +417,8 @@ schema_reconciliation <- list(
   threatStatus_backbone   = list(required = FALSE, type = "character"),
   threatStatus_redlist    = list(required = FALSE, type = "character")
 )
-validate_reconciliation <- function(dt) validate_schema(dt, schema_reconciliation, "reconciliation (09a)")
+validate_reconciliation <- function(dt)
+  validate_schema(dt, schema_reconciliation, "reconciliation (09a)")
 
 schema_match_summary <- list(
   taxonID          = list(required = TRUE,  type = "character"),
@@ -431,7 +436,8 @@ schema_match_summary <- list(
   best_match_tier  = list(required = FALSE, type = "character"),
   gbif_specieskeys = list(required = FALSE, type = "character")
 )
-validate_match_summary <- function(dt) validate_schema(dt, schema_match_summary, "taxonomic_match_summary (09b)")
+validate_match_summary <- function(dt)
+  validate_schema(dt, schema_match_summary, "taxonomic_match_summary (09b)")
 
 schema_missing_threatened <- list(
   taxonID        = list(required = TRUE,  type = "character"),
@@ -444,7 +450,8 @@ schema_missing_threatened <- list(
   order          = list(required = FALSE, type = "character"),
   family         = list(required = FALSE, type = "character")
 )
-validate_missing_threatened <- function(dt) validate_schema(dt, schema_missing_threatened, "missing_threatened (09b)")
+validate_missing_threatened <- function(dt)
+  validate_schema(dt, schema_missing_threatened, "missing_threatened (09b)")
 
 schema_coverage_by_rank <- list(
   taxonRank    = list(required = TRUE, type = "character"),
@@ -453,7 +460,8 @@ schema_coverage_by_rank <- list(
   pct_coverage = list(required = TRUE, type = "numeric"),
   n_missing    = list(required = TRUE, type = "numeric")
 )
-validate_coverage_by_rank <- function(dt) validate_schema(dt, schema_coverage_by_rank, "coverage_by_rank (09b)")
+validate_coverage_by_rank <- function(dt)
+  validate_schema(dt, schema_coverage_by_rank, "coverage_by_rank (09b)")
 
 schema_coverage_by_threat <- list(
   threatStatus = list(required = TRUE, type = "character"),
@@ -462,7 +470,8 @@ schema_coverage_by_threat <- list(
   pct_coverage = list(required = TRUE, type = "numeric"),
   n_missing    = list(required = TRUE, type = "numeric")
 )
-validate_coverage_by_threat <- function(dt) validate_schema(dt, schema_coverage_by_threat, "coverage_by_threat (09b)")
+validate_coverage_by_threat <- function(dt)
+  validate_schema(dt, schema_coverage_by_threat, "coverage_by_threat (09b)")
 
 schema_spatial_coverage <- list(
   taxonID        = list(required = TRUE,  type = "character"),
@@ -477,7 +486,8 @@ schema_spatial_coverage <- list(
   family         = list(required = FALSE, type = "character"),
   order          = list(required = FALSE, type = "character")
 )
-validate_spatial_coverage <- function(dt) validate_schema(dt, schema_spatial_coverage, "spatial_coverage (09b)")
+validate_spatial_coverage <- function(dt)
+  validate_schema(dt, schema_spatial_coverage, "spatial_coverage (09b)")
 
 # ============================================================================
 # Shared Cube Reader
@@ -641,7 +651,9 @@ classify_accepted <- function(dt) {
     )]
   } else {
     # No status info at all: assume all accepted
-    cli_alert_warning("No taxonomicStatus or acceptedNameUsageID — assuming all taxa are accepted")
+    cli_alert_warning(
+      "No taxonomicStatus or acceptedNameUsageID — assuming all taxa are accepted"
+    )
     dt[, is_accepted := TRUE]
   }
   dt
@@ -705,9 +717,13 @@ get_snapshot_date <- function(fallback = as.Date(NA)) {
     }
   }
   if (!is.na(fallback)) {
-    cli_alert_warning("get_snapshot_date(): no cube snapshot date in metadata; using fallback {fallback}")
+    cli_alert_warning(
+      "get_snapshot_date(): no cube snapshot date in metadata; using fallback {fallback}"
+    )
     return(as.Date(fallback))
   }
-  cli_alert_warning("get_snapshot_date(): no snapshot date and no fallback; using Sys.Date() (non-reproducible)")
+  cli_alert_warning(
+    "get_snapshot_date(): no snapshot date and no fallback; using Sys.Date() (non-reproducible)"
+  )
   Sys.Date()
 }

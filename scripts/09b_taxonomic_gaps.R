@@ -2,15 +2,15 @@
 # ==============================================================================
 # Taxonomic Gap Analysis
 # ==============================================================================
-# This script identifies taxonomic gaps by comparing the reconciliation table
-# (from 09a) to the national taxonomy backbone. It answers: which backbone
-# taxa are present in GBIF? Which are missing? Which threatened taxa lack
-# coverage?
+# Purpose:
+#   Identify taxonomic gaps by comparing the reconciliation table (from 09a)
+#   to the national taxonomy backbone. It answers: which backbone taxa are
+#   present in GBIF? Which are missing? Which threatened taxa lack coverage?
 #
-# PREREQUISITES:
+# Prerequisites:
 #   - 09a_reconcile_taxonomy.R must have been run (produces reconciliation)
 #
-# INPUTS:
+# Inputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds  (from 09a)
 #   - data/{CC}/proc/taxa_reference_current.rds    (from 03)
 #   - data/{CC}/proc/derived/by_order/species_cell_*.csv  (from 06b)
@@ -18,7 +18,7 @@
 #   - data/{CC}/proc/derived/by_order/species_summary_*.csv  (from 06b)
 #   - data/{CC}/proc/derived/by_family/species_summary_*.csv (from 06b)
 #
-# OUTPUTS (in data/{CC}/proc/gaps/):
+# Outputs (in data/{CC}/proc/gaps/):
 #   Missing taxa:
 #     - taxonomic_missing_taxa.csv           All backbone taxa not in GBIF
 #     - taxonomic_missing_threatened.csv     Threatened backbone taxa not in GBIF
@@ -94,7 +94,10 @@ THREATENED_CODES <- c("CR", "EN", "VU", "NT")
 CELLCODE_FIELD <- cfg_get("parameters.grid.cellcode_field", "eeacellcode")
 
 cli_h1("09b -- Taxonomic Gap Analysis")
-cli_alert_info("Poorly sampled: bottom-quantile occurrences OR few cells (see config parameters.taxonomic.poorly_sampled_*)")
+cli_alert_info(
+  "Poorly sampled: \\
+   bottom-quantile occurrences OR few cells (see config parameters.taxonomic.poorly_sampled_*)"
+)
 cli_alert_info("Threatened categories: {paste(THREATENED_CODES, collapse = ', ')}")
 
 
@@ -138,7 +141,9 @@ if (file.exists(classified_path)) {
   cli_alert_success("Loaded classified backbone from 09a: {scales::comma(nrow(backbone))} rows")
 } else if (file.exists(taxa_path)) {
   backbone <- classify_accepted(as.data.table(readRDS(taxa_path)))
-  cli_alert_warning("Classified backbone missing -- loaded + classified raw reference (run 09a to skip this).")
+  cli_alert_warning(
+    "Classified backbone missing -- loaded + classified raw reference (run 09a to skip this)."
+  )
 } else {
   cli_abort("Backbone not found: {.path {taxa_path}}. Run script 03 (then 09a) first.")
 }
@@ -290,7 +295,10 @@ if (length(exclude_orders) && "order" %in% names(match_summary)) {
 match_summary <- bucket_unclassified(match_summary)
 
 n_backbone_matched <- sum(match_summary$matched_any)
-cli_alert_success("Backbone taxa matched: {scales::comma(n_backbone_matched)} / {scales::comma(nrow(match_summary))}")
+cli_alert_success(
+  "Backbone taxa matched: \\
+   {scales::comma(n_backbone_matched)} / {scales::comma(nrow(match_summary))}"
+)
 cli_alert_info("Coverage: {round(100 * n_backbone_matched / nrow(match_summary), 1)}%")
 
 
@@ -553,7 +561,10 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
   # flag names; both now mirror the single `poorly_sampled` definition.
   spatial_coverage[, poorly_sampled_spatial   := poorly_sampled]
   spatial_coverage[, poorly_sampled_abundance := poorly_sampled]
-  cli_alert_info("Poorly-sampled threshold: occ <= {round(ps_occ_threshold)} (q{round(PS_OCC_Q*100)}) OR < {PS_MIN_CELLS} cells")
+  cli_alert_info(
+    "Poorly-sampled threshold: \\
+     occ <= {round(ps_occ_threshold)} (q{round(PS_OCC_Q*100)}) OR < {PS_MIN_CELLS} cells"
+  )
 
   cli_alert_success("Spatial coverage: {scales::comma(nrow(spatial_coverage))} taxa")
 }

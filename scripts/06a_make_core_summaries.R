@@ -91,7 +91,10 @@ if (!exists("read_cube_scoped")) {
     if (length(allowed) == 0) return(dt)
     n0 <- nrow(dt)
     dt <- dt[is.na(kingdom) | kingdom == "" | kingdom %in% allowed]
-    cli_alert_info("Scope filter [{label}]: kept {scales::comma(nrow(dt))}/{scales::comma(n0)} rows (in-backbone kingdoms)")
+    cli_alert_info(
+      "Scope filter [{label}]: kept \\
+       {scales::comma(nrow(dt))}/{scales::comma(n0)} rows (in-backbone kingdoms)"
+    )
     dt
   }
   read_cube_scoped <- function(pf, cols, grid_label = NULL, ...) {
@@ -124,7 +127,9 @@ for (pf in parquet_files) {
   else if (grepl("50km", bn)) grid_map[["grid50km"]] <- pf
 }
 
-cli_alert_info("Found {length(grid_map)} parquet cube(s): {paste(names(grid_map), collapse = ', ')}")
+cli_alert_info(
+  "Found {length(grid_map)} parquet cube(s): {paste(names(grid_map), collapse = ', ')}"
+)
 
 # ============================================================================
 # Phase 0: Grid Lookup Tables
@@ -134,8 +139,12 @@ if (MAKE_GRID_LOOKUPS) {
   cli_h2("Phase 0: Grid Lookup Tables")
 
   grid_gpkg <- list(
-    grid10km = list(path = here(p_data_proc, "grids_10km.gpkg"), output = "grid_lookup_10km.csv", label = "10km"),
-    grid50km = list(path = here(p_data_proc, "grids_50km.gpkg"), output = "grid_lookup_50km.csv", label = "50km")
+    grid10km = list(
+      path = here(p_data_proc, "grids_10km.gpkg"), output = "grid_lookup_10km.csv", label = "10km"
+    ),
+    grid50km = list(
+      path = here(p_data_proc, "grids_50km.gpkg"), output = "grid_lookup_50km.csv", label = "50km"
+    )
   )
 
   for (nm in names(grid_gpkg)) {
@@ -181,7 +190,8 @@ if (MAKE_CORE_SUMMARIES) {
       n_cells = uniqueN(dt$eeacellcode),
       n_months = uniqueN(dt$yearmonth),
       n_species = uniqueN(dt$specieskey),
-      n_publishers = if ("publishingorgkey" %in% names(dt)) uniqueN(dt$publishingorgkey) else NA_integer_,
+      n_publishers = if ("publishingorgkey" %in% names(dt)) uniqueN(dt$publishingorgkey)
+        else NA_integer_,
       n_datasets = if ("datasetkey" %in% names(dt)) uniqueN(dt$datasetkey) else NA_integer_
     )
 
@@ -308,7 +318,9 @@ if (MAKE_ORDER_SUMMARIES) {
     ft_all[, basisofrecord := "all"]
     ft_result <- rbindlist(list(ft_dt, ft_all), use.names = TRUE, fill = TRUE)
     fwrite(ft_result, here(p_derived, glue("family_time_summary_{grid_suffix}.csv")))
-    cli_alert_success("family_time_summary_{grid_suffix}.csv: {scales::comma(nrow(ft_result))} rows")
+    cli_alert_success(
+      "family_time_summary_{grid_suffix}.csv: {scales::comma(nrow(ft_result))} rows"
+    )
     rm(ft_dt, ft_all, ft_result)
 
     rm(dt); gc()
@@ -387,7 +399,9 @@ if (MAKE_PUBLISHER_SUMMARY) {
       class   = fifelse(is.na(class)   | class   == "", "Unclassified", class),
       order   = fifelse(is.na(order)   | order   == "", "Unclassified", order))]
     fwrite(pub_cell_tax, here(p_derived, glue("publisher_cell_taxonomy_{grid_suffix}.csv")))
-    cli_alert_success("publisher_cell_taxonomy_{grid_suffix}.csv: {scales::comma(nrow(pub_cell_tax))} rows")
+    cli_alert_success(
+      "publisher_cell_taxonomy_{grid_suffix}.csv: {scales::comma(nrow(pub_cell_tax))} rows"
+    )
 
     # Publisher x cell: which cells depend on which publishers (unfiltered)
     pub_cell <- dt[, .(
@@ -406,7 +420,9 @@ if (MAKE_PUBLISHER_SUMMARY) {
   cli_h3("Resolving Publisher Names")
 
   publisher_cache_path <- here(p_data_proc, "publisher_name_cache.rds")
-  publisher_cache <- if (file.exists(publisher_cache_path)) readRDS(publisher_cache_path) else list()
+  publisher_cache <- if (file.exists(publisher_cache_path)) {
+    readRDS(publisher_cache_path)
+  } else list()
 
   pub_10km_path <- here(p_derived, "publisher_summary_10km.csv")
   if (file.exists(pub_10km_path)) {
@@ -444,8 +460,12 @@ if (MAKE_PUBLISHER_SUMMARY) {
 
     pub_names <- data.table(
       publishingorgkey = names(publisher_cache),
-      publisher_name = vapply(publisher_cache, function(x) x$title %||% NA_character_, character(1)),
-      publisher_country = vapply(publisher_cache, function(x) x$country %||% NA_character_, character(1))
+      publisher_name = vapply(
+        publisher_cache, function(x) x$title %||% NA_character_, character(1)
+      ),
+      publisher_country = vapply(
+        publisher_cache, function(x) x$country %||% NA_character_, character(1)
+      )
     )
     fwrite(pub_names, here(p_derived, "publisher_names.csv"))
     cli_alert_success("publisher_names.csv: {nrow(pub_names)} names")

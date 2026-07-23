@@ -106,7 +106,8 @@ has_establishment    <- !is.null(match_summary_full) &&
 # by-family coverage, Troudet bias — is therefore already filtered, so no in-app
 # exclusion is needed.
 
-# Scope-flag lookup (in_dyntaxa / invasive / sensitive / threatened) for the Concern tab + data browser
+# Scope-flag lookup (in_dyntaxa / invasive / sensitive / threatened) for the Concern
+# tab + data browser
 species_scope_lookup  <- safe_get("species_scope_lookup")
 tax_by_invasive       <- safe_get("tax_by_invasive")
 kingdom_cell_recency  <- safe_get("kingdom_cell_recency")
@@ -178,7 +179,9 @@ kingdom_choices <- if (!is.null(tax_by_order) && "kingdom" %in% names(tax_by_ord
 
 # Publisher tab: taxonomic filter choices
 pub_kingdom_choices <- if (!is.null(publisher_taxonomy) && "kingdom" %in% names(publisher_taxonomy)) {
-  sort(unique(publisher_taxonomy$kingdom[!is.na(publisher_taxonomy$kingdom) & publisher_taxonomy$kingdom != ""]))
+  sort(unique(publisher_taxonomy$kingdom[
+      !is.na(publisher_taxonomy$kingdom) & publisher_taxonomy$kingdom != ""
+    ]))
 } else character(0)
 
 # Truncate long publisher names for chart labels
@@ -1532,7 +1535,8 @@ ui <- fluidPage(
             "Which organisations contribute GBIF data for this country? ",
             "Use the taxonomic filters to explore which publishers dominate for specific groups."),
 
-          # Optional log scale for the two volume charts (helps when one publisher dominates the linear axis)
+          # Optional log scale for the two volume charts (helps when one publisher
+          # dominates the linear axis)
           div(style = "display:flex; justify-content:flex-end; align-items:center; gap:0.6rem; margin-bottom:0.75rem;",
             tags$span(style = "font-weight:600; color:var(--text-secondary);", "Bar axis scale:"),
             radioGroupButtons("pub_scale", label = NULL,
@@ -1869,7 +1873,8 @@ server <- function(input, output, session) {
   output$temp_phylum_ui <- renderUI({
     ch <- c("All" = "")
     if (!is.null(order_tax_map) && !is.null(input$temp_kingdom) && input$temp_kingdom != "") {
-      ph <- order_tax_map |> filter(kingdom == input$temp_kingdom) |> pull(phylum) |> unique() |> sort()
+      ph <- order_tax_map |>
+        filter(kingdom == input$temp_kingdom) |> pull(phylum) |> unique() |> sort()
       ch <- c("All" = "", setNames(ph, ph))
     }
     selectizeInput("temp_phylum", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
@@ -1880,8 +1885,10 @@ server <- function(input, output, session) {
     ch <- c("All" = "")
     if (!is.null(order_tax_map)) {
       df <- order_tax_map
-      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "") df <- df |> filter(kingdom == input$temp_kingdom)
-      if (!is.null(input$temp_phylum) && input$temp_phylum != "") df <- df |> filter(phylum == input$temp_phylum)
+      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "")
+        df <- df |> filter(kingdom == input$temp_kingdom)
+      if (!is.null(input$temp_phylum) && input$temp_phylum != "")
+        df <- df |> filter(phylum == input$temp_phylum)
       cl <- sort(unique(df$class))
       ch <- c("All" = "", setNames(cl, cl))
     }
@@ -1893,9 +1900,12 @@ server <- function(input, output, session) {
     ch <- c("All" = "")
     if (!is.null(order_tax_map)) {
       df <- order_tax_map
-      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "") df <- df |> filter(kingdom == input$temp_kingdom)
-      if (!is.null(input$temp_phylum) && input$temp_phylum != "") df <- df |> filter(phylum == input$temp_phylum)
-      if (!is.null(input$temp_class) && input$temp_class != "") df <- df |> filter(class == input$temp_class)
+      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "")
+        df <- df |> filter(kingdom == input$temp_kingdom)
+      if (!is.null(input$temp_phylum) && input$temp_phylum != "")
+        df <- df |> filter(phylum == input$temp_phylum)
+      if (!is.null(input$temp_class) && input$temp_class != "")
+        df <- df |> filter(class == input$temp_class)
       ord <- sort(unique(df$order))
       if (length(ord) <= 200) ch <- c("All" = "", setNames(ord, ord))
     }
@@ -1907,10 +1917,14 @@ server <- function(input, output, session) {
     ch <- c("All" = "")
     if (!is.null(family_tax_map)) {
       df <- family_tax_map
-      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "") df <- df |> filter(kingdom == input$temp_kingdom)
-      if (!is.null(input$temp_phylum) && input$temp_phylum != "") df <- df |> filter(phylum == input$temp_phylum)
-      if (!is.null(input$temp_class) && input$temp_class != "") df <- df |> filter(class == input$temp_class)
-      if (!is.null(input$temp_order) && input$temp_order != "") df <- df |> filter(order == input$temp_order)
+      if (!is.null(input$temp_kingdom) && input$temp_kingdom != "")
+        df <- df |> filter(kingdom == input$temp_kingdom)
+      if (!is.null(input$temp_phylum) && input$temp_phylum != "")
+        df <- df |> filter(phylum == input$temp_phylum)
+      if (!is.null(input$temp_class) && input$temp_class != "")
+        df <- df |> filter(class == input$temp_class)
+      if (!is.null(input$temp_order) && input$temp_order != "")
+        df <- df |> filter(order == input$temp_order)
       fam <- sort(unique(df$family))
       if (length(fam) <= 200) ch <- c("All" = "", setNames(fam, fam))
     }
@@ -1921,10 +1935,14 @@ server <- function(input, output, session) {
   temp_filtered_orders <- reactive({
     if (is.null(order_tax_map)) return(NULL)
     df <- order_tax_map
-    if (!is.null(input$temp_kingdom) && input$temp_kingdom != "") df <- df |> filter(kingdom == input$temp_kingdom)
-    if (!is.null(input$temp_phylum) && input$temp_phylum != "") df <- df |> filter(phylum == input$temp_phylum)
-    if (!is.null(input$temp_class) && input$temp_class != "") df <- df |> filter(class == input$temp_class)
-    if (!is.null(input$temp_order) && input$temp_order != "") df <- df |> filter(order == input$temp_order)
+    if (!is.null(input$temp_kingdom) && input$temp_kingdom != "")
+      df <- df |> filter(kingdom == input$temp_kingdom)
+    if (!is.null(input$temp_phylum) && input$temp_phylum != "")
+      df <- df |> filter(phylum == input$temp_phylum)
+    if (!is.null(input$temp_class) && input$temp_class != "")
+      df <- df |> filter(class == input$temp_class)
+    if (!is.null(input$temp_order) && input$temp_order != "")
+      df <- df |> filter(order == input$temp_order)
     df$order
   })
 
@@ -2216,12 +2234,30 @@ server <- function(input, output, session) {
       unmon_inv   = sum(inv & !matched, na.rm = TRUE)
     )
   })
-  output$ov_concern_threat <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else paste0(comma(cc$thr_in_gbif), " / ", comma(cc$thr_total)) })
-  output$ov_concern_inv    <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else paste0(comma(cc$inv_in_gbif), " / ", comma(cc$inv_total)) })
-  output$ov_concern_sens   <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else paste0(comma(cc$sen_in_gbif), " / ", comma(cc$sen_total)) })
-  output$ov_unmon_cr  <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else comma(cc$unmon_cr) })
-  output$ov_unmon_en  <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else comma(cc$unmon_en) })
-  output$ov_unmon_inv <- renderText({ cc <- ov_concern(); if (is.null(cc)) "?" else comma(cc$unmon_inv) })
+  output$ov_concern_threat <- renderText({
+    cc <- ov_concern()
+    if (is.null(cc)) "?" else paste0(comma(cc$thr_in_gbif), " / ", comma(cc$thr_total))
+  })
+  output$ov_concern_inv    <- renderText({
+    cc <- ov_concern()
+    if (is.null(cc)) "?" else paste0(comma(cc$inv_in_gbif), " / ", comma(cc$inv_total))
+  })
+  output$ov_concern_sens   <- renderText({
+    cc <- ov_concern()
+    if (is.null(cc)) "?" else paste0(comma(cc$sen_in_gbif), " / ", comma(cc$sen_total))
+  })
+  output$ov_unmon_cr  <- renderText({
+    cc <- ov_concern()
+    if (is.null(cc)) "?" else comma(cc$unmon_cr)
+  })
+  output$ov_unmon_en  <- renderText({
+    cc <- ov_concern()
+    if (is.null(cc)) "?" else comma(cc$unmon_en)
+  })
+  output$ov_unmon_inv <- renderText({
+    cc <- ov_concern()
+    if (is.null(cc)) "?" else comma(cc$unmon_inv)
+  })
 
   # Publisher info box
   output$ov_n_publishers <- renderText({
@@ -2988,10 +3024,14 @@ server <- function(input, output, session) {
     choices <- c("All" = "")
     if (!is.null(tax_by_family)) {
       df <- tax_by_family
-      if (!is.null(input$tax_kingdom) && input$tax_kingdom != "") df <- df |> filter(kingdom == input$tax_kingdom)
-      if (!is.null(input$tax_phylum) && input$tax_phylum != "") df <- df |> filter(phylum == input$tax_phylum)
-      if (!is.null(input$tax_class) && input$tax_class != "") df <- df |> filter(class == input$tax_class)
-      if (!is.null(input$tax_order_filter) && input$tax_order_filter != "") df <- df |> filter(order == input$tax_order_filter)
+      if (!is.null(input$tax_kingdom) && input$tax_kingdom != "")
+        df <- df |> filter(kingdom == input$tax_kingdom)
+      if (!is.null(input$tax_phylum) && input$tax_phylum != "")
+        df <- df |> filter(phylum == input$tax_phylum)
+      if (!is.null(input$tax_class) && input$tax_class != "")
+        df <- df |> filter(class == input$tax_class)
+      if (!is.null(input$tax_order_filter) && input$tax_order_filter != "")
+        df <- df |> filter(order == input$tax_order_filter)
       fam <- sort(unique(df$family[!is.na(df$family) & df$family != ""]))
       if (length(fam) <= 200) {
         choices <- c("All" = "", setNames(fam, fam))
@@ -3337,10 +3377,14 @@ server <- function(input, output, session) {
     filtered_orders <- NULL
     if (!is.null(order_tax_map)) {
       filt <- order_tax_map
-      if (!is.null(input$tax_kingdom) && input$tax_kingdom != "") filt <- filt |> filter(kingdom == input$tax_kingdom)
-      if (!is.null(input$tax_phylum) && input$tax_phylum != "") filt <- filt |> filter(phylum == input$tax_phylum)
-      if (!is.null(input$tax_class) && input$tax_class != "") filt <- filt |> filter(class == input$tax_class)
-      if (!is.null(input$tax_order_filter) && input$tax_order_filter != "") filt <- filt |> filter(order == input$tax_order_filter)
+      if (!is.null(input$tax_kingdom) && input$tax_kingdom != "")
+        filt <- filt |> filter(kingdom == input$tax_kingdom)
+      if (!is.null(input$tax_phylum) && input$tax_phylum != "")
+        filt <- filt |> filter(phylum == input$tax_phylum)
+      if (!is.null(input$tax_class) && input$tax_class != "")
+        filt <- filt |> filter(class == input$tax_class)
+      if (!is.null(input$tax_order_filter) && input$tax_order_filter != "")
+        filt <- filt |> filter(order == input$tax_order_filter)
       filtered_orders <- filt$order
     }
 
@@ -3403,7 +3447,8 @@ server <- function(input, output, session) {
   output$concern_phylum_ui <- renderUI({
     ch <- c("All" = "")
     if (!is.null(tax_by_order) && !is.null(input$concern_kingdom) && input$concern_kingdom != "") {
-      ph <- tax_by_order |> filter(kingdom == input$concern_kingdom) |> pull(phylum) |> unique() |> sort()
+      ph <- tax_by_order |>
+        filter(kingdom == input$concern_kingdom) |> pull(phylum) |> unique() |> sort()
       ch <- c("All" = "", setNames(ph, ph))
     }
     selectizeInput("concern_phylum", "Phylum", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
@@ -3413,8 +3458,10 @@ server <- function(input, output, session) {
     ch <- c("All" = "")
     if (!is.null(tax_by_order)) {
       df <- tax_by_order
-      if (!is.null(input$concern_kingdom) && input$concern_kingdom != "") df <- df |> filter(kingdom == input$concern_kingdom)
-      if (!is.null(input$concern_phylum) && input$concern_phylum != "") df <- df |> filter(phylum == input$concern_phylum)
+      if (!is.null(input$concern_kingdom) && input$concern_kingdom != "")
+        df <- df |> filter(kingdom == input$concern_kingdom)
+      if (!is.null(input$concern_phylum) && input$concern_phylum != "")
+        df <- df |> filter(phylum == input$concern_phylum)
       cl <- sort(unique(df$class))
       ch <- c("All" = "", setNames(cl, cl))
     }
@@ -3425,9 +3472,12 @@ server <- function(input, output, session) {
     ch <- c("All" = "")
     if (!is.null(tax_by_order)) {
       df <- tax_by_order
-      if (!is.null(input$concern_kingdom) && input$concern_kingdom != "") df <- df |> filter(kingdom == input$concern_kingdom)
-      if (!is.null(input$concern_phylum) && input$concern_phylum != "") df <- df |> filter(phylum == input$concern_phylum)
-      if (!is.null(input$concern_class) && input$concern_class != "") df <- df |> filter(class == input$concern_class)
+      if (!is.null(input$concern_kingdom) && input$concern_kingdom != "")
+        df <- df |> filter(kingdom == input$concern_kingdom)
+      if (!is.null(input$concern_phylum) && input$concern_phylum != "")
+        df <- df |> filter(phylum == input$concern_phylum)
+      if (!is.null(input$concern_class) && input$concern_class != "")
+        df <- df |> filter(class == input$concern_class)
       ord <- sort(unique(df$order))
       if (length(ord) <= 100) ch <- c("All" = "", setNames(ord, ord))
     }
@@ -3625,7 +3675,9 @@ server <- function(input, output, session) {
     for (cn in c("threatStatus", "establishmentMeans", "kingdom", "phylum", "class", "order", "family")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons", options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip", buttons = list(list(extend = "csv", text = "Download CSV"))),
+    datatable(df, extensions = "Buttons",
+      options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
+        buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")
   })
 
@@ -3775,7 +3827,9 @@ server <- function(input, output, session) {
     for (cn in c("kingdom", "phylum", "class", "order", "family", "status")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons", options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip", buttons = list(list(extend = "csv", text = "Download CSV"))),
+    datatable(df, extensions = "Buttons",
+      options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
+        buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")
   })
 
@@ -3989,7 +4043,9 @@ server <- function(input, output, session) {
     for (cn in c("generalization", "threatStatus", "kingdom", "phylum", "class", "order", "family", "status")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons", options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip", buttons = list(list(extend = "csv", text = "Download CSV"))),
+    datatable(df, extensions = "Buttons",
+      options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
+        buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")
   })
 
@@ -4383,7 +4439,9 @@ server <- function(input, output, session) {
       invasive_stats <- ms |> filter(establishmentMeans == "invasive")
       n_native_missing <- sum(!native_stats$matched_any, na.rm = TRUE)
       n_native_total <- nrow(native_stats)
-      native_cov <- if (n_native_total > 0) round(100 * sum(native_stats$matched_any) / n_native_total, 1) else 0
+      native_cov <- if (n_native_total > 0) {
+        round(100 * sum(native_stats$matched_any) / n_native_total, 1)
+      } else 0
       n_invasive_no_recent <- 0
       if (!is.null(cell_recency)) {
         # Invasive species in cells with stale data
@@ -4553,12 +4611,14 @@ server <- function(input, output, session) {
       div(style = row_style,
         div(style = label_style, "New occurrence records"),
         div(style = achieved_style, comma(ly_occ)),
-        div(style = paste0(target_style, " color:", pal$sage, ";"), paste0(comma(ceiling(ly_occ * target_mult)), "+"))
+        div(style = paste0(target_style, " color:", pal$sage, ";"),
+            paste0(comma(ceiling(ly_occ * target_mult)), "+"))
       ),
       div(style = row_style,
         div(style = label_style, "Cells with active recording"),
         div(style = achieved_style, comma(ly_cells)),
-        div(style = paste0(target_style, " color:", pal$sage, ";"), paste0(comma(ceiling(ly_cells * target_mult)), "+"))
+        div(style = paste0(target_style, " color:", pal$sage, ";"),
+            paste0(comma(ceiling(ly_cells * target_mult)), "+"))
       ),
       div(style = row_style,
         div(style = label_style, "Newly covered cells (previously zero)"),
@@ -4582,7 +4642,8 @@ server <- function(input, output, session) {
         div(style = achieved_style, "\u2014"),
         div(style = paste0(target_style, " color:", pal$slate, ";"), {
           n_sp <- if (!is.null(publisher_cell_dep)) sum(publisher_cell_dep$n_publishers == 1) else 0
-          if (n_sp > 0) paste0("Target: ", comma(min(ceiling(n_sp * single_pub_target_frac), single_pub_target_cap)),
+          if (n_sp > 0) paste0(
+            "Target: ", comma(min(ceiling(n_sp * single_pub_target_frac), single_pub_target_cap)),
             " of ", comma(n_sp)) else "\u2014"
         })
       )

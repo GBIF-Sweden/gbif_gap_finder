@@ -43,3 +43,4 @@ download_metadata.json
 Thumbs.db
 .positai
 .DS_Store
+gap_finder_*.patch

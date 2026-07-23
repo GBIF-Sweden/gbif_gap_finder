@@ -2,16 +2,23 @@
 # ============================================================================
 # Download Raw Data Sources
 # ============================================================================
-# Downloads all external datasets for a country's gap analysis:
-#   1. EEA reference grids (10km and 50km)
-#   2. National taxonomy backbone (DwC-A via GBIF)
-#   3. National red list (DwC-A via GBIF, optional)
-#   3b. National invasive species registry (DwC-A, optional)
-#   3c. Sensitive species list (DwC-A, optional)
-#   4. GBIF occurrence cubes (SQL API — manual download, instructions printed)
-#   5. Administrative boundaries (GADM via geodata package)
+# Purpose:
+#   Download all external datasets for a country's gap analysis:
+#     1. EEA reference grids (10km and 50km)
+#     2. National taxonomy backbone (DwC-A via GBIF)
+#     3. National red list (DwC-A via GBIF, optional)
+#     3b. National invasive species registry (DwC-A, optional)
+#     3c. Sensitive species list (DwC-A, optional)
+#     4. GBIF occurrence cubes (SQL API — manual download, instructions printed)
+#     5. Administrative boundaries (GADM via geodata package)
 #
-# All data stored in: data/{country_code}/raw/
+# Inputs:
+#   - EEA grid portal; GBIF (taxonomy / red list / invasives / sensitive DwC-A);
+#     GBIF SQL API (occurrence cubes); GADM (administrative boundaries)
+#
+# Outputs (in data/{CC}/raw/):
+#   - grids/, taxonomy/, redlist/, invasives/, sensitive/, cubes/, admin/
+#   - download_metadata.json
 #
 # Usage:
 #   source("scripts/01a_download_raw_data.R")
@@ -318,8 +325,13 @@ metadata <- list(
   country = country_code,
   date = as.character(Sys.Date()),
   data_dir = p_data,
-  grids = list(dir = raw_grid_dir, files = list.files(raw_grid_dir, pattern = "\\.(shp|gpkg)$", recursive = TRUE)),
-  taxonomy = list(doi = taxonomy_doi, files = list.files(raw_taxonomy_dir, pattern = "\\.(txt|csv)$")),
+  grids = list(
+    dir = raw_grid_dir,
+    files = list.files(raw_grid_dir, pattern = "\\.(shp|gpkg)$", recursive = TRUE)
+  ),
+  taxonomy = list(
+    doi = taxonomy_doi, files = list.files(raw_taxonomy_dir, pattern = "\\.(txt|csv)$")
+  ),
   redlist = list(doi = redlist_doi, files = list.files(raw_redlist_dir, pattern = "\\.(txt|csv)$")),
   invasives = list(
     doi = if (exists("invasives_doi")) invasives_doi else "",

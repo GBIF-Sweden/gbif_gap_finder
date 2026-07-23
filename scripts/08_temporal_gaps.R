@@ -2,14 +2,16 @@
 # ==============================================================================
 # Temporal Gap Analysis
 # ==============================================================================
-# This script identifies temporal gaps in GBIF occurrence data:
+# Purpose:
+#   Identify temporal gaps in GBIF occurrence data — annual and seasonal
+#   trends, completeness, gap years, and cell-level recency.
 #
-# INPUTS:
+# Inputs:
 #   - data/{CC}/proc/derived/time_summary_*.csv (from 06a)
 #   - data/{CC}/proc/derived/family_time_summary_*.csv (from 06a)
 #   - data/{CC}/proc/cubes/*.parquet (for cell-level recency)
 #
-# OUTPUTS (in data/{CC}/proc/gaps/):
+# Outputs (in data/{CC}/proc/gaps/):
 #   National trends:
 #     - temporal_overview_year_*.csv      Annual totals
 #     - temporal_overview_month_*.csv     Monthly totals (seasonal patterns)
@@ -33,7 +35,7 @@
 #   Taxonomic × temporal:
 #     - temporal_year_by_family_*.csv     Family trends over time
 #
-# GAP DEFINITIONS:
+# Gap definitions:
 #   - Gap year: No observations in a year within the overall range
 #   - Stale cell: No observations in last 12 months or 5 years
 #   - Incomplete year: <12 months with data
@@ -108,7 +110,10 @@ if (!exists("read_cube_scoped")) {
     if (length(allowed) == 0) return(dt)
     n0 <- nrow(dt)
     dt <- dt[is.na(kingdom) | kingdom == "" | kingdom %in% allowed]
-    cli_alert_info("Scope filter [{label}]: kept {scales::comma(nrow(dt))}/{scales::comma(n0)} rows (in-backbone kingdoms)")
+    cli_alert_info(
+      "Scope filter [{label}]: kept \\
+       {scales::comma(nrow(dt))}/{scales::comma(n0)} rows (in-backbone kingdoms)"
+    )
     dt
   }
   read_cube_scoped <- function(pf, cols, grid_label = NULL, ...) {
@@ -322,7 +327,9 @@ compute_cell_recency <- function(grid_label, cubes_dir) {
   
   # Find parquet file for this grid
   grid_suffix <- str_extract(grid_label, "\\d+km")
-  parquet_file <- list.files(cubes_dir, pattern = glue(".*{grid_suffix}.*\\.parquet$"), full.names = TRUE)
+  parquet_file <- list.files(
+    cubes_dir, pattern = glue(".*{grid_suffix}.*\\.parquet$"), full.names = TRUE
+  )
   
   if (length(parquet_file) == 0) {
     cli_alert_warning("No parquet file found for {grid_label} in {.path {cubes_dir}}")
@@ -559,13 +566,17 @@ summary_table <- data.table(
     glue("{min(time10$year)}-{max(time10$year)}"),
     scales::comma(sum(time10[basisofrecord == "all"]$occurrences)),
     if (!is.null(recency_10)) scales::comma(nrow(recency_10[basisofrecord == "all"])) else "N/A",
-    if (!is.null(recency_10)) scales::comma(sum(recency_10[basisofrecord == "all"]$gap_stale_5y, na.rm = TRUE)) else "N/A"
+    if (!is.null(recency_10)) {
+      scales::comma(sum(recency_10[basisofrecord == "all"]$gap_stale_5y, na.rm = TRUE))
+    } else "N/A"
   ),
   `50km` = c(
     glue("{min(time50$year)}-{max(time50$year)}"),
     scales::comma(sum(time50[basisofrecord == "all"]$occurrences)),
     if (!is.null(recency_50)) scales::comma(nrow(recency_50[basisofrecord == "all"])) else "N/A",
-    if (!is.null(recency_50)) scales::comma(sum(recency_50[basisofrecord == "all"]$gap_stale_5y, na.rm = TRUE)) else "N/A"
+    if (!is.null(recency_50)) {
+      scales::comma(sum(recency_50[basisofrecord == "all"]$gap_stale_5y, na.rm = TRUE))
+    } else "N/A"
   )
 )
 

@@ -232,10 +232,10 @@ All species-level tables are split by taxonomic order and include **bias correct
 ```{r list_orders}
 # Extract order names from filenames
 if (length(species_summary_files) > 0) {
-  orders_available <- species_summary_files %>%
-    basename() %>%
-    str_extract("species_summary_(.+)_\\d+km\\.csv", group = 1) %>%
-    unique() %>%
+  orders_available <- species_summary_files |>
+    basename() |>
+    str_extract("species_summary_(.+)_\\d+km\\.csv", group = 1) |>
+    unique() |>
     sort()
   
   cat("**Orders with species-level data:**\n\n")

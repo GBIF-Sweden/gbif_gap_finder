@@ -83,7 +83,9 @@ ds_meta_path <- here(p_data_proc, "data_sources_meta.rds")
 data_sources_meta <- if (file.exists(ds_meta_path)) {
   readRDS(ds_meta_path)
 } else {
-  cli_alert_warning("data_sources_meta.rds not found — run 01b first; sources will be unattributed.")
+  cli_alert_warning(
+    "data_sources_meta.rds not found — run 01b first; sources will be unattributed."
+  )
   NULL
 }
 
@@ -365,10 +367,13 @@ if (!is.null(tcr)) {
       total_occ = sum(total_occ, na.rm = TRUE),
       max_year = if (all(is.na(max_year))) NA_real_ else max(max_year, na.rm = TRUE),
       max_yearmonth = if (all(is.na(max_yearmonth))) NA_real_ else max(max_yearmonth, na.rm = TRUE),
-      staleness_months = if (all(is.na(staleness_months))) NA_real_ else min(staleness_months, na.rm = TRUE),
+      staleness_months = if (all(is.na(staleness_months))) NA_real_
+        else min(staleness_months, na.rm = TRUE),
       .groups = "drop"
     )
-  cli_alert_success("Kingdom cell recency: {scales::comma(nrow(shiny_data$kingdom_cell_recency))} rows")
+  cli_alert_success(
+    "Kingdom cell recency: {scales::comma(nrow(shiny_data$kingdom_cell_recency))} rows"
+  )
 }
 
 
@@ -383,10 +388,11 @@ if (file.exists(ssl_path)) {
   shiny_data$species_scope_lookup <- as_tibble(fread(ssl_path))
   n <- nrow(shiny_data$species_scope_lookup)
   cli_alert_success("Species scope lookup: {scales::comma(n)} species")
-  cli_alert_info("  in_dyntaxa:    {scales::comma(sum(shiny_data$species_scope_lookup$in_dyntaxa, na.rm = TRUE))}")
-  cli_alert_info("  is_threatened: {scales::comma(sum(shiny_data$species_scope_lookup$is_threatened, na.rm = TRUE))}")
-  cli_alert_info("  is_invasive:   {scales::comma(sum(shiny_data$species_scope_lookup$is_invasive, na.rm = TRUE))}")
-  cli_alert_info("  is_sensitive:  {scales::comma(sum(shiny_data$species_scope_lookup$is_sensitive, na.rm = TRUE))}")
+  ssl <- shiny_data$species_scope_lookup
+  cli_alert_info("  in_dyntaxa:    {scales::comma(sum(ssl$in_dyntaxa, na.rm = TRUE))}")
+  cli_alert_info("  is_threatened: {scales::comma(sum(ssl$is_threatened, na.rm = TRUE))}")
+  cli_alert_info("  is_invasive:   {scales::comma(sum(ssl$is_invasive, na.rm = TRUE))}")
+  cli_alert_info("  is_sensitive:  {scales::comma(sum(ssl$is_sensitive, na.rm = TRUE))}")
 } else {
   cli_alert_warning("species_scope_summary.csv not found -- run 09c")
 }
@@ -469,7 +475,9 @@ if (!is.null(match_summary)) {
     cli_alert_success("tax_by_order: {nrow(shiny_data$tax_by_order)} orders")
   }
   if (all(c("kingdom", "phylum", "class", "order", "family") %in% names(match_summary))) {
-    shiny_data$tax_by_family <- grp_fn(match_summary, c("kingdom", "phylum", "class", "order", "family"))
+    shiny_data$tax_by_family <- grp_fn(
+      match_summary, c("kingdom", "phylum", "class", "order", "family")
+    )
     cli_alert_success("tax_by_family: {nrow(shiny_data$tax_by_family)} families")
   }
 
@@ -724,7 +732,8 @@ shiny_data$metadata <- list(
   has_taxonomic = !is.null(shiny_data$tax_by_rank) || !is.null(shiny_data$taxonomic_match_summary),
   has_threat_status = !is.null(shiny_data$tax_by_threat),
   has_orders = !is.null(shiny_data$order_temporal),
-  has_priorities = !is.null(shiny_data$priority_taxa_missing) || !is.null(shiny_data$priority_taxa_all),
+  has_priorities = !is.null(shiny_data$priority_taxa_missing) ||
+    !is.null(shiny_data$priority_taxa_all),
   has_last_year = !is.null(shiny_data$overview_last_year),
   has_troudet = !is.null(shiny_data$troudet_bias),
   has_troudet_family = !is.null(shiny_data$troudet_bias_family),
@@ -782,4 +791,8 @@ cli_alert_info("")
 cli_alert_success("Shiny data preparation complete!")
 cli_alert_info("Bundle size: {round(file_size_mb, 2)} MB")
 cli_alert_info("Recent period: {shiny_data$metadata$recent_label}")
-cli_alert_info("Scopes available: {paste(c('all','threatened','invasive','sensitive')[c(shiny_data$metadata$has_all_scope, shiny_data$metadata$has_threatened_scope, shiny_data$metadata$has_invasive_scope, shiny_data$metadata$has_sensitive_scope)], collapse = ', ')}")
+    scopes_avail <- c("all", "threatened", "invasive", "sensitive")[c(
+      shiny_data$metadata$has_all_scope, shiny_data$metadata$has_threatened_scope,
+      shiny_data$metadata$has_invasive_scope, shiny_data$metadata$has_sensitive_scope
+    )]
+    cli_alert_info("Scopes available: {paste(scopes_avail, collapse = ', ')}")

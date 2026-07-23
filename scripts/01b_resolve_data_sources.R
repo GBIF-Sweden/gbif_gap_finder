@@ -19,7 +19,12 @@
 #   fails HERE, at the start of a run, rather than after the full pipeline or in
 #   front of a user.
 #
-#   Output: data/{CC}/proc/data_sources_meta.rds   (also returned invisibly)
+# Inputs:
+#   - configs/config_{CC}.yml (cube download keys + checklist dataset keys)
+#   - GBIF download & dataset APIs (via jsonlite; no login required)
+#
+# Outputs:
+#   - data/{CC}/proc/data_sources_meta.rds   (also returned invisibly)
 #
 # Run standalone:  source("scripts/01b_resolve_data_sources.R")
 # Dependencies:    globals already loaded by 00_setup.R
@@ -228,7 +233,8 @@ print(report)
 for (m in checklists) {
   if (isFALSE(m$doi_matches_config %||% TRUE)) {
     cli_alert_warning(
-      "{m$label}: config DOI ({m$config_doi}) does not match GBIF's ({m$doi}) \u2014 update config.")
+      "{m$label}: config DOI ({m$config_doi}) does not match GBIF's ({m$doi}) \\
+       \u2014 update config.")
   }
 }
 
@@ -245,7 +251,8 @@ bad_cubes <- Filter(function(x) !isTRUE(x$resolves), cubes)
 if (length(bad_cubes)) {
   cli_alert_danger("{length(bad_cubes)} cube download key(s) did not resolve on GBIF.")
   cli_alert_info(
-    "Check the download_key in configs/config_{COUNTRY_CODE}.yml is a *production* gbif.org download.")
+    "Check the download_key in configs/config_{COUNTRY_CODE}.yml is a \\
+     *production* gbif.org download.")
   stop("Data-source validation failed: unresolved GBIF cube download key(s).")
 }
 

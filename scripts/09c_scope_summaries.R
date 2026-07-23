@@ -19,18 +19,18 @@
 #   - _invasive    Species flagged as invasive
 #   - _sensitive   Species flagged as sensitive
 #
-# PREREQUISITES:
+# Prerequisites:
 #   - 04_convert_cubes_parquet.R (parquet cubes)
 #   - 06a_make_core_summaries.R (core summaries)
 #   - 09a_reconcile_taxonomy.R (reconciliation table)
 #   - 02_ingest_grids.R (grid geometries for zero-filling)
 #
-# INPUTS:
+# Inputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds  (from 09a)
 #   - data/{CC}/proc/cubes/*.parquet               (from 04)
 #   - data/{CC}/proc/grids_*.gpkg                   (from 02, optional)
 #
-# OUTPUTS (in data/{CC}/proc/derived/):
+# Outputs (in data/{CC}/proc/derived/):
 #
 #   Per-scope core summaries (each x 10km/50km):
 #     - cell_summary_<scope>_<grid>.csv
@@ -168,7 +168,8 @@ if ("is_sensitive" %in% names(recon)) {
 }
 scope_lookup[is.na(is_sensitive), is_sensitive := FALSE]
 
-scope_lookup[, is_threatened := !is.na(recon$threatStatus) & recon$threatStatus %in% THREATENED_CODES]
+scope_lookup[, is_threatened := !is.na(recon$threatStatus) &
+  recon$threatStatus %in% THREATENED_CODES]
 
 # Apply order exclusions (e.g. Primates)
 if (length(exclude_orders) > 0 && "order" %in% names(recon)) {
@@ -180,7 +181,10 @@ if (length(exclude_orders) > 0 && "order" %in% names(recon)) {
       is_invasive = FALSE,
       is_sensitive = FALSE
     )]
-    cli_alert_info("Excluded {length(excluded_keys)} species from orders: {paste(exclude_orders, collapse = ', ')}")
+    cli_alert_info(
+      "Excluded {length(excluded_keys)} species \\
+       from orders: {paste(exclude_orders, collapse = ', ')}"
+    )
   }
 }
 
@@ -225,7 +229,9 @@ for (pf in parquet_files) {
   if (grepl("10km", bn)) grid_map[["10km"]] <- pf
   else if (grepl("50km", bn)) grid_map[["50km"]] <- pf
 }
-cli_alert_info("Found {length(grid_map)} parquet cube(s): {paste(names(grid_map), collapse = ', ')}")
+cli_alert_info(
+  "Found {length(grid_map)} parquet cube(s): {paste(names(grid_map), collapse = ', ')}"
+)
 
 
 # ==============================================================================
@@ -258,7 +264,8 @@ if (length(all_ym) > 0) {
   latest_ym <- max(all_ym)
   latest_year <- as.integer(substr(as.character(latest_ym), 1, 4))
   latest_month <- as.integer(substr(as.character(latest_ym), 5, 6))
-  cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-% months(11)
+  cutoff_date <- as.Date(paste0(latest_year, "-", sprintf("%02d", latest_month), "-01")) %m-%
+    months(11)
   recent_cutoff_ym <- as.integer(format(cutoff_date, "%Y%m"))
   recent_label <- paste0(
     format(cutoff_date, "%b %Y"), " \u2013 ",

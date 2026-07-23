@@ -246,7 +246,8 @@ if ("taxonomicStatus" %in% names(taxonomy_taxon)) {
 }
 
 cli_alert_success(
-  "{backbone_name} taxonomy: {scales::comma(nrow(taxonomy_taxon))} rows, {ncol(taxonomy_taxon)} columns"
+  "{backbone_name} taxonomy: {scales::comma(nrow(taxonomy_taxon))} rows, \\
+   {ncol(taxonomy_taxon)} columns"
 )
 
 # Distribution table
@@ -259,7 +260,8 @@ taxonomy_distr <- read_table_safe(input_files$taxonomy_distr) |>
   rename_to_dwc()
 
 cli_alert_success(
-  "{backbone_name} distribution: {scales::comma(nrow(taxonomy_distr))} rows, {ncol(taxonomy_distr)} columns"
+  "{backbone_name} distribution: {scales::comma(nrow(taxonomy_distr))} rows, \\
+   {ncol(taxonomy_distr)} columns"
 )
 
 # Save processed files
@@ -314,7 +316,8 @@ if (redlist_available) {
     rename_to_dwc()
 
   cli_alert_success(
-    "Red list distribution: {scales::comma(nrow(redlist_distr))} rows, {ncol(redlist_distr)} columns"
+    "Red list distribution: {scales::comma(nrow(redlist_distr))} rows, \\
+     {ncol(redlist_distr)} columns"
   )
 
   # Save processed red list files
@@ -520,7 +523,9 @@ if (redlist_available && !is.null(redlist_distr)) {
   )
 
   cli_alert_success(
-    "Threat coverage: {scales::comma(n_backbone)} backbone, {scales::comma(n_redlist)} red list, {scales::comma(n_both)} both"
+    "Threat coverage: {scales::comma(n_backbone)} backbone, \\
+     {scales::comma(n_redlist)} red list, \\
+     {scales::comma(n_both)} both"
   )
 
   # Breakdowns by source
@@ -629,7 +634,8 @@ if (invasives_available) {
       invasives_taxon <- invasives_taxon |>
         filter(as.character(id) %in% invasive_ids)
       cli_alert_info(
-        "isInvasive filter: {scales::comma(nrow(invasives_taxon))} invasive of {scales::comma(n_before)} alien taxa"
+        "isInvasive filter: {scales::comma(nrow(invasives_taxon))} \\
+         invasive of {scales::comma(n_before)} alien taxa"
       )
     }
   } else {
@@ -736,7 +742,8 @@ if (sensitive_available) {
       rename_to_dwc()
 
     cli_alert_info(
-      "Sensitive distribution: {scales::comma(nrow(sensitive_distr))} rows, {ncol(sensitive_distr)} columns"
+      "Sensitive distribution: {scales::comma(nrow(sensitive_distr))} rows, \\
+       {ncol(sensitive_distr)} columns"
     )
     cli_alert_info(
       "Columns: {paste(names(sensitive_distr), collapse = ', ')}"
@@ -772,7 +779,8 @@ if (sensitive_available) {
   }
 
   # Try to identify the sensitivity category column
-  # Priority: dedicated generalization columns > taxonRemarks (which SLU uses for "5km"/"25km"/"50km")
+  # Priority: dedicated generalization columns > taxonRemarks
+  # (which SLU uses for "5km"/"25km"/"50km")
   gen_cols <- intersect(
     names(sensitive_taxon),
     c("locationGeneralizationInMeters", "generalizationInMeters",

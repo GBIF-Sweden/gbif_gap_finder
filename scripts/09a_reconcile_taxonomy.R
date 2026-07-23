@@ -85,7 +85,9 @@ sum_files <- list.files(
 )
 
 if (length(sum_files) == 0) {
-  cli_abort("No species_summary files found in {.path {here(p_data_proc, 'derived')}}. Run 06b first.")
+  cli_abort(
+    "No species_summary files found in {.path {here(p_data_proc, 'derived')}}. Run 06b first."
+  )
 }
 cli_alert_info("Reading {length(sum_files)} species_summary files")
 
@@ -206,11 +208,18 @@ if (isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE)) &&
 
     if (nrow(dropped) > 0) {
       occ_dropped <- sum(as.numeric(dropped$total_occ))
-      cli_alert_info("Dropped occurrences: {scales::comma(occ_dropped)} ({round(100 * occ_dropped / occ_before, 2)}% of GBIF occ)")
+      cli_alert_info(
+        "Dropped occurrences: \\
+         {scales::comma(occ_dropped)} ({round(100 * occ_dropped / occ_before, 2)}% of GBIF occ)"
+      )
       drop_summary <- dropped[, .(n_species = .N, occ = sum(as.numeric(total_occ))),
                               by = class][order(-n_species)]
       for (i in seq_len(min(nrow(drop_summary), 15L))) {
-        cli_alert_info("  - {drop_summary$class[i] %||% 'NA'}: {scales::comma(drop_summary$n_species[i])} species, {scales::comma(drop_summary$occ[i])} occ")
+        cli_alert_info(
+          "  - {drop_summary$class[i] %||% 'NA'}: \\
+           {scales::comma(drop_summary$n_species[i])} species, \\
+           {scales::comma(drop_summary$occ[i])} occ"
+        )
       }
       if (nrow(drop_summary) > 15L)
         cli_alert_info("  ... and {nrow(drop_summary) - 15L} more classes")
@@ -259,7 +268,9 @@ syn_lookup_unique <- syn_lookup[, .SD[1], by = name_std]
 
 cli_alert_info("Unique synonym names: {scales::comma(nrow(syn_lookup_unique))}")
 if (length(ambiguous_syns) > 0) {
-  cli_alert_warning("Ambiguous synonyms (>1 accepted taxon): {scales::comma(length(ambiguous_syns))}")
+  cli_alert_warning(
+    "Ambiguous synonyms (>1 accepted taxon): {scales::comma(length(ambiguous_syns))}"
+  )
 }
 
 
@@ -350,7 +361,10 @@ if (n_t2 > 0) {
   top_t2 <- recon[match_tier == "tier2"][order(-total_occ)][seq_len(min(5, n_t2))]
   cli_alert_info("  Top synonym matches:")
   for (i in seq_len(nrow(top_t2))) {
-    cli_alert_info("    {top_t2$species[i]} -> {top_t2$backbone_scientificName[i]} ({scales::comma(top_t2$total_occ[i])} occ)")
+    cli_alert_info(
+      "    {top_t2$species[i]} -> \\
+       {top_t2$backbone_scientificName[i]} ({scales::comma(top_t2$total_occ[i])} occ)"
+    )
   }
 }
 
@@ -487,9 +501,16 @@ if (nrow(remaining) > 0 && api_available) {
 
   est_total_minutes <- round(min(n_total_needed, n_batches_to_run * api_max_requests) /
                              api_rate_limit / 60, 1)
-  cli_alert_info("Batch plan: {n_batches_to_run} batch(es) of up to {scales::comma(api_max_requests)} queries (~{est_total_minutes} min total)")
+  cli_alert_info(
+    "Batch plan: {n_batches_to_run} batch(es) \\
+     of up to {scales::comma(api_max_requests)} queries (~{est_total_minutes} min total)"
+  )
   if (n_batches_needed > api_max_batches) {
-    cli_alert_warning("Capped at {api_max_batches} batch(es) per run ({scales::comma(n_total_needed - n_batches_to_run * api_max_requests)} candidates will be picked up on next rerun)")
+    cli_alert_warning(
+      "Capped at {api_max_batches} batch(es) per run \\
+       ({scales::comma(n_total_needed - n_batches_to_run * api_max_requests)} candidates \\
+       will be picked up on next rerun)"
+    )
   }
 
   # === Outer loop: batches ===
@@ -594,7 +615,11 @@ if (nrow(remaining) > 0 && api_available) {
     cli_alert_warning("Total API errors across all batches: {total_api_errors} / {total_queried}")
   }
 
-  cli_alert_success("Tier 4 API phase complete: {n_batches_run} batch(es), {scales::comma(total_queried)} queries, cache: {scales::comma(length(api_cache))} entries")
+  cli_alert_success(
+    "Tier 4 API phase complete: {n_batches_run} batch(es), \\
+     {scales::comma(total_queried)} queries, \\
+     cache: {scales::comma(length(api_cache))} entries"
+  )
 }
 
 # --- Resolve cached synonyms to backbone ---
@@ -716,7 +741,10 @@ cat_summary <- recon[match_tier == "unmatched", .(
 ), by = match_type][order(-occ)]
 
 for (i in seq_len(nrow(cat_summary))) {
-  cli_alert_info("  {cat_summary$match_type[i]}: {scales::comma(cat_summary$n[i])} species ({scales::comma(cat_summary$occ[i])} occ)")
+  cli_alert_info(
+    "  {cat_summary$match_type[i]}: {scales::comma(cat_summary$n[i])} species \\
+     ({scales::comma(cat_summary$occ[i])} occ)"
+  )
 }
 
 
@@ -838,7 +866,10 @@ occ_matched <- recon[match_tier != "unmatched", sum(as.numeric(total_occ))]
 occ_total   <- sum(as.numeric(recon$total_occ))
 
 cli_alert_success("Total GBIF species:   {scales::comma(n_gbif)}")
-cli_alert_success("Matched to backbone:  {scales::comma(n_matched)} ({round(100 * n_matched / n_gbif, 1)}%)")
+cli_alert_success(
+  "Matched to backbone:  {scales::comma(n_matched)} \\
+   ({round(100 * n_matched / n_gbif, 1)}%)"
+)
 cli_alert_success("Occurrence coverage:  {round(100 * occ_matched / occ_total, 2)}%")
 cli_alert_info("")
 
@@ -865,13 +896,18 @@ for (i in seq_len(nrow(tier_top))) {
 if (!api_available && nrow(t4_candidates) > 0) {
   cli_alert_warning("")
   cli_alert_warning("Tier 4 skipped: {.pkg httr2} not installed.")
-  cli_alert_warning("Install and rerun to resolve up to ~{scales::comma(nrow(t4_candidates))} more species.")
+  cli_alert_warning(
+    "Install and rerun to resolve up to ~{scales::comma(nrow(t4_candidates))} more species."
+  )
 }
 
 # Did we hit the batch cap before resolving everything?
 if (api_available && nrow(remaining) > 0) {
   cli_alert_info("")
-  cli_alert_info("{scales::comma(nrow(remaining))} species still need API queries (hit api_max_batches = {api_max_batches}).")
+  cli_alert_info(
+    "{scales::comma(nrow(remaining))} species still need API queries \\
+     (hit api_max_batches = {api_max_batches})."
+  )
   cli_alert_info("Rerun this script to continue. Cache persists across runs.")
 }
 

@@ -110,12 +110,15 @@ for (grid_name in names(cube_files)) {
   if (length(missing_required) > 0) {
     cli_abort(c(
       "Cube {grid_name} is missing required column(s): {paste(missing_required, collapse = ', ')}",
-      "x" = "Refusing to write parquet — downstream coverage/taxonomic analyses would be silently wrong.",
+      "x" = "Refusing to write parquet — downstream \\
+            coverage/taxonomic analyses would be silently wrong.",
       "i" = "Check the SQL API download column order for {.path {basename(cf$csv)}}."
     ))
   }
   if (length(missing_cols) > 0) {
-    cli_alert_warning("Missing (non-required) expected columns: {paste(missing_cols, collapse = ', ')}")
+    cli_alert_warning(
+      "Missing (non-required) expected columns: {paste(missing_cols, collapse = ', ')}"
+    )
   }
   if (length(extra_cols) > 0) {
     cli_alert_info("Extra columns: {paste(extra_cols, collapse = ', ')}")
@@ -150,7 +153,9 @@ for (grid_name in names(cube_files)) {
 
   pq_size <- round(file.size(cf$parquet) / 1024^2, 1)
   compression <- round(csv_size / pq_size, 1)
-  cli_alert_success("{grid_name}: {scales::comma(nrow(dt))} rows, {pq_size} MB parquet ({compression}x compression)")
+  cli_alert_success(
+    "{grid_name}: {scales::comma(nrow(dt))} rows, {pq_size} MB parquet ({compression}x compression)"
+  )
 
   manifest[[grid_name]] <- data.frame(
     grid = grid_name,

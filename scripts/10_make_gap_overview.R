@@ -2,21 +2,22 @@
 # ==============================================================================
 # Integrated Gap Overview - Multi-Dimensional Summaries
 # ==============================================================================
-# Creates comprehensive, analysis-ready integrated tables combining:
-# - Spatial gaps (coverage, intensity)
-# - Temporal gaps (trends, seasonality, recency, completeness)
-# - Taxonomic gaps (coverage by rank, threat status, families, orders)
-# - Species-level summaries (richness, endemism, threatened species)
-# - Priority lists for conservation action
+# Purpose:
+#   Create comprehensive, analysis-ready integrated tables combining:
+#     - Spatial gaps (coverage, intensity)
+#     - Temporal gaps (trends, seasonality, recency, completeness)
+#     - Taxonomic gaps (coverage by rank, threat status, families, orders)
+#     - Species-level summaries (richness, endemism, threatened species)
+#     - Priority lists for conservation action
 #
-# INPUTS (from scripts 07-09):
+# Inputs (from scripts 07-09):
 #   Spatial:  spatial_gaps_*.csv, spatial_summary_*.csv, spatial_*_cells.csv
 #   Temporal: temporal_overview_*.csv, temporal_*_completeness_*.csv,
 #             temporal_gap_years_*.csv, cell_recency_*.csv
 #   Taxonomic: taxonomic_coverage_*.csv, taxonomic_gaps_by_*.csv,
 #              taxonomic_*_taxa.csv, taxonomic_spatial_coverage.csv
 #
-# OUTPUTS:
+# Outputs:
 #   output/tables/               - Standard summary tables
 #   output/tables/integrated/    - Multi-dimensional joined tables
 
@@ -159,12 +160,16 @@ dashboard <- data.table(
   cells_10km_total = calc_metric(nrow(spatial_10[basisofrecord == "all"])),
   cells_10km_with_data = calc_metric(sum(spatial_10[basisofrecord == "all"]$has_data)),
   cells_10km_zero = calc_metric(sum(spatial_10[basisofrecord == "all"]$gap_zero)),
-  cells_10km_pct_coverage = calc_metric(round(100 * mean(spatial_10[basisofrecord == "all"]$has_data), 1)),
+  cells_10km_pct_coverage = calc_metric(
+    round(100 * mean(spatial_10[basisofrecord == "all"]$has_data), 1)
+  ),
   
   cells_50km_total = calc_metric(nrow(spatial_50[basisofrecord == "all"])),
   cells_50km_with_data = calc_metric(sum(spatial_50[basisofrecord == "all"]$has_data)),
   cells_50km_zero = calc_metric(sum(spatial_50[basisofrecord == "all"]$gap_zero)),
-  cells_50km_pct_coverage = calc_metric(round(100 * mean(spatial_50[basisofrecord == "all"]$has_data), 1)),
+  cells_50km_pct_coverage = calc_metric(
+    round(100 * mean(spatial_50[basisofrecord == "all"]$has_data), 1)
+  ),
   
   # --- Temporal metrics ---
   year_min = calc_metric(min(temporal_year_10$year, na.rm = TRUE)),
@@ -194,7 +199,9 @@ dashboard <- data.table(
   # tax_coverage_threat has ONE row per threat status, so nrow() here returned
   # the number of categories (<=4), not the number of threatened reference taxa.
   # Sum n_ref_total instead (mirrors threatened_in_gbif on the next line).
-  threatened_in_reference = calc_metric(sum(tax_coverage_threat[threatStatus %in% c("CR", "EN", "VU", "NT")]$n_ref_total, na.rm = TRUE)),
+  threatened_in_reference = calc_metric(
+    sum(tax_coverage_threat[threatStatus %in% c("CR", "EN", "VU", "NT")]$n_ref_total, na.rm = TRUE)
+  ),
   threatened_in_gbif = calc_metric(
     sum(tax_coverage_threat[threatStatus %in% c("CR", "EN", "VU", "NT")]$n_in_gbif, na.rm = TRUE)
   ),
@@ -291,7 +298,9 @@ if (!is.null(temporal_year_month_50)) {
 
 # Completeness - year
 if (!is.null(temporal_year_complete_10) && !is.null(temporal_year_complete_50)) {
-  year_complete_all <- rbindlist(list(temporal_year_complete_10, temporal_year_complete_50), fill = TRUE)
+  year_complete_all <- rbindlist(
+    list(temporal_year_complete_10, temporal_year_complete_50), fill = TRUE
+  )
   
   completeness_summary <- year_complete_all[basisofrecord == "all", .(
     n_years = .N,
@@ -514,8 +523,8 @@ if (!is.null(spatial_10) && !is.null(recency_10)) {
                                .(eeacellcode, occurrences, n_species, gap_zero, gap_low_q10)]
   
   recency_cells <- recency_10[basisofrecord == "all",
-                               .(eeacellcode, last_ym, staleness_months, gap_stale_12m, gap_stale_5y,
-                                 n_observations, observation_span_months)]
+                               .(eeacellcode, last_ym, staleness_months, gap_stale_12m,
+                                 gap_stale_5y, n_observations, observation_span_months)]
   
   cell_integrated <- merge(spatial_cells, recency_cells, by = "eeacellcode", all = TRUE)
   cell_integrated[, grid := "grid10km"]
@@ -602,7 +611,9 @@ if (!is.null(recency_10)) {
       grid, eeacellcode, last_ym, staleness_months, total_occurrences, n_observations
     )]
     priority_stale[, years_since_sampled := round(staleness_months / 12, 1)]
-    priority_stale[, priority_reason := paste0("Stale - not sampled in ", years_since_sampled, " years")]
+    priority_stale[, priority_reason := paste0(
+      "Stale - not sampled in ", years_since_sampled, " years"
+    )]
     priority_stale[, priority_level := ifelse(staleness_months > 120, "HIGH", "MEDIUM")]
     
     setorder(priority_stale, -staleness_months)
@@ -622,7 +633,9 @@ if (!is.null(tax_missing_threatened) && nrow(tax_missing_threatened) > 0) {
   priority_threatened_missing <- priority_threatened_missing[, ..keep_cols]
   
   priority_threatened_missing[, priority_reason := "Threatened species - not in GBIF"]
-  priority_threatened_missing[, priority_level := ifelse(threatStatus %in% c("CR", "EN"), "CRITICAL", "HIGH")]
+  priority_threatened_missing[, priority_level := ifelse(
+    threatStatus %in% c("CR", "EN"), "CRITICAL", "HIGH"
+  )]
   
   # Order by threat level
   threat_order <- c("CR", "EN", "VU", "NT")
@@ -777,10 +790,15 @@ if (!is.null(ov_ts)) {
     cutoff_ym = recent_cutoff_ym,
     occ_last_year = ov_recent$total_occ[1],
     occ_prior     = ov_prior$total_occ[1],
-    cells_active_last_year = if (!is.null(ov_cly_tb)) sum(ov_cly_tb$occ_last_year > 0, na.rm = TRUE) else NA_integer_,
-    cells_newly_covered    = if (!is.null(ov_cly_tb)) sum(ov_cly_tb$newly_covered, na.rm = TRUE) else NA_integer_,
+    cells_active_last_year = if (!is.null(ov_cly_tb)) {
+      sum(ov_cly_tb$occ_last_year > 0, na.rm = TRUE)
+    } else NA_integer_,
+    cells_newly_covered    = if (!is.null(ov_cly_tb)) {
+      sum(ov_cly_tb$newly_covered, na.rm = TRUE)
+    } else NA_integer_,
     cells_resolved = if (!is.null(ov_cly_tb) && !is.null(ov_zero))
-      nrow(ov_cly_tb |> filter(eeacellcode %in% ov_zero$eeacellcode, occ_last_year > 0)) else NA_integer_,
+      nrow(ov_cly_tb |>
+             filter(eeacellcode %in% ov_zero$eeacellcode, occ_last_year > 0)) else NA_integer_,
     stringsAsFactors = FALSE
   )
   write_integrated(overview_last_year, "overview_last_year.csv")
@@ -856,7 +874,9 @@ if (!is.null(match_summary) && !is.null(ov_order_temporal)) {
 
   if (!is.null(ov_fts) && "family" %in% names(match_summary) && "order" %in% names(match_summary)) {
     order_to_family <- match_summary |> as_tibble() |>
-      filter(!is.na(family), family != "", !is.na(order), order != "", !is.na(class), class != "") |>
+      filter(
+        !is.na(family), family != "", !is.na(order), order != "", !is.na(class), class != ""
+      ) |>
       distinct(kingdom, phylum, class, order, family)
 
     occ_by_family <- as_tibble(ov_fts) |>

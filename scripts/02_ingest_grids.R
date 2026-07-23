@@ -69,7 +69,9 @@ if (file.exists(cube_10km_parquet) && requireNamespace("arrow", quietly = TRUE))
 
 if (!is.null(country_cells_10km)) {
   country_cells_10km <- country_cells_10km[country_cells_10km != "" & !is.na(country_cells_10km)]
-  cli_alert_success("Found {scales::comma(length(country_cells_10km))} unique cells for {COUNTRY_CODE}")
+  cli_alert_success(
+    "Found {scales::comma(length(country_cells_10km))} unique cells for {COUNTRY_CODE}"
+  )
 } else {
   cli_alert_warning("No cube data found — will keep all grid cells (no clipping)")
 }
@@ -172,7 +174,9 @@ for (grid_name in names(grid_configs)) {
                                   country_boundary, sparse = FALSE)[, 1]
     } else {
       # Fallback: convex hull of data cells, centroid-in-hull (no outward buffer)
-      cli_alert_info("No admin boundary found — using convex hull of data cells (centroid-in-hull)")
+      cli_alert_info(
+        "No admin boundary found — using convex hull of data cells (centroid-in-hull)"
+      )
       cells_with_data <- grid |> filter(eeacellcode %in% country_cells_10km)
       country_hull <- st_convex_hull(st_union(cells_with_data))
       in_country <- st_intersects(st_centroid(st_geometry(grid)),
@@ -183,7 +187,10 @@ for (grid_name in names(grid_configs)) {
     grid <- grid[in_country | has_data, ]
     n_with_data <- sum(grid$eeacellcode %in% country_cells_10km)
     n_empty <- nrow(grid) - n_with_data
-    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells ({n_with_data} with data, {n_empty} empty, centroid-in-country)")
+    cli_alert_success(
+      "Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells \\
+       ({n_with_data} with data, {n_empty} empty, centroid-in-country)"
+    )
   } else if (grid_name == "grid50km") {
     # Clip the 50km grid the SAME way as 10km: assign each cell to the country by
     # CENTROID-in-admin-boundary, and always keep any cell that carries data. Do
@@ -205,7 +212,9 @@ for (grid_name in names(grid_configs)) {
       in_country <- st_intersects(st_centroid(st_geometry(grid)),
                                   hull_10km, sparse = FALSE)[, 1]
     } else {
-      cli_alert_warning("No admin boundary or 10km grid — keeping full 50km grid (coverage may be biased)")
+      cli_alert_warning(
+        "No admin boundary or 10km grid — keeping full 50km grid (coverage may be biased)"
+      )
       in_country <- rep(TRUE, nrow(grid))
     }
     has_data <- if (!is.null(country_cells_50km)) {
@@ -221,7 +230,10 @@ for (grid_name in names(grid_configs)) {
       missing_50km <- setdiff(country_cells_50km, grid$eeacellcode)
       if (length(missing_50km) > 0) {
         cli_alert_warning(
-          "{length(missing_50km)} of {length(country_cells_50km)} derived 50km parent codes are absent from the EEA 50km grid (e.g. {paste(head(missing_50km, 3), collapse = ', ')}); those data-bearing cells are under-counted in coverage."
+          "{length(missing_50km)} of {length(country_cells_50km)} derived 50km parent codes \\
+           are absent from the EEA 50km grid \\
+           (e.g. {paste(head(missing_50km, 3), collapse = ', ')}); those data-bearing cells \\
+           are under-counted in coverage."
         )
       }
     }
@@ -230,7 +242,10 @@ for (grid_name in names(grid_configs)) {
     grid <- grid[in_country | has_data, ]
     n_with_data <- sum(grid$eeacellcode %in% country_cells_50km)
     n_empty <- nrow(grid) - n_with_data
-    cli_alert_success("Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells ({n_with_data} with data, {n_empty} empty, centroid-in-country)")
+    cli_alert_success(
+      "Clipped: {scales::comma(n_before)} → {scales::comma(nrow(grid))} cells \\
+       ({n_with_data} with data, {n_empty} empty, centroid-in-country)"
+    )
   }
 
   cli_alert_info("Writing: {.path {basename(gc$output)}}")
