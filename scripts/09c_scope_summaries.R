@@ -410,6 +410,10 @@ for (grid_label in names(grid_map)) {
       by = .(grid, eeacellcode, yearmonth)]
     ct_all[, basisofrecord := "all"]
     ct_result <- rbindlist(list(ct_dt, ct_all), use.names = TRUE, fill = TRUE)
+    ct_result[, `:=`(
+      year = as.integer(substr(as.character(yearmonth), 1, 4)),
+      month = as.integer(substr(as.character(yearmonth), 5, 6))
+    )]
     fwrite(ct_result, here(p_derived, glue("cell_time_summary_{scope_name}_{grid_label}.csv")))
     rm(ct_dt, ct_all, ct_result)
 
@@ -475,6 +479,10 @@ for (grid_label in names(grid_map)) {
       st_species <- dt_s[!is.na(yearmonth),
         .(occurrences = safe_sum(occ_num)),
         by = c("grid", "specieskey", tax_cols_obs, "yearmonth")]
+      st_species[, `:=`(
+        year = as.integer(substr(as.character(yearmonth), 1, 4)),
+        month = as.integer(substr(as.character(yearmonth), 5, 6))
+      )]
       if (nrow(st_species) > 0) {
         fwrite(st_species, here(p_derived,
           glue("species_time_summary_{scope_name}_{grid_label}.csv")))

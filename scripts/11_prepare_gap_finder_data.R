@@ -89,20 +89,8 @@ data_sources_meta <- if (file.exists(ds_meta_path)) {
 
 # safe_read() and %||% are defined in R/globals.R
 
-# Add year/month columns from yearmonth if they don't already exist
-add_yearmonth_cols <- function(df) {
-  if (is.null(df)) return(NULL)
-  df <- as_tibble(df)
-  if (!"yearmonth" %in% names(df)) return(df)
-  # 09c already adds year/month — only compute if missing
-  if (all(c("year", "month") %in% names(df))) return(df)
-  df |>
-    mutate(
-      yearmonth = as.integer(gsub("-", "", as.character(yearmonth))),
-      year = as.integer(substr(as.character(yearmonth), 1, 4)),
-      month = as.integer(substr(as.character(yearmonth), 5, 6))
-    )
-}
+# year/month columns are provided by 09c on every *_time_summary output, so the
+# former add_yearmonth_cols() helper was removed here (T-R6).
 
 
 # ==============================================================================
@@ -265,7 +253,7 @@ for (scope in SCOPES) {
   # Time summary
   ts <- load_scope_file("time_summary", scope)
   if (!is.null(ts)) {
-    ts <- add_yearmonth_cols(ts)
+    ts <- as_tibble(ts)
     shiny_data[[paste0(scope, "_time_summary")]] <- ts
     cli_alert_success("{scope} time_summary: {scales::comma(nrow(ts))} rows")
   }
@@ -273,13 +261,13 @@ for (scope in SCOPES) {
   # Order time
   ots <- load_scope_file("order_time_summary", scope)
   if (!is.null(ots)) {
-    shiny_data[[paste0(scope, "_order_time_summary")]] <- add_yearmonth_cols(ots)
+    shiny_data[[paste0(scope, "_order_time_summary")]] <- as_tibble(ots)
   }
 
   # Family time
   fts <- load_scope_file("family_time_summary", scope)
   if (!is.null(fts)) {
-    shiny_data[[paste0(scope, "_family_time_summary")]] <- add_yearmonth_cols(fts)
+    shiny_data[[paste0(scope, "_family_time_summary")]] <- as_tibble(fts)
   }
 
   # Species-level observed time (only produced by 09c for "all" scope).
@@ -287,7 +275,7 @@ for (scope in SCOPES) {
   if (scope == "all") {
     sts <- load_scope_file("species_time_summary", scope)
     if (!is.null(sts)) {
-      sts <- add_yearmonth_cols(sts)
+      sts <- as_tibble(sts)
       shiny_data[[paste0(scope, "_species_time_summary")]] <- sts
       cli_alert_success("{scope} species_time_summary: {scales::comma(nrow(sts))} rows")
     }
@@ -336,7 +324,7 @@ for (scope in SCOPES) {
   # Cell time summary
   cts <- load_scope_file("cell_time_summary", scope)
   if (!is.null(cts)) {
-    shiny_data[[paste0(scope, "_cell_time_summary")]] <- add_yearmonth_cols(cts)
+    shiny_data[[paste0(scope, "_cell_time_summary")]] <- as_tibble(cts)
   }
 }
 

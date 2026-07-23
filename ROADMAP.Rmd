@@ -186,7 +186,7 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 - [x] **Migrate remaining computation out of script 11** — *done 2026-07.* Order-trend, overview-last-year, and Troudet computation moved into script 10; script 11 is a **pure loader** (~260 lines lighter). All temporal windows anchor on the cube snapshot, not `year(Sys.Date())`. *(T-R3; `gap_finder_tr3_*` patches; rerun `tar_destroy()` → `tar_make()`.)*
 - [ ] **Stop 09b re-classifying the backbone** — read 09a's already-classified output instead
   of reloading and re-running `classify_accepted()`. *(T-R5)*
-- [ ] **Remove `add_yearmonth_cols()`** once all 09c outputs are confirmed to carry year/month. *(T-R6)*
+- [x] **Remove `add_yearmonth_cols()`** once all 09c outputs are confirmed to carry year/month. *(T-R6)*
 - [x] **Rename `dyntaxa_*` data keys → `backbone_*`** across 09c filename suffixes, the script 11 loader, and `app.R` — *done (app + main keys clean); minor fallback-key mop-up remains in script 11. (T-R7)*
 
 ### Data integrity & robustness
