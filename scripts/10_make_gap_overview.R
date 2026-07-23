@@ -692,6 +692,203 @@ if (!is.null(temporal_decade_10)) {
 }
 
 # ===========================================================================
+# OVERVIEW-DERIVED TABLES  (T-R3)
+# ===========================================================================
+# Order-trend views, overview last-year stats, and Troudet-style sampling bias
+# were previously computed inside script 11. They live here now so that 11 is a
+# pure loader, and every temporal window is anchored on the data snapshot /
+# recent_cutoff rather than the wall clock (reproducible across reruns).
+
+cli_h2("Creating Overview-Derived Tables")
+
+# Snapshot year (cube download date) — wall-clock-free window reference.
+snapshot_year <- year(get_snapshot_date())
+
+# Recent-period cutoff (rolling 12 months from the snapshot), produced by 09c.
+.recent_cutoff   <- safe_read(here(p_data_proc, "recent_cutoff.rds"), type = "rds")
+recent_cutoff_ym <- if (!is.null(.recent_cutoff)) .recent_cutoff$cutoff_ym else
+                    as.integer(paste0(snapshot_year - 1L, "01"))
+recent_label     <- if (!is.null(.recent_cutoff)) .recent_cutoff$label else
+                    as.character(snapshot_year - 1L)
+
+# --- Order-trend views (from order_temporal_trends.csv, written above) ---
+ov_order_temporal <- safe_read(here(p_integrated, "order_temporal_trends.csv"))
+if (!is.null(ov_order_temporal)) {
+  ov_order_temporal <- as_tibble(ov_order_temporal)
+  current_year <- snapshot_year
+
+  order_5yr <- ov_order_temporal |>
+    filter(year >= 1970, year <= current_year) |>
+    mutate(period_start = floor(year / 5) * 5,
+           period = paste0(period_start, "-", period_start + 4)) |>
+    group_by(grid, order, period, period_start) |>
+    summarise(occurrences = sum(total_occurrences, na.rm = TRUE),
+              n_cells = sum(n_cells, na.rm = TRUE), .groups = "drop")
+  write_integrated(order_5yr, "order_5yr.csv")
+
+  top_orders <- ov_order_temporal |>
+    group_by(order) |>
+    summarise(total = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    arrange(desc(total)) |> slice_head(n = 25)
+  write_integrated(top_orders, "order_top25.csv")
+
+  recent_cutoff_year <- current_year - 10
+  historical_cutoff  <- current_year - 20
+  order_change <- ov_order_temporal |>
+    filter(order %in% top_orders$order[1:12]) |>
+    mutate(era = case_when(year >= recent_cutoff_year ~ "Recent",
+                           year >= historical_cutoff ~ "Historical",
+                           TRUE ~ NA_character_)) |>
+    filter(!is.na(era)) |>
+    group_by(order, era) |>
+    summarise(occurrences = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occurrences, values_fill = 0) |>
+    filter(Historical > 0) |>
+    mutate(pct_change = round(100 * (Recent - Historical) / Historical, 1),
+           direction = ifelse(pct_change >= 0, "Increased", "Decreased")) |>
+    arrange(desc(pct_change))
+  write_integrated(order_change, "order_change.csv")
+}
+
+# --- Overview last-year stats (09c "all"-scope time_summary + cell_last_year) ---
+ov_ts   <- safe_read_derived("time_summary_all_10km.csv")
+ov_cly  <- safe_read_derived("cell_last_year_all_10km.csv")
+ov_zero <- safe_read(here(p_integrated, "priority_cells_zero_coverage.csv"))
+if (!is.null(ov_ts)) {
+  ov_ts_all <- as_tibble(ov_ts) |> filter(basisofrecord == "all")
+
+  yearly_totals <- ov_ts_all |>
+    group_by(year) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE),
+              n_cells = sum(as.numeric(n_cells), na.rm = TRUE), .groups = "drop")
+  write_integrated(yearly_totals, "yearly_totals.csv")
+
+  ov_recent <- ov_ts_all |> filter(yearmonth >= recent_cutoff_ym) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE),
+              n_cells = sum(as.numeric(n_cells), na.rm = TRUE))
+  ov_prior <- ov_ts_all |> filter(yearmonth < recent_cutoff_ym) |>
+    summarise(total_occ = sum(as.numeric(occurrences), na.rm = TRUE))
+  ov_cly_tb <- if (!is.null(ov_cly)) as_tibble(ov_cly) else NULL
+
+  # cells_active_last_year: distinct cells with any recent record from the
+  # per-cell layer (NOT sum(n_cells), which over-counts a cell once per month).
+  overview_last_year <- data.frame(
+    label     = recent_label,
+    cutoff_ym = recent_cutoff_ym,
+    occ_last_year = ov_recent$total_occ[1],
+    occ_prior     = ov_prior$total_occ[1],
+    cells_active_last_year = if (!is.null(ov_cly_tb)) sum(ov_cly_tb$occ_last_year > 0, na.rm = TRUE) else NA_integer_,
+    cells_newly_covered    = if (!is.null(ov_cly_tb)) sum(ov_cly_tb$newly_covered, na.rm = TRUE) else NA_integer_,
+    cells_resolved = if (!is.null(ov_cly_tb) && !is.null(ov_zero))
+      nrow(ov_cly_tb |> filter(eeacellcode %in% ov_zero$eeacellcode, occ_last_year > 0)) else NA_integer_,
+    stringsAsFactors = FALSE
+  )
+  write_integrated(overview_last_year, "overview_last_year.csv")
+
+  if (!is.null(ov_cly_tb) && !is.null(ov_zero)) {
+    priority_resolved_last_year <- ov_cly_tb |>
+      filter(eeacellcode %in% ov_zero$eeacellcode, occ_last_year > 0)
+    write_integrated(priority_resolved_last_year, "priority_resolved_last_year.csv")
+  }
+}
+
+# --- Troudet-style sampling bias (class / order / family) ---
+# match_summary (09b coverage table) is a T-R3 moved-in dependency: the Troudet
+# block below was relocated here from script 11, which loaded it separately.
+match_summary <- safe_read_gap("taxonomic_match_summary.csv")
+ov_fts <- safe_read_derived("family_time_summary_all_10km.csv")
+if (!is.null(match_summary) && !is.null(ov_order_temporal)) {
+  year_cutoff <- as.integer(substr(as.character(recent_cutoff_ym), 1, 4))
+
+  known_by_class <- match_summary |> as_tibble() |>
+    filter(!is.na(class), class != "") |>
+    group_by(kingdom, phylum, class) |>
+    summarise(n_known_species = n(), n_in_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop")
+
+  order_to_class <- match_summary |> as_tibble() |>
+    filter(!is.na(order), order != "", !is.na(class), class != "") |>
+    distinct(kingdom, phylum, class, order)
+
+  occ_by_class <- ov_order_temporal |> as_tibble() |>
+    inner_join(order_to_class, by = "order") |>
+    mutate(era = ifelse(year >= year_cutoff, "last_year", "prior")) |>
+    group_by(kingdom, phylum, class, era) |>
+    summarise(occurrences = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occurrences, values_fill = 0)
+  if (!"prior" %in% names(occ_by_class)) occ_by_class$prior <- 0
+  if (!"last_year" %in% names(occ_by_class)) occ_by_class$last_year <- 0
+
+  troudet_bias <- known_by_class |>
+    left_join(occ_by_class, by = c("kingdom", "phylum", "class")) |>
+    mutate(prior = replace_na(prior, 0), last_year = replace_na(last_year, 0),
+           total_occ = prior + last_year, total_known = sum(n_known_species),
+           total_occ_all = sum(total_occ), pct_known = n_known_species / total_known,
+           ideal_occ = pct_known * total_occ_all, bias = total_occ - ideal_occ) |>
+    select(kingdom, phylum, class, n_known_species, n_in_gbif,
+           occ_prior = prior, occ_last_year = last_year, total_occ, ideal_occ, bias) |>
+    arrange(desc(abs(bias)))
+  write_integrated(troudet_bias, "troudet_bias_class.csv")
+
+  known_by_order <- match_summary |> as_tibble() |>
+    filter(!is.na(order), order != "") |>
+    group_by(kingdom, phylum, class, order) |>
+    summarise(n_known_species = n(), n_in_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop")
+
+  occ_by_order <- ov_order_temporal |> as_tibble() |>
+    inner_join(order_to_class, by = "order") |>
+    mutate(era = ifelse(year >= year_cutoff, "last_year", "prior")) |>
+    group_by(kingdom, phylum, class, order, era) |>
+    summarise(occurrences = sum(total_occurrences, na.rm = TRUE), .groups = "drop") |>
+    pivot_wider(names_from = era, values_from = occurrences, values_fill = 0)
+  if (!"prior" %in% names(occ_by_order)) occ_by_order$prior <- 0
+  if (!"last_year" %in% names(occ_by_order)) occ_by_order$last_year <- 0
+
+  troudet_bias_order <- known_by_order |>
+    left_join(occ_by_order, by = c("kingdom", "phylum", "class", "order")) |>
+    mutate(prior = replace_na(prior, 0), last_year = replace_na(last_year, 0),
+           total_occ = prior + last_year, total_known = sum(n_known_species),
+           total_occ_all = sum(total_occ), pct_known = n_known_species / total_known,
+           ideal_occ = pct_known * total_occ_all, bias = total_occ - ideal_occ) |>
+    select(kingdom, phylum, class, order, n_known_species, n_in_gbif,
+           occ_prior = prior, occ_last_year = last_year, total_occ, ideal_occ, bias) |>
+    arrange(desc(abs(bias)))
+  write_integrated(troudet_bias_order, "troudet_bias_order.csv")
+
+  if (!is.null(ov_fts) && "family" %in% names(match_summary) && "order" %in% names(match_summary)) {
+    order_to_family <- match_summary |> as_tibble() |>
+      filter(!is.na(family), family != "", !is.na(order), order != "", !is.na(class), class != "") |>
+      distinct(kingdom, phylum, class, order, family)
+
+    occ_by_family <- as_tibble(ov_fts) |>
+      filter(basisofrecord == "all") |>
+      inner_join(order_to_family, by = c("order", "family")) |>
+      mutate(era = ifelse(year >= year_cutoff, "last_year", "prior")) |>
+      group_by(kingdom, phylum, class, order, family, era) |>
+      summarise(occurrences = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop") |>
+      pivot_wider(names_from = era, values_from = occurrences, values_fill = 0)
+    if (!"prior" %in% names(occ_by_family)) occ_by_family$prior <- 0
+    if (!"last_year" %in% names(occ_by_family)) occ_by_family$last_year <- 0
+
+    known_by_family <- match_summary |> as_tibble() |>
+      filter(!is.na(family), family != "") |>
+      group_by(kingdom, phylum, class, order, family) |>
+      summarise(n_known_species = n(), n_in_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop")
+
+    troudet_bias_family <- known_by_family |>
+      left_join(occ_by_family, by = c("kingdom", "phylum", "class", "order", "family")) |>
+      mutate(prior = replace_na(prior, 0), last_year = replace_na(last_year, 0),
+             total_occ = prior + last_year, total_known = sum(n_known_species),
+             total_occ_all = sum(total_occ), pct_known = n_known_species / total_known,
+             ideal_occ = pct_known * total_occ_all, bias = total_occ - ideal_occ) |>
+      select(kingdom, phylum, class, order, family, n_known_species, n_in_gbif,
+             occ_prior = prior, occ_last_year = last_year, total_occ, ideal_occ, bias) |>
+      arrange(desc(abs(bias)))
+    write_integrated(troudet_bias_family, "troudet_bias_family.csv")
+  }
+}
+
+
+# ===========================================================================
 # SUMMARY
 # ===========================================================================
 
