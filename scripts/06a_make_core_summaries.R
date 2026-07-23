@@ -9,7 +9,7 @@
 #   by script 09c after reconciliation is complete.
 #
 # GRID LOOKUPS:
-#   - grid_lookup_10km.csv   Maps poly_id -> eeacellcode
+#   - grid_lookup_10km.csv   List of eeacellcodes (one per grid cell)
 #   - grid_lookup_50km.csv
 #
 # CORE SUMMARIES:
@@ -146,8 +146,7 @@ if (MAKE_GRID_LOOKUPS) {
     code_field <- guess_cellcode_field(names(grid))
     if (is.na(code_field)) { cli_alert_warning("No cell code field in {nm}"); next }
 
-    poly_ids <- glue("{gi$label}_{str_pad(seq_len(nrow(grid)), width = 6, pad = '0')}")
-    lookup <- tibble(poly_id = as.character(poly_ids), eeacellcode = as.character(grid[[code_field]]))
+    lookup <- tibble(eeacellcode = as.character(grid[[code_field]]))
     fwrite(lookup, here(p_derived, gi$output))
     cli_alert_success("{gi$output}: {scales::comma(nrow(lookup))} cells")
     rm(grid); gc()

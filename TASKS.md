@@ -63,9 +63,9 @@
   (`gap_finder_tr3_pure_loader.patch`): the order-trend, overview-last-year, and Troudet computation
   moved into script 10 (writes CSVs); script 11 is now a **pure loader** (~260 lines lighter). No
   `_targets.R` change — script 10's output glob picks up the new CSVs. *(rerun: `tar_destroy()` → `tar_make()`.)*
-- [ ] **T-R5** — Stop 09b re-classifying the backbone (line ~103): read 09a's classified output
+- [x] **T-R5** — Stop 09b re-classifying the backbone (line ~103): read 09a's classified output
   instead of reloading `taxa_reference_current.rds` and re-running `classify_accepted()`.
-- [ ] **T-R6** — Remove `add_yearmonth_cols()` (script 11, line ~50, 6 call sites) once all 09c
+- [x] **T-R6** — Remove `add_yearmonth_cols()` (script 11, line ~50, 6 call sites) once all 09c
   outputs are confirmed to carry year/month.
 - [x] **T-R7** — Rename `dyntaxa_*` data keys → `backbone_*`. *Done (app.R + main keys clean).* Minor
   mop-up left: two legacy fallback keys (`dyntaxa_time_summary`/`_cell_last_year`, 11:655–656) and the
@@ -77,14 +77,14 @@
   `scientificName` match is correct** (canonicalising over-matched Dyntaxa hybrids). Only GRIIS
   invasive carries authorship — its canonical join now also restricts to species-rank, non-hybrid
   taxa (490→337). Revisit only if a non-Swedish backbone bundles authorship into `scientificName`.
-- [ ] **T-I2** — 02: warn if `parse_10km()`-derived 50 km codes don't exist in the grid.
-- [ ] **T-I3** — 07: cache the country boundary (avoid full-grid `st_union`).
+- [x] **T-I2** — 02: warn if `parse_10km()`-derived 50 km codes don't exist in the grid.
+- [x] **T-I3** — 07: cache the country boundary (avoid full-grid `st_union`).
 - [x] **T-I4** — 09b/06b `by_order`/`by_family` double-count. *Verified clean (2026-07 audit):*
   order/family files are disjoint and aggregation is by key, so no double-count. No action.
 
 ### Performance & hygiene
-- [ ] **T-A1** — 02→07: cache `cellcodes_10km.txt` / `cellcodes_50km.txt`.
-- [ ] **T-A2** — 06a: document or remove the unused `poly_id`.
+- [x] **T-A1** — 02→07: cache `cellcodes_10km.txt` / `cellcodes_50km.txt`.
+- [x] **T-A2** — 06a: document or remove the unused `poly_id`.
 - [ ] **T-Q1** — `run.R`: bring `cli` usage in line with the rest of the scripts.
 - [ ] **T-Q2** — Standardise on `|>`; enforce 100-char width; doc headers.
 - [ ] **`publisher_cell_taxonomy` bundle size** — if ~1.2M rows is too heavy for the Shiny bundle,
