@@ -85,10 +85,10 @@
 ### Performance & hygiene
 - [x] **T-A1** — 02→07: cache `cellcodes_10km.txt` / `cellcodes_50km.txt`.
 - [x] **T-A2** — 06a: document or remove the unused `poly_id`.
-- [ ] **T-Q1** — `run.R`: bring `cli` usage in line with the rest of the scripts.
-- [ ] **T-Q2** — Standardise on `|>`; enforce 100-char width; doc headers.
-- [ ] **`publisher_cell_taxonomy` bundle size** — if ~1.2M rows is too heavy for the Shiny bundle,
-  pre-aggregate to class level instead of order level.
+- [x] **T-Q1** — `run.R`: bring `cli` usage in line with the rest of the scripts.
+- [x] **T-Q2** — Standardise on `|>`; enforce 100-char width; doc headers. *(app.R prose strings + script 11 header left by design)*
+- [x] **`publisher_cell_taxonomy` bundle size** — measured 2026-07-23: 6.4% of bundle / ~11 MB gzip,
+  not the heavy item → NOT pre-aggregated (see claude/finding-bundle-size-2026-07-23.md).
 
 ### Portability
 - [ ] **Per-country app data folders** — `shiny_app/.../data/{CC}/shiny_data.rds` so country

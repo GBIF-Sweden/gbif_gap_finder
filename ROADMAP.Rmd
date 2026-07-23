@@ -202,9 +202,9 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 ### Performance & hygiene
 - [x] **02→07:** cache `cellcodes_10km.txt` / `cellcodes_50km.txt`. *(T-A1)*
 - [x] **06a:** document or remove the unused `poly_id` column. *(T-A2)*
-- [ ] **`run.R`:** bring `cli` usage in line with the pipeline scripts. *(T-Q1)*
-- [ ] Standardise on `|>`; enforce 100-char width; add doc headers. *(T-Q2)*
-- [ ] **`publisher_cell_taxonomy` bundle size** — if ~1.2M rows is too heavy for the Shiny bundle, pre-aggregate to class level instead of order level.
+- [x] **`run.R`:** bring `cli` usage in line with the pipeline scripts. *(T-Q1)*
+- [x] Standardise on `|>`; enforce 100-char width; add doc headers. *(T-Q2, 2026-07-23; app.R prose strings + script 11 header left by design)*
+- [x] **`publisher_cell_taxonomy` bundle size** — measured 2026-07-23: 6.4% of bundle / ~11 MB gzip, not the heavy item → NOT pre-aggregated (see `claude/finding-bundle-size-2026-07-23.md`).
 
 
 ### Deferred
