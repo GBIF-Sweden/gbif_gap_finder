@@ -211,6 +211,21 @@ for (grid_name in names(grid_configs)) {
     has_data <- if (!is.null(country_cells_50km)) {
       grid$eeacellcode %in% country_cells_50km
     } else rep(FALSE, nrow(grid))
+
+    # T-I2: parse_10km() synthesises 50km parent codes by string math, so a
+    # derived code can fail to match any real cell in the EEA 50km grid (regex
+    # miss, rounding/edge artefact, or code-format drift). Such codes drop out of
+    # the `%in%` above silently and under-count data-bearing 50km cells. Warn
+    # (against the full, pre-clip grid) so the mismatch is visible.
+    if (!is.null(country_cells_50km)) {
+      missing_50km <- setdiff(country_cells_50km, grid$eeacellcode)
+      if (length(missing_50km) > 0) {
+        cli_alert_warning(
+          "{length(missing_50km)} of {length(country_cells_50km)} derived 50km parent codes are absent from the EEA 50km grid (e.g. {paste(head(missing_50km, 3), collapse = ', ')}); those data-bearing cells are under-counted in coverage."
+        )
+      }
+    }
+
     n_before <- nrow(grid)
     grid <- grid[in_country | has_data, ]
     n_with_data <- sum(grid$eeacellcode %in% country_cells_50km)
