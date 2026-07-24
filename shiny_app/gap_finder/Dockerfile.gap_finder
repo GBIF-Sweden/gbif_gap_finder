@@ -37,10 +37,10 @@ FROM rocker/r-ver:4.5.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Country selector — override at build time with --build-arg COUNTRY_CODE=NO.
+# Country selector — override at build time with --build-arg GBIF_GAP_COUNTRY=NO.
 # Drives which config + data bundle are copied and the app's runtime lookup.
-ARG COUNTRY_CODE=SE
-ENV COUNTRY_CODE=${COUNTRY_CODE}
+ARG GBIF_GAP_COUNTRY=SE
+ENV GBIF_GAP_COUNTRY=${GBIF_GAP_COUNTRY}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4 \
@@ -66,17 +66,17 @@ WORKDIR /opt/project
 
 # Country config, kept alongside the app for provenance (country is baked into
 # the bundle metadata; app.R does not read this file at runtime).
-COPY configs/config_${COUNTRY_CODE}.yml ./configs/config_${COUNTRY_CODE}.yml
+COPY configs/config_${GBIF_GAP_COUNTRY}.yml ./configs/config_${GBIF_GAP_COUNTRY}.yml
 
 # App code + data bundle + styles
 COPY shiny_app/gap_finder/app.R         ./shiny_app/gap_finder/app.R
-COPY shiny_app/gap_finder/data/${COUNTRY_CODE}/shiny_data.rds ./shiny_app/gap_finder/data/${COUNTRY_CODE}/shiny_data.rds
+COPY shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds ./shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds
 COPY shiny_app/gap_finder/www/styles.css ./shiny_app/gap_finder/www/styles.css
 
 # Fail the build if Git LFS was not fetched and the bundle is still a pointer
 # file (~130 bytes) instead of the real ~90 MB RDS. Catches a broken image at
 # build time (red CI) rather than at container start.
-RUN R -q -e "stopifnot(file.exists('shiny_app/gap_finder/data/${COUNTRY_CODE}/shiny_data.rds')); invisible(readRDS('shiny_app/gap_finder/data/${COUNTRY_CODE}/shiny_data.rds')); cat('OK: data bundle is a real RDS\n')"
+RUN R -q -e "stopifnot(file.exists('shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds')); invisible(readRDS('shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds')); cat('OK: data bundle is a real RDS\n')"
 
 EXPOSE 3838
 

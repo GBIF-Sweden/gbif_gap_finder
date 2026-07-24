@@ -26,22 +26,24 @@ library(stringr)
 # =============================================================================
 
 # Resolve the country data bundle. Priority order:
-#   1. COUNTRY_CODE env var    -> data/<CC>/shiny_data.rds  (per-deployment override)
-#   2. a single data/<CC>/shiny_data.rds present -> auto-detect it
-#   3. legacy flat data/shiny_data.rds           -> backwards compatibility
+#   1. GBIF_GAP_COUNTRY (or COUNTRY_CODE) env var -> data/<CC>/shiny_data.rds
+#   2. a single data/<CC>/shiny_data.rds present  -> auto-detect it
+#   3. legacy flat data/shiny_data.rds            -> backwards compatibility
 resolve_data_path <- function() {
-  cc <- Sys.getenv("COUNTRY_CODE", "")
+  # GBIF_GAP_COUNTRY is the project-wide country selector (see R/globals.R);
+  # COUNTRY_CODE is accepted as an alias for Docker-style deployments.
+  cc <- Sys.getenv("GBIF_GAP_COUNTRY", Sys.getenv("COUNTRY_CODE", ""))
   if (nzchar(cc)) {
     p <- file.path("data", cc, "shiny_data.rds")
     if (file.exists(p)) return(p)
-    stop(sprintf("COUNTRY_CODE='%s' is set but %s does not exist.", cc, p))
+    stop(sprintf("GBIF_GAP_COUNTRY='%s' is set but %s does not exist.", cc, p))
   }
   per_country <- Sys.glob(file.path("data", "*", "shiny_data.rds"))
   if (length(per_country) == 1L) return(per_country)
   if (length(per_country) > 1L)
     stop("Multiple country bundles found (",
          paste(basename(dirname(per_country)), collapse = ", "),
-         "); set the COUNTRY_CODE environment variable to choose one.")
+         "); set the GBIF_GAP_COUNTRY environment variable to choose one.")
   legacy <- "data/shiny_data.rds"
   if (file.exists(legacy)) return(legacy)
   stop("No shiny_data.rds found under data/. Run scripts/11_prepare_gap_finder_data.R")
