@@ -527,6 +527,13 @@ ui <- fluidPage(
         value = "overview",
         div(style = "padding: 1.25rem 0;",
 
+          # ---- Auto-generated "key findings" strip (top of Overview) ----
+          # A "what matters most" summary for policymakers: computed live from the
+          # bundle (never hardcoded); each finding reuses the same reactive its tab
+          # uses so the numbers reconcile, and a missing bundle object drops its
+          # card (graceful degradation for the Norway/Finland port).
+          uiOutput("key_findings"),
+
           # Welcome / orientation — always visible, integrates the persona guide
           div(class = "card", style = "margin-bottom: 1.25rem; border-left: 4px solid var(--sage);",
             tags$h2(class = "card-title", icon("compass"), "What this dashboard shows \u2014 and where to start"),
@@ -1871,6 +1878,13 @@ server <- function(input, output, session) {
   observeEvent(input$ov_go_temporal,  updateTabsetPanel(session, "main_tabs", selected = "temporal"))
   observeEvent(input$ov_go_taxonomic, updateTabsetPanel(session, "main_tabs", selected = "taxonomic"))
   observeEvent(input$ov_go_concern,   updateTabsetPanel(session, "main_tabs", selected = "species_of_concern"))
+  # Key-findings strip jump links (distinct ids from the gap-panel links above)
+  observeEvent(input$kf_go_spatial,    updateTabsetPanel(session, "main_tabs", selected = "spatial"))
+  observeEvent(input$kf_go_priorities, updateTabsetPanel(session, "main_tabs", selected = "priorities"))
+  observeEvent(input$kf_go_concern,    updateTabsetPanel(session, "main_tabs", selected = "species_of_concern"))
+  observeEvent(input$kf_go_taxonomic,  updateTabsetPanel(session, "main_tabs", selected = "taxonomic"))
+  observeEvent(input$kf_go_publishers, updateTabsetPanel(session, "main_tabs", selected = "publishers"))
+  observeEvent(input$kf_go_momentum,   updateTabsetPanel(session, "main_tabs", selected = "priorities"))
 
   # ---- Reactive filtered data ----
   basis_selected <- reactive({
@@ -2449,6 +2463,184 @@ server <- function(input, output, session) {
         tags$div(style = "background:#ccc; height:100%; width:0%; border-radius:6px;")
       )
     }
+  })
+
+  # ---- Auto-generated "key findings" strip -------------------------------
+  # Computes 4-6 headline gaps live from the bundle and lays them out as a lead
+  # "most severe" card + a responsive row. Every figure reuses the same object
+  # its tab reads (truth_spatial, priority_stale, ov_threat_stats,
+  # troudet_bias_order, publisher_cell_dep, overview_last_year), so the strip
+  # reconciles with the tabs by construction. Each finding is guarded so a
+  # missing bundle object OR a zero-value gap simply drops that card rather than
+  # showing a meaningless "0" (e.g. a country with complete spatial coverage).
+  output$key_findings <- renderUI({
+
+    adj <- if (nzchar(country_adjective)) paste0(country_adjective, " ") else ""
+    cn  <- if (nzchar(country_name)) country_name else "the country"
+
+    # Each finding: sev = severity % used for auto-ranking (NA = never headline).
+    findings <- list()
+
+    # 1 - Spatial coverage gap: zero-coverage 10 km cells (== nrow(priority_zero))
+    if (!is.null(spatial_gaps)) {
+      ts <- tryCatch(truth_spatial(), error = function(e) NULL)
+      if (!is.null(ts) && isTRUE(ts$total_cells > 0) && isTRUE(ts$cells_zero > 0)) {
+        zpct <- round(100 * ts$cells_zero / ts$total_cells, 1)
+        findings$spatial <- list(
+          sev = zpct, color = pal$sage,
+          num = comma(ts$cells_zero),
+          sub = paste0(zpct, "% of ", comma(ts$total_cells), " cells"),
+          headline = tagList("10 km map cells have ", tags$strong("zero"), " ", adj,
+            "GBIF records — never sampled: ", comma(ts$cells_zero), " of ",
+            comma(ts$total_cells), " cells (", zpct, "%) sit blank on the map."),
+          line = tagList("10 km cells never sampled — ", tags$strong("zero"), " ", adj, "records."),
+          link = "kf_go_spatial", link_text = "See the coverage map")
+      }
+    }
+
+    # 2 - Staleness: cells with no GBIF records newer than 5 years (== stat_stale)
+    if (!is.null(priority_stale) && nrow(priority_stale) > 0) {
+      n_stale <- nrow(priority_stale)
+      tc   <- tryCatch(truth_spatial()$total_cells, error = function(e) NA_real_)
+      spct <- if (!is.na(tc) && tc > 0) round(100 * n_stale / tc, 1) else NA_real_
+      findings$stale <- list(
+        sev = spct, color = pal$slate,
+        num = comma(n_stale),
+        sub = if (!is.na(spct)) paste0(spct, "% of ", comma(tc), " cells") else NULL,
+        headline = tagList(comma(n_stale), " grid cells have ",
+          tags$strong("no records newer than 5 years"),
+          " — prime candidates for resurvey before recent change goes unrecorded."),
+        line = tagList("cells with ", tags$strong("no records newer than 5 years"),
+          " — resurvey candidates."),
+        link = "kf_go_priorities", link_text = "Open Priorities")
+    }
+
+    # 3 - Threatened-species gap: CR/EN/VU/NT with no GBIF records (== ov_threat_stats)
+    if (isTRUE(ov_threat_stats$available) && isTRUE(ov_threat_stats$n_missing > 0)) {
+      n_missing <- ov_threat_stats$n_missing
+      n_ref     <- ov_threat_stats$n_ref_total
+      tpct <- if (n_ref > 0) round(100 * n_missing / n_ref, 1) else NA_real_
+      findings$threat <- list(
+        sev = tpct, color = pal$coral,
+        num = comma(n_missing),
+        sub = paste0("of ", comma(n_ref), " threatened species"),
+        headline = tagList(comma(n_missing), " of ", comma(n_ref), " threatened species (",
+          gloss("CR / EN / VU / NT", "IUCN Red List categories: Critically Endangered, Endangered, Vulnerable, Near Threatened."),
+          ") have ", tags$strong("no GBIF records at all"), " — conservation blind spots."),
+        line = tagList("threatened species (CR/EN/VU/NT) with ",
+          tags$strong("no GBIF records"), "."),
+        link = "kf_go_concern", link_text = "Open Species of Concern")
+    }
+
+    # 4 - Most under-represented group: largest negative Troudet bias by order
+    if (!is.null(troudet_bias_order) &&
+        all(c("order", "bias", "n_known_species", "n_in_gbif") %in% names(troudet_bias_order))) {
+      tb <- troudet_bias_order |>
+        dplyr::filter(!is.na(bias), bias < 0) |>
+        dplyr::arrange(bias)
+      if (nrow(tb) > 0) {
+        g <- tb[1, ]
+        gap_sp <- max(0, g$n_known_species - g$n_in_gbif)
+        findings$group <- list(
+          sev = NA_real_, color = pal$sand,
+          num = as.character(g$order), num_is_text = TRUE,
+          sub = paste0(comma(gap_sp), " of ", comma(g$n_known_species), " species missing"),
+          headline = tagList(tags$strong(as.character(g$order)), " is the group most ",
+            gloss("under-recorded for its diversity", "Troudet sampling bias: the group's share of GBIF records is far below its share of known species."),
+            " — ", comma(gap_sp), " of its ", comma(g$n_known_species), " ", adj,
+            "species have no GBIF records."),
+          line = tagList("the group most ",
+            gloss("under-recorded", "Its share of GBIF records is far below its share of known species (Troudet bias)."),
+            " for its diversity."),
+          link = "kf_go_taxonomic", link_text = "Open Taxonomic")
+      }
+    }
+
+    # 5 - Publisher-dependency risk: single-publisher cells (== pub_single_cells)
+    if (!is.null(publisher_cell_dep) && !is.null(grid_10km) &&
+        "n_publishers" %in% names(publisher_cell_dep)) {
+      n_single <- sum(publisher_cell_dep$n_publishers == 1, na.rm = TRUE)
+      g_total  <- nrow(grid_10km)
+      if (n_single > 0) {
+        ppct <- if (g_total > 0) round(100 * n_single / g_total, 1) else NA_real_
+        findings$publisher <- list(
+          sev = ppct, color = pal$plum,
+          num = comma(n_single),
+          sub = if (!is.na(ppct)) paste0(ppct, "% of ", comma(g_total), " cells") else NULL,
+          headline = tagList(comma(n_single), " grid cells rely on a ",
+            tags$strong("single data publisher"),
+            " — an infrastructure risk if that one source pauses or withdraws."),
+          line = tagList("cells rely on a ", tags$strong("single data publisher"),
+            " — an infrastructure risk."),
+          link = "kf_go_publishers", link_text = "Open Publishers")
+      }
+    }
+
+    # 6 - Recent momentum: cells newly covered in the last 12 months (good news)
+    if (!is.null(overview_last_year) && !is.null(overview_last_year$cells_newly_covered) &&
+        isTRUE(overview_last_year$cells_newly_covered > 0)) {
+      n_new <- overview_last_year$cells_newly_covered
+      findings$momentum <- list(
+        sev = NA_real_, color = pal$sage2,
+        num = comma(n_new),
+        sub = paste0("in ", last_year_label),
+        headline = tagList(comma(n_new), " cells gained their ", tags$strong("first-ever"),
+          " GBIF records in ", last_year_label, " — momentum to build on."),
+        line = tagList("cells gained their ", tags$strong("first-ever"),
+          " records in the last 12 months."),
+        link = "kf_go_momentum", link_text = "Open Priorities")
+    }
+
+    if (length(findings) == 0) return(NULL)
+
+    # Auto-rank: headline = present finding with the worst severity %; if none has
+    # a comparable %, fall back to the first present finding.
+    sevs <- vapply(findings,
+      function(f) if (is.null(f$sev) || is.na(f$sev)) -Inf else f$sev, numeric(1))
+    head_key <- if (any(is.finite(sevs))) names(findings)[which.max(sevs)] else names(findings)[1]
+
+    # Card builders - reuse .card + CSS vars; inline layout only (no new stylesheet).
+    kf_headline <- function(f) {
+      div(class = "card", style = paste0(
+          "margin:0 0 1rem; border-left:6px solid ", f$color, "; background:var(--bg-subtle);"),
+        div(style = "font-family:'IBM Plex Mono',monospace; font-size:0.72rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-muted); margin-bottom:0.4rem;",
+          icon("exclamation-triangle"), " Most severe gap"),
+        div(style = "display:flex; align-items:baseline; gap:0.9rem; flex-wrap:wrap;",
+          div(style = paste0("font-family:'IBM Plex Mono',monospace; font-weight:700; line-height:1; color:",
+              f$color, "; font-size:", if (isTRUE(f$num_is_text)) "2.1rem" else "2.9rem", ";"), f$num),
+          if (!is.null(f$sub))
+            div(style = "font-size:1rem; color:var(--text-muted);", f$sub)),
+        p(style = "margin:0.6rem 0 0.75rem; line-height:1.6; font-size:1.08rem; color:var(--text-secondary);",
+          f$headline),
+        actionLink(f$link, tagList(f$link_text, " ", icon("arrow-right")), style = "font-weight:600;"))
+    }
+
+    kf_card <- function(f) {
+      div(class = "card", style = paste0("margin:0; height:100%; border-top:4px solid ", f$color, ";"),
+        div(style = paste0("font-family:'IBM Plex Mono',monospace; font-weight:700; line-height:1.05; color:",
+            f$color, "; font-size:", if (isTRUE(f$num_is_text)) "1.35rem" else "1.9rem", ";"), f$num),
+        if (!is.null(f$sub))
+          div(class = "stat-label", style = "margin:0.15rem 0 0.5rem;", f$sub),
+        p(style = "margin:0 0 0.65rem; line-height:1.5; font-size:0.95rem; color:var(--text-secondary);",
+          f$line),
+        actionLink(f$link, tagList(f$link_text, " ", icon("arrow-right")),
+          style = "font-weight:600; font-size:0.9rem;"))
+    }
+
+    rest_keys <- setdiff(names(findings), head_key)
+
+    div(style = "margin-bottom:1.25rem;",
+      div(style = "font-family:'Fraunces',serif; font-size:1.35rem; font-weight:600; color:var(--text-primary); margin:0 0 0.2rem;",
+        "What matters most"),
+      p(style = "color:var(--text-muted); margin:0 0 0.9rem; font-size:0.95rem; line-height:1.5;",
+        "Auto-generated from this data release — the biggest ",
+        tags$strong(if (nzchar(country_adjective)) country_adjective else cn),
+        " biodiversity-data gaps right now. Each links to the tab with the full detail."),
+      kf_headline(findings[[head_key]]),
+      if (length(rest_keys) > 0)
+        div(style = "display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:1rem;",
+          lapply(rest_keys, function(k) kf_card(findings[[k]])))
+    )
   })
 
   # Establishment means overview chart
