@@ -1262,7 +1262,13 @@ ui <- fluidPage(
                 p("Prioritisation tip: start with the Threatened sub-tab to identify missing CR/EN species, ",
                   "then check the Invasive sub-tab for unmonitored invasive species in the same taxonomic groups. ",
                   "Species that are both threatened and invasive (e.g. a threatened native species in a genus ",
-                  "with invasive congeners) may warrant especially urgent data mobilisation.")
+                  "with invasive congeners) may warrant especially urgent data mobilisation."),
+                p(tags$strong("Reference lists in use"),
+                  " — resolved to the exact GBIF-published datasets; the title below ",
+                  "confirms each edition, and the DOIs travel in the data bundle:"),
+                checklist_cite("redlist"),
+                checklist_cite("invasives"),
+                checklist_cite("sensitive")
               )
             )
           ),
@@ -4052,7 +4058,11 @@ server <- function(input, output, session) {
                         "<br><strong>Sensitive spp:</strong> ", comma(n_species),
                         "<br><em>Coordinates may be generalised</em>")) |>
       addLegend("bottomright", pal = sens_map_pal, values = ~occ_cat,
-        title = "Sensitive species")
+        title = "Sensitive species") |>
+      addControl(position = "topright", html = paste0(
+        "<div style=\"background:rgba(255,255,255,0.9); padding:4px 8px; border-radius:4px; ",
+        "font-size:11px; max-width:230px; color:#444;\"><strong>Note:</strong> sensitive-species ",
+        "coordinates are generalised (5–50 km); cell locations are approximate.</div>"))
     if (!is.null(admin_level1)) {
       m <- m |> addPolygons(data = admin_level1, group = "admin1",
         fill = FALSE, weight = 1.2, color = "#888", opacity = 0.5)

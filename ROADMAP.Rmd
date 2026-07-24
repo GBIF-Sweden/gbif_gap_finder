@@ -152,10 +152,12 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 *(The tab itself is built; these are polish items.)*
 - [x] **Cite + link source checklists** (red list, GRIIS, sensitive list) in the tab. — *done
   2026-07-24 (`gap_finder_taxonomic_concern_polish.patch`; redeploy).*
-- [ ] Put the **25/50 km generalised-coordinate caution directly on sensitive-species maps**,
-  not only in text.
-- [ ] **Swedish common names** in the bottom table.
-- [ ] **Confirm the April-2026 red list** is the one in use and link it in "About."
+- [x] Put the **25/50 km generalised-coordinate caution directly on sensitive-species maps**,
+  not only in text. — *done 2026-07-24 (`gap_finder_concern_finishing.patch`; redeploy).*
+- [ ] **Swedish common names** in the bottom table. *(blocked app-side: no `vernacularName` in
+  bundle/pipeline; needs 03 → `match_summary` + rebuild.)*
+- [x] **Confirm the April-2026 red list** is the one in use and link it in "About." — *done 2026-07-24:
+  Swedish Red List 2025 (`swedishredlist2025`); linked in Concern "About" (`gap_finder_concern_finishing.patch`; redeploy).*
 
 ### Priorities & Record Types
 - [ ] **Document what the Priorities "targets for the next 12 months" are based on.**
@@ -261,7 +263,8 @@ GBIF publishes complete monthly snapshots in Parquet. This unlocks two things:
 ## E. Standalone mini-projects (separate from the app)
 
 - [ ] **Artportalen pre-1900 records** — quantify hobbyist-digitised specimen records (dated to 1551), link source specimens, flag duplicate / rights issues, so Artportalen can be informed and exports de-duplicated.
-- [ ] **Confirm the April-2026 red list** is the one the pipeline uses; link it in "About."
+- [x] **Confirm the April-2026 red list** is the one the pipeline uses; link it in "About." — *done
+  2026-07-24: Swedish Red List 2025 (`swedishredlist2025`); linked in About.*
 
 
 # Part 3 — What's been done & why

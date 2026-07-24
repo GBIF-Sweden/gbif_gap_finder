@@ -175,9 +175,15 @@
 - [x] Cite + link the source checklists (red list, GRIIS, sensitive list) in the tab. — *done
   2026-07-24 (`gap_finder_taxonomic_concern_polish.patch`): `checklist_cite()` adds a source line +
   resolved-DOI link to each Concern sub-tab, from `metadata$data_sources$checklists`. (redeploy)*
-- [ ] Put the 25/50 km generalised-coordinate caution directly on sensitive-species maps.
-- [ ] Swedish common names in the bottom table.
-- [ ] Confirm the April-2026 red list is the one in use; link it in "About."
+- [x] Put the 25/50 km generalised-coordinate caution directly on sensitive-species maps. — *done
+  2026-07-24 (`gap_finder_concern_finishing.patch`): persistent "coordinates generalised (5–50 km)"
+  caption on the sensitive map via leaflet `addControl`. (redeploy)*
+- [ ] Swedish common names in the bottom table. *(blocked app-side: no `vernacularName` in the bundle
+  or pipeline — needs 03 to carry Dyntaxa vernacular names through 09a/09b into `match_summary`, then a rebuild.)*
+- [x] Confirm the April-2026 red list is the one in use; link it in "About." — *done 2026-07-24
+  (`gap_finder_concern_finishing.patch`): current edition is the **Swedish Red List 2025**
+  (`swedishredlist2025`; the list is 5-yearly, so there is no 2026 edition). Concern "About" now lists
+  the reference lists with resolved titles + DOIs, so the edition is verifiable in-app. (redeploy)*
 
 ### Priorities & Record Types
 - [ ] Document what the Priorities "targets for the next 12 months" are based on.
