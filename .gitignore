@@ -42,6 +42,4 @@ download_metadata.json
 .DS_Store
 Thumbs.db
 .positai
-.DS_Store
-gap_finder_*.patch
 gap_finder_*.patch

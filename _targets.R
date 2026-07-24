@@ -205,11 +205,18 @@ list(
     format = "file"
   ),
 
+  # Track script 09a as a file so functional edits auto-invalidate downstream.
+  tar_target(
+    script_09a,
+    here("scripts", "09a_reconcile_taxonomy.R"),
+    format = "file"
+  ),
+
   tar_target(
     reconcile_taxonomy,
     {
       taxa_reference; cube_parquet
-      source(here("scripts", "09a_reconcile_taxonomy.R"), local = TRUE)
+      source(script_09a, local = TRUE)
       match_table <- here(p_data_proc, "gaps", "taxonomic_match_table.csv")
       stopifnot(file.exists(match_table))
       match_table
@@ -232,11 +239,18 @@ list(
   # summaries + the recent-period layer (cell_recency, basis_recent,
   # spatial_gaps zero-filled, cell_last_year, tax_cell_recency) +
   # recent_cutoff.rds as a pipeline constant.
+  # Track script 09c as a file so functional edits auto-invalidate downstream.
+  tar_target(
+    script_09c,
+    here("scripts", "09c_scope_summaries.R"),
+    format = "file"
+  ),
+
   tar_target(
     scope_summaries,
     {
       reconcile_taxonomy; cube_parquet; grids
-      source(here("scripts", "09c_scope_summaries.R"), local = TRUE)
+      source(script_09c, local = TRUE)
       recent_cutoff <- here(p_data_proc, "recent_cutoff.rds")
       stopifnot(file.exists(recent_cutoff))
 

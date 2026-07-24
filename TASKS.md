@@ -130,9 +130,13 @@
 - [x] **P1.5 / T-D6.2** — Log-transformed view for publisher charts; Record Types pie fix — *done 2026-07:
   Record Types "minor types" rollup (`readability_1`) + optional Linear/Log toggle on the publisher
   volume charts (`readability_2`).*
-- [ ] Data download buttons on all tables and maps — *in progress (2026-07, `gap_finder_framing_2.patch`):
-  CSV export (DT Buttons) added to the concern, priority & publisher tables; Data & Sources table + maps still pending.*
-- [ ] Bar titles in downloaded chart images when > 20 groups.
+- [x] Data download buttons on all tables and maps — *done 2026-07-24 (`gap_finder_data_downloads_chart_titles.patch`):
+  CSV export now on the Data & Sources contributing-datasets table (DT Buttons, client-side) and a "Download cell
+  data (CSV)" button beneath the Spatial, Record-Types, and the three Concern (threatened/invasive/sensitive) maps
+  plus the Publisher-dependency map; the Priorities zero/stale maps already export via their companion tables. (redeploy)*
+- [x] Bar titles in downloaded chart images when > 20 groups. — *done 2026-07-24
+  (`gap_finder_data_downloads_chart_titles.patch`): `plotly_layout(dl_title=)` bakes a title into the taxonomic
+  order/family bars (which reach 40 bars) whenever > 20 groups are shown, so the downloaded PNG stays self-describing. (redeploy)*
 
 ### Framing & communication
 - [x] Consistent **measurement → interpretation → action** structure in tab text — *done 2026-07

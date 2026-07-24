@@ -220,6 +220,28 @@ read_guide <- function(measures, interpret, action) {
     div(tags$span(class = "rg-label", "What to do"), action))
 }
 
+# Download handler that writes a data frame (geometry dropped) to CSV.
+# Used for the map "Download cell data" buttons and the Data & Sources table.
+dl_csv <- function(data_fun, prefix) {
+  downloadHandler(
+    filename = function() paste0(prefix, "_", Sys.Date(), ".csv"),
+    content  = function(file) {
+      d <- tryCatch(data_fun(), error = function(e) NULL)
+      if (is.null(d) || !NROW(d))
+        d <- tibble::tibble(Message = "No data available for the current selection.")
+      if (inherits(d, "sf")) d <- sf::st_drop_geometry(d)
+      readr::write_csv(d, file)
+    }
+  )
+}
+
+# Small right-aligned CSV button placed beneath a map (exports the map's cells).
+map_dl_btn <- function(id, label = "Download cell data (CSV)") {
+  div(style = "margin-top:0.6rem; text-align:right;",
+    downloadButton(id, label, class = "btn-download",
+      style = "font-size:0.8rem; padding:3px 12px;"))
+}
+
 # Classify publishers by name into institutional categories
 classify_publisher <- function(name) {
   name_lc <- tolower(name)
@@ -245,7 +267,7 @@ last_year_label <- if (!is.null(recent_label_stored)) {
 }
 
 # Plotly theme helper — light background, warm palette
-plotly_layout <- function(p, ...) {
+plotly_layout <- function(p, ..., dl_title = NULL) {
   args <- list(...)
   
   # Default axis settings
@@ -264,13 +286,21 @@ plotly_layout <- function(p, ...) {
     args$yaxis <- default_yaxis
   }
   
-  p <- do.call(layout, c(list(
+  base_layout <- list(
     p = p,
     paper_bgcolor = "#ffffff",
     plot_bgcolor  = "#fafaf7",
     font = list(color = "#2d2d2d", family = "Outfit"),
     margin = list(l = 60, r = 30, t = 40, b = 60)
-  ), args))
+  )
+  # Optional in-plot title so downloaded chart images stay self-describing for
+  # crowded (> 20 group) bar charts. Callers pass dl_title conditionally.
+  if (!is.null(dl_title)) {
+    base_layout$title <- list(text = dl_title, x = 0.02, xanchor = "left",
+      font = list(size = 14, family = "Outfit", color = "#2d2d2d"))
+    base_layout$margin$t <- 70
+  }
+  p <- do.call(layout, c(base_layout, args))
   
   # Apply reduced toolbar to every plotly chart
   p |> plotly::config(
@@ -934,7 +964,7 @@ ui <- fluidPage(
                 "Each square is a 10 km grid cell; darker means more of the selected measure. ",
                 "Use the ", tags$strong("Display"), " panel to switch between records, species count, ",
                 "recent activity, and how out-of-date a cell is. Click a cell for details."),
-              leafletOutput("spatial_map", height = "520px"))),
+              leafletOutput("spatial_map", height = "520px"), map_dl_btn("spatial_map_dl"))),
             column(4,
               div(class = "card",
                 tags$h2(class = "card-title", icon("sliders-h"), "Display"),
@@ -1343,7 +1373,7 @@ ui <- fluidPage(
                     div(class = "info-note",
                       "Spatial distribution of occurrence records for threatened species (CR/EN/VU/NT). ",
                       "Cells with no data represent spatial gaps in threatened species monitoring."),
-                    leafletOutput("concern_threat_map", height = "400px"))),
+                    leafletOutput("concern_threat_map", height = "400px"), map_dl_btn("concern_threat_map_dl"))),
                   column(6, div(class = "card",
                     tags$h2(class = "card-title", icon("clipboard-list"), "How Threatened Species Are Recorded"),
                     div(class = "info-note",
@@ -1403,7 +1433,7 @@ ui <- fluidPage(
                     div(class = "info-note",
                       "Spatial distribution of occurrence records for invasive species. ",
                       "Gaps may indicate areas where invasive species are present but unmonitored."),
-                    leafletOutput("concern_inv_map", height = "400px"))),
+                    leafletOutput("concern_inv_map", height = "400px"), map_dl_btn("concern_inv_map_dl"))),
                   column(6, div(class = "card",
                     tags$h2(class = "card-title", icon("chart-line"), "Invasive Species Observations Over Time"),
                     div(class = "info-note",
@@ -1478,7 +1508,7 @@ ui <- fluidPage(
                       "Spatial distribution of occurrence records for sensitive species. ",
                       "Coordinates are generalised by GBIF, so cell-level accuracy varies ",
                       "by species (see generalization categories above). Interpret with care."),
-                    leafletOutput("concern_sens_map", height = "400px"))),
+                    leafletOutput("concern_sens_map", height = "400px"), map_dl_btn("concern_sens_map_dl"))),
                   column(6, div(class = "card",
                     tags$h2(class = "card-title", icon("clipboard-list"), "How Sensitive Species Are Recorded"),
                     div(class = "info-note",
@@ -1610,7 +1640,7 @@ ui <- fluidPage(
               tags$h2(class = "card-title", icon("map"), "Publisher Dependency per Cell"),
               div(class = "info-note", "Cells coloured by the number of publishers contributing data. ",
                 "Cells with a single publisher are an infrastructure vulnerability and a partnership opportunity \u2014 broadening the contributor base safeguards their coverage."),
-              leafletOutput("pub_dependency_map", height = "450px")))
+              leafletOutput("pub_dependency_map", height = "450px"), map_dl_btn("pub_dependency_map_dl")))
           ),
 
           div(class = "card",
@@ -1706,7 +1736,7 @@ ui <- fluidPage(
               "Each square is a 10 km cell; darker means more records. Click a cell for details."),
             selectInput("basis_map_select", NULL,
               choices = basis_types_no_all, width = "250px"),
-            leafletOutput("basis_map", height = "450px"))
+            leafletOutput("basis_map", height = "450px"), map_dl_btn("basis_map_dl"))
         )
       ),
 
@@ -3412,8 +3442,9 @@ server <- function(input, output, session) {
         yaxis = list(title = "", categoryorder = "total ascending",
           tickmode = "linear", dtick = 1, automargin = TRUE,
           tickfont = list(size = 11)),
-        margin = list(r = 160),
-        legend = list(orientation = "h", y = -0.15))
+        margin = list(r = 160, t = 70),
+        legend = list(orientation = "h", y = -0.15),
+        dl_title = if (nrow(df) > 20) "Species coverage by order (in GBIF vs missing)" else NULL)
   })
 
   output$tax_family <- renderPlotly({
@@ -3435,7 +3466,8 @@ server <- function(input, output, session) {
         xaxis = list(title = "Coverage (%)", range = c(0, 105)),
         yaxis = list(title = "", categoryorder = "total ascending",
           tickmode = "linear", dtick = 1, automargin = TRUE,
-          tickfont = list(size = 11)))
+          tickfont = list(size = 11)),
+        dl_title = if (nrow(df) > 20) "Taxonomic coverage by family (%)" else NULL)
   })
 
   # Recent vs Historical — info cards showing multiplier
@@ -4988,11 +5020,12 @@ server <- function(input, output, session) {
         sprintf('<a href="%s" target="_blank">%s</a>', cd$doi,
           sub("https://doi.org/", "", cd$doi))),
       check.names = FALSE, stringsAsFactors = FALSE)
-    datatable(disp, escape = FALSE, rownames = FALSE,
-      options = list(pageLength = 10, order = list(list(2, "desc")), scrollX = TRUE),
+    datatable(disp, escape = FALSE, rownames = FALSE, extensions = "Buttons",
+      options = list(pageLength = 10, order = list(list(2, "desc")), scrollX = TRUE,
+        dom = "Bfrtip", buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top") |>
       formatRound("Records", digits = 0)
-  }, server = TRUE)
+  }, server = FALSE)
 
   # 3 — National reference lists with resolved DOIs
   output$ds_checklists <- renderUI({
@@ -5042,6 +5075,39 @@ server <- function(input, output, session) {
       readr::write_csv(df, file)
     }
   )
+
+  # ===================================================================
+  # CSV downloads for maps (cell-level underlying data)
+  # ===================================================================
+  output$spatial_map_dl <- dl_csv(function() {
+    if (is.null(spatial_gaps)) return(NULL)
+    spatial_gaps |> filter(basisofrecord == basis_selected())
+  }, "spatial_coverage_cells")
+
+  output$basis_map_dl <- dl_csv(function() {
+    if (is.null(spatial_gaps) || is.null(input$basis_map_select)) return(NULL)
+    spatial_gaps |> filter(basisofrecord == input$basis_map_select)
+  }, "record_type_cells")
+
+  output$concern_threat_map_dl <- dl_csv(function() {
+    if (is.null(threatened_spatial_gaps)) return(NULL)
+    threatened_spatial_gaps |> filter(basisofrecord == "all")
+  }, "threatened_species_cells")
+
+  output$concern_inv_map_dl <- dl_csv(function() {
+    if (is.null(invasive_spatial_gaps)) return(NULL)
+    invasive_spatial_gaps |> filter(basisofrecord == "all")
+  }, "invasive_species_cells")
+
+  output$concern_sens_map_dl <- dl_csv(function() {
+    if (is.null(sensitive_spatial_gaps)) return(NULL)
+    sensitive_spatial_gaps |> filter(basisofrecord == "all")
+  }, "sensitive_species_cells")
+
+  output$pub_dependency_map_dl <- dl_csv(function() {
+    if (is.null(publisher_cell_dep)) return(NULL)
+    publisher_cell_dep
+  }, "publisher_dependency_cells")
 }
 
 shinyApp(ui, server)
