@@ -9,6 +9,11 @@ permissions:
   contents: read
   packages: write
 
+# Country whose bundle + config the published image is built for. The pipeline,
+# the app, and the Dockerfile all key off GBIF_GAP_COUNTRY (see R/globals.R).
+env:
+  GBIF_GAP_COUNTRY: SE
+
 concurrency:
   group: publish-shiny-images-${{ github.ref }}
   cancel-in-progress: false
@@ -27,10 +32,10 @@ jobs:
         run: |
           test -f shiny_app/gap_finder/Dockerfile.gap_finder
           test -f shiny_app/gap_finder/app.R
-          test -f shiny_app/gap_finder/data/shiny_data.rds
+          test -f shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds
           # Guard against an un-fetched LFS pointer: the real bundle is ~90 MB,
           # an LFS pointer stub is ~130 bytes. Fail loudly if we got the stub.
-          test "$(stat -c%s shiny_app/gap_finder/data/shiny_data.rds)" -gt 1000000
+          test "$(stat -c%s shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds)" -gt 1000000
 
   publish:
     name: Publish gap-finder
@@ -78,6 +83,8 @@ jobs:
         with:
           context: .
           file: shiny_app/gap_finder/Dockerfile.gap_finder
+          build-args: |
+            GBIF_GAP_COUNTRY=${{ env.GBIF_GAP_COUNTRY }}
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}

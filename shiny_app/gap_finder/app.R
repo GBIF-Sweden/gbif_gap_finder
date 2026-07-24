@@ -25,14 +25,10 @@ library(stringr)
 # LOAD DATA
 # =============================================================================
 
-# Resolve the country data bundle. Priority order:
-#   1. GBIF_GAP_COUNTRY (or COUNTRY_CODE) env var -> data/<CC>/shiny_data.rds
-#   2. a single data/<CC>/shiny_data.rds present  -> auto-detect it
-#   3. legacy flat data/shiny_data.rds            -> backwards compatibility
+# Resolve the per-country data bundle. GBIF_GAP_COUNTRY is the single project-wide
+# country selector (see R/globals.R): set it, or let the app auto-detect a lone bundle.
 resolve_data_path <- function() {
-  # GBIF_GAP_COUNTRY is the project-wide country selector (see R/globals.R);
-  # COUNTRY_CODE is accepted as an alias for Docker-style deployments.
-  cc <- Sys.getenv("GBIF_GAP_COUNTRY", Sys.getenv("COUNTRY_CODE", ""))
+  cc <- Sys.getenv("GBIF_GAP_COUNTRY", "")
   if (nzchar(cc)) {
     p <- file.path("data", cc, "shiny_data.rds")
     if (file.exists(p)) return(p)
@@ -44,13 +40,10 @@ resolve_data_path <- function() {
     stop("Multiple country bundles found (",
          paste(basename(dirname(per_country)), collapse = ", "),
          "); set the GBIF_GAP_COUNTRY environment variable to choose one.")
-  legacy <- "data/shiny_data.rds"
-  if (file.exists(legacy)) return(legacy)
-  stop("No shiny_data.rds found under data/. Run scripts/11_prepare_gap_finder_data.R")
+  stop("No data/<CC>/shiny_data.rds found. Set GBIF_GAP_COUNTRY and run scripts/11_prepare_gap_finder_data.R")
 }
 
 data_path <- resolve_data_path()
-if (!file.exists(data_path)) stop("shiny_data.rds not found. Run scripts/11_prepare_gap_finder_data.R")
 
 message("Loading shiny data from: ", normalizePath(data_path))
 app_data <- readRDS(data_path)
