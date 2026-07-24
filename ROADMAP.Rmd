@@ -276,7 +276,7 @@ questions raised during the colleague review.
 | **D1** | Primary users | **Broadest audience** — not just GBIF staff but policy makers, researchers, funders, agencies, publishers. The full communication layer and EAA accessibility are **in scope for v1**, not optional. |
 | **D2** | App name & URL | **GBIF Gap Finder**, at **`gbif.se/gap-finder`** (slug `gap-finder`, hyphenated). Tagline: *"Finding the gaps in Sweden's GBIF-mediated data."* |
 | **D3** | Current partial year in temporal trends | **Default = last *complete* year**; the partial current year stays available but is not the default, so charts don't show a misleading end-of-series drop. |
-| **D4** | Lowest taxonomic level | **Go to family where feasible** (Class/Order aren't meaningful, esp. for plants). Compute is not the constraint — bundle size / sparsity is; measure first, keep family×cell drill-down-only, consult Kevin per group. |
+| **D4** | Lowest taxonomic level | **Go to family where feasible** (Class/Order aren't meaningful, esp. for plants). Compute is not the constraint — bundle size / sparsity is; measure first, keep family×cell drill-down-only, consult Kevin per group. *Measured 2026-07-24: family×cell ≈2M rows / ~110MB at 10km, sparse → drill-down-only confirmed; per-group build pending Kevin. See `claude/finding-family-resolution-2026-07-24.md`.* |
 | **D5** | Communication-layer scope for v1 | **Full** (follows from D1). |
 | **D6** | Versioned comparison / annual report | **Defer the in-app feature**; it rides on the snapshot retrospective (Part 2 C). |
 | **D7** | Invasives taxonomic level | **Species level, single graph** — Order/Family is uninformative. |

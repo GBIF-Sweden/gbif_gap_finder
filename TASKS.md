@@ -46,8 +46,11 @@
   (cube generation); the snapshot/diff use case lives there.*
 
 - [ ] **Family-level resolution** *(T-D1 → build)*
-  - [ ] Measure first: build the family×cell recency cross-tab; report row count + serialized
+  - [x] Measure first: build the family×cell recency cross-tab; report row count + serialized
     `.rds` size; compare to the class-level bundle and the ~1.2M-row `publisher_cell_taxonomy`.
+    — *done 2026-07-24: family×cell ≈ 2 M rows / ~110 MB RAM / ~19–29 MB compressed at 10km
+    (11.6× class-level, larger than `publisher_cell_taxonomy`), and sparse (36 % of groups ≤5
+    occ) → **drill-down-only**. See `claude/finding-family-resolution-2026-07-24.md`.*
   - [ ] Decide family-as-default vs drill-down-only (consult Kevin per group); then build.
 
 ---
