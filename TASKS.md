@@ -175,7 +175,7 @@
 - [x] Fix broken links / missing row names in taxonomic tables. — *done 2026-07-24
   (`gap_finder_taxonomic_concern_polish.patch`): dead "Browse Dyntaxa" link → `artfakta.se`;
   `rownames = FALSE` on the Concern threat/invasive/sensitive tables. (redeploy)*
-- [ ] Colour-code mobilization targets by higher taxonomy (plant families green, insects red, fungi brown). *(deferred: conflicts with the CB-safe over/under-representation colour semantic already on the Troudet chart — needs a design decision on which chart carries taxonomy colours vs direction colours.)*
+- [x] ~~Colour-code mobilization targets by higher taxonomy (plant families green, insects red, fungi brown).~~ *(won't do 2026-07-24: redundant — the Troudet bias chart already uses colour for over/under-representation (sage/coral); recolouring by taxonomy would drop that signal and reintroduce red/green, which the EAA round removed. Decision: drop.)*
 
 ### Species of Concern — finishing touches
 - [x] Cite + link the source checklists (red list, GRIIS, sensitive list) in the tab. — *done

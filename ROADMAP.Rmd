@@ -148,9 +148,10 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
   2026-07-24 (`gap_finder_taxon_ux.patch`): neutral exclusion placeholder. (redeploy)*
 - [x] Fix **broken links / missing row names** in taxonomic tables. — *done 2026-07-24
   (`gap_finder_taxonomic_concern_polish.patch`; redeploy).*
-- [ ] **Colour-code mobilization targets** by higher taxonomy (plant families green, insects
-  red, fungi brown) for quick overview. *(deferred: conflicts with the CB-safe over/under colour
-  semantic on the Troudet chart — needs a design decision.)*
+- [x] ~~**Colour-code mobilization targets** by higher taxonomy (plant families green, insects
+  red, fungi brown) for quick overview.~~ *(won't do 2026-07-24: redundant — the bias chart's colour
+  already encodes over/under-representation; recolouring by taxonomy would lose that and reintroduce
+  red/green. Decision: drop.)*
 
 ### Species of Concern — finishing touches
 *(The tab itself is built; these are polish items.)*
