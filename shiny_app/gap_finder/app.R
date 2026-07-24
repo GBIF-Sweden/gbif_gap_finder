@@ -420,6 +420,18 @@ checklist_cite <- function(key, prefix = "Source") {
         style = "color: var(--sage); text-decoration: underline;")))
 }
 
+# External reference link for a taxon (Wikipedia article by scientific name).
+# Rendered in a compact "Ref" column (escape = FALSE) so the plain scientificName
+# column stays clean for search / filtering / CSV export.
+taxon_ref <- function(name) {
+  u <- vapply(name, function(x) {
+    if (is.na(x) || !nzchar(x)) "" else utils::URLencode(gsub(" ", "_", x), reserved = TRUE)
+  }, character(1))
+  ifelse(nzchar(u), sprintf(
+    "<a href=\"https://en.wikipedia.org/wiki/%s\" target=\"_blank\" rel=\"noopener\">Wikipedia</a>",
+    u), "")
+}
+
 ui <- fluidPage(
 
   tags$head(
@@ -1170,7 +1182,7 @@ ui <- fluidPage(
                 selectizeInput("troudet_exclude", NULL,
                   choices = NULL, multiple = TRUE,
                   options = list(
-                    placeholder = "Type to exclude (e.g. Aves)",
+                    placeholder = "Type a group to exclude",
                     plugins = list("remove_button")
                   ),
                   width = "100%"))
@@ -3732,7 +3744,8 @@ server <- function(input, output, session) {
     for (cn in c("threatStatus", "establishmentMeans", "kingdom", "phylum", "class", "order", "family")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons", rownames = FALSE,
+    if ("scientificName" %in% names(df)) df$Ref <- taxon_ref(df$scientificName)
+    datatable(df, extensions = "Buttons", rownames = FALSE, escape = FALSE,
       options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
         buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")
@@ -3884,7 +3897,8 @@ server <- function(input, output, session) {
     for (cn in c("kingdom", "phylum", "class", "order", "family", "status")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons", rownames = FALSE,
+    if ("scientificName" %in% names(df)) df$Ref <- taxon_ref(df$scientificName)
+    datatable(df, extensions = "Buttons", rownames = FALSE, escape = FALSE,
       options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
         buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")
@@ -4104,7 +4118,8 @@ server <- function(input, output, session) {
     for (cn in c("generalization", "threatStatus", "kingdom", "phylum", "class", "order", "family", "status")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons", rownames = FALSE,
+    if ("scientificName" %in% names(df)) df$Ref <- taxon_ref(df$scientificName)
+    datatable(df, extensions = "Buttons", rownames = FALSE, escape = FALSE,
       options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
         buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")

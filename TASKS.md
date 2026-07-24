@@ -164,12 +164,18 @@
   Methods, limitations & glossary panel on the Overview.* *(redeploy.)*
 
 ### Taxonomic UX
-- [ ] External taxon links (Wikipedia / Artfakta) for non-specialists.
-- [ ] Consistent Latin/English in the exclusion search ("Aves" vs "Birds").
+- [x] External taxon links (Wikipedia / Artfakta) for non-specialists. — *done 2026-07-24
+  (`gap_finder_taxon_ux.patch`): a "Ref" column with a Wikipedia article link (`taxon_ref()`,
+  `escape = FALSE`) on the Concern threat/invasive/sensitive tables; scientificName stays plain for
+  search/CSV. Artfakta deferred — its taxon-URL scheme isn't documented; add once confirmed. (redeploy)*
+- [x] Consistent Latin/English in the exclusion search ("Aves" vs "Birds"). — *done 2026-07-24
+  (`gap_finder_taxon_ux.patch`): exclusion placeholder is now vocabulary-neutral ("Type a group to
+  exclude"), removing the Aves-vs-Birds mismatch. Drill-down still shows Latin ranks — class/order/family
+  have no standard English names. (redeploy)*
 - [x] Fix broken links / missing row names in taxonomic tables. — *done 2026-07-24
   (`gap_finder_taxonomic_concern_polish.patch`): dead "Browse Dyntaxa" link → `artfakta.se`;
   `rownames = FALSE` on the Concern threat/invasive/sensitive tables. (redeploy)*
-- [ ] Colour-code mobilization targets by higher taxonomy (plant families green, insects red, fungi brown).
+- [ ] Colour-code mobilization targets by higher taxonomy (plant families green, insects red, fungi brown). *(deferred: conflicts with the CB-safe over/under-representation colour semantic already on the Troudet chart — needs a design decision on which chart carries taxonomy colours vs direction colours.)*
 
 ### Species of Concern — finishing touches
 - [x] Cite + link the source checklists (red list, GRIIS, sensitive list) in the tab. — *done

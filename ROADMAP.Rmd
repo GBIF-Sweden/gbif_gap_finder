@@ -141,12 +141,16 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
   Methods, limitations & glossary panel on the Overview.
 
 ### Taxonomic UX
-- [ ] **External taxon links** (Wikipedia / Artfakta) so non-specialists know what a taxon is.
-- [ ] **Consistent Latin/English** in the exclusion search (currently "Aves" vs "Birds").
+- [x] **External taxon links** (Wikipedia / Artfakta) so non-specialists know what a taxon is. — *done
+  2026-07-24 (`gap_finder_taxon_ux.patch`): Wikipedia link column on the Concern tables; Artfakta
+  deferred pending a confirmed taxon-URL scheme. (redeploy)*
+- [x] **Consistent Latin/English** in the exclusion search (currently "Aves" vs "Birds"). — *done
+  2026-07-24 (`gap_finder_taxon_ux.patch`): neutral exclusion placeholder. (redeploy)*
 - [x] Fix **broken links / missing row names** in taxonomic tables. — *done 2026-07-24
   (`gap_finder_taxonomic_concern_polish.patch`; redeploy).*
 - [ ] **Colour-code mobilization targets** by higher taxonomy (plant families green, insects
-  red, fungi brown) for quick overview.
+  red, fungi brown) for quick overview. *(deferred: conflicts with the CB-safe over/under colour
+  semantic on the Troudet chart — needs a design decision.)*
 
 ### Species of Concern — finishing touches
 *(The tab itself is built; these are polish items.)*
