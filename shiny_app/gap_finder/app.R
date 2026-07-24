@@ -397,6 +397,29 @@ pal <- list(
 # UI
 # =============================================================================
 
+# Source citation for a national checklist (red list / invasives / sensitive),
+# pulled from the resolved provenance baked into the bundle by 01b
+# (metadata$data_sources$checklists). Returns NULL when the checklist or its
+# provenance is absent, so the Concern sub-tabs degrade gracefully.
+checklist_cite <- function(key, prefix = "Source") {
+  cl <- tryCatch(metadata$data_sources$checklists[[key]], error = function(e) NULL)
+  if (is.null(cl)) return(NULL)
+  title <- cl$title %||% cl$name %||% cl$label %||% key
+  has_doi <- !is.null(cl$doi) && !is.na(cl$doi)
+  href <- if (has_doi) {
+    cl$doi
+  } else if (!is.null(cl$dataset_key) && !is.na(cl$dataset_key)) {
+    paste0("https://www.gbif.org/dataset/", cl$dataset_key)
+  } else NULL
+  link_txt <- if (has_doi) sub("https://doi.org/", "", cl$doi) else "View on GBIF"
+  div(class = "info-note", style = "margin-top: 0.75rem; font-size: 0.9rem;",
+    icon("book", style = "margin-right: 0.3rem;"),
+    tags$strong(paste0(prefix, ": ")), title,
+    if (!is.null(href)) tagList(" — ",
+      tags$a(href = href, link_txt, target = "_blank",
+        style = "color: var(--sage); text-decoration: underline;")))
+}
+
 ui <- fluidPage(
 
   tags$head(
@@ -1114,7 +1137,7 @@ ui <- fluidPage(
             tags$a(href = "https://www.gbif.org/dataset/de8934f4-a136-481c-a87a-b0b202b80a31",
               "View on GBIF", target = "_blank", style = "color: var(--sage);"),
             " | ",
-            tags$a(href = "https://namnochslansen.artfakta.se/",
+            tags$a(href = "https://artfakta.se/",
               "Browse Dyntaxa", target = "_blank", style = "color: var(--sage);"),
             ". The scope filter above controls which species are included (present, native, introduced, invasive)."
           ),
@@ -1316,7 +1339,8 @@ ui <- fluidPage(
                     "Species in the national taxonomy backbone with a Red List status ",
                     "that have no matching GBIF occurrence records. ",
                     "Use the filters above and column filters below to narrow results."),
-                  DTOutput("concern_threat_table"))
+                  DTOutput("concern_threat_table")),
+                checklist_cite("redlist")
               )
             ),
 
@@ -1380,7 +1404,8 @@ ui <- fluidPage(
                   div(class = "info-note",
                     "Species with at least one form listed as invasive in GRIIS Sweden, matched at species level. ",
                     "Species missing from GBIF cannot be monitored for range expansion."),
-                  DTOutput("concern_inv_table"))
+                  DTOutput("concern_inv_table")),
+                checklist_cite("invasives")
               )
             ),
 
@@ -1450,7 +1475,8 @@ ui <- fluidPage(
                     "All species flagged as sensitive in the national restricted access list. ",
                     "The generalization column shows how much coordinate degradation is applied. ",
                     "Use the column filters to focus on specific taxonomic groups or generalization levels."),
-                  DTOutput("concern_sens_table"))
+                  DTOutput("concern_sens_table")),
+                checklist_cite("sensitive")
               )
             )
           )
@@ -3700,7 +3726,7 @@ server <- function(input, output, session) {
     for (cn in c("threatStatus", "establishmentMeans", "kingdom", "phylum", "class", "order", "family")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons",
+    datatable(df, extensions = "Buttons", rownames = FALSE,
       options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
         buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")
@@ -3852,7 +3878,7 @@ server <- function(input, output, session) {
     for (cn in c("kingdom", "phylum", "class", "order", "family", "status")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons",
+    datatable(df, extensions = "Buttons", rownames = FALSE,
       options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
         buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")
@@ -4068,7 +4094,7 @@ server <- function(input, output, session) {
     for (cn in c("generalization", "threatStatus", "kingdom", "phylum", "class", "order", "family", "status")) {
       if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
     }
-    datatable(df, extensions = "Buttons",
+    datatable(df, extensions = "Buttons", rownames = FALSE,
       options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
         buttons = list(list(extend = "csv", text = "Download CSV"))),
       style = "bootstrap4", filter = "top")

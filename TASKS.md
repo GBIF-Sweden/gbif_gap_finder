@@ -163,11 +163,15 @@
 ### Taxonomic UX
 - [ ] External taxon links (Wikipedia / Artfakta) for non-specialists.
 - [ ] Consistent Latin/English in the exclusion search ("Aves" vs "Birds").
-- [ ] Fix broken links / missing row names in taxonomic tables.
+- [x] Fix broken links / missing row names in taxonomic tables. — *done 2026-07-24
+  (`gap_finder_taxonomic_concern_polish.patch`): dead "Browse Dyntaxa" link → `artfakta.se`;
+  `rownames = FALSE` on the Concern threat/invasive/sensitive tables. (redeploy)*
 - [ ] Colour-code mobilization targets by higher taxonomy (plant families green, insects red, fungi brown).
 
 ### Species of Concern — finishing touches
-- [ ] Cite + link the source checklists (red list, GRIIS, sensitive list) in the tab.
+- [x] Cite + link the source checklists (red list, GRIIS, sensitive list) in the tab. — *done
+  2026-07-24 (`gap_finder_taxonomic_concern_polish.patch`): `checklist_cite()` adds a source line +
+  resolved-DOI link to each Concern sub-tab, from `metadata$data_sources$checklists`. (redeploy)*
 - [ ] Put the 25/50 km generalised-coordinate caution directly on sensitive-species maps.
 - [ ] Swedish common names in the bottom table.
 - [ ] Confirm the April-2026 red list is the one in use; link it in "About."

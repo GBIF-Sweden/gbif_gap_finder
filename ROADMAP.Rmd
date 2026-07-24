@@ -143,13 +143,15 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 ### Taxonomic UX
 - [ ] **External taxon links** (Wikipedia / Artfakta) so non-specialists know what a taxon is.
 - [ ] **Consistent Latin/English** in the exclusion search (currently "Aves" vs "Birds").
-- [ ] Fix **broken links / missing row names** in taxonomic tables.
+- [x] Fix **broken links / missing row names** in taxonomic tables. — *done 2026-07-24
+  (`gap_finder_taxonomic_concern_polish.patch`; redeploy).*
 - [ ] **Colour-code mobilization targets** by higher taxonomy (plant families green, insects
   red, fungi brown) for quick overview.
 
 ### Species of Concern — finishing touches
 *(The tab itself is built; these are polish items.)*
-- [ ] **Cite + link source checklists** (red list, GRIIS, sensitive list) in the tab.
+- [x] **Cite + link source checklists** (red list, GRIIS, sensitive list) in the tab. — *done
+  2026-07-24 (`gap_finder_taxonomic_concern_polish.patch`; redeploy).*
 - [ ] Put the **25/50 km generalised-coordinate caution directly on sensitive-species maps**,
   not only in text.
 - [ ] **Swedish common names** in the bottom table.
