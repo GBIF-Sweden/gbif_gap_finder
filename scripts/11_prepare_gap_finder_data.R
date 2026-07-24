@@ -7,7 +7,7 @@
 # and scope-filtered is done by 09c, and all tabular summaries come from
 # 07/08/09b/10.
 #
-# Output: shiny_app/gap_finder/data/shiny_data.rds
+# Output: shiny_app/gap_finder/data/<COUNTRY_CODE>/shiny_data.rds
 #
 # The bundle contains:
 #   - Grid geometries (simplified for web rendering)
@@ -70,7 +70,8 @@ if (!exists("bucket_unclassified")) {
 # Configuration
 # ==============================================================================
 
-shiny_output_dir <- here("shiny_app", "gap_finder", "data")
+# Per-country bundle folder so country bundles coexist (data/<CC>/shiny_data.rds).
+shiny_output_dir <- here("shiny_app", "gap_finder", "data", COUNTRY_CODE)
 if (!dir.exists(shiny_output_dir)) dir.create(shiny_output_dir, recursive = TRUE)
 shiny_data_path <- here(shiny_output_dir, "shiny_data.rds")
 

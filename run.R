@@ -106,9 +106,16 @@ run_reports <- function() {
   ))
 }
 
+#' Locate the prepared Gap Finder bundle (per-country data/<CC>/, or legacy flat).
+gap_finder_data_path <- function() {
+  hits <- Sys.glob(here("shiny_app", "gap_finder", "data", "*", "shiny_data.rds"))
+  if (length(hits) >= 1) return(hits[1])
+  here("shiny_app", "gap_finder", "data", "shiny_data.rds")  # legacy fallback
+}
+
 #' Launch the Gap Finder app
 launch_gap_finder <- function() {
-  gap_data_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
+  gap_data_path <- gap_finder_data_path()
   if (!file.exists(gap_data_path)) {
     cli_alert_warning("Gap app data not found. Preparing first...")
     run_gap_finder_prep()
@@ -166,7 +173,7 @@ status <- function() {
     list.files(raw_sensitive_dir, pattern = "\\.(txt|csv)$")
   } else character(0)
 
-  gap_finder_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
+  gap_finder_path <- gap_finder_data_path()
 
   cli_h2("Data sources")
   cli_dl(c(

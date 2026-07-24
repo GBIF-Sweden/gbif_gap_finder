@@ -309,7 +309,7 @@ list(
     {
       gap_overview; scope_summaries; data_sources_meta
       source(script_gap_finder, local = TRUE)
-      shiny_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
+      shiny_path <- here("shiny_app", "gap_finder", "data", COUNTRY_CODE, "shiny_data.rds")
       stopifnot(file.exists(shiny_path))
       shiny_path
     },
