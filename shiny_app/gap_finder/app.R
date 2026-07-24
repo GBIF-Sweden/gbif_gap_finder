@@ -154,6 +154,15 @@ basis_types_no_all <- basis_types[basis_types != "all"]
 order_choices <- if (!is.null(top_orders)) top_orders$order else character(0)
 current_year  <- year(Sys.Date())
 
+# D3: the temporal tab defaults to the last *complete* year. The latest year in
+# the data is the snapshot (partial) year, so treat it as partial and default the
+# slider's upper bound to the year before it; the partial year stays selectable.
+data_max_year <- if (!is.null(time_summary) && "year" %in% names(time_summary) &&
+                     any(!is.na(time_summary$year))) {
+  as.integer(max(time_summary$year, na.rm = TRUE))
+} else current_year
+last_complete_year <- max(data_max_year - 1L, 1971L)
+
 # Country name travels in the data bundle (stamped by script 11 from the
 # active config), so the app shows whichever country it was built for.
 country_name <- tryCatch({
@@ -966,8 +975,8 @@ ui <- fluidPage(
             fluidRow(
               column(2,
                 div(class = "filter-label", "Year Range"),
-                sliderInput("year_range", NULL, min = 1900, max = current_year,
-                  value = c(1970, current_year), step = 1, sep = "")),
+                sliderInput("year_range", NULL, min = 1900, max = data_max_year,
+                  value = c(1970, last_complete_year), step = 1, sep = "")),
               column(2,
                 div(class = "filter-label", "Kingdom"),
                 selectizeInput("temp_kingdom", NULL,
@@ -1701,7 +1710,7 @@ ui <- fluidPage(
               "Select an output to browse, filter, and export."),
             fluidRow(
               column(6,
-                selectInput("explorer_ds", "Select output:",
+                selectInput("explorer_ds", "Select Gap Explorer Dataset:",
                   choices = c(
                     # Spatial
                     "Spatial Gaps (10km)"  = "spatial_gaps_10km",
@@ -1993,13 +2002,29 @@ server <- function(input, output, session) {
     yearly <- df |> group_by(year) |>
       summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
 
+    # D3: when the partial (latest/snapshot) year is in view, grey it + label it so
+    # an incomplete final year does not read as a genuine decline.
+    show_partial <- input$year_range[2] >= data_max_year &&
+      data_max_year > last_complete_year
+    trend_shapes <- list(); trend_anns <- list()
+    if (show_partial) {
+      trend_shapes <- list(list(type = "rect", xref = "x", yref = "paper",
+        x0 = last_complete_year + 0.5, x1 = data_max_year + 0.5, y0 = 0, y1 = 1,
+        fillcolor = "#9aa0a6", opacity = 0.18, line = list(width = 0), layer = "below"))
+      trend_anns <- list(list(x = data_max_year, y = 1, xref = "x", yref = "paper",
+        text = paste0(data_max_year, " partial"), showarrow = FALSE,
+        xanchor = "right", yanchor = "bottom",
+        font = list(size = 10, color = "#5f6368")))
+    }
+
     plot_ly(yearly, x = ~year, y = ~occ, type = "scatter", mode = "lines",
       fill = "tozeroy",
       fillcolor = paste0(pal$sage, "33"),
       line = list(color = pal$sage, width = 2)) |>
       plotly_layout(
         xaxis = list(title = "Year", range = c(input$year_range[1], input$year_range[2])),
-        yaxis = list(title = "Number of occurrences"))
+        yaxis = list(title = "Number of occurrences"),
+        shapes = trend_shapes, annotations = trend_anns)
   })
 
   output$temporal_season <- renderPlotly({

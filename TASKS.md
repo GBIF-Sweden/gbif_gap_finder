@@ -179,9 +179,14 @@
   `basis_recent_<scope>_<grid>.csv`; app integration pending.
 
 ### Temporal & Data tab
-- [ ] **D3** — Default to the last *complete* year on the temporal tab; keep the current partial
-  year selectable but visually distinguished (greyed/dashed).
-- [ ] Rename "Select Dataset" → "Select Gap Explorer Dataset" on the Data tab.
+- [x] **D3** — Default to the last *complete* year on the temporal tab; keep the current partial
+  year selectable but visually distinguished (greyed/dashed). — *done 2026-07-23
+  (`gap_finder_data_temporal_polish.patch`): slider defaults to the last complete year
+  (`data_max_year - 1`, from `time_summary`, not `Sys.Date()`); partial year still selectable +
+  greyed/labelled in the trend chart. (redeploy)*
+- [x] Rename "Select Dataset" → "Select Gap Explorer Dataset" on the Data tab. — *done 2026-07-23
+  (`gap_finder_data_temporal_polish.patch`): explorer label "Select output:" →
+  "Select Gap Explorer Dataset:". (redeploy)*
 - [x] Confirm sensitive `sensitivity_category` flows end-to-end; add it to the species scope
   lookup CSV for the Data tab. — *done 2026-07-23 (`gap_finder_sensitivity_scope_lookup.patch`):
   09a carries it into `recon`, 09c writes it to `species_scope_summary.csv`; surfaces as a column
