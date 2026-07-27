@@ -18,10 +18,11 @@
 #   - data/{CC}/proc/cubes/cube_50km.parquet
 #   - data/{CC}/proc/cubes/cube_manifest.csv
 #
-# Expected columns (16):
+# Expected columns (17 — 14 base dimensions/measure + 3 b-cubed measures):
 #   specieskey, species, kingdom, phylum, class, order, family,
 #   basisofrecord, publishingorgkey, datasetkey, eeacellcode,
-#   year, month, occurrences
+#   year, month, occurrences,
+#   mincoordinateuncertaintyinmeters, mintemporaluncertainty, distinctobservers
 #
 # Dependencies: scripts/00_setup.R, data.table, arrow
 # ============================================================================
@@ -57,7 +58,9 @@ cube_files <- list(
 # Expected columns from the SQL API download
 expected_cols <- c("specieskey", "species", "kingdom", "phylum", "class",
   "order", "family", "basisofrecord", "publishingorgkey", "datasetkey",
-  "eeacellcode", "year", "month", "occurrences")
+  "eeacellcode", "year", "month", "occurrences",
+  # b-cubed standard measures (b3verse schema migration)
+  "mincoordinateuncertaintyinmeters", "mintemporaluncertainty", "distinctobservers")
 
 cli_h1("Convert GBIF Cubes to Parquet \u2014 {COUNTRY_CODE}")
 

@@ -245,11 +245,20 @@ if (file_exists_safe(manifest_file)) {
                  {paste(missing_cols, collapse = ', ')}"))
         }
 
-        # Check new columns
+        # Check publisher/dataset dimension columns
         new_cols <- c("publishingorgkey", "datasetkey")
         present_new <- intersect(new_cols, pq_cols)
-        md_check(glue("{length(present_new)}/2 new columns present \\
+        md_check(glue("{length(present_new)}/2 publisher/dataset columns present \\
                       ({paste(present_new, collapse = ', ')})"), "ok")
+
+        # b-cubed standard measures (b3verse schema migration). Informational,
+        # not required: a pre-migration cube simply won't carry them.
+        bcubed_cols    <- c("mincoordinateuncertaintyinmeters",
+                            "mintemporaluncertainty", "distinctobservers")
+        present_bcubed <- intersect(bcubed_cols, pq_cols)
+        md_check(glue("{length(present_bcubed)}/3 b-cubed measures present \\
+                      ({if (length(present_bcubed)) paste(present_bcubed, collapse = ', ') else 'none'})"),
+                 if (length(present_bcubed) == 3) "ok" else "warn")
 
         cli_alert_success("{basename(pq_file)}: {length(pq_cols)} columns, {pq_size} MB")
       }, error = function(e) {

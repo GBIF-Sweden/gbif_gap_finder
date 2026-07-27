@@ -16,13 +16,23 @@
 -- dataset. This is a b-cubed-COMPATIBLE SUPERSET: it keeps the extra dimensions
 -- (basisofrecord / publishingorgkey / datasetkey / month) the Record Types and
 -- Publisher tabs need, on top of the standard species-occurrence-cube grain.
--- Measures are aggregates over each group (never GROUP BY dimensions).
+-- Measures are aggregates over each group (never GROUP BY dimensions):
+--   occurrences                      = COUNT(*)
+--   mincoordinateuncertaintyinmeters = MIN(COALESCE(coordinateUncertaintyInMeters, 1000))
+--   mintemporaluncertainty           = MIN(GBIF_TemporalUncertainty(eventDate))  -- seconds
+--   distinctobservers                = COUNT(DISTINCT recordedBy)
+-- The eeaCellCode randomisation radius stays 0, so cell assignment is unchanged
+-- from the pre-b3verse cube; uncertainty is reported as a measure, not used to
+-- perturb the grid.
 SELECT
   specieskey, species, kingdom, phylum, class, "order", family,
   basisofrecord, publishingorgkey, datasetkey,
   GBIF_EEARGCode(${RESOLUTION}, decimallatitude, decimallongitude, 0) AS eeacellcode,
   "year", "month",
-  COUNT(*) AS occurrences
+  COUNT(*) AS occurrences,
+  MIN(COALESCE(coordinateuncertaintyinmeters, 1000)) AS mincoordinateuncertaintyinmeters,
+  MIN(GBIF_TemporalUncertainty(eventdate)) AS mintemporaluncertainty,
+  COUNT(DISTINCT recordedby) AS distinctobservers
 FROM occurrence
 WHERE countrycode = '${COUNTRY_CODE}'
   AND hascoordinate = TRUE
