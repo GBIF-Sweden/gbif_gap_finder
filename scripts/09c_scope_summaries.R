@@ -137,6 +137,10 @@ if (!file.exists(recon_path)) {
 }
 
 recon <- as.data.table(readRDS(recon_path))
+# specieskey is the cross-table join key. Force ONE type (character) everywhere it
+# is joined — the reconciliation RDS carries it as character but the parquet cube
+# and fread'd CSVs carry it as integer, which breaks the merges below.
+recon[, specieskey := as.character(specieskey)]
 cli_alert_success("Loaded reconciliation: {scales::comma(nrow(recon))} species")
 
 # Resolve threat status to a single column (first non-NA per row)
@@ -338,7 +342,8 @@ load_cube_scoped <- function(parquet_path, grid_label) {
 
   dt[, occ_num := as.numeric(occurrences)]
 
-  # Join scope flags
+  # Join scope flags (coerce the cube key to character to match scope_lookup)
+  dt[, specieskey := as.character(specieskey)]
   dt <- merge(dt, scope_lookup, by = "specieskey", all.x = TRUE)
   for (flag in SCOPE_FLAGS) {
     dt[is.na(get(flag)), (flag) := FALSE]

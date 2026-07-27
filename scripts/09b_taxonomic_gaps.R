@@ -116,6 +116,10 @@ if (!file.exists(recon_path)) {
 }
 
 recon <- as.data.table(readRDS(recon_path))
+# specieskey is the cross-table join key; force character everywhere it is joined
+# (sk_to_taxon below) so integer/character drift between the reconciliation RDS
+# and the fread'd species_cell CSVs cannot break the merges.
+recon[, specieskey := as.character(specieskey)]
 cli_alert_success("Loaded reconciliation: {scales::comma(nrow(recon))} GBIF species")
 
 # Quick check
@@ -512,7 +516,8 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
   }
 
   # Join cell counts to matched backbone taxa via reconciliation
-  # Step 1: map specieskey -> backbone_taxonID
+  # Step 1: map specieskey -> backbone_taxonID (both keys coerced to character)
+  sp_cells[, specieskey := as.character(specieskey)]
   sk_to_taxon <- recon[match_tier != "unmatched",
                        .(specieskey, backbone_taxonID)]
 
