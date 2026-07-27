@@ -462,7 +462,10 @@ validate_schema <- function(dt, schema, label = "dataset") {
 
 # --- Schema definitions (unchanged) ---
 schema_reconciliation <- list(
-  specieskey              = list(required = TRUE,  type = "numeric"),
+  # character: specieskey is the cross-table join key and is standardised as
+  # character across the pipeline (read_cube(), 09b/09c joins). 09a pins it to
+  # character before saving, so the reconciliation table must validate as such.
+  specieskey              = list(required = TRUE,  type = "character"),
   species                 = list(required = TRUE,  type = "character"),
   total_occ               = list(required = TRUE,  type = "numeric"),
   backbone_taxonID        = list(required = TRUE,  type = "character"),

@@ -95,6 +95,17 @@ gbif_raw <- rbindlist(lapply(sum_files, fread,
   select = c("specieskey", "species", "basisofrecord", "occurrences", "class")
 ), fill = TRUE)
 
+# specieskey is the cross-table join key. The rest of the pipeline standardises
+# it as CHARACTER (read_cube() in R/globals.R, and the joins in 09b/09c), so 09a
+# must emit character too. fread() infers specieskey as integer for some
+# species_summary files and as character for others (e.g. a key beyond 32-bit
+# int range, or a blank), and rbindlist() then unifies the whole column to
+# character whenever ANY file tripped character inference -- a non-deterministic
+# type that breaks BOTH the reconciliation schema (previously "numeric") and the
+# integer-vs-character cube joins in 09b/09c. Pin it once here so the output type
+# is stable regardless of what fread/rbindlist inferred.
+gbif_raw[, specieskey := as.character(specieskey)]
+
 # Aggregate: one row per specieskey with total occurrences.
 # A species may appear in multiple files (by_order + by_family splits).
 # Carry a representative class (first non-blank) so we can scope-filter the
