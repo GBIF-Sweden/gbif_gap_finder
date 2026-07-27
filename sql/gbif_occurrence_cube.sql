@@ -24,6 +24,16 @@
 -- The eeaCellCode randomisation radius stays 0, so cell assignment is unchanged
 -- from the pre-b3verse cube; uncertainty is reported as a measure, not used to
 -- perturb the grid.
+--
+-- Taxonomic backbone: specieskey / kingdom / phylum / class / order / family are
+-- interpreted by GBIF against its CURRENT DEFAULT backbone, now the Catalogue of
+-- Life Extended Release (COL XR) — a permanent 2025 switch. So specieskey is a
+-- COL taxonID (alphanumeric, e.g. "6VFN8"), not an integer nub key. A SQL
+-- occurrence download CANNOT pin a checklist (the checklistKey selector exists
+-- only on the predicate download API), so COL is a documented dependency here,
+-- not a request parameter: the pinned key lives in
+-- parameters.taxonomic.col_checklist_key and is resolved for citation/provenance
+-- by scripts/01b_resolve_data_sources.R (data_sources_meta$checklists$col_backbone).
 SELECT
   specieskey, species, kingdom, phylum, class, "order", family,
   basisofrecord, publishingorgkey, datasetkey,

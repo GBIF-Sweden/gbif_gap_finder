@@ -197,6 +197,29 @@ for (src in c("redlist", "invasives", "sensitive")) {
   }
 }
 
+# GBIF interprets occurrences against its default backbone, now the Catalogue of
+# Life Extended Release (COL XR): the cube's specieskey is a COL taxonID and
+# kingdom..family are COL's, so COL is a data source of record even though it is
+# not downloaded as a file. Resolve its checklist dataset for citation/provenance
+# from the key pinned in config. A SQL occurrence download cannot pin a checklist,
+# so this DOCUMENTS (does not control) the backbone the cube was interpreted
+# against. Non-fatal: unlike a dead cube key, a transient COL lookup failure is
+# reported but must never stop the pipeline.
+col_key <- cfg_get("parameters.taxonomic.col_checklist_key",
+                   "7ddf754f-d193-4cc9-b351-99906754a03b")
+checklists$col_backbone <- resolve_dataset(
+  col_key, NULL,
+  "Catalogue of Life Extended Release (GBIF default backbone)",
+  "COL backbone"
+)
+if (isTRUE(checklists$col_backbone$resolves)) {
+  cli_alert_success("COL backbone resolved: {checklists$col_backbone$doi %||% col_key}")
+} else {
+  cli_alert_warning(
+    "COL backbone key {col_key} did not resolve on GBIF \u2014 provenance only, \\
+     continuing. ({checklists$col_backbone$reason %||% 'unknown reason'})")
+}
+
 cli_alert_info("Fetching contributing datasets from the 10 km cube download \u2026")
 contributing <- resolve_contributing_datasets(cube_download_key("grid10km"))
 n_contrib    <- if (is.null(contributing)) 0L else nrow(contributing)

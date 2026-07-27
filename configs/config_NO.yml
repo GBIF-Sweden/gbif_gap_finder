@@ -135,6 +135,12 @@ parameters:
     stale_months_60: 60
 
   taxonomic:
+    # --- GBIF taxonomic backbone: Catalogue of Life Extended Release (COL XR) ---
+    # GBIF's permanent default backbone (2025). The cube's `specieskey` is a COL
+    # taxonID and kingdom..family are COL's; a SQL download cannot pin a checklist,
+    # so this records the backbone the cube is interpreted against. Used by 09a
+    # (name matching) and 01b (provenance).
+    col_checklist_key: "7ddf754f-d193-4cc9-b351-99906754a03b"
     min_occurrences: 10
     min_cells: 5
     gap_species_only: true                                 # gap denominator = species-rank backbone taxa only

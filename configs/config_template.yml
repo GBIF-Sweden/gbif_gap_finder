@@ -148,6 +148,14 @@ parameters:
     stale_months_60: 60
 
   taxonomic:
+    # --- GBIF taxonomic backbone: Catalogue of Life Extended Release (COL XR) ---
+    # GBIF permanently switched its default backbone to the COL Extended Release
+    # (2025): the cube's `specieskey` is a COL taxonID (alphanumeric) and
+    # kingdom..family are COL's. A SQL occurrence download cannot pin a checklist,
+    # so this records the backbone GBIF interprets the cube against. Drives name
+    # matching in 09a and provenance resolution in 01b. Update only if GBIF's
+    # default COL checklist key changes.
+    col_checklist_key: "7ddf754f-d193-4cc9-b351-99906754a03b"
     # When true, kingdom-scopes the 06a/08 cube ("all") to backbone kingdoms.
     # Keep FALSE so the occurrence-based tabs report all of GBIF and dashboard
     # totals reconcile with the app; only Taxonomic/Concern are backbone-relative.
