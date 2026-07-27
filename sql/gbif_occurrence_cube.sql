@@ -19,7 +19,7 @@
 -- Measures are aggregates over each group (never GROUP BY dimensions):
 --   occurrences                      = COUNT(*)
 --   mincoordinateuncertaintyinmeters = MIN(COALESCE(coordinateUncertaintyInMeters, 1000))
---   mintemporaluncertainty           = MIN(GBIF_TemporalUncertainty(eventDate))  -- seconds
+--   mintemporaluncertainty           = MIN(GBIF_TemporalUncertainty(eventDate, NULL))  -- seconds; 2nd arg = time (null when only a date)
 --   distinctobservers                = COUNT(DISTINCT recordedBy)
 -- The eeaCellCode randomisation radius stays 0, so cell assignment is unchanged
 -- from the pre-b3verse cube; uncertainty is reported as a measure, not used to
@@ -31,7 +31,7 @@ SELECT
   "year", "month",
   COUNT(*) AS occurrences,
   MIN(COALESCE(coordinateuncertaintyinmeters, 1000)) AS mincoordinateuncertaintyinmeters,
-  MIN(GBIF_TemporalUncertainty(eventdate)) AS mintemporaluncertainty,
+  MIN(GBIF_TemporalUncertainty(eventdate, NULL)) AS mintemporaluncertainty,
   COUNT(DISTINCT recordedby) AS distinctobservers
 FROM occurrence
 WHERE countrycode = '${COUNTRY_CODE}'
