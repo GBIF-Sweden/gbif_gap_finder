@@ -53,7 +53,7 @@ col_checklist_key <- cfg_get("parameters.taxonomic.col_checklist_key",
                              "7ddf754f-d193-4cc9-b351-99906754a03b")
 include_synonyms  <- isTRUE(cfg_get("parameters.taxonomic.crosswalk_include_synonyms", TRUE))
 min_fuzzy_conf    <- cfg_get("parameters.taxonomic.crosswalk_min_fuzzy_confidence", 90)
-use_bulk          <- isTRUE(cfg_get("parameters.taxonomic.crosswalk_use_bulk_rgbif", TRUE))
+use_bulk          <- isTRUE(cfg_get("parameters.taxonomic.crosswalk_use_bulk_rgbif", FALSE))  # default off: the parallel httr2 path below is fast + rgbif-version-independent
 api_rate_limit    <- 10
 api_max_requests  <- cfg_get("parameters.taxonomic.api_max_requests", 5000)
 api_max_batches   <- cfg_get("parameters.taxonomic.api_max_batches", Inf)
@@ -233,7 +233,11 @@ if (use_bulk && length(to_query) > 0) {
   to_query <- cand$name_std[!(cand$name_std %in% names(api_cache))]
 }
 
-# --- Serial fallback: httr2 /v2/species/match (verified response shape) ------
+# --- Parallel matcher: httr2 /v2/species/match (verified response shape) -----
+# Concurrency-capped parallel requests. GBIF's own name_backbone_checklist uses
+# bucket_size 300, so a cap of ~20 is very conservative and ~10-20x the old
+# per-name serial loop. Resumes from cache; transport errors are NOT cached, so
+# they retry on the next run. Tunable: parameters.taxonomic.crosswalk_parallel_conc.
 if (length(to_query) > 0) {
   if (!requireNamespace("httr2", quietly = TRUE)) {
     cli_alert_warning(
@@ -241,46 +245,69 @@ if (length(to_query) > 0) {
        install.packages('httr2') and rerun (cache persists).")
   } else {
     library(httr2)
-    n_batches_needed <- ceiling(length(to_query) / api_max_requests)
-    n_batches_to_run <- min(n_batches_needed, api_max_batches)
-    est_min <- round(min(length(to_query), n_batches_to_run * api_max_requests) /
-                       api_rate_limit / 60, 1)
-    cli_alert_info(
-      "Serial: {scales::comma(length(to_query))} names, \\
-       up to {n_batches_to_run} batch(es) of {scales::comma(api_max_requests)} (~{est_min} min)"
-    )
-    n_batches_run <- 0L; total_err <- 0L
-    remaining <- to_query
-    while (length(remaining) > 0 && n_batches_run < api_max_batches) {
-      n_batches_run <- n_batches_run + 1L
-      bsz <- min(length(remaining), api_max_requests)
-      batch <- remaining[seq_len(bsz)]
-      pb <- cli_progress_bar(paste0("COL match batch ", n_batches_run), total = bsz)
-      for (i in seq_len(bsz)) {
-        nm <- batch[i]
-        tryCatch({
-          resp <- request("https://api.gbif.org/v2/species/match") |>
-            req_url_query(checklistKey = col_checklist_key, scientificName = nm) |>
-            req_retry(max_tries = 3, backoff = ~ 2) |>
-            req_throttle(rate = api_rate_limit) |>
-            req_perform()
-          j <- resp_body_json(resp)
-          api_cache[[nm]] <- extract_match(j$usage, j$acceptedUsage, j$diagnostics)
-        }, error = function(e) {
-          total_err <<- total_err + 1L   # NOT cached -> retried next run
-        })
-        cli_progress_update(id = pb)
-        if (i %% 500 == 0) saveRDS(api_cache, cache_file)
+    max_conc  <- cfg_get("parameters.taxonomic.crosswalk_parallel_conc", 20)
+    chunk_sz  <- cfg_get("parameters.taxonomic.crosswalk_parallel_chunk", 500)
+    max_names <- cfg_get("parameters.taxonomic.crosswalk_max_names_per_run", Inf)
+    to_run <- if (is.finite(max_names)) utils::head(to_query, max_names) else to_query
+
+    # Version-robust concurrency: newer httr2 takes `max_active`, older a `pool`.
+    perform_parallel <- function(reqs) {
+      fmls <- names(formals(httr2::req_perform_parallel))
+      args <- list(reqs, on_error = "continue")
+      if ("max_active" %in% fmls) {
+        args$max_active <- max_conc
+      } else if (requireNamespace("curl", quietly = TRUE)) {
+        args$pool <- curl::new_pool(total_con = max_conc, host_con = max_conc)
       }
-      cli_progress_done(id = pb)
-      saveRDS(api_cache, cache_file)
-      remaining <- remaining[-seq_len(bsz)]
-      cli_alert_success("Batch {n_batches_run}: {scales::comma(bsz)} queried ({total_err} transport errors so far)")
+      do.call(httr2::req_perform_parallel, args)
     }
-    if (length(remaining) > 0) {
+
+    n_run   <- length(to_run)
+    est_min <- max(1, round(n_run / max_conc / 5))   # ~5 resolved/sec per active slot
+    cli_alert_info(
+      "Parallel match: {scales::comma(n_run)} names, up to {max_conc} concurrent \\
+       (~{est_min} min). Cache resumes across runs."
+    )
+    total_err <- 0L
+    pb <- cli_progress_bar("COL match (parallel)", total = n_run)
+    i0 <- 0L
+    while (i0 < n_run) {
+      idx  <- seq.int(i0 + 1L, min(i0 + chunk_sz, n_run))
+      nms  <- to_run[idx]
+      reqs <- lapply(nms, function(nm) {
+        request("https://api.gbif.org/v2/species/match") |>
+          req_url_query(checklistKey = col_checklist_key, scientificName = nm) |>
+          req_retry(max_tries = 3, backoff = ~ 2) |>
+          req_error(is_error = function(resp) FALSE)   # keep 4xx as a response
+      })
+      resps <- tryCatch(perform_parallel(reqs), error = function(e) {
+        cli_alert_warning("Parallel chunk failed ({conditionMessage(e)}) -- retrying serially")
+        lapply(reqs, function(rq) tryCatch(req_perform(rq), error = function(e) e))
+      })
+      for (k in seq_along(nms)) {
+        r <- resps[[k]]
+        if (inherits(r, "httr2_response")) {
+          j <- tryCatch(resp_body_json(r), error = function(e) NULL)
+          if (!is.null(j)) {
+            api_cache[[nms[k]]] <- extract_match(j$usage, j$acceptedUsage, j$diagnostics)
+          } else total_err <- total_err + 1L
+        } else {
+          total_err <- total_err + 1L   # NOT cached -> retried next run
+        }
+      }
+      saveRDS(api_cache, cache_file)
+      i0 <- i0 + length(idx)
+      cli_progress_update(id = pb, set = i0)
+    }
+    cli_progress_done(id = pb)
+    cli_alert_success(
+      "Parallel match done: {scales::comma(n_run)} names queried \\
+       ({total_err} transport errors, retried next run)"
+    )
+    if (is.finite(max_names) && length(to_query) > n_run) {
       cli_alert_info(
-        "{scales::comma(length(remaining))} names deferred (hit api_max_batches). \\
-         Rerun to continue -- cache persists.")
+        "{scales::comma(length(to_query) - n_run)} names deferred \\
+         (crosswalk_max_names_per_run) -- rerun to continue.")
     }
   }
 }
