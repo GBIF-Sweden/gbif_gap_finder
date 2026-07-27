@@ -583,6 +583,12 @@ read_cube <- function(parquet_path, cols = NULL, grid_label = NULL,
   }
   dt <- data.table::as.data.table(dplyr::collect(ds))
 
+  # specieskey is the join key against the (character) taxonomic reconciliation
+  # and scope lookups; coerce to character so a cube whose CSV typed it as an
+  # integer (the automated occ_download_sql export does) still joins. Matches the
+  # type the pre-b3verse manual-export cubes carried.
+  if ("specieskey" %in% names(dt)) dt[, specieskey := as.character(specieskey)]
+
   # Create yearmonth from year + month (NA-safe)
   if (all(c("year", "month") %in% names(dt)) && !"yearmonth" %in% names(dt)) {
     dt[, yearmonth := fifelse(

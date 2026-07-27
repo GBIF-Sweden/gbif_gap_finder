@@ -300,11 +300,33 @@ check_cube_in_grid <- function(pq_file, grid_gpkg, label) {
          scales::comma(length(orphans)), "` not in grid\n")
   if (length(orphans) == 0) {
     md_check(glue("{label}: all cube cells present in the grid"), "ok")
+    return(invisible(NULL))
+  }
+
+  # A few edge/border cells outside the land-clipped grid are expected data drift
+  # in a fresh GBIF pull (e.g. a coastal occurrence). Report exactly which cells
+  # and how many occurrences get dropped (never silent), and only FAIL the build
+  # when the mismatch is large enough to signal a real problem (wrong grid or
+  # resolution), not a handful of edge cells. Tunable tolerance:
+  orphan_tol <- 10L
+  orphan_occ <- sum(as.numeric(dplyr::collect(dplyr::summarise(
+    dplyr::filter(dplyr::select(arrow::open_dataset(pq_file), eeacellcode, occurrences),
+                  eeacellcode %in% orphans),
+    occ = sum(occurrences, na.rm = TRUE)))$occ))
+  show_codes <- paste(utils::head(sort(orphans), 5), collapse = ", ")
+  md_add("- ", label, ": dropping `", scales::comma(orphan_occ), "` occurrence(s) in `",
+         scales::comma(length(orphans)), "` non-grid cell(s): ", show_codes,
+         if (length(orphans) > 5) ", …" else "", "\n")
+  if (length(orphans) <= orphan_tol) {
+    md_check(glue("{label}: {length(orphans)} edge cell(s) outside the grid, \\
+                  {scales::comma(orphan_occ)} occ dropped — within tolerance ({orphan_tol})"), "warn")
+    cli_alert_warning("{label}: {length(orphans)} non-grid cell(s), \\
+                      {scales::comma(orphan_occ)} occ dropped (within tolerance)")
   } else {
     md_check(glue("{label}: {scales::comma(length(orphans))} cube cell(s) absent from grid \\
-                  — occurrences silently dropped"), "fail")
+                  — {scales::comma(orphan_occ)} occ dropped (exceeds tolerance {orphan_tol})"), "fail")
     critical_failures <<- c(critical_failures,
-      glue("{label}: {length(orphans)} cube cell(s) not in the grid"))
+      glue("{label}: {length(orphans)} cube cell(s) not in the grid (> tolerance {orphan_tol})"))
   }
 }
 
