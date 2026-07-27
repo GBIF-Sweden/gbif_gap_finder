@@ -24,7 +24,7 @@
 # Outputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds       Main lookup table
 #   - data/{CC}/proc/taxa_reference_classified.rds      Classified backbone (read by 09b, T-R5)
-#   - data/{CC}/proc/gbif_name_cache.rds                Cached GBIF API responses
+#   - data/{CC}/proc/col_synonym_cache.rds              Cached COL synonym lookups
 #   - data/{CC}/proc/gaps/taxonomic_match_table.csv      Reconciliation as CSV
 #   - data/{CC}/proc/gaps/taxonomic_reconciliation_summary.csv  Tier-level summary
 #
@@ -61,8 +61,19 @@ api_max_batches <- cfg_get("parameters.taxonomic.api_max_batches", Inf)
 # GBIF API rate limit (requests per second, GBIF allows ~10)
 api_rate_limit <- 10
 
-# Cache file for GBIF API responses (persists across reruns)
-cache_file <- here(p_data_proc, "gbif_name_cache.rds")
+# Cache file for COL synonym lookups (persists across reruns). NOTE: a FRESH
+# file, deliberately not the old gbif_name_cache.rds -- that cache holds ~20k
+# HTTP-400 negative entries from the retired integer-key endpoint, which would
+# otherwise be treated as "already queried" and permanently suppress matches.
+# The old gbif_name_cache.rds can be deleted.
+cache_file <- here(p_data_proc, "col_synonym_cache.rds")
+
+# GBIF now interprets occurrences against the Catalogue of Life (COL) backbone,
+# so the cube's `specieskey` is a COL taxonID (alphanumeric, e.g. "6VFN8"), not
+# an integer nub key. Tier 4 resolves synonyms within this COL checklist dataset;
+# override per-country in config if GBIF's COL checklist key ever changes.
+col_checklist_key <- cfg_get("parameters.taxonomic.col_checklist_key",
+                             "7ddf754f-d193-4cc9-b351-99906754a03b")
 
 # Output paths (p_gaps defined in R/globals.R)
 # Directory created by ensure_dirs() in 00_setup.R
@@ -446,16 +457,20 @@ cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
 
 # ============================================================================
-# TIER 4: GBIF Species API
+# TIER 4: COL synonym lookup (GBIF ChecklistBank)
 # ============================================================================
 # For remaining unmatched species above the occurrence threshold:
-#   1. Query GBIF Species API for synonyms of each specieskey
-#   2. Check if any returned synonym matches a backbone name
-#   3. Cache all API responses so reruns are instant
+#   1. Resolve the cube's COL taxonID -> GBIF integer usage key (sourceId lookup)
+#   2. Query that usage's synonyms within the COL checklist dataset
+#   3. Check if any returned synonym matches a backbone name
+#   4. Cache all responses so reruns are instant
 #
-# API endpoint: GET https://api.gbif.org/v1/species/{specieskey}/synonyms
+# The cube key is a COL taxonID (e.g. "6VFN8"), not an integer, so the classic
+# GET /v1/species/{key}/synonyms 400s on it. COL-aware path instead:
+#   GET /v1/species?datasetKey={COL}&sourceId={taxonID}  -> integer usage key
+#   GET /v1/species/{usageKey}/synonyms                  -> synonym names
 
-cli_h2("Tier 4: GBIF Species API lookup")
+cli_h2("Tier 4: COL synonym lookup (GBIF ChecklistBank)")
 
 t4_pool <- recon[is.na(match_tier), .(specieskey, species, name_std, total_occ)]
 
@@ -543,54 +558,65 @@ if (nrow(remaining) > 0 && api_available) {
       sk <- batch$sk_chr[i]
 
       tryCatch({
-        resp <- request(paste0("https://api.gbif.org/v1/species/", sk, "/synonyms")) |>
-          req_url_query(limit = 100) |>
+        # Step 1: resolve the COL taxonID (the cube's specieskey, e.g. "6VFN8")
+        # to GBIF's integer usage key within the COL checklist dataset. The
+        # /synonyms endpoint is keyed by that integer usage key, not the taxonID.
+        src <- request("https://api.gbif.org/v1/species") |>
+          req_url_query(datasetKey = col_checklist_key, sourceId = sk) |>
           req_retry(max_tries = 3, backoff = ~ 2) |>
           req_throttle(rate = api_rate_limit) |>
           req_perform()
+        src_results <- resp_body_json(src)$results %||% list()
 
-        body <- resp_body_json(resp)
-        results <- body$results %||% list()
-
-        # Extract synonym names from API results
-        # scientificName includes authorship (e.g., "Cortinarius odorifer (Britzelm.) Bres.")
-        # species is the canonical binomial (e.g., "Cortinarius odorifer")
-        # We need both, plus a stripped version of scientificName as fallback
-        # when the 'species' field is missing
+        # Extract synonym names. scientificName carries authorship (e.g.
+        # "Sylvia communis Latham, 1787"); species is the canonical binomial
+        # ("Sylvia communis"). Keep both, plus a stripped-binomial fallback.
         all_names <- character(0)
 
-        for (r in results) {
-          sn <- tolower(trimws(r$scientificName %||% ""))
-          cn <- tolower(trimws(r$species %||% ""))
+        if (length(src_results) > 0) {
+          usage_key <- src_results[[1]]$key
 
-          if (nzchar(cn)) all_names <- c(all_names, cn)
-          if (nzchar(sn)) {
-            all_names <- c(all_names, sn)
-            # Also extract canonical binomial from scientificName
-            # (first two lowercase words, ignoring authorship)
-            parts <- strsplit(sn, "\\s+")[[1]]
-            if (length(parts) >= 2 &&
-                grepl("^[a-z]+$", parts[1]) &&
-                grepl("^[a-z-]+$", parts[2])) {
-              all_names <- c(all_names, paste(parts[1], parts[2]))
+          # Step 2: fetch this usage's synonyms from the COL checklist.
+          resp <- request(paste0("https://api.gbif.org/v1/species/", usage_key, "/synonyms")) |>
+            req_url_query(limit = 200) |>
+            req_retry(max_tries = 3, backoff = ~ 2) |>
+            req_throttle(rate = api_rate_limit) |>
+            req_perform()
+          results <- resp_body_json(resp)$results %||% list()
+
+          for (r in results) {
+            sn <- tolower(trimws(r$scientificName %||% ""))
+            cn <- tolower(trimws(r$species %||% r$canonicalName %||% ""))
+
+            if (nzchar(cn)) all_names <- c(all_names, cn)
+            if (nzchar(sn)) {
+              all_names <- c(all_names, sn)
+              # Canonical binomial from scientificName (first two lowercase words)
+              parts <- strsplit(sn, "\\s+")[[1]]
+              if (length(parts) >= 2 &&
+                  grepl("^[a-z]+$", parts[1]) &&
+                  grepl("^[a-z-]+$", parts[2])) {
+                all_names <- c(all_names, paste(parts[1], parts[2]))
+              }
             }
           }
         }
 
         all_names <- unique(all_names[all_names != ""])
 
+        # Cache the (possibly empty) result. Empty is a VALID answer here (no COL
+        # usage for this key, or a taxon with no synonyms) and is cached so reruns
+        # skip it. Transport errors are handled below and deliberately NOT cached.
         api_cache[[sk]] <- list(
           synonyms   = all_names,
-          queried_at = Sys.time(),
-          n_results  = length(results)
+          queried_at = Sys.time()
         )
       },
       error = function(e) {
-        api_cache[[sk]] <<- list(
-          synonyms   = character(0),
-          queried_at = Sys.time(),
-          error      = conditionMessage(e)
-        )
+        # Do NOT persist transport errors as negative cache entries. The old
+        # integer-key code cached HTTP failures, so one bad run permanently
+        # suppressed ~20k lookups (Tier 4 collapsed 3,179 -> 92). Left uncached,
+        # `already_cached` stays FALSE for them and they retry on the next run.
         n_batch_errors <<- n_batch_errors + 1L
       })
 
@@ -616,10 +642,11 @@ if (nrow(remaining) > 0 && api_available) {
       " ({n_batch_errors} errors, cache: {scales::comma(length(api_cache))} total)"
     )
 
-    # Refresh remaining pool (some entries might now be cached that weren't before,
-    # though in practice this is just batch-by-batch slicing)
-    already_cached <- remaining$sk_chr %in% names(api_cache)
-    remaining <- remaining[!already_cached]
+    # Drop the rows we just attempted (cached OR errored) so the batch loop always
+    # makes progress even when some keys error. Uncached transport errors are
+    # picked up again on the NEXT run via the cache-membership check above --
+    # retried, never permanently lost, and never spinning forever within a run.
+    remaining <- remaining[-seq_len(batch_size)]
   }
 
   if (total_api_errors > 0) {
