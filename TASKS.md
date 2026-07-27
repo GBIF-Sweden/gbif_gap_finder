@@ -20,27 +20,37 @@
 
 ## Tier 1 — Major work
 
-*Substantial builds. Mostly post-Ebbe; none are on the immediate critical path.*
+*Substantial builds.* **Sequencing (updated 2026-07-24 with Lena):** the **key-findings panel**
+shipped (done 2026-07-24); **Norway replication** is now the next build — de-risked and ready (it ran
+clean end-to-end before the session-5 changes, and per-country folders + the single `GBIF_GAP_COUNTRY`
+selector are now tight); **Gap Trends** + **b3verse** are scheduled for the following sprint (~next
+week); **family-level resolution** waits on Kevin's per-group call.
 
-- [ ] **Auto-generated "key findings" panel (Overview)** — a top "what matters" panel with
-  4–6 auto findings (largest spatial gaps, most underrepresented groups, key threatened-species
-  gaps, stale areas, publisher-dependency risks). *The persona "start here" nav is already
-  built; this auto-panel is the remaining Overview piece.* App-side. *(§1.11.2)*
+- [x] **Auto-generated "key findings" panel (Overview)** — *done 2026-07-24 (commit `5fef6f6`).*
+  A top "what matters" strip with auto-computed findings (spatial coverage, staleness,
+  threatened-species gap, most under-represented group, publisher dependency, recent momentum), each
+  reusing its tab's reactive so the numbers reconcile; zero-value gaps and missing bundle objects
+  drop their card, and the most severe gap is auto-ranked as the headline. *The persona "start here"
+  nav was already built; this was the remaining Overview piece.* **App-side only (app.R →
+  redeploy, no `tar_make`).** *(§1.11.2)*
 
-- [ ] **Norway replication, end-to-end (Phase 2)**
+- [ ] **▶ Norway replication, end-to-end (Phase 2)** — *▶ NEXT BUILD (2026-07-24, now that the
+  key-findings panel has shipped). Ready to run: ran clean end-to-end before the session-5 changes,
+  and the prereqs (`dyntaxa_*`→`backbone_*` rename T-R7 + per-country data folders + single
+  `GBIF_GAP_COUNTRY`) are now done, so a clean re-run is expected. Not blocking — go when wanted.*
   - [ ] Fill `config_NO.yml` (taxonomy DOI, red-list DOI, GBIF cube DOIs).
   - [ ] Download NO cubes + EEA grid clipped to Norway + Nortaxa DwC-A; run full pipeline.
   - [ ] Document Sweden-specific assumptions that break (column names, red-list format, synonym
-    structure). *Prereq: the `dyntaxa_*` key rename (T-R7) and per-country data folders.*
+    structure).
 
-- [ ] **Snapshot-based "Gap Trends" retrospective** *(supersedes T-D3)*
+- [ ] **Snapshot-based "Gap Trends" retrospective** *(supersedes T-D3; scheduled for the following sprint, ~next week — 2026-07-24)*
   - [ ] Generate cubes from GBIF monthly snapshots (DuckDB/Arrow) instead of SQL-API downloads.
   - [ ] Multi-snapshot runner across dates (2023/2024/2025); collect dashboard metrics.
   - [ ] New "Gap Trends" tab/report (coverage %, zero-coverage cells, stale-cell trend,
     threatened trajectory, publisher diversity).
   - [ ] Rebuild "published to GBIF over time" from dated snapshots (replaces the retired cube column).
 
-- [ ] **b3verse cube-stack rewrite** *("Bundle B"; scope & timing TBD)* — migrate the cube schema
+- [ ] **b3verse cube-stack rewrite** *("Bundle B"; scheduled for the following sprint alongside Gap Trends, ~next week — 2026-07-24)* — migrate the cube schema
   to the b3verse / b-cubed standard; automate downloads via `rgbif::occ_download_sql()`; canonicalise
   the SQL so the `GROUP BY` query *is* the cube spec. *Overlaps with the snapshot retrospective
   (cube generation); the snapshot/diff use case lives there.*
@@ -51,7 +61,7 @@
     — *done 2026-07-24: family×cell ≈ 2 M rows / ~110 MB RAM / ~19–29 MB compressed at 10km
     (11.6× class-level, larger than `publisher_cell_taxonomy`), and sparse (36 % of groups ≤5
     occ) → **drill-down-only**. See `claude/finding-family-resolution-2026-07-24.md`.*
-  - [ ] Decide family-as-default vs drill-down-only (consult Kevin per group); then build.
+  - [ ] Decide family-as-default vs drill-down-only — **gated on Kevin's per-group call (confirmed 2026-07-24); parked until then.** Recommendation stands: drill-down-only, per-group and/or occ>5. Then build.
 
 ---
 
@@ -94,9 +104,10 @@
   not the heavy item → NOT pre-aggregated (see claude/finding-bundle-size-2026-07-23.md).
 
 ### Portability
-- [ ] **Per-country app data folders** — `shiny_app/.../data/{CC}/shiny_data.rds` so country
-  bundles coexist. Touches script 11 (output path), `app.R` (load path), Dockerfile (COPY),
-  `.gitignore`, `_targets.R`.
+- [x] **Per-country app data folders** — *done 2026-07-24 (commits `2c70d0d` + `9c12c23`).*
+  `shiny_app/.../data/{CC}/shiny_data.rds` so country bundles coexist; script 11 (output path),
+  `app.R` (single `GBIF_GAP_COUNTRY` load path), Dockerfile (`ARG`/COPY), CI, `.gitignore`,
+  `_targets.R` all aligned.
 
 ### Deferred
 - [ ] ⏸ **T-D5** — Swedish marine cells: include the EEZ in the country clip. Geometry change

@@ -85,7 +85,11 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 - **Version:** v0.4.3. **Correctness round complete (2026-07)** — a full audit reconciled every
   headline number across Overview / Taxonomic / Concern, fixed the miscalculations (see Part 3),
   and added `scripts/12_reconcile.R` as a build-time guardrail. Numbers are clean.
-- **Norway:** scaffolded (`config_NO.yml`, feature flags) but not yet run end-to-end.
+- **Overview "key findings" panel:** shipped 2026-07-24 (app-side, `app.R`) — an auto-generated
+  "what matters most" strip at the top of Overview so a policymaker grasps the headline gaps without
+  opening eight tabs. *(See ROADMAP §C and TASKS Tier 1.)*
+- **Norway:** scaffolded (`config_NO.yml`, feature flags); **ran clean end-to-end before the 2026-07
+  per-country changes** and expected clean now — ready to re-run (not yet re-run post-changes).
 - **Disclaimer:** Built with AI assistance (Anthropic's Claude).
 
 ---
@@ -224,12 +228,21 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 
 ## C. Larger features (planned — scope & timing TBD)
 
-### Norway replication & country abstraction (Phase 2)
+> **Sequencing (updated 2026-07-24 with Lena).** The **auto-generated "key findings" panel** shipped
+> (done 2026-07-24, app-side; below). Next build: **Norway replication** — de-risked (it ran clean
+> end-to-end *before* the session-5 changes, and per-country folders + the single `GBIF_GAP_COUNTRY`
+> selector are now tight, so a clean re-run is expected; go whenever wanted). **Gap Trends** and the
+> **b3verse rewrite** are scheduled for the following sprint (~next week). **Family-level resolution**
+> stays parked on Kevin's per-group call.
+
+### Norway replication & country abstraction (Phase 2) — ▶ NEXT BUILD (2026-07-24)
+*Ready to run: ran clean before the session-5 changes; the per-country + `GBIF_GAP_COUNTRY` prereqs are now tight. The next build now that the key-findings panel has shipped (2026-07-24).*
 - [ ] Fill `config_NO.yml` DOIs; run end-to-end; document Sweden-specific assumptions that break.
 - [ ] Taxonomy / red-list **field abstraction** (generic DwC-A mapping, varying threat-status columns).
 - [ ] Generic **"bring your own grid"** support (cell-ID field + CRS config; remove EEA-specific assumptions).
 
 ### Snapshot-based retrospective — "Gap Trends" (high value)
+*Scheduled for the following sprint (~next week), after the key-findings panel (2026-07-24).*
 GBIF publishes complete monthly snapshots in Parquet. This unlocks two things:
 - [ ] **Generate cubes from snapshots** (DuckDB/Arrow) instead of SQL-API downloads — a
   self-contained pipeline with no manual download step.
@@ -239,14 +252,14 @@ GBIF publishes complete monthly snapshots in Parquet. This unlocks two things:
 - [ ] Rebuild a **"Filling the Tab over time -track"** vtab from dated snapshots here.
 
 ### b3verse cube-stack rewrite
-*From the 2026-05 strategic session ("Bundle B"). Recorded as a workstream; scope & timing TBD.*
+*From the 2026-05 strategic session ("Bundle B"). Scheduled alongside Gap Trends for the following sprint (~next week, 2026-07-24); scope & timing still loose.*
 - [ ] **Migrate the cube schema to the b3verse / b-cubed standard**, so Gap Finder cubes are interoperable with the wider b-cubed tooling ecosystem.
 - [ ] **Automate cube downloads via `rgbif::occ_download_sql()`** — replace the current manual SQL-API download step with a programmatic flow.
 - [ ] **SQL canonicalisation** — treat the `GROUP BY` query as the cube spec (the query *is* the definition), so a cube is fully reproducible from its SQL.
 - *Overlaps with the snapshot retrospective above — both make cube generation automated and self-contained; the snapshot/diff use case is covered there.*
 
-### Auto-generated "key findings" panel (Overview)
-- [ ] A top **"what matters"** panel with 4–6 auto-generated findings (largest spatial gaps,most underrepresented groups, key threatened-species gaps, stale areas, publisher-dependency risks) so a policymaker grasps the message without opening eight tabs. *(The persona nav is built; this auto-panel is the remaining piece.)*
+### Auto-generated "key findings" panel (Overview) — ✅ DONE (2026-07-24)
+- [x] A top **"what matters"** strip with auto-computed findings (spatial coverage, staleness, threatened-species gap, most under-represented group, publisher dependency, recent momentum), each reusing its tab's reactive so the numbers reconcile; zero-value gaps and missing bundle objects drop their card; the most severe gap is auto-ranked as the headline. Delivered in `app.R` (commit `5fef6f6`); rides the next redeploy. *(The persona nav was already built; this was the remaining Overview piece.)* **App-side only (app.R → redeploy, no `tar_make`).**
 
 ### Operations automation
 - [ ] Scheduled re-runs (cadence likely **half-yearly**), notification + auto-retry,
