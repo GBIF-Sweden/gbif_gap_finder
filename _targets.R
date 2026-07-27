@@ -71,6 +71,7 @@ list(
   tar_target(
     data_sources_meta,
     {
+      raw_data  # 01a writes the cube download keys that 01b resolves
       source(here("scripts", "01b_resolve_data_sources.R"), local = TRUE)
       here("data", COUNTRY_CODE, "proc", "data_sources_meta.rds")
     },
@@ -112,6 +113,7 @@ list(
   tar_target(
     cube_parquet,
     {
+      raw_data  # cubes are downloaded by 01a before conversion
       source(here("scripts", "04_convert_cubes_parquet.R"), local = TRUE)
       manifest_path <- here(p_data_proc, "cubes", "cube_manifest.csv")
       stopifnot(file.exists(manifest_path))

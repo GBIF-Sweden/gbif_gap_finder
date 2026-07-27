@@ -177,8 +177,8 @@ resolve_publisher_count <- function(download_key) {
 cli_h1("Resolving & validating data-source citations ({COUNTRY_CODE})")
 
 cubes <- list(
-  grid10km = resolve_cube(cfg_get("cubes.grid10km.download_key"), "GBIF cube \u2014 10 km"),
-  grid50km = resolve_cube(cfg_get("cubes.grid50km.download_key"), "GBIF cube \u2014 50 km")
+  grid10km = resolve_cube(cube_download_key("grid10km"), "GBIF cube \u2014 10 km"),
+  grid50km = resolve_cube(cube_download_key("grid50km"), "GBIF cube \u2014 50 km")
 )
 
 checklists <- list()
@@ -198,9 +198,9 @@ for (src in c("redlist", "invasives", "sensitive")) {
 }
 
 cli_alert_info("Fetching contributing datasets from the 10 km cube download \u2026")
-contributing <- resolve_contributing_datasets(cfg_get("cubes.grid10km.download_key"))
+contributing <- resolve_contributing_datasets(cube_download_key("grid10km"))
 n_contrib    <- if (is.null(contributing)) 0L else nrow(contributing)
-n_publishers <- resolve_publisher_count(cfg_get("cubes.grid10km.download_key"))
+n_publishers <- resolve_publisher_count(cube_download_key("grid10km"))
 cli_alert_success("Contributing datasets: {n_contrib} from {n_publishers %||% '?'} publisher(s)")
 
 data_sources_meta <- list(

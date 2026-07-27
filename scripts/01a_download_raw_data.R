@@ -214,42 +214,102 @@ if (!sensitive_enabled || sensitive_key == "" || sensitive_url == "") {
 }
 
 # ============================================================================
-# 4. GBIF Occurrence Cubes (SQL API)
+# 4. GBIF Occurrence Cubes (SQL API) — automated via rgbif::occ_download_sql()
 # ============================================================================
+# The cube definition lives in sql/gbif_occurrence_cube.sql and is rendered by
+# render_cube_sql() (R/globals.R): the query IS the cube spec. When GBIF SQL
+# credentials are available we submit + fetch the cubes programmatically;
+# otherwise we print the canonical query for a manual download, so the pipeline
+# always has a path forward.
 
-cli_h1("4 \u2014 GBIF Occurrence Cubes")
+cli_h1("4 — GBIF Occurrence Cubes")
 
-cube_files <- list.files(raw_gbif_cube_dir, pattern = "\\.(csv|parquet)$")
+cube_targets <- list(
+  grid10km = list(resolution = 10000L,
+                  csv = here(raw_gbif_cube_dir, cfg_get("files.cubes.grid10km", "cube_10km.csv"))),
+  grid50km = list(resolution = 50000L,
+                  csv = here(raw_gbif_cube_dir, cfg_get("files.cubes.grid50km", "cube_50km.csv")))
+)
 
-if (length(cube_files) >= 2) {
-  cli_alert_info("Cubes found: {paste(cube_files, collapse = ', ')} \u2014 skipping")
+existing_cubes <- list.files(raw_gbif_cube_dir, pattern = "\\.(csv|parquet)$")
+
+# SQL downloads need GBIF credentials (GBIF_USER / GBIF_PWD / GBIF_EMAIL) and,
+# historically, invited access to the SQL download API. Automate when we can;
+# otherwise fall back to printing the canonical query.
+gbif_creds_present <- all(nzchar(Sys.getenv(c("GBIF_USER", "GBIF_PWD", "GBIF_EMAIL"))))
+can_sql_download   <- gbif_creds_present &&
+  "occ_download_sql" %in% getNamespaceExports("rgbif")
+
+print_cube_sql_instructions <- function() {
+  cli_alert_info("Download via the GBIF SQL API: {.url https://www.gbif.org/occurrence/download/sql}")
+  for (grid in names(cube_targets)) {
+    tg <- cube_targets[[grid]]
+    cli_alert_info("")
+    cli_alert_info("{grid} — save the result as {.path {tg$csv}}:")
+    cat("\n", render_cube_sql(tg$resolution, country_code), "\n\n")
+  }
+  cli_alert_info("render_cube_sql() prints exactly the spec in sql/gbif_occurrence_cube.sql.")
+}
+
+if (length(existing_cubes) >= 2) {
+  cli_alert_info("Cubes found: {paste(existing_cubes, collapse = ', ')} — skipping download")
+} else if (!can_sql_download) {
+  if (!gbif_creds_present) {
+    cli_alert_warning(
+      "GBIF credentials not set (GBIF_USER / GBIF_PWD / GBIF_EMAIL) — cannot \\
+       auto-download cubes. Printing the canonical query for manual download.")
+  } else {
+    cli_alert_warning(
+      "This rgbif build has no occ_download_sql() — update rgbif for automated \\
+       SQL cube downloads. Printing the canonical query for manual download.")
+  }
+  print_cube_sql_instructions()
 } else {
-  cli_alert_warning("Cubes not found in {.path {raw_gbif_cube_dir}}")
-  cli_alert_info("")
-  cli_alert_info("Download via GBIF SQL API: https://www.gbif.org/occurrence/download/sql")
-  cli_alert_info("")
+  cli_alert_info("Submitting SQL cube downloads via {.fn rgbif::occ_download_sql} …")
+  downloaded_keys <- list()
+  ok_all <- TRUE
+  for (grid in names(cube_targets)) {
+    tg <- cube_targets[[grid]]
+    if (file.exists(tg$csv)) {
+      cli_alert_info("{grid}: {.path {basename(tg$csv)}} already present — skipping")
+      next
+    }
+    sql <- render_cube_sql(tg$resolution, country_code)
+    key <- tryCatch({
+      dl  <- rgbif::occ_download_sql(sql)
+      dk  <- as.character(dl)
+      cli_alert_info("{grid}: submitted (key {dk}) — waiting for GBIF to build it …")
+      rgbif::occ_download_wait(dl)
+      z <- rgbif::occ_download_get(dk, path = raw_gbif_cube_dir, overwrite = TRUE)
+      d <- rgbif::occ_download_import(z)
+      data.table::fwrite(d, tg$csv)
+      log_download(sprintf("Cube %s: %s rows via download %s",
+                           grid, scales::comma(nrow(d)), dk))
+      cli_alert_success("{grid}: {scales::comma(nrow(d))} rows → {.path {basename(tg$csv)}}")
+      dk
+    }, error = function(e) {
+      cli_alert_danger("{grid}: automated download failed — {conditionMessage(e)}")
+      NULL
+    })
+    if (is.null(key)) { ok_all <- FALSE; break }
+    downloaded_keys[[grid]] <- key
+  }
 
-  sql_query <- glue::glue('
-SELECT
-  specieskey, species, kingdom, phylum, class, "order", family,
-  basisofrecord, publishingorgkey, datasetkey,
-  GBIF_EEARGCode({{RESOLUTION}}, decimallatitude, decimallongitude, 0) AS eeacellcode,
-  "year", "month",
-  COUNT(*) AS occurrences
-FROM occurrence
-WHERE countrycode = \'{country_code}\'
-  AND hascoordinate = TRUE AND hasgeospatialissues = FALSE
-  AND occurrencestatus = \'PRESENT\' AND specieskey IS NOT NULL
-GROUP BY specieskey, species, kingdom, phylum, class, "order", family,
-  basisofrecord, publishingorgkey, datasetkey,
-  GBIF_EEARGCode({{RESOLUTION}}, decimallatitude, decimallongitude, 0),
-  "year", "month"', .open = "{{", .close = "}}")
-
-  cli_alert_info("SQL query (replace RESOLUTION with 10000 or 50000):")
-  cat("\n", gsub("\\{\\{RESOLUTION\\}\\}", "10000", sql_query), "\n\n")
-  cli_alert_info("After download, unzip and place CSVs as:")
-  cli_alert_info("  {.path {here(raw_gbif_cube_dir, 'cube_10km.csv')}}")
-  cli_alert_info("  {.path {here(raw_gbif_cube_dir, 'cube_50km.csv')}}")
+  # Record fresh keys so 01b resolves DOIs without a manual edit. cube_download_key()
+  # reads config first, then this artifact, so version-controlling provenance stays
+  # a deliberate paste into configs/config_{CC}.yml rather than an auto-clobber.
+  if (length(downloaded_keys) && requireNamespace("yaml", quietly = TRUE)) {
+    yaml::write_yaml(downloaded_keys, cube_keys_path)
+    cli_alert_success("Wrote cube download keys → {.path {cube_keys_path}}")
+    cli_alert_info("Paste into configs/config_{country_code}.yml under \\
+                    {.field cubes.<grid>.download_key} to version-control provenance:")
+    for (grid in names(downloaded_keys))
+      cli_alert_info("  {grid}.download_key: {downloaded_keys[[grid]]}")
+  }
+  if (!ok_all) {
+    cli_alert_warning("Automated download incomplete — falling back to manual instructions.")
+    print_cube_sql_instructions()
+  }
 }
 
 # ============================================================================

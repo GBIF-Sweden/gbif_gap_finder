@@ -150,6 +150,68 @@ raw_sensitive_dir  <- cfg_get("paths.sensitive_dir",   here(p_data_raw, "sensiti
 raw_admin_dir      <- cfg_get("paths.admin_dir",       here(p_data_raw, "admin"))
 
 # ============================================================================
+# GBIF SQL Occurrence Cube — canonical spec + download-key resolution
+# ============================================================================
+# The cube query lives in one versioned file (sql/gbif_occurrence_cube.sql):
+# the query IS the cube definition. 01a renders it per resolution and submits it
+# via rgbif::occ_download_sql(); 01b resolves each cube's DOI from its download
+# key. See ROADMAP "b3verse cube-stack rewrite".
+
+# Canonical cube SQL spec (single source of truth for the cube definition).
+cube_sql_path  <- here("sql", "gbif_occurrence_cube.sql")
+
+# Machine-written cube download keys from 01a's occ_download_sql() automation.
+cube_keys_path <- here(raw_gbif_cube_dir, "cube_download_keys.yml")
+
+#' Render the canonical cube SQL for a country + grid resolution.
+#'
+#' Reads sql/gbif_occurrence_cube.sql and substitutes the ${COUNTRY_CODE} and
+#' ${RESOLUTION} placeholders. Used by 01a both to submit the cube download via
+#' rgbif::occ_download_sql() and to print the manual-download fallback query, so
+#' the two never drift from the spec.
+#'
+#' @param resolution   EEA grid resolution in metres (e.g. 10000L or 50000L).
+#' @param country_code ISO-3166-1 alpha-2 code (default COUNTRY_CODE).
+#' @param sql_path     Path to the SQL spec (default cube_sql_path).
+#' @return A single SQL string with the placeholders filled.
+render_cube_sql <- function(resolution,
+                            country_code = COUNTRY_CODE,
+                            sql_path = cube_sql_path) {
+  if (!file.exists(sql_path)) {
+    cli_abort(c(
+      "Cube SQL spec not found: {.path {sql_path}}",
+      "i" = "Expected the canonical cube query at sql/gbif_occurrence_cube.sql"
+    ))
+  }
+  sql <- paste(readLines(sql_path, warn = FALSE), collapse = "\n")
+  sql <- gsub("${RESOLUTION}",   as.character(as.integer(resolution)), sql, fixed = TRUE)
+  sql <- gsub("${COUNTRY_CODE}", as.character(country_code),           sql, fixed = TRUE)
+  sql
+}
+
+#' Resolve a cube's GBIF download key: config first, then the 01a artifact.
+#'
+#' The key is what 01b uses to resolve the cube's DOI / citation / snapshot date,
+#' so it must reflect the download that produced the local cube. A key pasted
+#' into configs/config_{CC}.yml wins (deliberate, version-controlled provenance);
+#' otherwise the key 01a's occ_download_sql() automation wrote to
+#' raw/cubes/cube_download_keys.yml is used, so a fresh automated run still
+#' resolves without a manual edit.
+#'
+#' @param grid "grid10km" or "grid50km".
+#' @return The download-key string, or "" when none is available.
+cube_download_key <- function(grid) {
+  cfg_key <- cfg_get(paste0("cubes.", grid, ".download_key"), "")
+  if (!is.null(cfg_key) && nzchar(cfg_key)) return(cfg_key)
+  if (file.exists(cube_keys_path) && requireNamespace("yaml", quietly = TRUE)) {
+    keys <- tryCatch(yaml::read_yaml(cube_keys_path), error = function(e) NULL)
+    k <- if (!is.null(keys)) keys[[grid]] else NULL
+    if (!is.null(k) && nzchar(k)) return(as.character(k))
+  }
+  ""
+}
+
+# ============================================================================
 # Processed Output Paths
 # ============================================================================
 
