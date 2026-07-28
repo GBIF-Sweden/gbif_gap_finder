@@ -71,6 +71,8 @@ gbif_gap_finder/
 │   └── data_sources_NO.Rmd      # Norway data provenance documentation
 ├── shiny_app/
 │   ├── gap_finder/              # Gap Finder dashboard
+├── sql/
+│   └── gbif_occurrence_cube.sql # Canonical GBIF SQL cube spec (b3verse; the query IS the cube)
 ├── _targets.R                   # Pipeline definition
 ├── run.R                        # Convenience functions
 └── ROADMAP.Rmd                  # Development plan
@@ -102,8 +104,10 @@ source("scripts/00_setup.R")
 # Download taxonomy, red list, invasive species registry, admin boundaries
 source("scripts/01a_download_raw_data.R")
 
-# GBIF cubes: download via SQL API (instructions printed by script 01a)
-# Place cube CSVs in data/{CC}/raw/cubes/
+# GBIF cubes: script 01a renders the canonical SQL (sql/gbif_occurrence_cube.sql) and
+# submits it automatically via rgbif::occ_download_sql() when GBIF credentials are set;
+# with no credentials it prints the identical query to run by hand at the SQL API.
+# Cube CSVs land in data/{CC}/raw/cubes/
 
 # Resolve dataset + cube DOIs from their GBIF keys (for citations)
 source("scripts/01b_resolve_data_sources.R")
@@ -155,24 +159,62 @@ Additional shared data:
 
 ## GBIF Occurrence Cubes
 
-Cubes are downloaded via the **GBIF SQL API** as a single file per grid resolution, containing all basis of record types and publisher/dataset attribution:
+The cube definition lives in one canonical, version-controlled SQL spec —
+`sql/gbif_occurrence_cube.sql` — with `${COUNTRY_CODE}` / `${RESOLUTION}` placeholders. The
+`GROUP BY` query *is* the cube spec, so a cube is fully reproducible from its SQL. Script **01a**
+renders it per resolution and **submits the download automatically** via
+`rgbif::occ_download_sql()` (→ `occ_download_wait` → `occ_download_import`); with no GBIF
+credentials it prints the identical query to run by hand at the
+[SQL API](https://www.gbif.org/occurrence/download/sql). Resolved download keys are cached to
+`data/{CC}/raw/cubes/cube_download_keys.yml`.
+
+The schema is a **b-cubed–compatible superset** (b3verse, 2026-07): the original GBIF dimensions
+plus three aggregate measures, so the cube can also feed `b3gbi::process_cube()`:
 
 ```sql
 SELECT specieskey, species, kingdom, phylum, class, "order", family,
   basisofrecord, publishingorgkey, datasetkey,
-  GBIF_EEARGCode(10000, decimallatitude, decimallongitude, 0) AS eeacellcode,
+  GBIF_EEARGCode(${RESOLUTION}, decimallatitude, decimallongitude, 0) AS eeacellcode,
   "year", "month",
-  COUNT(*) AS occurrences
+  COUNT(*) AS occurrences,
+  MIN(COALESCE(coordinateuncertaintyinmeters, 1000)) AS mincoordinateuncertaintyinmeters,
+  MIN(GBIF_TemporalUncertainty(eventdate, NULL))      AS mintemporaluncertainty,
+  COUNT(DISTINCT recordedby)                          AS distinctobservers
 FROM occurrence
-WHERE countrycode = 'SE' AND hascoordinate = TRUE
+WHERE countrycode = '${COUNTRY_CODE}' AND hascoordinate = TRUE
   AND hasgeospatialissues = FALSE AND occurrencestatus = 'PRESENT'
   AND specieskey IS NOT NULL
 GROUP BY ...
 ```
 
-Submit at https://www.gbif.org/occurrence/download/sql. Script 01a prints the full query for your country.
+The cube has **17 columns**: the 14 core fields (`specieskey`, `species`, `kingdom`, `phylum`,
+`class`, `order`, `family`, `basisofrecord`, `publishingorgkey`, `datasetkey`, `eeacellcode`,
+`year`, `month`, `occurrences`) plus `mincoordinateuncertaintyinmeters`, `mintemporaluncertainty`,
+and `distinctobservers`. The grid radius stays 0, so cell assignment is unchanged; the three
+measures are additive, so older 14-column cubes still convert (04/05 report them as absent). See
+`docs/data_sources_SE.Rmd` for a per-column description.
 
-The cube has **14 columns**: `specieskey`, `species`, `kingdom`, `phylum`, `class`, `order`, `family`, `basisofrecord`, `publishingorgkey`, `datasetkey`, `eeacellcode`, `year`, `month`, `occurrences`. See `docs/data_sources_SE.Rmd` for a per-column description.
+## Marine coverage (EEZ) — optional
+
+By default the grid universe is terrestrial (the country's land cells plus any cell that carries
+data). Set `marine.enabled: true` in `configs/config_{CC}.yml` to bring the country's **Exclusive
+Economic Zone** into the grid, so marine coverage and zero-coverage sea gaps are measured too:
+
+```yaml
+marine:
+  enabled: true            # off by default — land-only grid, unchanged
+  zone: "eez"              # "eez" (full EEZ) | "territorial" (12 nm)
+  mrgid: 5694              # Marine Regions EEZ gazetteer id (Sweden = 5694)
+  force_download: false
+```
+
+When enabled, script **02** fetches the EEZ from [Marine Regions](https://marineregions.org) via
+the optional `mregions2` package (cached under `data/{CC}/raw/marine/`), widens the country clip to
+`centroid ∈ (land ∪ EEZ)`, and tags sea cells with a `marine` flag. Everything downstream measures
+against whatever grid `02` writes, so no other script changes. Leave `enabled: false` for land-only
+nodes — the grid is then byte-for-byte the old behaviour. For Sweden this surfaces ~138
+zero-coverage 10 km sea cells (Baltic / Skagerrak / Kattegat), dropping 10 km coverage from ~100 %
+to 97.8 %.
 
 ## Taxonomy Architecture
 
@@ -229,6 +271,7 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 - ~20 GB disk space for full pipeline
 - Pipeline packages: `sf`, `data.table`, `arrow`, `dplyr`, `scales`, `stringr`, `cli` (see `R/packages.R`)
 - Shiny app packages: `shiny`, `plotly`, `leaflet`, `DT`, `ggplot2` (see `app_packages` in `R/packages.R`)
+- Optional: `mregions2` — only when `marine.enabled` (fetches the EEZ; see *Marine coverage*)
 - Full dependency list managed via `renv`
 
 ## License

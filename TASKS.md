@@ -50,10 +50,23 @@ week); **family-level resolution** waits on Kevin's per-group call.
     threatened trajectory, publisher diversity).
   - [ ] Rebuild "published to GBIF over time" from dated snapshots (replaces the retired cube column).
 
-- [ ] **b3verse cube-stack rewrite** *("Bundle B"; scheduled for the following sprint alongside Gap Trends, ~next week — 2026-07-24)* — migrate the cube schema
-  to the b3verse / b-cubed standard; automate downloads via `rgbif::occ_download_sql()`; canonicalise
-  the SQL so the `GROUP BY` query *is* the cube spec. *Overlaps with the snapshot retrospective
-  (cube generation); the snapshot/diff use case lives there.*
+- [x] **b3verse cube-stack rewrite** — *done 2026-07-27 (branch `feature/b3verse-cube-stack`).*
+  Cube schema migrated to the **b-cubed superset** (adds `mincoordinateuncertaintyinmeters`,
+  `mintemporaluncertainty`, `distinctobservers`; grid radius 0); downloads automated via
+  `rgbif::occ_download_sql()` with a manual-query fallback; SQL canonicalised into
+  `sql/gbif_occurrence_cube.sql` (the query *is* the cube spec). Live SE re-download succeeded
+  (50.6M / 26.6M rows, 17 cols) and the pipeline runs green on it. *Optional follow-ons:* auto-update
+  config with fresh download keys; wire the uncertainty measures into an app view; feed the superset
+  to `b3gbi::process_cube()`.
+
+- [ ] ⏸ **Catalogue of Life (COL) backbone migration** — *PARKED pending a GBIF secretariat reply
+  (2026-07-27).* GBIF permanently switched its default backbone to COL Extended Release, so the cube's
+  `specieskey` is now a COL taxonID. Repairs are **in + running green** (character `specieskey`,
+  COL-native Tier 4, COL provenance pinned) and a Dyntaxa→COL crosswalk builder (`scripts/09a1`) is
+  committed but **not yet wired into 09a**. Blocker: the cube's `specieskey` *mixes* COL alphanumeric
+  with ~5.7 % legacy integer Backbone keys — GBIF's answer (transient vs stable) decides
+  augment-vs-replace. "Augment the 4-tier matcher with the crosswalk" is safe and ready whenever. See
+  `claude/session-handoff-2026-07-27c.md` + `claude/finding-cube-key-mix-2026-07-27.md`.
 
 - [ ] **Family-level resolution** *(T-D1 → build)*
   - [x] Measure first: build the family×cell recency cross-tab; report row count + serialized
@@ -110,9 +123,13 @@ week); **family-level resolution** waits on Kevin's per-group call.
   `_targets.R` all aligned.
 
 ### Deferred
-- [ ] ⏸ **T-D5** — Swedish marine cells: include the EEZ in the country clip. Geometry change
-  needing marine boundary data; cosmetic, not correctness. *(Note: opposite direction to the
-  T-D7 land-clip tightening — marine cells already carrying Swedish data are kept via `has_data`.)*
+- [x] **T-D5** — Swedish marine cells: the EEZ is now in the grid universe. *Done 2026-07-28
+  (`gap_finder_td5_marine.patch`, branch `feature/td5-marine`): config-gated `marine.enabled`, SE on,
+  full Swedish EEZ via mregions2 (MRGID 5694), both resolutions. Rebuilt green — 10 km 97.8 % coverage
+  / 138 zero-coverage sea cells (Swedish sea ≈ 91 %), 50 km 100 %. The EEA grid already contained sea
+  cells, so the clip widening (centroid ∈ land ∪ EEZ) did the work; the `marine` cell flag stays inert
+  until the app's terrestrial-only filter is built (`gap_finder_td5_marine_flag.patch` ready). See
+  `claude/finding-td5-marine-coverage.md`.* *(rerun)*
 - [ ] **T-D7.3** — Decide whether to fold the recency > 10-years category into Priorities.
 
 ---
