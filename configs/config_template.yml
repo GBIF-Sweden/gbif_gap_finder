@@ -174,3 +174,19 @@ parameters:
     large_order_threshold: 500000
     low_memory_mode: false
     make_species_cell_time: true
+
+# ============================================================================
+# Marine / EEZ coverage (T-D5) - OPTIONAL, OFF BY DEFAULT
+# ============================================================================
+# When enabled, script 02 brings the country's empty sea cells (Marine Regions
+# EEZ, or the 12 nm territorial sea) into the grid universe, so marine coverage
+# and zero-coverage gaps are measured over the sea too. Needs the mregions2
+# package (auto-fetch) OR a local file via marine.eez_file. Leave disabled for
+# land-only countries - the rest of the pipeline is unchanged.
+marine:
+  enabled: false          # master switch (false = land-only grid, exactly as before)
+  zone: "eez"             # "eez" (full EEZ) | "territorial" (12 nm)
+  mrgid: null             # Marine Regions EEZ gazetteer id (required when zone: eez)
+  # eez_file: ""          # optional: local EEZ GeoPackage/shapefile (skips download)
+  # cql_filter: ""        # optional: raw ECQL filter for the WFS (overrides mrgid)
+  force_download: false   # re-fetch even if a cached copy exists

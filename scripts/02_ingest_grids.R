@@ -41,6 +41,12 @@ grid_configs <- list(
 
 target_crs <- cfg_get("parameters.crs", CRS_ETRS89_LAEA)
 
+# T-D5 marine cells: master switch + zone. When FALSE (default) script 02 builds
+# a land-only grid exactly as before; when TRUE, empty EEZ sea cells are added so
+# marine coverage + zero-coverage gaps are measured (see configs/config_{CC}.yml).
+marine_enabled <- isTRUE(cfg_get("marine.enabled", FALSE))
+marine_zone    <- cfg_get("marine.zone", "eez")
+
 # ============================================================================
 # Determine country cell codes from cube data
 # ============================================================================
@@ -140,12 +146,176 @@ standardize_grid <- function(grid, crs = target_crs) {
 }
 
 # ============================================================================
+# Marine Helpers (T-D5)
+# ============================================================================
+
+#' Fetch (or load from cache) a national marine zone polygon in the target CRS.
+#'
+#' Order of resolution: (1) an explicit local file (marine.eez_file); (2) a
+#' cached GeoPackage under data/{CC}/raw/marine/; (3) download via mregions2
+#' (Marine Regions EEZ, or the 12 nm territorial sea) filtered to this country,
+#' then cache it. The result is validated and transformed to `crs`.
+load_marine_zone <- function(zone = "eez", crs = target_crs) {
+  marine_dir <- here(p_data_raw, "marine")
+  if (!dir.exists(marine_dir)) dir.create(marine_dir, recursive = TRUE, showWarnings = FALSE)
+  cache_file <- file.path(marine_dir, glue("marine_{zone}.gpkg"))
+
+  read_zone <- function(p) {
+    z <- st_read(p, quiet = TRUE)
+    if (is.na(st_crs(z))) cli_abort("Marine zone has no CRS: {.path {p}}")
+    st_make_valid(st_transform(z, crs))
+  }
+
+  eez_file <- cfg_get("marine.eez_file", NULL)
+  if (!is.null(eez_file) && nzchar(eez_file)) {
+    ep <- if (file.exists(eez_file)) eez_file else here(eez_file)
+    if (!file.exists(ep)) cli_abort("marine.eez_file not found: {.path {ep}}")
+    cli_alert_info("Marine zone from file: {.path {basename(ep)}}")
+    return(read_zone(ep))
+  }
+
+  if (file.exists(cache_file) && !isTRUE(cfg_get("marine.force_download", FALSE))) {
+    cli_alert_info("Marine zone from cache: {.path {basename(cache_file)}}")
+    return(read_zone(cache_file))
+  }
+
+  if (!requireNamespace("mregions2", quietly = TRUE)) {
+    cli_abort(c(
+      "marine.enabled = true needs the 'mregions2' package.",
+      "i" = "Install it, then re-run: install.packages('mregions2'); renv::snapshot()",
+      "i" = "Or point marine.eez_file at a local EEZ GeoPackage/shapefile."
+    ))
+  }
+
+  layer <- if (identical(zone, "territorial")) "eez_12nm" else "eez"
+  filt  <- cfg_get("marine.cql_filter", NULL)
+  if (is.null(filt) || !nzchar(filt)) {
+    if (identical(zone, "eez")) {
+      mrgid <- cfg_get("marine.mrgid", NULL)
+      if (is.null(mrgid)) cli_abort("marine.zone = 'eez' needs marine.mrgid (Marine Regions EEZ id).")
+      filt <- glue("mrgid = {as.integer(mrgid)}")
+    } else {
+      cname <- cfg_get("country.name", COUNTRY_CODE)
+      filt  <- glue("territory1 = '{cname}'")
+    }
+  }
+
+  cli_alert_info("Fetching marine zone from Marine Regions (layer {layer}; {filt})")
+  z <- tryCatch(
+    mregions2::mrp_get(layer, cql_filter = as.character(filt)),
+    error = function(e) cli_abort(c(
+      "Marine Regions fetch failed: {e$message}",
+      "i" = "Check the network, or set marine.eez_file to a local file."
+    ))
+  )
+  if (is.null(z) || nrow(z) == 0) {
+    cli_abort(c(
+      "Marine Regions returned 0 features for: {filt}",
+      "i" = "Verify marine.mrgid / marine.cql_filter for {COUNTRY_CODE}."
+    ))
+  }
+  z <- st_make_valid(st_transform(z, crs))
+  tryCatch(
+    st_write(z, cache_file, delete_dsn = TRUE, quiet = TRUE),
+    error = function(e) cli_alert_warning("Could not cache marine zone: {e$message}")
+  )
+  cli_alert_success("Marine zone fetched + cached: {.path {basename(cache_file)}} ({nrow(z)} feature(s))")
+  z
+}
+
+#' Add empty marine (EEZ) grid cells to a land grid, in EEA cube coding.
+#'
+#' Builds a LAEA fishnet at `cellsize_m` aligned to the EEA reference-grid
+#' lattice, keeps cells whose centroid falls inside `zone`, codes them
+#' {prefix}E{round(x/10000)}N{round(y/10000)} to match the GBIF cube, drops any
+#' code already present in the land grid, and row-binds the remaining empty sea
+#' cells with a logical `marine` flag (land = FALSE, sea = TRUE). Aborts if a
+#' fishnet cell shared with the land grid is not co-located (lattice mismatch).
+add_marine_cells <- function(grid, zone, cellsize_m, prefix, crs = target_crs) {
+  old_s2 <- sf_use_s2(); sf_use_s2(FALSE); on.exit(sf_use_s2(old_s2))
+
+  bb <- st_bbox(zone)
+  x0 <- floor(bb[["xmin"]] / cellsize_m) * cellsize_m
+  y0 <- floor(bb[["ymin"]] / cellsize_m) * cellsize_m
+  x1 <- ceiling(bb[["xmax"]] / cellsize_m) * cellsize_m
+  y1 <- ceiling(bb[["ymax"]] / cellsize_m) * cellsize_m
+  xs <- seq(x0, x1 - cellsize_m, by = cellsize_m)
+  ys <- seq(y0, y1 - cellsize_m, by = cellsize_m)
+  corners <- expand.grid(x = xs, y = ys)
+
+  # Keep cells whose CENTROID is inside the zone (matches the clip rule and
+  # avoids building polygons for the whole bounding box).
+  cxy <- data.frame(cx = corners$x + cellsize_m / 2, cy = corners$y + cellsize_m / 2)
+  pts <- st_as_sf(cxy, coords = c("cx", "cy"), crs = crs)
+  inside <- lengths(st_intersects(pts, zone)) > 0
+  if (!any(inside)) {
+    cli_alert_warning("Marine {prefix}: no cells with centroid inside the zone")
+    grid$marine <- FALSE
+    return(grid)
+  }
+
+  llx <- corners$x[inside]
+  lly <- corners$y[inside]
+  # round(), not floor(): lattice corners are exact multiples of the cell size,
+  # but stored geometry can carry sub-metre float noise that would flip floor().
+  codes <- sprintf("%sE%dN%d", prefix,
+                   as.integer(round(llx / 10000)), as.integer(round(lly / 10000)))
+  polys <- st_sfc(mapply(function(x, y) st_polygon(list(matrix(
+      c(x, y, x + cellsize_m, y, x + cellsize_m, y + cellsize_m, x, y + cellsize_m, x, y),
+      ncol = 2, byrow = TRUE))),
+      llx, lly, SIMPLIFY = FALSE), crs = crs)
+
+  # Lattice-alignment self-check against the authoritative EEA grid: any code
+  # shared with the land grid must be geometrically co-located.
+  land_codes <- as.character(grid$eeacellcode)
+  shared <- intersect(codes, land_codes)
+  if (length(shared) > 0) {
+    s   <- head(shared, 500L)
+    fc  <- st_centroid(polys[match(s, codes)])
+    gc0 <- st_centroid(st_geometry(grid)[match(s, land_codes)])
+    dmax <- suppressWarnings(max(as.numeric(st_distance(fc, gc0, by_element = TRUE))))
+    if (!is.finite(dmax) || dmax > 1) {
+      cli_abort(c(
+        "Marine fishnet misaligned with the EEA {prefix} grid.",
+        "x" = "Max shared-cell centroid offset {round(dmax)} m (expected 0).",
+        "i" = "Check the LAEA lattice offset / CRS ({crs})."
+      ))
+    }
+    cli_alert_success("Marine {prefix}: lattice aligned ({length(shared)} shared cell(s))")
+  }
+
+  new_idx <- !(codes %in% land_codes)
+  n_new <- sum(new_idx)
+  grid$marine <- FALSE
+  if (n_new > 0) {
+    land_df <- st_drop_geometry(grid)
+    new_df  <- data.frame(eeacellcode = codes[new_idx], stringsAsFactors = FALSE)
+    for (col in setdiff(names(land_df), names(new_df))) new_df[[col]] <- NA
+    new_df$marine <- TRUE
+    new_df <- new_df[, names(land_df), drop = FALSE]
+    grid <- st_sf(rbind(land_df, new_df),
+                  geometry = c(st_geometry(grid), polys[new_idx]), crs = crs)
+  }
+  cli_alert_success("Marine {prefix}: added {scales::comma(n_new)} empty sea cell(s)")
+  grid
+}
+
+# ============================================================================
 # Process Grids
 # ============================================================================
 
 cli_h2("Processing EEA Grids for {COUNTRY_CODE}")
 
 grids_processed <- list()
+
+# T-D5: fetch (or load cached) the marine zone once, before the per-grid loop.
+eez_zone <- NULL
+if (marine_enabled) {
+  cli_h2("Loading marine zone for {COUNTRY_CODE}")
+  eez_zone <- load_marine_zone(zone = marine_zone, crs = target_crs)
+  eez_zone <- sf::st_union(sf::st_geometry(eez_zone))
+  cli_alert_success("Marine zone loaded ({marine_zone})")
+}
 
 for (grid_name in names(grid_configs)) {
   gc <- grid_configs[[grid_name]]
@@ -155,6 +325,14 @@ for (grid_name in names(grid_configs)) {
 
   # Standardise cell code column name
   grid <- standardise_cellcode(grid)
+
+  # T-D5: bring the country's empty marine (EEZ) cells into the grid universe
+  # before the clip (config-gated; no-op unless marine.enabled).
+  if (marine_enabled && !is.null(eez_zone)) {
+    marine_cellsize <- if (grid_name == "grid10km") 10000L else 50000L
+    grid <- add_marine_cells(grid, eez_zone, marine_cellsize,
+                             sub("^grid", "", grid_name), target_crs)
+  }
 
   # Clip to country extent
   if (grid_name == "grid10km" && !is.null(country_cells_10km)) {
@@ -181,6 +359,13 @@ for (grid_name in names(grid_configs)) {
       country_hull <- st_convex_hull(st_union(cells_with_data))
       in_country <- st_intersects(st_centroid(st_geometry(grid)),
                                   country_hull, sparse = FALSE)[, 1]
+    }
+    # T-D5: also keep cells whose centroid is in the marine zone (EEZ), so the
+    # empty sea cells added above survive the clip. No-op unless marine.enabled.
+    if (marine_enabled && !is.null(eez_zone)) {
+      in_eez <- st_intersects(st_centroid(st_geometry(grid)), eez_zone,
+                              sparse = FALSE)[, 1]
+      in_country <- in_country | in_eez
     }
     has_data <- grid$eeacellcode %in% country_cells_10km
     n_before <- nrow(grid)
@@ -216,6 +401,13 @@ for (grid_name in names(grid_configs)) {
         "No admin boundary or 10km grid — keeping full 50km grid (coverage may be biased)"
       )
       in_country <- rep(TRUE, nrow(grid))
+    }
+    # T-D5: also keep cells whose centroid is in the marine zone (EEZ), so the
+    # empty sea cells added above survive the clip. No-op unless marine.enabled.
+    if (marine_enabled && !is.null(eez_zone)) {
+      in_eez <- st_intersects(st_centroid(st_geometry(grid)), eez_zone,
+                              sparse = FALSE)[, 1]
+      in_country <- in_country | in_eez
     }
     has_data <- if (!is.null(country_cells_50km)) {
       grid$eeacellcode %in% country_cells_50km

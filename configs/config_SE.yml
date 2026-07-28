@@ -266,3 +266,16 @@ parameters:
     large_order_threshold: 500000
     low_memory_mode: false
     make_species_cell_time: true
+
+# ============================================================================
+# Marine / EEZ coverage (T-D5)
+# ============================================================================
+# Bring Sweden's empty Baltic/Skagerrak/Kattegat sea cells into the grid so
+# marine coverage + zero-coverage gaps are measured. Fetches the Swedish EEZ
+# (Marine Regions MRGID 5694) via mregions2 and caches it under
+# data/SE/raw/marine/. Set enabled: false to fall back to a land-only grid.
+marine:
+  enabled: true
+  zone: "eez"
+  mrgid: 5694             # Swedish Exclusive Economic Zone (Marine Regions)
+  force_download: false

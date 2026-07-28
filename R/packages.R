@@ -55,6 +55,7 @@ optional_packages <- c(
   "httr",        # GBIF Registry API (script 06a publisher names)
   "httr2",       # GBIF Species API (script 09a Tier 4)
   "geodata",     # GADM admin boundaries (script 01)
+  "mregions2",   # Marine Regions EEZ (script 02, T-D5; only when marine.enabled)
   "furrr",       # Parallel processing
   "progressr"    # Progress bars
 )
