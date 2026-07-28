@@ -214,6 +214,7 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 - [x] **09b/06b `by_order`/`by_family`** — verified clean (2026-07 audit): files are disjoint and
   aggregation is by key; no double-count. *(T-I4)*
 
+- [x] **Pipeline hardening** — *done 2026-07-28 (`gap_finder_hardening.patch`).* Declared the undeclared **09a → 06b** dependency in `_targets.R` (09a reads 06b's `species_summary` CSVs — had forced manual `tar_invalidate` 4×); **04** fails loud when no cube parquet is produced; and `sql/gbif_occurrence_cube.sql` is tracked as a `raw_data` **file-dependency**. Rebuilt green + `12_reconcile` clean. *(T-I; rerun done)*
 ### Performance & hygiene
 - [x] **02→07:** cache `cellcodes_10km.txt` / `cellcodes_50km.txt`. *(T-A1)*
 - [x] **06a:** document or remove the unused `poly_id` column. *(T-A2)*
@@ -228,18 +229,10 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 
 ## C. Larger features (planned — scope & timing TBD)
 
-> **Sequencing (updated 2026-07-24 with Lena).** The **auto-generated "key findings" panel** shipped
-> (done 2026-07-24, app-side; below). Next build: **Norway replication** — de-risked (it ran clean
-> end-to-end *before* the session-5 changes, and per-country folders + the single `GBIF_GAP_COUNTRY`
-> selector are now tight, so a clean re-run is expected; go whenever wanted). **Gap Trends** and the
-> **b3verse rewrite** are scheduled for the following sprint (~next week). **Family-level resolution**
-> stays parked on Kevin's per-group call.
-
-### Norway replication & country abstraction (Phase 2) — ▶ NEXT BUILD (2026-07-24)
-*Ready to run: ran clean before the session-5 changes; the per-country + `GBIF_GAP_COUNTRY` prereqs are now tight. The next build now that the key-findings panel has shipped (2026-07-24).*
-- [ ] Fill `config_NO.yml` DOIs; run end-to-end; document Sweden-specific assumptions that break.
-- [ ] Taxonomy / red-list **field abstraction** (generic DwC-A mapping, varying threat-status columns).
-- [ ] Generic **"bring your own grid"** support (cell-ID field + CRS config; remove EEA-specific assumptions).
+> **Sequencing (updated 2026-07-28 with Lena).** The **key-findings panel** (2026-07-24) and the
+> **b3verse cube-stack rewrite** (2026-07-27) have shipped. Next build: **Gap Trends**.
+> **Family-level resolution** stays parked on Kevin's per-group call; the **CoL backbone migration**
+> is parked pending GBIF; **Norway replication** is de-risked but **moved to the end of the list**.
 
 ### Snapshot-based retrospective — "Gap Trends" (high value)
 *Scheduled for the following sprint (~next week), after the key-findings panel (2026-07-24).*
@@ -272,6 +265,12 @@ GBIF publishes complete monthly snapshots in Parquet. This unlocks two things:
 
 ### Policy outputs layer
 - [ ] Annual Sweden **GBF Target 21** brief; EuropaBON / EBV national contribution report; multi-country Target 21 comparison (GBIF Secretariat handoff). Ties to the snapshot retrospective.
+
+### Norway replication & country abstraction (Phase 2) — deprioritised to the end (2026-07-28)
+*Still de-risked and ready whenever wanted: ran clean before the session-5 changes; the per-country + single `GBIF_GAP_COUNTRY` prereqs are tight, so a clean re-run is expected.*
+- [ ] Fill `config_NO.yml` DOIs; run end-to-end; document Sweden-specific assumptions that break.
+- [ ] Taxonomy / red-list **field abstraction** (generic DwC-A mapping, varying threat-status columns).
+- [ ] Generic **"bring your own grid"** support (cell-ID field + CRS config; remove EEA-specific assumptions).
 
 ## D. Additional ideas (exploratory / future possibility)
 

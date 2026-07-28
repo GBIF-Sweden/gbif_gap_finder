@@ -20,11 +20,11 @@
 
 ## Tier 1 — Major work
 
-*Substantial builds.* **Sequencing (updated 2026-07-24 with Lena):** the **key-findings panel**
-shipped (done 2026-07-24); **Norway replication** is now the next build — de-risked and ready (it ran
-clean end-to-end before the session-5 changes, and per-country folders + the single `GBIF_GAP_COUNTRY`
-selector are now tight); **Gap Trends** + **b3verse** are scheduled for the following sprint (~next
-week); **family-level resolution** waits on Kevin's per-group call.
+*Substantial builds.* **Sequencing (updated 2026-07-28 with Lena):** the **key-findings panel**
+(2026-07-24) and the **b3verse cube-stack** (2026-07-27) have shipped. **Gap Trends** is the next
+build; **family-level resolution** waits on Kevin's per-group call; the **CoL backbone migration**
+is parked pending GBIF; **Norway replication** is de-risked but **deprioritised to the end of the
+list**.
 
 - [x] **Auto-generated "key findings" panel (Overview)** — *done 2026-07-24 (commit `5fef6f6`).*
   A top "what matters" strip with auto-computed findings (spatial coverage, staleness,
@@ -33,15 +33,6 @@ week); **family-level resolution** waits on Kevin's per-group call.
   drop their card, and the most severe gap is auto-ranked as the headline. *The persona "start here"
   nav was already built; this was the remaining Overview piece.* **App-side only (app.R →
   redeploy, no `tar_make`).** *(§1.11.2)*
-
-- [ ] **▶ Norway replication, end-to-end (Phase 2)** — *▶ NEXT BUILD (2026-07-24, now that the
-  key-findings panel has shipped). Ready to run: ran clean end-to-end before the session-5 changes,
-  and the prereqs (`dyntaxa_*`→`backbone_*` rename T-R7 + per-country data folders + single
-  `GBIF_GAP_COUNTRY`) are now done, so a clean re-run is expected. Not blocking — go when wanted.*
-  - [ ] Fill `config_NO.yml` (taxonomy DOI, red-list DOI, GBIF cube DOIs).
-  - [ ] Download NO cubes + EEA grid clipped to Norway + Nortaxa DwC-A; run full pipeline.
-  - [ ] Document Sweden-specific assumptions that break (column names, red-list format, synonym
-    structure).
 
 - [ ] **Snapshot-based "Gap Trends" retrospective** *(supersedes T-D3; scheduled for the following sprint, ~next week — 2026-07-24)*
   - [ ] Generate cubes from GBIF monthly snapshots (DuckDB/Arrow) instead of SQL-API downloads.
@@ -76,6 +67,15 @@ week); **family-level resolution** waits on Kevin's per-group call.
     occ) → **drill-down-only**. See `claude/finding-family-resolution-2026-07-24.md`.*
   - [ ] Decide family-as-default vs drill-down-only — **gated on Kevin's per-group call (confirmed 2026-07-24); parked until then.** Recommendation stands: drill-down-only, per-group and/or occ>5. Then build.
 
+- [ ] **Norway replication, end-to-end (Phase 2)** — *deprioritised to the end (2026-07-28); still
+  de-risked and ready whenever wanted (ran clean end-to-end before the session-5 changes; the
+  prereqs — `dyntaxa_*`→`backbone_*` rename T-R7 + per-country data folders + single
+  `GBIF_GAP_COUNTRY` — are done, so a clean re-run is expected).*
+  - [ ] Fill `config_NO.yml` (taxonomy DOI, red-list DOI, GBIF cube DOIs).
+  - [ ] Download NO cubes + EEA grid clipped to Norway + Nortaxa DwC-A; run full pipeline.
+  - [ ] Document Sweden-specific assumptions that break (column names, red-list format, synonym
+    structure).
+
 ---
 
 ## Tier 2 — Technical
@@ -107,6 +107,13 @@ week); **family-level resolution** waits on Kevin's per-group call.
 - [x] **T-I3** — 07: cache the country boundary (avoid full-grid `st_union`).
 - [x] **T-I4** — 09b/06b `by_order`/`by_family` double-count. *Verified clean (2026-07 audit):*
   order/family files are disjoint and aggregation is by key, so no double-count. No action.
+
+- [x] **Pipeline hardening (targets DAG + 04 guard)** — *done 2026-07-28
+  (`gap_finder_hardening.patch`).* Declared the undeclared **09a → 06b** dependency in `_targets.R`
+  (09a reads 06b's `species_summary` CSVs — had forced manual `tar_invalidate` 4×); **04** now fails
+  loud when no cube parquet is produced (was a silent empty manifest → cryptic downstream
+  `stopifnot`); and `sql/gbif_occurrence_cube.sql` is tracked as a `raw_data` **file-dependency** so
+  editing the cube query invalidates the download. Rebuilt green + `12_reconcile` clean. *(rerun done)*
 
 ### Performance & hygiene
 - [x] **T-A1** — 02→07: cache `cellcodes_10km.txt` / `cellcodes_50km.txt`.
