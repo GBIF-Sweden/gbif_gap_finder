@@ -55,10 +55,19 @@ list(
   # Phase 1: Data Ingestion
   # ==========================================================================
 
+  # Track the canonical cube SQL spec as a file so editing the query (the
+  # GROUP BY query IS the cube definition) invalidates the download.
+  tar_target(
+    cube_sql,
+    here("sql", "gbif_occurrence_cube.sql"),
+    format = "file"
+  ),
+
   # 1.0a Download raw data — taxonomy, red list, invasives, sensitive, admin (script 01a)
   tar_target(
     raw_data,
     {
+      cube_sql  # file-dependency: re-download when the canonical cube SQL changes
       source(here("scripts", "01a_download_raw_data.R"), local = TRUE)
       metadata_path <- here(p_data_raw, "download_metadata.json")
       stopifnot(file.exists(metadata_path))
@@ -217,7 +226,7 @@ list(
   tar_target(
     reconcile_taxonomy,
     {
-      taxa_reference; cube_parquet
+      taxa_reference; cube_parquet; species_summaries
       source(script_09a, local = TRUE)
       match_table <- here(p_data_proc, "gaps", "taxonomic_match_table.csv")
       stopifnot(file.exists(match_table))

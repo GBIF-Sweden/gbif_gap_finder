@@ -177,6 +177,23 @@ for (grid_name in names(cube_files)) {
   invisible(gc())
 }
 
+# Fail loud if no cube parquet was produced. Otherwise an empty manifest slips
+# through and only surfaces downstream as a cryptic stopifnot() in the targets
+# graph (the cube_parquet target asserts the manifest exists).
+n_parquet <- sum(vapply(cube_files, function(cf) file.exists(cf$parquet), logical(1)))
+if (n_parquet == 0L) {
+  cli_abort(c(
+    "No cube parquet was produced (0 of {length(cube_files)} resolutions).",
+    "x" = "No cube_*.csv found in {.path {cube_raw_dir}} and no parquet already present.",
+    "i" = "Run script 01a to download the cubes, or place the CSVs in the raw cubes dir."
+  ))
+}
+if (n_parquet < length(cube_files)) {
+  cli_alert_warning(
+    "Only {n_parquet}/{length(cube_files)} cube parquet(s) present \u2014 the missing resolution's analyses will be incomplete."
+  )
+}
+
 # ============================================================================
 # Write manifest
 # ============================================================================
