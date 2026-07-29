@@ -3,6 +3,8 @@
 Systematic analysis of spatial, temporal, and taxonomic gaps in national biodiversity occurrence data from GBIF. Designed as a reusable pipeline for any GBIF node — currently configured for **Sweden**.
 
 > See [ROADMAP.Rmd](ROADMAP.Rmd) for the full development plan.
+>
+> **Using the dashboard?** See the [User Manual](docs/user_manual.md) for how to read each tab and interpret the gaps.
 
 ## Overview
 
