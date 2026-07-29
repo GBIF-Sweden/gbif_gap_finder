@@ -102,6 +102,12 @@ data_sources_meta <- if (file.exists(ds_meta_path)) {
 
 cli_h2("Loading Grid Geometries")
 
+# T-D5 marine flag: accumulate a cell->marine lookup (eeacellcode + marine)
+# across both resolutions, captured BEFORE the select(eeacellcode) below drops
+# non-geometry columns. Absent / all-FALSE unless script 02 built EEZ sea cells
+# into the grid (marine.enabled). Powers the app Land only / Land + sea toggle.
+cell_marine_rows <- list()
+
 for (grid_label in c("10km", "50km")) {
   gpkg_path <- here(p_data_proc, paste0("grids_", grid_label, ".gpkg"))
   if (!file.exists(gpkg_path)) {
@@ -115,6 +121,14 @@ for (grid_label in c("10km", "50km")) {
     grid$eeacellcode <- as.character(grid[[cellcode_field]])
   }
 
+  # Capture the marine flag (if 02 wrote it), keyed by cell code, before select().
+  if ("marine" %in% names(grid)) {
+    cell_marine_rows[[grid_label]] <- tibble::tibble(
+      eeacellcode = as.character(grid$eeacellcode),
+      marine      = as.logical(grid$marine)
+    )
+  }
+
   tol <- if (grid_label == "10km") 500 else 1000
   grid_simple <- grid |>
     st_simplify(dTolerance = tol) |>
@@ -124,6 +138,19 @@ for (grid_label in c("10km", "50km")) {
   shiny_data[[paste0("grid_", grid_label)]] <- grid_simple
   cli_alert_success("{grid_label} grid: {nrow(grid_simple)} cells (simplified)")
   rm(grid, grid_simple); invisible(gc())
+}
+
+# T-D5: assemble the cell->marine lookup from both resolutions (codes are
+# resolution-prefixed, so a single table is unambiguous). NA -> FALSE.
+if (length(cell_marine_rows) > 0) {
+  cell_marine_lookup <- dplyr::bind_rows(cell_marine_rows)
+  cell_marine_lookup$marine[is.na(cell_marine_lookup$marine)] <- FALSE
+  cell_marine_lookup <- dplyr::distinct(cell_marine_lookup, eeacellcode, .keep_all = TRUE)
+  shiny_data$cell_marine_lookup <- cell_marine_lookup
+  n_marine <- sum(cell_marine_lookup$marine, na.rm = TRUE)
+  cli_alert_success("Cell-marine lookup: {scales::comma(nrow(cell_marine_lookup))} cells ({scales::comma(n_marine)} marine)")
+} else {
+  cli_alert_info("No marine flag in grids (marine.enabled off) - coverage toggle will be hidden")
 }
 
 # Administrative boundaries
@@ -163,6 +190,23 @@ if (!is.null(shiny_data$grid_10km) && !is.null(shiny_data$admin_level1)) {
 
   shiny_data$cell_admin_lookup <- cell_admin
   cli_alert_success("Cell-admin lookup: {nrow(cell_admin)} cells mapped")
+
+  # T-D5 fix: widen the toggle's marine flag to catch SEA cells the EEZ
+  # centroid-test misses -- coastal/archipelago cells in internal waters (landward
+  # of the EEZ baseline) and offshore data cells beyond the EEZ. These sit OUTSIDE
+  # every admin unit (admin_name_level1 == NA), so treat "in EEZ OR not in any
+  # admin unit" as sea. Without this they linger in the Baltic under "Land only".
+  # (10 km only; the admin lookup is 10 km.)
+  if (!is.null(shiny_data$cell_marine_lookup)) {
+    off_land <- cell_admin$eeacellcode[is.na(cell_admin$admin_name_level1)]
+    cml <- shiny_data$cell_marine_lookup
+    n_eez <- sum(cml$marine, na.rm = TRUE)
+    cml$marine <- cml$marine | (cml$eeacellcode %in% off_land)
+    shiny_data$cell_marine_lookup <- cml
+    n_sea <- sum(cml$marine, na.rm = TRUE)
+    cli_alert_success("Marine flag widened for toggle: {scales::comma(n_eez)} EEZ + {scales::comma(n_sea - n_eez)} off-land = {scales::comma(n_sea)} sea cells")
+  }
+
   rm(grid_centroids); invisible(gc())
 }
 
@@ -748,6 +792,13 @@ shiny_data$metadata <- list(
   has_sensitive_scope   = !is.null(shiny_data$sensitive_time_summary),
 
   has_kingdom_cell_recency = !is.null(shiny_data$kingdom_cell_recency),
+
+  # T-D5 marine coverage toggle
+  has_marine = !is.null(shiny_data$cell_marine_lookup) &&
+    any(shiny_data$cell_marine_lookup$marine, na.rm = TRUE),
+  n_marine_cells = if (!is.null(shiny_data$cell_marine_lookup))
+    as.integer(sum(shiny_data$cell_marine_lookup$marine, na.rm = TRUE)) else 0L,
+
   last_year = shiny_data$last_year %||% NA,
   recent_label = shiny_data$recent_label %||% NA,
 

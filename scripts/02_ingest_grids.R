@@ -366,6 +366,12 @@ for (grid_name in names(grid_configs)) {
       in_eez <- st_intersects(st_centroid(st_geometry(grid)), eez_zone,
                               sparse = FALSE)[, 1]
       in_country <- in_country | in_eez
+      # T-D5 marine flag: mark every cell whose centroid is in the EEZ as marine.
+      # add_marine_cells() only flags fishnet-added cells, but the EEA grid
+      # already carries the sea cells (fishnet adds 0), so the flag would stay
+      # all-FALSE without this. Set before the row-subset below so it survives the
+      # clip. Drives the app's Land only / Land + sea coverage toggle.
+      grid$marine <- in_eez
     }
     has_data <- grid$eeacellcode %in% country_cells_10km
     n_before <- nrow(grid)
@@ -408,6 +414,12 @@ for (grid_name in names(grid_configs)) {
       in_eez <- st_intersects(st_centroid(st_geometry(grid)), eez_zone,
                               sparse = FALSE)[, 1]
       in_country <- in_country | in_eez
+      # T-D5 marine flag: mark every cell whose centroid is in the EEZ as marine.
+      # add_marine_cells() only flags fishnet-added cells, but the EEA grid
+      # already carries the sea cells (fishnet adds 0), so the flag would stay
+      # all-FALSE without this. Set before the row-subset below so it survives the
+      # clip. Drives the app's Land only / Land + sea coverage toggle.
+      grid$marine <- in_eez
     }
     has_data <- if (!is.null(country_cells_50km)) {
       grid$eeacellcode %in% country_cells_50km

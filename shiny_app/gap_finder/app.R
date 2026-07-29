@@ -91,6 +91,18 @@ comparison_grids <- safe_get("comparison_grids")
 metadata        <- safe_get("metadata")
 spatial_overview <- safe_get("spatial_overview")
 
+# ---- T-D5 marine coverage toggle ------------------------------------------
+# cell_marine_lookup (eeacellcode + marine) is written by script 11 when the
+# grid carries EEZ sea cells (marine.enabled). Precompute the marine cell codes
+# once; the header toggle (server) filters the spatial coverage + recency views
+# to land only when asked. Absent lookup / no marine cells => toggle hidden.
+cell_marine_lookup <- safe_get("cell_marine_lookup")
+marine_codes <- if (!is.null(cell_marine_lookup) &&
+                    all(c("eeacellcode", "marine") %in% names(cell_marine_lookup))) {
+  as.character(cell_marine_lookup$eeacellcode[cell_marine_lookup$marine %in% TRUE])
+} else character(0)
+has_marine <- length(marine_codes) > 0
+
 # Administrative boundaries (optional)
 admin_level1     <- safe_get("admin_level1")
 admin_level2     <- safe_get("admin_level2")
@@ -509,7 +521,14 @@ ui <- fluidPage(
           selectInput("basis_filter", NULL,
             choices = basis_types,
             selected = "all",
-            width = "180px"))
+            width = "180px")),
+        # T-D5: land-only / land+sea coverage toggle (hidden when no marine cells)
+        if (has_marine) div(
+          style = "display:flex; align-items:center; gap:0.4rem;",
+          span(style = "font-size:1rem; color:#6b6b6b;", "Coverage area:"),
+          radioGroupButtons("coverage_area", label = NULL,
+            choices = c("Land + sea" = "land_sea", "Land only" = "land_only"),
+            selected = "land_sea", size = "sm"))
       )
     )
   ),
@@ -1892,6 +1911,32 @@ server <- function(input, output, session) {
     if (is.null(b) || b == "") "all" else b
   })
 
+  # ---- T-D5 coverage-area (marine) filter -----------------------------------
+  # One reactive layer that, in "Land only" mode, drops EEZ sea cells
+  # (marine == TRUE, by eeacellcode) from the spatial coverage + recency views.
+  # No-op when the bundle carries no marine cells or the toggle is Land + sea.
+  coverage_area <- reactive({
+    if (!has_marine || is.null(input$coverage_area)) "land_sea" else input$coverage_area
+  })
+  land_only <- reactive(identical(coverage_area(), "land_only"))
+
+  drop_marine <- function(df) {
+    if (is.null(df) || !has_marine || !land_only()) return(df)
+    if (!"eeacellcode" %in% names(df)) return(df)
+    df[!(as.character(df$eeacellcode) %in% marine_codes), , drop = FALSE]
+  }
+
+  # Filtered reactive views consumed by the governed renders (Overview coverage,
+  # Spatial map/stats, Priorities zero/stale).
+  grid_10km_r      <- reactive(
+    if (land_only() && !is.null(grid_10km))
+      grid_10km[!(as.character(grid_10km$eeacellcode) %in% marine_codes), ]
+    else grid_10km)
+  spatial_gaps_r   <- reactive(drop_marine(spatial_gaps))
+  cell_recency_r   <- reactive(drop_marine(cell_recency))
+  priority_zero_r  <- reactive(drop_marine(priority_zero))
+  priority_stale_r <- reactive(drop_marine(priority_stale))
+
   # ===================================================================
   # SINGLE SOURCES OF TRUTH
   # Every headline number shown in more than one place is computed ONCE
@@ -1905,7 +1950,7 @@ server <- function(input, output, session) {
   # Spatial coverage — mirrors the Spatial tab's `spatial_stats`
   # (spatial_gaps, basis "all"). Overview's spatial panel == Spatial tab.
   truth_spatial <- reactive({
-    sg <- spatial_gaps
+    sg <- spatial_gaps_r()
     req(sg)
     sf <- sg |> filter(basisofrecord == "all")
     total <- nrow(sf)
@@ -2499,8 +2544,8 @@ server <- function(input, output, session) {
     }
 
     # 2 - Staleness: cells with no GBIF records newer than 5 years (== stat_stale)
-    if (!is.null(priority_stale) && nrow(priority_stale) > 0) {
-      n_stale <- nrow(priority_stale)
+    if (!is.null(priority_stale_r()) && nrow(priority_stale_r()) > 0) {
+      n_stale <- nrow(priority_stale_r())
       tc   <- tryCatch(truth_spatial()$total_cells, error = function(e) NA_real_)
       spct <- if (!is.na(tc) && tc > 0) round(100 * n_stale / tc, 1) else NA_real_
       findings$stale <- list(
@@ -2716,6 +2761,12 @@ server <- function(input, output, session) {
   observe({
     req(grid_10km, spatial_gaps, input$map_var)
 
+    # T-D5: in Land only mode, drop EEZ sea cells from the drawn grid + coverage
+    # + recency so this map matches the toggle. No-op in Land + sea / no marine.
+    grid_10km    <- grid_10km_r()
+    spatial_gaps <- spatial_gaps_r()
+    cell_recency <- cell_recency_r()
+
     active_spatial <- spatial_gaps
     active_recency <- cell_recency
 
@@ -2918,7 +2969,7 @@ server <- function(input, output, session) {
 
   output$spatial_stats <- renderTable({
     req(spatial_gaps)
-    active_sg <- spatial_gaps
+    active_sg <- spatial_gaps_r()
     sf <- active_sg |> filter(basisofrecord == basis_selected())
     tibble(
       Metric = c("Total 10km Cells", "Cells with Data", "Empty Cells", "Coverage",
@@ -2948,7 +2999,7 @@ server <- function(input, output, session) {
 
   output$spatial_hist <- renderPlotly({
     req(spatial_gaps)
-    df <- spatial_gaps |> filter(basisofrecord == basis_selected(), occurrences > 0)
+    df <- spatial_gaps_r() |> filter(basisofrecord == basis_selected(), occurrences > 0)
     
     # Create categorical brackets
     df <- df |> mutate(
@@ -4713,14 +4764,14 @@ server <- function(input, output, session) {
   # ===================================================================
 
   output$stat_zero <- renderText({
-    if (!is.null(priority_zero) && nrow(priority_zero) > 0) {
-      comma(nrow(priority_zero))
+    if (!is.null(priority_zero_r()) && nrow(priority_zero_r()) > 0) {
+      comma(nrow(priority_zero_r()))
     } else if (!is.null(dashboard)) {
       comma(dashboard$n_zero_coverage_cells[1])
     } else "0"
   })
   output$stat_stale <- renderText({
-    if (!is.null(priority_stale)) comma(nrow(priority_stale)) else "0"
+    if (!is.null(priority_stale_r())) comma(nrow(priority_stale_r())) else "0"
   })
   output$stat_taxa <- renderText({
     comma(truth_taxonomic()$n_missing)
@@ -4731,10 +4782,10 @@ server <- function(input, output, session) {
 
   # ---- Recommended Actions (goal-oriented) ----
   output$action_goals <- renderUI({
-    n_zero  <- if (!is.null(priority_zero) && nrow(priority_zero) > 0) nrow(priority_zero) else {
+    n_zero  <- if (!is.null(priority_zero_r()) && nrow(priority_zero_r()) > 0) nrow(priority_zero_r()) else {
       if (!is.null(dashboard)) dashboard$n_zero_coverage_cells[1] else 0
     }
-    n_stale <- if (!is.null(priority_stale)) nrow(priority_stale) else 0
+    n_stale <- if (!is.null(priority_stale_r())) nrow(priority_stale_r()) else 0
     n_taxa_missing <- truth_taxonomic()$n_missing
 
     # Threatened missing (CR + EN specifically)
@@ -4903,8 +4954,8 @@ server <- function(input, output, session) {
     target_new_cells <- ceiling(ly_new_cells * target_mult)
     target_resolved  <- ceiling(max(ly_resolved, min_resolved_floor) * target_mult)
 
-    n_zero <- if (!is.null(priority_zero)) nrow(priority_zero) else 0
-    n_stale <- if (!is.null(priority_stale)) nrow(priority_stale) else 0
+    n_zero <- if (!is.null(priority_zero_r())) nrow(priority_zero_r()) else 0
+    n_stale <- if (!is.null(priority_stale_r())) nrow(priority_stale_r()) else 0
     n_cr_en <- 0
     if (!is.null(match_summary_full)) {
       ms <- match_summary_full |> as_tibble()
@@ -4971,7 +5022,7 @@ server <- function(input, output, session) {
   output$zero_map <- renderLeaflet({
     req(grid_10km)
 
-    if (is.null(priority_zero) || nrow(priority_zero) == 0) {
+    if (is.null(priority_zero_r()) || nrow(priority_zero_r()) == 0) {
       return(
         leaflet() |>
           addProviderTiles(providers$CartoDB.Positron) |>
@@ -4979,7 +5030,7 @@ server <- function(input, output, session) {
       )
     }
 
-    zero_codes <- priority_zero$eeacellcode
+    zero_codes <- priority_zero_r()$eeacellcode
     zero_sf <- grid_10km |> filter(eeacellcode %in% zero_codes)
 
     if (nrow(zero_sf) == 0) {
@@ -5001,8 +5052,8 @@ server <- function(input, output, session) {
   })
 
   output$zero_table <- renderDT({
-    req(priority_zero)
-    datatable(priority_zero |> slice_head(n = 100),
+    req(priority_zero_r())
+    datatable(priority_zero_r() |> slice_head(n = 100),
       extensions = "Buttons",
       options = list(pageLength = 6, scrollX = TRUE, dom = "Bfrtip",
                      buttons = list(list(extend = "csv", text = "Download CSV"))),
@@ -5013,7 +5064,7 @@ server <- function(input, output, session) {
   output$stale_map <- renderLeaflet({
     req(grid_10km)
 
-    if (is.null(priority_stale) || nrow(priority_stale) == 0) {
+    if (is.null(priority_stale_r()) || nrow(priority_stale_r()) == 0) {
       return(
         leaflet() |>
           addProviderTiles(providers$CartoDB.Positron) |>
@@ -5021,7 +5072,7 @@ server <- function(input, output, session) {
       )
     }
 
-    stale_join <- priority_stale |>
+    stale_join <- priority_stale_r() |>
       mutate(years_stale = staleness_months / 12) |>
       select(eeacellcode, staleness_months, years_stale, total_occurrences)
 
@@ -5061,9 +5112,9 @@ server <- function(input, output, session) {
   })
 
   output$stale_table <- renderDT({
-    req(priority_stale)
+    req(priority_stale_r())
     datatable(
-      priority_stale |>
+      priority_stale_r() |>
         mutate(years_stale = round(staleness_months / 12, 1)) |>
         select(any_of(c("eeacellcode", "years_stale", "total_occurrences",
                          "last_ym", "priority_level"))) |>
@@ -5084,15 +5135,15 @@ server <- function(input, output, session) {
       parts <- list()
 
       # Zero coverage cells
-      if (!is.null(priority_zero) && nrow(priority_zero) > 0) {
-        parts[[1]] <- priority_zero |>
+      if (!is.null(priority_zero_r()) && nrow(priority_zero_r()) > 0) {
+        parts[[1]] <- priority_zero_r() |>
           mutate(priority_type = "zero_coverage") |>
           select(priority_type, any_of(c("eeacellcode", "grid", "priority_reason", "priority_level")))
       }
 
       # Stale cells
-      if (!is.null(priority_stale) && nrow(priority_stale) > 0) {
-        parts[[length(parts) + 1]] <- priority_stale |>
+      if (!is.null(priority_stale_r()) && nrow(priority_stale_r()) > 0) {
+        parts[[length(parts) + 1]] <- priority_stale_r() |>
           mutate(priority_type = "stale_cell",
                  years_stale = round(staleness_months / 12, 1)) |>
           select(priority_type, any_of(c("eeacellcode", "grid", "years_stale",

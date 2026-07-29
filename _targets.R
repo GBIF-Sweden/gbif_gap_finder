@@ -318,7 +318,10 @@ list(
   tar_target(
     gap_finder_data,
     {
-      gap_overview; scope_summaries; data_sources_meta
+      # `grids` is declared so a grid rebuild (e.g. the T-D5 marine flag)
+      # invalidates this bundle: 11 reads the grid gpkg directly for the
+      # cell_marine_lookup, an edge that was previously undeclared.
+      gap_overview; scope_summaries; data_sources_meta; grids
       source(script_gap_finder, local = TRUE)
       shiny_path <- here("shiny_app", "gap_finder", "data", COUNTRY_CODE, "shiny_data.rds")
       stopifnot(file.exists(shiny_path))
