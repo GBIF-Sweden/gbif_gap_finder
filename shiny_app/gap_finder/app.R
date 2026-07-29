@@ -89,6 +89,7 @@ if (!is.null(spatial_gaps) &&
 priority_stale  <- safe_get("priority_stale_cells")
 comparison_grids <- safe_get("comparison_grids")
 metadata        <- safe_get("metadata")
+GAP_FINDER_VERSION <- "0.4.3"  # app/tool version; keep in sync with CITATION.cff
 spatial_overview <- safe_get("spatial_overview")
 
 # ---- T-D5 marine coverage toggle ------------------------------------------
@@ -646,6 +647,25 @@ ui <- fluidPage(
             )
           ),
 
+          div(class = "card", style = "border-left: 4px solid var(--slate);",
+            tags$h2(class = "card-title", icon("book"), "How to cite, version & contact"),
+            div(class = "info-note", style = "margin-top:0;",
+              "If you use the Gap Finder or its figures, please cite: ",
+              tags$strong("Thöle, L."), " GBIF Gap Finder: a reproducible pipeline for biodiversity ",
+              "data gap analysis (v", GAP_FINDER_VERSION, "). GBIF Sweden, Swedish Museum of Natural History (NRM). ",
+              tags$a(href = "https://github.com/GBIF-Sweden/gbif_gap_finder", target = "_blank",
+                "github.com/GBIF-Sweden/gbif_gap_finder"),
+              ". Please also cite the underlying datasets by their DOIs — see the ",
+              tags$strong("Data & sources"), " tab."),
+            div(class = "info-note", style = "margin-top:0.5rem; color:#6b6b6b;",
+              "App version ", tags$strong(GAP_FINDER_VERSION),
+              " · Data last updated ",
+              if (!is.null(metadata$created_at)) format(metadata$created_at, "%Y-%m-%d") else "unknown",
+              " · Contact GBIF Sweden (Swedish Museum of Natural History) via the ",
+              tags$a(href = "https://github.com/GBIF-Sweden/gbif_gap_finder/issues", target = "_blank",
+                "project repository"), ".")
+          ),
+
           # Top-level stats
           div(class = "stat-grid",
             div(class = "stat-box",
@@ -942,7 +962,7 @@ ui <- fluidPage(
           div(class = "card",
             tags$h2(class = "card-title", icon("seedling"), "Taxonomic Mobilization Targets"),
             div(class = "info-note",
-              "Orders and families with the largest gap between known species and GBIF coverage."),
+              "Orders and families with the largest gap between known species and GBIF coverage. Orders are ranked by Troudet sampling bias (most under-represented relative to their known richness first); families by number of missing species. See the Taxonomic tab for the full sampling-bias analysis."),
             fluidRow(
               column(6, plotlyOutput("priority_undersampled_orders", height = "380px")),
               column(6, plotlyOutput("priority_undersampled_families", height = "380px"))
@@ -1620,6 +1640,20 @@ ui <- fluidPage(
                   "their occurrence count, species count, category, and percentage share.")
               )
             )
+          ),
+
+          div(class = "card", style = "border-left: 4px solid var(--sage);",
+            tags$h2(class = "card-title", icon("seedling"), "Do you hold data for these taxa or areas?"),
+            div(class = "info-note", style = "margin-top:0;",
+              "Single-publisher cells and under-represented groups are where a new contributor adds the most. ",
+              "If your organisation holds occurrence records for Sweden — especially for the areas and species ",
+              "shown as gaps on the other tabs — publishing them to GBIF closes those gaps directly."),
+            div(style = "margin-top:0.75rem; display:flex; gap:0.75rem; flex-wrap:wrap;",
+              tags$a(href = "https://www.gbif.org/become-a-publisher", target = "_blank",
+                class = "btn-primary", tagList(icon("upload"), " How to publish to GBIF")),
+              tags$a(href = "https://www.gbif.se/", target = "_blank",
+                class = "btn-primary", style = "background:var(--slate);",
+                tagList(icon("envelope"), " Contact GBIF Sweden")))
           ),
 
           # Taxonomy + type filter row
@@ -3081,7 +3115,10 @@ server <- function(input, output, session) {
         b <- basis_summary[i, ]
         div(class = "stat-box",
           div(class = paste("stat-value", color_classes[i]), comma(b$total_occ)),
-          div(class = "stat-label", str_replace_all(b$basisofrecord, "_", " "))
+          div(class = "stat-label", str_replace_all(b$basisofrecord, "_", " ")),
+          if ("occ_last_year" %in% names(b)) div(class = "stat-label",
+            style = "font-size:0.78rem; color:#6b6b6b; margin-top:0.15rem;",
+            paste0("Last 12m: ", comma(b$occ_last_year)))
         )
       }))
     )
@@ -4028,7 +4065,7 @@ server <- function(input, output, session) {
     if (!is.null(ms) && nrow(ms) > 0) {
       df <- ms |>
         filter(!matched_any, threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
-        select(any_of(c("scientificName", "threatStatus", "establishmentMeans",
+        select(any_of(c("scientificName", "vernacularName", "threatStatus", "establishmentMeans",
                          "kingdom", "phylum", "class", "order", "family"))) |>
         arrange(factor(threatStatus, levels = c("CR", "EN", "VU", "NT", "DD")), order, family)
     } else {
@@ -4179,7 +4216,7 @@ server <- function(input, output, session) {
     ms <- concern_invasive_data()
     if (!is.null(ms) && nrow(ms) > 0) {
       df <- ms |>
-        select(any_of(c("scientificName", "matched_any", "gbif_total_occ",
+        select(any_of(c("scientificName", "vernacularName", "matched_any", "gbif_total_occ",
                          "kingdom", "phylum", "class", "order", "family",
                          "establishmentMeans"))) |>
         mutate(status = ifelse(matched_any, "In GBIF", "Missing")) |>
@@ -4400,7 +4437,7 @@ server <- function(input, output, session) {
     ms <- concern_sensitive_data()
     if (!is.null(ms) && nrow(ms) > 0) {
       df <- ms |>
-        select(any_of(c("scientificName", "sensitivity_category", "matched_any", "gbif_total_occ",
+        select(any_of(c("scientificName", "vernacularName", "sensitivity_category", "matched_any", "gbif_total_occ",
                          "threatStatus", "kingdom", "phylum", "class", "order", "family"))) |>
         mutate(status = ifelse(matched_any, "In GBIF", "Missing")) |>
         rename(any_of(c(generalization = "sensitivity_category"))) |>
