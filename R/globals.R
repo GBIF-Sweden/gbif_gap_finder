@@ -165,8 +165,8 @@ cube_keys_path <- here(raw_gbif_cube_dir, "cube_download_keys.yml")
 
 #' Render the canonical cube SQL for a country + grid resolution.
 #'
-#' Reads sql/gbif_occurrence_cube.sql and substitutes the ${COUNTRY_CODE} and
-#' ${RESOLUTION} placeholders. Used by 01a both to submit the cube download via
+#' Reads sql/gbif_occurrence_cube.sql and substitutes the ${COUNTRY_CODE},
+#' ${RESOLUTION} and ${COL_CHECKLIST_KEY} placeholders. Used by 01a both to submit the cube download via
 #' rgbif::occ_download_sql() and to print the manual-download fallback query, so
 #' the two never drift from the spec.
 #'
@@ -186,6 +186,12 @@ render_cube_sql <- function(resolution,
   sql <- paste(readLines(sql_path, warn = FALSE), collapse = "\n")
   sql <- gsub("${RESOLUTION}",   as.character(as.integer(resolution)), sql, fixed = TRUE)
   sql <- gsub("${COUNTRY_CODE}", as.character(country_code),           sql, fixed = TRUE)
+  # Pin the COL checklist in the classificationdetails selector so the backbone is
+  # a deliberate, version-controlled choice (GBIF's default is COL but mutable).
+  sql <- gsub("${COL_CHECKLIST_KEY}",
+              as.character(cfg_get("parameters.taxonomic.col_checklist_key",
+                                   "7ddf754f-d193-4cc9-b351-99906754a03b")),
+              sql, fixed = TRUE)
   sql
 }
 
