@@ -226,7 +226,7 @@ matched_agg <- matched_taxa[, .(
   gbif_total_occ = sum(as.numeric(gbif_total_occ), na.rm = TRUE),
   best_match_tier = match_tier[which.min(match(
     match_tier,
-    c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4")
+    c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "tier5_col")
   ))],
   gbif_specieskeys = paste(unique(gbif_specieskey), collapse = ";")
 ), by = .(backbone_taxonID)]
@@ -242,6 +242,34 @@ match_summary <- merge(
 match_summary[, matched_any := !is.na(n_gbif_species)]
 match_summary[is.na(n_gbif_species), n_gbif_species := 0L]
 match_summary[is.na(gbif_total_occ), gbif_total_occ := 0]
+
+# ---------------------------------------------------------------------------
+# COL crosswalk presence overlay (full COL augment)
+# ---------------------------------------------------------------------------
+# A backbone taxon is "in GBIF" if its COL key is among the cube's specieskeys
+# -- GBIF's own Catalogue-of-Life authority. This recovers concept-split taxa
+# whose cube key was name-matched to a DIFFERENT backbone taxon in 09a (so 09a's
+# GBIF-species-centric Tier 5, which only fills unmatched cube rows, never fired
+# on them). ADDITIVE: only flips matched_any FALSE->TRUE, never removes a match.
+# Skipped if the crosswalk is absent. `cw_sk_map` (COL key -> taxon) also feeds
+# the spatial-coverage join below, so recovered taxa carry their cube key's
+# cells/occurrences instead of showing up as present-but-empty.
+crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
+cube_keys <- unique(recon$specieskey)
+cw_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
+if (file.exists(crosswalk_file)) {
+  cw <- as.data.table(readRDS(crosswalk_file))
+  cw <- cw[!is.na(col_key) & nzchar(col_key) & col_key %in% cube_keys]
+  xwalk_present <- unique(cw$dyntaxa_taxonID)
+  cw_sk_map <- unique(cw[, .(specieskey = col_key, backbone_taxonID = dyntaxa_taxonID)])
+  newly <- match_summary$matched_any == FALSE & match_summary$taxonID %in% xwalk_present
+  match_summary[newly, `:=`(matched_any = TRUE, best_match_tier = "tier5_col")]
+  cli_alert_success(
+    "COL crosswalk presence overlay: +{scales::comma(sum(newly))} backbone taxa now in GBIF"
+  )
+} else {
+  cli_alert_warning("col_crosswalk.rds not found -- COL presence overlay skipped (run 09a1).")
+}
 
 # ---------------------------------------------------------------------------
 # Scope the gap denominator to the organisms we actually compare against GBIF.
@@ -518,8 +546,13 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
   # Join cell counts to matched backbone taxa via reconciliation
   # Step 1: map specieskey -> backbone_taxonID (both keys coerced to character)
   sp_cells[, specieskey := as.character(specieskey)]
-  sk_to_taxon <- recon[match_tier != "unmatched",
-                       .(specieskey, backbone_taxonID)]
+  # Include the COL crosswalk presence map (cw_sk_map, built in the presence
+  # overlay above) so concept-split taxa recovered only by the crosswalk carry
+  # their cube key's cells/occurrences here too.
+  sk_to_taxon <- unique(rbind(
+    recon[match_tier != "unmatched", .(specieskey, backbone_taxonID)],
+    cw_sk_map
+  ), by = c("specieskey", "backbone_taxonID"))
 
   sp_cells_with_taxon <- merge(sp_cells, sk_to_taxon, by = "specieskey", all.x = TRUE)
 

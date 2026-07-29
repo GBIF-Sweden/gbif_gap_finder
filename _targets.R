@@ -223,10 +223,32 @@ list(
     format = "file"
   ),
 
+  # Track 09a1 so edits to the crosswalk builder auto-invalidate downstream.
+  tar_target(
+    script_09a1,
+    here("scripts", "09a1_build_col_crosswalk.R"),
+    format = "file"
+  ),
+
+  # 09a1: authoritative Dyntaxa<->COL crosswalk (GBIF v2 match API, cached +
+  # resumable). Feeds 09a Tier 5 and the 09b COL presence overlay. Depends on
+  # the Dyntaxa reference (03) and the cube species universe (06b summaries).
+  tar_target(
+    col_crosswalk,
+    {
+      taxa_reference; species_summaries; script_09a1
+      source(script_09a1, local = TRUE)
+      crosswalk_path <- here(p_data_proc, "col_crosswalk.rds")
+      stopifnot(file.exists(crosswalk_path))
+      crosswalk_path
+    },
+    format = "file"
+  ),
+
   tar_target(
     reconcile_taxonomy,
     {
-      taxa_reference; cube_parquet; species_summaries
+      taxa_reference; cube_parquet; species_summaries; col_crosswalk
       source(script_09a, local = TRUE)
       match_table <- here(p_data_proc, "gaps", "taxonomic_match_table.csv")
       stopifnot(file.exists(match_table))
@@ -238,7 +260,7 @@ list(
   tar_target(
     taxonomic_gaps,
     {
-      reconcile_taxonomy; core_summaries; species_summaries
+      reconcile_taxonomy; core_summaries; species_summaries; col_crosswalk
       source(here("scripts", "09b_taxonomic_gaps.R"), local = TRUE)
       list.files(here(p_data_proc, "gaps"), pattern = "^taxonomic_.*\\.csv$", full.names = TRUE)
     },

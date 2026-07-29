@@ -744,6 +744,68 @@ cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
 
 # ============================================================================
+# TIER 5: COL crosswalk (Dyntaxa <-> COL taxonID authority)
+# ============================================================================
+# For species still unmatched after Tiers 1-4, use the authoritative
+# Dyntaxa->COL crosswalk (built by 09a1 via GBIF's v2 match API). The cube's
+# specieskey IS a COL taxonID, so a cube key that equals a Dyntaxa taxon's COL
+# key IS that taxon -- a key-based match that resolves the COL name-divergence
+# (e.g. Sylvia -> Curruca) that name matching (Tiers 1-3) and the COL synonym
+# lookup (Tier 4) can miss. ADDITIVE: only fills rows Tiers 1-4 left NA, so the
+# Tier 1-4 assignments (and the Tier-4 count) are preserved exactly. Skipped
+# gracefully if the crosswalk has not been built, so 09a still runs standalone.
+
+cli_h2("Tier 5: COL crosswalk (Dyntaxa <-> COL key)")
+
+crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
+n_t5 <- 0L
+if (file.exists(crosswalk_file)) {
+  crosswalk <- as.data.table(readRDS(crosswalk_file))
+  crosswalk <- crosswalk[!is.na(col_key) & nzchar(col_key)]
+
+  # One accepted taxon per COL key: prefer an accepted-name link over a synonym
+  # link, then higher confidence. (A COL "lump" -- two Dyntaxa taxa sharing one
+  # COL key -- is rare here, ~1%; picking the best-supported link keeps the
+  # GBIF-species-centric reconciliation at one taxon per cube key.)
+  if (!"via_synonym" %in% names(crosswalk)) crosswalk[, via_synonym := FALSE]
+  if (!"confidence"  %in% names(crosswalk)) crosswalk[, confidence  := NA_integer_]
+  setorder(crosswalk, col_key, via_synonym, -confidence)
+  cw1 <- crosswalk[, .SD[1], by = col_key,
+                   .SDcols = c("dyntaxa_taxonID", "name_used")]
+
+  t5_join <- merge(
+    recon[is.na(match_tier), .(specieskey)],
+    cw1, by.x = "specieskey", by.y = "col_key"
+  )
+  # Resolve the accepted backbone scientific name for display.
+  t5_join <- merge(
+    t5_join,
+    accepted_taxa[, .(taxonID, scientificName)][, .SD[1], by = taxonID],
+    by.x = "dyntaxa_taxonID", by.y = "taxonID", all.x = TRUE
+  )
+
+  if (nrow(t5_join) > 0) {
+    recon[t5_join, on = "specieskey",
+          `:=`(backbone_taxonID        = i.dyntaxa_taxonID,
+               backbone_scientificName = i.scientificName,
+               match_tier             = "tier5_col",
+               match_type             = "col_crosswalk",
+               match_name_used        = i.name_used)]
+    n_t5 <- nrow(t5_join)
+  }
+} else {
+  cli_alert_warning(
+    "col_crosswalk.rds not found -- Tier 5 skipped (run 09a1 to build it). \\
+     Additive tier; Tiers 1-4 are unaffected."
+  )
+}
+
+occ_t5 <- if (n_t5 > 0) recon[match_tier == "tier5_col", sum(as.numeric(total_occ))] else 0
+cli_alert_success("Tier 5: {scales::comma(n_t5)} species ({scales::comma(occ_t5)} occ)")
+cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
+
+
+# ============================================================================
 # Categorise Unmatched Species
 # ============================================================================
 
@@ -912,7 +974,7 @@ cli_alert_success("Occurrence coverage:  {round(100 * occ_matched / occ_total, 2
 cli_alert_info("")
 
 # Per-tier breakdown
-tier_order <- c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "unmatched")
+tier_order <- c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "tier5_col", "unmatched")
 tier_top <- recon[, .(
   n   = .N,
   occ = sum(as.numeric(total_occ))
