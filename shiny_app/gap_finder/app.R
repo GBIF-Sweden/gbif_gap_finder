@@ -521,14 +521,7 @@ ui <- fluidPage(
           selectInput("basis_filter", NULL,
             choices = basis_types,
             selected = "all",
-            width = "180px")),
-        # T-D5: land-only / land+sea coverage toggle (hidden when no marine cells)
-        if (has_marine) div(
-          style = "display:flex; align-items:center; gap:0.4rem;",
-          span(style = "font-size:1rem; color:#6b6b6b;", "Coverage area:"),
-          radioGroupButtons("coverage_area", label = NULL,
-            choices = c("Land + sea" = "land_sea", "Land only" = "land_only"),
-            selected = "land_sea", size = "sm"))
+            width = "180px"))
       )
     )
   ),
@@ -1011,6 +1004,14 @@ ui <- fluidPage(
             column(4,
               div(class = "card",
                 tags$h2(class = "card-title", icon("sliders-h"), "Display"),
+                # T-D5: coverage-area toggle at the top of the Display panel
+                if (has_marine) tagList(
+                  div(class = "filter-label", "Coverage area"),
+                  radioGroupButtons("coverage_area", label = NULL,
+                    choices = c("Land + sea" = "land_sea", "Land only" = "land_only"),
+                    selected = "land_sea", size = "sm"),
+                  tags$hr(style = "margin: 0.6rem 0; border-color: #eee;")
+                ),
                 radioButtons("map_var", NULL,
                   choices = setNames(
                     c("occ", "stale", "richness", "last_year_obs"),
