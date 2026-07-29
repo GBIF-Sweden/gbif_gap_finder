@@ -40,6 +40,7 @@ dir_data_proc  <- here(p_data_proc)
 # National taxonomy input files (PRIMARY BACKBONE)
 file_taxonomy_taxon <- cfg_get("files.taxonomy.taxonomy_taxon", "Taxon.csv")
 file_taxonomy_distr <- cfg_get("files.taxonomy.taxonomy_distr", "SpeciesDistribution.csv")
+file_taxonomy_vernacular <- cfg_get("files.taxonomy.taxonomy_vernacular", "VernacularName.csv")
 
 # National red list input files (SECONDARY - threat status)
 file_redlist_taxon <- cfg_get("files.redlist.redlist_taxon", "taxon.txt")
@@ -49,6 +50,7 @@ file_redlist_distr <- cfg_get("files.redlist.redlist_distr", "distribution.txt")
 input_files <- list(
   taxonomy_taxon = file.path(dir_taxonomy, file_taxonomy_taxon),
   taxonomy_distr = file.path(dir_taxonomy, file_taxonomy_distr),
+  taxonomy_vernacular = file.path(dir_taxonomy, file_taxonomy_vernacular),
   redlist_taxon  = file.path(dir_redlist, file_redlist_taxon),
   redlist_distr  = file.path(dir_redlist, file_redlist_distr)
 )
@@ -868,6 +870,58 @@ if ("taxonomicStatus" %in% names(taxa_reference)) {
   )
 }
 
+# 3.3e Enrich with Swedish vernacular names --------------------------------
+# Dyntaxa ships vernacular names as a separate DwC extension (VernacularName.csv),
+# not in the Taxon core. Carry the Swedish preferred common name onto each taxon
+# (keyed by LSID taxonID) so the app's Concern tables can show it. Falls back to
+# the first Swedish name when a taxon has Swedish names but none flagged preferred.
+
+cli_h2("Enriching with Swedish Vernacular Names")
+
+if (file.exists(input_files$taxonomy_vernacular)) {
+  cli_alert_info("Reading: {.path {input_files$taxonomy_vernacular}}")
+
+  vern_raw <- read_table_safe(input_files$taxonomy_vernacular) |>
+    rename_to_dwc()
+
+  vern_cols <- names(vern_raw)
+  norm      <- gsub("[^a-z]", "", tolower(vern_cols))
+  col_id    <- vern_cols[norm == "taxonid"][1]
+  col_name  <- vern_cols[norm == "vernacularname"][1]
+  col_lang  <- vern_cols[norm == "language"][1]
+  col_pref  <- vern_cols[norm == "ispreferredname"][1]
+
+  if (is.na(col_id) || is.na(col_name)) {
+    cli_alert_warning("VernacularName file lacks taxonID/vernacularName columns; skipping")
+    taxa_reference <- taxa_reference |> mutate(vernacularName = NA_character_)
+  } else {
+    vern <- vern_raw |>
+      transmute(
+        taxonID        = as.character(.data[[col_id]]),
+        vernacularName = as.character(.data[[col_name]]),
+        language       = if (!is.na(col_lang)) tolower(as.character(.data[[col_lang]])) else NA_character_,
+        is_preferred   = if (!is.na(col_pref)) tolower(as.character(.data[[col_pref]])) %in% c("true", "t", "1") else FALSE
+      ) |>
+      filter(!is.na(vernacularName), trimws(vernacularName) != "")
+
+    # Swedish only; keep the preferred name, else the first Swedish name per taxon.
+    vern_sv <- vern |>
+      filter(is.na(language) | language == "sv") |>
+      arrange(taxonID, dplyr::desc(is_preferred)) |>
+      distinct(taxonID, .keep_all = TRUE) |>
+      select(taxonID, vernacularName)
+
+    taxa_reference <- taxa_reference |>
+      left_join(vern_sv, by = "taxonID")
+
+    n_vern <- sum(!is.na(taxa_reference$vernacularName))
+    cli_alert_success("Swedish vernacular names: matched {scales::comma(n_vern)} / {scales::comma(nrow(taxa_reference))} taxa")
+  }
+} else {
+  cli_alert_info("VernacularName file not found; skipping (no Swedish common names)")
+  taxa_reference <- taxa_reference |> mutate(vernacularName = NA_character_)
+}
+
 # 3.4 Add derived fields ---------------------------------------------------
 
 cli_h2("Adding Derived Fields")
@@ -903,7 +957,7 @@ core_columns <- c(
   "acceptedNameUsageID", "parentNameUsageID",
 
   # Names
-  "scientificName", "scientificNameAuthorship",
+  "scientificName", "scientificNameAuthorship", "vernacularName",
 
   # Classification hierarchy
   "kingdom", "phylum", "class", "order",

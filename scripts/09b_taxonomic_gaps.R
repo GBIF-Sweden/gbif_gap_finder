@@ -183,7 +183,7 @@ for (col in c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")) {
 
 # Select working columns
 keep_cols <- intersect(
-  c("taxonID", "scientificName", "name_std", "taxonRank", "threatStatus",
+  c("taxonID", "scientificName", "vernacularName", "name_std", "taxonRank", "threatStatus",
     "kingdom", "phylum", "class", "order", "family", "genus",
     "establishmentMeans", "occurrenceStatus",
     "is_invasive", "is_sensitive", "sensitivity_category", "in_dyntaxa"),
