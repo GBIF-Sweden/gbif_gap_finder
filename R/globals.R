@@ -160,8 +160,11 @@ raw_admin_dir      <- cfg_get("paths.admin_dir",       here(p_data_raw, "admin")
 # Canonical cube SQL spec (single source of truth for the cube definition).
 cube_sql_path  <- here("sql", "gbif_occurrence_cube.sql")
 
-# Machine-written cube download keys from 01a's occ_download_sql() automation.
-cube_keys_path <- here(raw_gbif_cube_dir, "cube_download_keys.yml")
+# Version-controlled cube-download provenance, auto-written by 01a's
+# occ_download_sql() automation (one file per country). The download key is the
+# reproducibility anchor — 01b resolves DOI, citation and record count from it.
+# Lives OUTSIDE the gitignored data/ tree so it is committed with the code.
+cube_keys_path <- here("provenance", paste0("cube_downloads_", COUNTRY_CODE, ".yml"))
 
 #' Render the canonical cube SQL for a country + grid resolution.
 #'
@@ -195,14 +198,15 @@ render_cube_sql <- function(resolution,
   sql
 }
 
-#' Resolve a cube's GBIF download key: config first, then the 01a artifact.
+#' Resolve a cube's GBIF download key: config pin first, then the provenance file.
 #'
 #' The key is what 01b uses to resolve the cube's DOI / citation / snapshot date,
-#' so it must reflect the download that produced the local cube. A key pasted
-#' into configs/config_{CC}.yml wins (deliberate, version-controlled provenance);
-#' otherwise the key 01a's occ_download_sql() automation wrote to
-#' raw/cubes/cube_download_keys.yml is used, so a fresh automated run still
-#' resolves without a manual edit.
+#' so it must reflect the download that produced the local cube. Since the download
+#' is automated (01a's occ_download_sql()), the authoritative key is the one 01a
+#' records to the version-controlled provenance/cube_downloads_{CC}.yml — read here,
+#' so a fresh automated run is self-provenancing with no manual edit. A key placed
+#' under cubes.<grid>.download_key in configs/config_{CC}.yml still WINS, as an
+#' optional override to pin a specific historical download.
 #'
 #' @param grid "grid10km" or "grid50km".
 #' @return The download-key string, or "" when none is available.

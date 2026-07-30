@@ -81,21 +81,16 @@ sensitive:
 # ============================================================================
 # GBIF Occurrence Cubes (SQL API)
 # ============================================================================
-# Downloaded 2026-04-17 via GBIF SQL API. These explicit keys pin NO's provenance
-# and match the NO cube currently on disk. NOTE: when you RE-DOWNLOAD, either paste
-# the new keys here or leave them BLANK to auto-track the last automated download
-# from data/NO/raw/cubes/cube_download_keys.yml (see config_SE.yml) — do not leave
-# stale keys that no longer match the cube on disk.
+# NO cube provenance is recorded in the VERSION-CONTROLLED file
+# provenance/cube_downloads_NO.yml (auto-written by 01a; seeded from NO's
+# 2026-04-17 download). cube_download_key() reads it and 01b resolves DOI +
+# citation from the key — nothing to hand-maintain here, and it can't go stale.
+# To pin a specific download, add an override, e.g.:
+#   grid10km: { download_key: "0025058-260409193756587" }
 # Verify which is 10km vs 50km from your download — check the RESOLUTION
 # value you used in each SQL query (10000 = 10km, 50000 = 50km).
 cubes:
   source: "sql_api"
-  grid10km:
-    download_key: "0025058-260409193756587"
-    doi: "https://doi.org/10.15468/dl.tyxmfx"
-  grid50km:
-    download_key: "0025061-260409193756587"
-    doi: "https://doi.org/10.15468/dl.nvvmf2"
 
 # ============================================================================
 # Files

@@ -66,18 +66,14 @@ sensitive:
 # ============================================================================
 cubes:
   source: "sql_api"
-  # download_key is left BLANK on purpose. 01a's occ_download_sql() automation
-  # writes the real key of every fresh download to
-  # data/SE/raw/cubes/cube_download_keys.yml, and cube_download_key() (globals.R)
-  # falls back to that artifact whenever the config key is empty — so provenance
-  # AUTO-TRACKS the cube actually on disk and can never go stale here. 01b then
-  # resolves + validates the key from GBIF (DOI, citation, record count) and fails
-  # loudly if it is wrong or from a test instance.
-  # (Paste a key below ONLY to pin a specific historical download.)
-  grid10km:
-    download_key: ""     # auto-tracked (last automated download: 0017309-260721160103020)
-  grid50km:
-    download_key: ""     # auto-tracked (last automated download: 0017385-260721160103020)
+  # No download_key here. 01a's occ_download_sql() automation records the key of
+  # every download to the VERSION-CONTROLLED file provenance/cube_downloads_SE.yml,
+  # and cube_download_key() (globals.R) reads it — so provenance auto-tracks the
+  # cube on disk, is committed with the code, and can never go stale here. 01b
+  # resolves + validates DOI/citation/records from that key and fails loudly if a
+  # key is wrong or from a test instance.
+  # To PIN a specific historical download instead, add an override, e.g.:
+  #   grid10km: { download_key: "0017309-260721160103020" }
 
 # ============================================================================
 # Paths — All relative to data/{country_code}/

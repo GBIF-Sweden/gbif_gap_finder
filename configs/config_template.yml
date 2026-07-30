@@ -82,18 +82,13 @@ sensitive:
 # Download via https://www.gbif.org/occurrence/download/sql
 # Script 01 prints the SQL query for your country.
 # Unzip and place CSVs in data/{CC}/raw/cubes/
-# RECOMMENDED: leave download_key blank/null. 01a's automation records the real
-# key of each download to data/{CC}/raw/cubes/cube_download_keys.yml and 01b
-# auto-tracks it, so provenance never goes stale. Paste a key below only to pin a
-# specific historical download.
+# No download_key needed here. 01a's automation records the key of each download
+# to the VERSION-CONTROLLED file provenance/cube_downloads_{CC}.yml and 01b
+# resolves DOI + citation from it, so provenance auto-tracks and stays in git.
+# To pin a specific historical download, add an override, e.g.:
+#   grid10km: { download_key: "0012345-260409193756587" }
 cubes:
   source: "sql_api"
-  grid10km:
-    download_key: null               # filled after download
-    doi: null
-  grid50km:
-    download_key: null
-    doi: null
 
 # ============================================================================
 # Paths (optional overrides)

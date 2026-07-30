@@ -194,8 +194,10 @@ GROUP BY ...
 `classificationdetails['${COL_CHECKLIST_KEY}']` selector, so the cube is COL regardless of GBIF's
 mutable default (GBIF completed the COL migration in 2025). COL taxonIDs are usually alphanumeric
 (e.g. `6VFN8`) but some are purely numeric (e.g. `67343` = *Anemone nemorosa*) — a numeric key is
-**not** a legacy Backbone nub key. `01a` writes the real download key of each pull to
-`cube_download_keys.yml`; leave `cubes.*.download_key` blank in the config to auto-track it. Because
+**not** a legacy Backbone nub key. The download is automated, so provenance is too: `01a` records the
+real download key of each pull to the version-controlled `provenance/cube_downloads_{CC}.yml`, and
+`01b` resolves DOI + citation from it (add `cubes.<grid>.download_key` to the config only to pin a
+specific historical download). Because
 `04` is existence-gated, it re-converts a cube to parquet only when the raw CSV is newer, and `05`
 fails the run if a parquet is older than its CSV — so a re-download always propagates downstream.
 

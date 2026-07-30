@@ -295,16 +295,22 @@ if (length(existing_cubes) >= 2) {
     downloaded_keys[[grid]] <- key
   }
 
-  # Record fresh keys so 01b resolves DOIs without a manual edit. cube_download_key()
-  # reads config first, then this artifact, so version-controlling provenance stays
-  # a deliberate paste into configs/config_{CC}.yml rather than an auto-clobber.
+  # Record fresh keys as VERSION-CONTROLLED provenance
+  # (provenance/cube_downloads_{CC}.yml, outside the gitignored data/ tree). 01b
+  # resolves DOI/citation/records from these keys and cube_download_key() reads
+  # this file, so an automated run is self-provenancing — no manual paste. Commit
+  # the file to record which download produced the analysis.
   if (length(downloaded_keys) && requireNamespace("yaml", quietly = TRUE)) {
-    yaml::write_yaml(downloaded_keys, cube_keys_path)
-    cli_alert_success("Wrote cube download keys → {.path {cube_keys_path}}")
-    cli_alert_info("Paste into configs/config_{country_code}.yml under \\
-                    {.field cubes.<grid>.download_key} to version-control provenance:")
+    dir.create(dirname(cube_keys_path), showWarnings = FALSE, recursive = TRUE)
+    header <- c(
+      "# Auto-written by scripts/01a on each automated cube download.",
+      "# VERSION-CONTROLLED provenance — commit this file. Do not hand-edit.",
+      paste0("# Written: ", Sys.Date()), "")
+    writeLines(header, cube_keys_path)
+    cat(yaml::as.yaml(downloaded_keys), file = cube_keys_path, append = TRUE)
+    cli_alert_success("Wrote cube download provenance → {.path {cube_keys_path}} (commit it)")
     for (grid in names(downloaded_keys))
-      cli_alert_info("  {grid}.download_key: {downloaded_keys[[grid]]}")
+      cli_alert_info("  {grid}: {downloaded_keys[[grid]]}")
   }
   if (!ok_all) {
     cli_alert_warning("Automated download incomplete — falling back to manual instructions.")
