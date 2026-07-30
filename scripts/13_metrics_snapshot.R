@@ -52,6 +52,12 @@ build_metrics_block <- function(tables_dir, snap_date = "n/a", gen_date = "n/a")
   priority  <- .msnap_read(tables_dir, "priority_summary.csv")
   if (is.null(dash)) return(NULL)
 
+  # Label the unranked/blank IUCN status so the table cell is not empty.
+  if (!is.null(by_threat) && "threatStatus" %in% names(by_threat)) {
+    blank <- is.na(by_threat$threatStatus) | trimws(by_threat$threatStatus) == ""
+    by_threat$threatStatus[blank] <- "(no status)"
+  }
+
   v  <- stats::setNames(as.character(dash$value), dash$metric)
   gN <- function(k) .msnap_num(v[[k]])
   gR <- function(k) .msnap_raw(v[[k]])

@@ -13,7 +13,7 @@ This document defines the **gap metrics** used in this project to quantify data 
 
 > Auto-generated from the pipeline output tables on 2026-07-30; refreshed by `run_metrics()` /
 > the `metrics_snapshot` target on every `tar_make()`. **Do not hand-edit inside the markers.**
-> GBIF cube snapshot: **2026-07-30** &middot; total occurrences: **140,432,852** &middot; basis types: **9**.
+> GBIF cube snapshot: **2026-07-29** &middot; total occurrences: **140,432,852** &middot; basis types: **9**.
 
 **Spatial coverage**
 
@@ -39,7 +39,7 @@ Coverage by threat status:
 
 | threatStatus | n_ref_total | n_in_gbif | n_missing | pct_coverage |
 | --- | --- | --- | --- | --- |
-|  | 25249 | 11393 | 13856 | 45.12 |
+| (no status) | 25249 | 11393 | 13856 | 45.12 |
 | RE | 201 | 155 | 46 | 77.11 |
 | EX | 1 | 1 | 0 | 100 |
 | CR | 322 | 307 | 15 | 95.34 |
