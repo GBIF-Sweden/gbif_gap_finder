@@ -50,14 +50,16 @@ list**.
   config with fresh download keys; wire the uncertainty measures into an app view; feed the superset
   to `b3gbi::process_cube()`.
 
-- [ ] ⏸ **Catalogue of Life (COL) backbone migration** — *PARKED pending a GBIF secretariat reply
-  (2026-07-27).* GBIF permanently switched its default backbone to COL Extended Release, so the cube's
-  `specieskey` is now a COL taxonID. Repairs are **in + running green** (character `specieskey`,
-  COL-native Tier 4, COL provenance pinned) and a Dyntaxa→COL crosswalk builder (`scripts/09a1`) is
-  committed but **not yet wired into 09a**. Blocker: the cube's `specieskey` *mixes* COL alphanumeric
-  with ~5.7 % legacy integer Backbone keys — GBIF's answer (transient vs stable) decides
-  augment-vs-replace. "Augment the 4-tier matcher with the crosswalk" is safe and ready whenever. See
-  `claude/session-handoff-2026-07-27c.md` + `claude/finding-cube-key-mix-2026-07-27.md`.
+- [x] ✅ **Catalogue of Life (COL) backbone migration — RESOLVED (2026-07-30).** GBIF replied: the
+  migration is complete on the current backend and fresh SQL cubes return clean COL keys. Repairs are
+  **in + running green** (character `specieskey`, COL-native Tier 4, COL provenance pinned) and the
+  Dyntaxa→COL crosswalk augment (`scripts/09a1` → Tier 5 in `09a`) is wired in. The earlier
+  "~5.7 % legacy integer" reading came from the **April** download (`0020270-260409193756587`, built
+  mid-migration) plus valid **numeric COL ids** (e.g. `67343` = *Anemone nemorosa*) miscounted as
+  legacy — NOT a permanent dual-key design. Direct scan of the fresh cube `0017309`: 76,291
+  alphanumeric + 298 numeric COL keys, **zero** ≥7-digit nub keys; hedgehog only under COL `3B2C2`. The
+  augment is kept as key-format-agnostic insurance. See `claude/finding-cube-mix-RESOLVED-2026-07-30.md`
+  (which corrects `claude/finding-cube-key-mix-2026-07-27.md`).
 
 - [ ] **Family-level resolution** *(T-D1 → build)*
   - [x] Measure first: build the family×cell recency cross-tab; report row count + serialized

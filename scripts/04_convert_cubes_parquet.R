@@ -74,11 +74,17 @@ for (grid_name in names(cube_files)) {
   cf <- cube_files[[grid_name]]
   cli_h2("{grid_name}")
 
-  # Check if parquet already exists
-  if (file.exists(cf$parquet)) {
+  # Reuse the parquet ONLY if it is up to date. 01a existence-gates the raw
+  # download, so a re-downloaded cube CSV can be NEWER than its parquet; skipping
+  # on mere existence would pin every downstream summary to the PREVIOUS download
+  # (fresh raw + stale processed = "mixed versions"). Re-convert whenever the CSV
+  # is newer than the parquet. Keep the CSV-absent case as a plain skip (nothing
+  # to refresh from \u2014 e.g. raw CSVs archived after conversion).
+  if (file.exists(cf$parquet) &&
+      (!file.exists(cf$csv) || file.mtime(cf$parquet) >= file.mtime(cf$csv))) {
     pq_size <- round(file.size(cf$parquet) / 1024^2, 1)
-    cli_alert_info("Parquet exists: {basename(cf$parquet)} ({pq_size} MB) \u2014 skipping")
-    cli_alert_info("Delete to re-convert")
+    cli_alert_info("Parquet up to date: {basename(cf$parquet)} ({pq_size} MB) \u2014 skipping")
+    cli_alert_info("Delete it (or re-download the CSV) to force re-convert")
 
     # Still add to manifest
     ds <- open_dataset(cf$parquet)
@@ -87,6 +93,11 @@ for (grid_name in names(cube_files)) {
       parquet_mb = pq_size, status = "skipped"
     )
     next
+  }
+  if (file.exists(cf$parquet) && file.exists(cf$csv) &&
+      file.mtime(cf$csv) > file.mtime(cf$parquet)) {
+    cli_alert_warning(
+      "Raw CSV is newer than {basename(cf$parquet)} \u2014 re-converting from the fresh download")
   }
 
   # Check if CSV exists

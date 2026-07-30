@@ -66,15 +66,18 @@ sensitive:
 # ============================================================================
 cubes:
   source: "sql_api"
-  # Only the download_key is maintained by hand — copy it from the GBIF
-  # download landing page. The DOI, citation and record count are resolved
-  # and validated from the key by scripts/01b_resolve_data_sources.R, so they
-  # can never drift from GBIF. If a key is wrong or from a test instance,
-  # 01b fails loudly at the start of the run.
+  # download_key is left BLANK on purpose. 01a's occ_download_sql() automation
+  # writes the real key of every fresh download to
+  # data/SE/raw/cubes/cube_download_keys.yml, and cube_download_key() (globals.R)
+  # falls back to that artifact whenever the config key is empty — so provenance
+  # AUTO-TRACKS the cube actually on disk and can never go stale here. 01b then
+  # resolves + validates the key from GBIF (DOI, citation, record count) and fails
+  # loudly if it is wrong or from a test instance.
+  # (Paste a key below ONLY to pin a specific historical download.)
   grid10km:
-    download_key: "0020270-260409193756587"
+    download_key: ""     # auto-tracked (last automated download: 0017309-260721160103020)
   grid50km:
-    download_key: "0020272-260409193756587"
+    download_key: ""     # auto-tracked (last automated download: 0017385-260721160103020)
 
 # ============================================================================
 # Paths — All relative to data/{country_code}/
@@ -237,12 +240,13 @@ parameters:
   taxonomic:
     # --- GBIF taxonomic backbone: Catalogue of Life Extended Release (COL XR) ---
     # GBIF permanently switched its default backbone to the COL Extended Release
-    # (2025). The occurrence cube's `specieskey` is a COL taxonID (alphanumeric,
-    # e.g. "6VFN8") and kingdom..family come from COL. A SQL occurrence download
-    # cannot pin a checklist (the checklistKey selector exists only on the
-    # predicate download API), so the cube is COL-interpreted by GBIF's default;
-    # recording this key makes the dependency explicit + versioned. It drives
-    # (a) taxonomic name matching in 09a and (b) provenance resolution in 01b.
+    # (2025). The occurrence cube's `specieskey` is a COL taxonID — usually
+    # alphanumeric (e.g. "6VFN8"), but some valid COL ids are purely NUMERIC
+    # (e.g. Anemone nemorosa = 67343), so a numeric key is NOT a legacy Backbone
+    # key. The cube SQL pins this checklist EXPLICITLY via the classificationdetails
+    # selector (sql/gbif_occurrence_cube.sql; render_cube_sql -> ${COL_CHECKLIST_KEY}),
+    # so the backbone is a version-controlled choice, not a dependency on GBIF's
+    # mutable default. Drives (a) name matching in 09a and (b) provenance in 01b.
     col_checklist_key: "7ddf754f-d193-4cc9-b351-99906754a03b"
     # Occurrence-based tabs (Overview/Spatial/Temporal/Record Types/Publisher)
     # report ALL of GBIF; only Taxonomic + Species-of-Concern are backbone-

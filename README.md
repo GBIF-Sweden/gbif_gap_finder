@@ -162,7 +162,7 @@ Additional shared data:
 ## GBIF Occurrence Cubes
 
 The cube definition lives in one canonical, version-controlled SQL spec —
-`sql/gbif_occurrence_cube.sql` — with `${COUNTRY_CODE}` / `${RESOLUTION}` placeholders. The
+`sql/gbif_occurrence_cube.sql` — with `${COUNTRY_CODE}` / `${RESOLUTION}` / `${COL_CHECKLIST_KEY}` placeholders. The
 `GROUP BY` query *is* the cube spec, so a cube is fully reproducible from its SQL. Script **01a**
 renders it per resolution and **submits the download automatically** via
 `rgbif::occ_download_sql()` (→ `occ_download_wait` → `occ_download_import`); with no GBIF
@@ -174,7 +174,8 @@ The schema is a **b-cubed–compatible superset** (b3verse, 2026-07): the origin
 plus three aggregate measures, so the cube can also feed `b3gbi::process_cube()`:
 
 ```sql
-SELECT specieskey, species, kingdom, phylum, class, "order", family,
+SELECT occurrence.classificationdetails['${COL_CHECKLIST_KEY}']['specieskey'] AS specieskey,
+  species, kingdom, phylum, class, "order", family,
   basisofrecord, publishingorgkey, datasetkey,
   GBIF_EEARGCode(${RESOLUTION}, decimallatitude, decimallongitude, 0) AS eeacellcode,
   "year", "month",
@@ -188,6 +189,15 @@ WHERE countrycode = '${COUNTRY_CODE}' AND hascoordinate = TRUE
   AND specieskey IS NOT NULL
 GROUP BY ...
 ```
+
+`specieskey` is pinned to GBIF's **Catalogue of Life Extended Release** backbone via the
+`classificationdetails['${COL_CHECKLIST_KEY}']` selector, so the cube is COL regardless of GBIF's
+mutable default (GBIF completed the COL migration in 2025). COL taxonIDs are usually alphanumeric
+(e.g. `6VFN8`) but some are purely numeric (e.g. `67343` = *Anemone nemorosa*) — a numeric key is
+**not** a legacy Backbone nub key. `01a` writes the real download key of each pull to
+`cube_download_keys.yml`; leave `cubes.*.download_key` blank in the config to auto-track it. Because
+`04` is existence-gated, it re-converts a cube to parquet only when the raw CSV is newer, and `05`
+fails the run if a parquet is older than its CSV — so a re-download always propagates downstream.
 
 The cube has **17 columns**: the 14 core fields (`specieskey`, `species`, `kingdom`, `phylum`,
 `class`, `order`, `family`, `basisofrecord`, `publishingorgkey`, `datasetkey`, `eeacellcode`,

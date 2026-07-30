@@ -260,6 +260,51 @@ if (file_exists_safe(manifest_file)) {
                       ({if (length(present_bcubed)) paste(present_bcubed, collapse = ', ') else 'none'})"),
                  if (length(present_bcubed) == 3) "ok" else "warn")
 
+        # Freshness guard: 04 is existence-gated, so a re-downloaded raw cube can
+        # be NEWER than this parquet — downstream would then read the PREVIOUS
+        # download (fresh raw + stale processed). Treat parquet-older-than-CSV as
+        # CRITICAL so a stale processed layer can never reach the analyses.
+        raw_csv <- here(raw_gbif_cube_dir, switch(
+          basename(pq_file),
+          "cube_10km.parquet" = cfg_get("files.cubes.grid10km", "cube_10km.csv"),
+          "cube_50km.parquet" = cfg_get("files.cubes.grid50km", "cube_50km.csv"),
+          sub("\\.parquet$", ".csv", basename(pq_file))))
+        if (file_exists_safe(raw_csv) && file.mtime(raw_csv) > file.mtime(pq_file)) {
+          md_check(glue("STALE: raw `{basename(raw_csv)}` is NEWER than the parquet \\
+                        — delete the parquet and re-run script 04"), "fail")
+          critical_failures <<- c(critical_failures, glue(
+            "{basename(pq_file)}: parquet older than {basename(raw_csv)} — downstream \\
+             is reading the previous download; delete parquet + re-run 04"))
+        } else if (file_exists_safe(raw_csv)) {
+          md_check("Parquet is at least as new as its raw CSV", "ok")
+        }
+
+        # specieskey format sanity. A COL key is alphanumeric (e.g. 6VFN8) OR
+        # numeric — numeric COL ids are VALID (e.g. 67343 = Anemone nemorosa). A
+        # LEGACY GBIF Backbone nub key is a long integer (>=7 digits). Flag only
+        # when such keys are a meaningful share (pre-COL / wrong-backbone download);
+        # short numeric COL ids are never flagged.
+        sk <- tryCatch(
+          as.character(dplyr::collect(dplyr::distinct(dplyr::select(ds, specieskey)))$specieskey),
+          error = function(e) character(0))
+        sk <- sk[!is.na(sk) & nzchar(sk)]
+        if (length(sk)) {
+          legacy_like <- grepl("^[0-9]{7,}$", sk)
+          frac <- mean(legacy_like)
+          md_add("- specieskey: `", scales::comma(length(sk)), "` distinct; `",
+                 scales::comma(sum(legacy_like)), "` legacy-style (>=7-digit integer) = `",
+                 sprintf("%.2f%%", 100 * frac), "`\n")
+          if (frac > 0.02) {
+            md_check(glue("{sprintf('%.1f%%', 100 * frac)} of specieskeys look like legacy \\
+                          Backbone nub keys (>=7 digits) — likely a pre-COL download"), "fail")
+            critical_failures <<- c(critical_failures, glue(
+              "{basename(pq_file)}: {sprintf('%.1f%%', 100 * frac)} legacy-style specieskeys \\
+               (>=7-digit integer) — likely a pre-COL / wrong-backbone download"))
+          } else {
+            md_check("specieskey is COL-format (no legacy Backbone nub keys)", "ok")
+          }
+        }
+
         cli_alert_success("{basename(pq_file)}: {length(pq_cols)} columns, {pq_size} MB")
       }, error = function(e) {
         md_check(glue("Read failed: {e$message}"), "fail")
