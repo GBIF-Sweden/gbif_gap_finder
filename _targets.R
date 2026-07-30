@@ -370,6 +370,21 @@ list(
   ),
 
   # ==========================================================================
+  # Phase 6c: Metrics snapshot (script 13)
+  # ==========================================================================
+  # Rewrites the auto-generated block in docs/metrics.md from the current output
+  # tables so the metrics reference never goes stale. Reads the same output/tables
+  # that 10 writes; fail-safe (warns, never halts).
+  tar_target(
+    metrics_snapshot,
+    {
+      gap_overview
+      source(here("scripts", "13_metrics_snapshot.R"), local = TRUE)
+      "ok"
+    }
+  ),
+
+  # ==========================================================================
   # Phase 7: Reports (manual trigger)
   # ==========================================================================
 

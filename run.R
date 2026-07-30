@@ -40,7 +40,8 @@ cli_dl(c(
   "run_phase_5()"         = "Integrated overview",
   "run_gap_finder_prep()" = "Prepare data for the Gap Finder app",
   "run_reports()"         = "Render all R Markdown reports",
-  "run_reconcile()"       = "Check headline numbers agree across layers (script 12)"
+  "run_reconcile()"       = "Check headline numbers agree across layers (script 12)",
+  "run_metrics()"         = "Refresh the metrics.md current-figures snapshot (script 13)"
 ))
 
 cli_h2("Shiny apps")
@@ -114,6 +115,15 @@ run_reports <- function() {
 #' disagreement.
 run_reconcile <- function() {
   source(here("scripts", "12_reconcile.R"))
+}
+
+#' Refresh the docs/metrics.md "Current snapshot" block from the latest outputs (script 13).
+#'
+#' Rewrites only the auto-generated block between the METRICS_SNAPSHOT markers in
+#' docs/metrics.md; safe any time after a build. Also runs as the `metrics_snapshot`
+#' target in tar_make().
+run_metrics <- function() {
+  source(here("scripts", "13_metrics_snapshot.R"))
 }
 
 #' Locate the prepared Gap Finder bundle (per-country data/<CC>/, or legacy flat).
