@@ -18,8 +18,10 @@
 #   specieskey set — no integer-usageKey hop, and COL-name divergence
 #   (Sylvia->Curruca) is resolved in one step.
 #
-# WHAT THIS DOES  (it does NOT modify 09a — it is the validated input for the
-#                  09a tier-replacement, delivered as the next patch)
+# WHAT THIS DOES  (it does NOT modify 09a — it builds the crosswalk that 09a reads
+#                  as the ADDITIVE Tier 5; augment, not replacement. Kept 2026-07-30
+#                  (Lena): rescues 162 species / 41,790 occ Tiers 1-4 miss, plus
+#                  key-format-agnostic insurance.)
 #   1. Loads Dyntaxa (03) + the cube species universe (06b species_summary).
 #   2. Matches each unique Dyntaxa name -> COL key (cached + resumable). Fast
 #      bulk path via rgbif::name_backbone_checklist(); serial httr2 fallback with
@@ -28,7 +30,7 @@
 #      (dyntaxa_taxonID, col_key, match_status, match_type, confidence, name_used).
 #   4. VALIDATES coverage vs the cube and the confirmed baseline
 #      (matched 76.4% / occ 99.72% / missing-threatened 225) and writes
-#      data/{CC}/proc/gaps/col_crosswalk_validation.md so the full 09a swap can
+#      data/{CC}/proc/gaps/col_crosswalk_validation.md so the Tier-5 augment can
 #      be green-lit on real numbers first.
 #
 # RUN:  source("scripts/09a1_build_col_crosswalk.R")     (after 03 + 06b)
@@ -435,4 +437,4 @@ cli_alert_success("Wrote validation report: {.path {report_file}}")
 
 elapsed <- round(difftime(Sys.time(), timer_start, units = "mins"), 1)
 cli_alert_info("Elapsed: {elapsed} minutes")
-cli_alert_info("Review {.path {report_file}}; if coverage holds, the 09a tier-replacement is next.")
+cli_alert_info("Review {.path {report_file}}; the crosswalk feeds 09a as the additive Tier 5 (kept 2026-07-30).")

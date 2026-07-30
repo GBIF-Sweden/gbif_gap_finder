@@ -22,8 +22,8 @@
 
 *Substantial builds.* **Sequencing (updated 2026-07-28 with Lena):** the **key-findings panel**
 (2026-07-24) and the **b3verse cube-stack** (2026-07-27) have shipped. **Gap Trends** is the next
-build; **family-level resolution** waits on Kevin's per-group call; the **CoL backbone migration**
-is parked pending GBIF; **Norway replication** is de-risked but **deprioritised to the end of the
+build; **family-level resolution** waits on Kevin's per-group call; the **CoL backbone** is
+**owned and done** (2026-07-30); **Norway replication** is de-risked but **deprioritised to the end of the
 list**.
 
 - [x] **Auto-generated "key findings" panel (Overview)** — *done 2026-07-24 (commit `5fef6f6`).*
@@ -50,15 +50,19 @@ list**.
   config with fresh download keys; wire the uncertainty measures into an app view; feed the superset
   to `b3gbi::process_cube()`.
 
-- [x] ✅ **Catalogue of Life (COL) backbone migration — RESOLVED (2026-07-30).** GBIF replied: the
+- [x] ✅ **Catalogue of Life (COL) backbone — OWNED (2026-07-30).** GBIF replied: the
   migration is complete on the current backend and fresh SQL cubes return clean COL keys. Repairs are
   **in + running green** (character `specieskey`, COL-native Tier 4, COL provenance pinned) and the
   Dyntaxa→COL crosswalk augment (`scripts/09a1` → Tier 5 in `09a`) is wired in. The earlier
   "~5.7 % legacy integer" reading came from the **April** download (`0020270-260409193756587`, built
   mid-migration) plus valid **numeric COL ids** (e.g. `67343` = *Anemone nemorosa*) miscounted as
   legacy — NOT a permanent dual-key design. Direct scan of the fresh cube `0017309`: 76,291
-  alphanumeric + 298 numeric COL keys, **zero** ≥7-digit nub keys; hedgehog only under COL `3B2C2`. The
-  augment is kept as key-format-agnostic insurance. See `claude/finding-cube-mix-RESOLVED-2026-07-30.md`
+  alphanumeric + 298 numeric COL keys, **zero** ≥7-digit nub keys; hedgehog only under COL `3B2C2`.
+  **Decision (Lena, 2026-07-30): keep the Tier-5 crosswalk augment** — it rescues 162 species /
+  41,790 occ that Tiers 1–4 miss (COL-name-divergence cases), on top of key-format-agnostic
+  insurance. The backbone is deliberately **owned**: pinned in the cube SQL
+  (`classificationdetails['${COL_CHECKLIST_KEY}']` / `col_checklist_key`), provenance in
+  `data_sources_meta`, guarded in `05` (legacy ≥7-digit + numeric-fraction early warning). See `claude/finding-cube-mix-RESOLVED-2026-07-30.md`
   (which corrects `claude/finding-cube-key-mix-2026-07-27.md`).
 
 - [ ] **Family-level resolution** *(T-D1 → build)*

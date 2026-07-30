@@ -303,6 +303,24 @@ if (file_exists_safe(manifest_file)) {
           } else {
             md_check("specieskey is COL-format (no legacy Backbone nub keys)", "ok")
           }
+
+          # Early warning (NOT fatal): a valid COL universe is overwhelmingly
+          # alphanumeric with only a small numeric-COL minority (~0.4%). If the
+          # numeric fraction jumps well above that, specieskey may be reverting to
+          # an integer backbone -- including SHORT integers the >=7-digit legacy
+          # check above cannot see. WARN so a backbone/download change is caught
+          # early (a handful of numeric COL ids stays well under the threshold).
+          numeric_like <- grepl("^[0-9]+$", sk)
+          num_frac     <- mean(numeric_like)
+          md_add("- specieskey numeric-key fraction: `",
+                 sprintf("%.2f%%", 100 * num_frac), "` (valid COL baseline ~0.4%)\n")
+          if (num_frac > 0.05) {
+            md_check(glue("{sprintf('%.1f%%', 100 * num_frac)} of specieskeys are purely \\
+                          numeric (valid COL baseline ~0.4%) -- specieskey may be reverting \\
+                          to an integer backbone; verify the download's backbone"), "warn")
+            cli_alert_warning("{sprintf('%.1f%%', 100 * num_frac)} numeric specieskeys \\
+                              (COL baseline ~0.4%) -- possible integer-backbone reversion")
+          }
         }
 
         cli_alert_success("{basename(pq_file)}: {length(pq_cols)} columns, {pq_size} MB")

@@ -233,8 +233,8 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 
 > **Sequencing (updated 2026-07-28 with Lena).** The **key-findings panel** (2026-07-24) and the
 > **b3verse cube-stack rewrite** (2026-07-27) have shipped. Next build: **Gap Trends**.
-> **Family-level resolution** stays parked on Kevin's per-group call; the **CoL backbone migration**
-> is parked pending GBIF; **Norway replication** is de-risked but **moved to the end of the list**.
+> **Family-level resolution** stays parked on Kevin's per-group call; the **CoL backbone** is now
+> **owned and done** (2026-07-30, GBIF confirmed); **Norway replication** is de-risked but **moved to the end of the list**.
 
 ### Snapshot-based retrospective — "Gap Trends" (high value)
 *Scheduled for the following sprint (~next week), after the key-findings panel (2026-07-24).*
@@ -253,10 +253,11 @@ GBIF publishes complete monthly snapshots in Parquet. This unlocks two things:
 - [x] **SQL canonicalisation** — *done:* `sql/gbif_occurrence_cube.sql` with `${COUNTRY_CODE}`/`${RESOLUTION}` placeholders; the query *is* the cube spec.
 - *Optional follow-ons:* auto-update config with fresh download keys; wire the uncertainty measures into an app view.
 
-### Catalogue of Life (COL) backbone migration — ✅ RESOLVED (GBIF replied, 2026-07-30)
+### Catalogue of Life (COL) backbone — ✅ OWNED (2026-07-30)
 *Surfaced by the b3verse re-download: GBIF permanently switched its default backbone to COL Extended Release, so the cube's `specieskey` is now a COL taxonID. A separate work stream from the cube-stack above.*
 - [x] **Repairs in + running green** — character `specieskey`, COL-native Tier 4, COL provenance pinned (`col_checklist_key`); the pipeline matches at the pre-migration rate on COL data.
-- [x] **`specieskey` "mix" RESOLVED (2026-07-30)** — GBIF confirmed the migration is complete on the current backend; fresh SQL cubes return clean COL keys. The earlier "~5.7 % legacy integer" reading was the **April** download (`0020270-260409193756587`, built mid-migration) plus valid **numeric COL ids** (e.g. `67343` = *Anemone nemorosa*) miscounted as legacy. Direct scan of the fresh cube `0017309`: 76,291 alphanumeric + 298 numeric COL keys, **zero** ≥7-digit nub keys; hedgehog only under COL `3B2C2`. The Tier-5 COL crosswalk augment is kept as key-format-agnostic insurance, not to catch legacy keys. See `claude/finding-cube-mix-RESOLVED-2026-07-30.md`.
+- [x] **Backbone owned, not just repaired** — COL is pinned deliberately in the cube SQL (`classificationdetails['${COL_CHECKLIST_KEY}']` / `parameters.taxonomic.col_checklist_key`), recorded for provenance in `data_sources_meta` (`checklists$col_backbone`), and reconciled through the authoritative Dyntaxa↔COL crosswalk (`09a1` → additive Tier 5). Guardrail: `05` flags a reversion to integer keys (legacy ≥7-digit **plus** a numeric-fraction early warning). **Off the forward priority list — next build is Gap Trends.**
+- [x] **`specieskey` "mix" RESOLVED (2026-07-30)** — GBIF confirmed the migration is complete on the current backend; fresh SQL cubes return clean COL keys. The earlier "~5.7 % legacy integer" reading was the **April** download (`0020270-260409193756587`, built mid-migration) plus valid **numeric COL ids** (e.g. `67343` = *Anemone nemorosa*) miscounted as legacy. Direct scan of the fresh cube `0017309`: 76,291 alphanumeric + 298 numeric COL keys, **zero** ≥7-digit nub keys; hedgehog only under COL `3B2C2`. **Decision (Lena, 2026-07-30): keep the Tier-5 COL crosswalk augment** — it rescues 162 species / 41,790 occ that Tiers 1–4 miss (COL-name-divergence cases), on top of key-format-agnostic insurance. See `claude/finding-cube-mix-RESOLVED-2026-07-30.md`.
 - [x] **Stale-parquet trap fixed** — `04` was existence-gated and never re-converted a re-downloaded cube; `04` now re-converts when the CSV is newer, and `05` fails if the parquet is older than its raw CSV.
 
 ### Auto-generated "key findings" panel (Overview) — ✅ DONE (2026-07-24)
