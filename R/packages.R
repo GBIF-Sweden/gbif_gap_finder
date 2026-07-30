@@ -63,15 +63,20 @@ optional_packages <- c(
 # App/reporting packages (used by Shiny app and Rmd reports, not scripts) ----
 
 app_packages <- c(
+  # Shiny app runtime (loaded by shiny_app/gap_finder/app.R)
+  "shiny",
+  "shinyWidgets",
+  "plotly",
+  "leaflet",
+  "DT",
   "ggplot2",
   "viridis",
+  # Rmd reports (analysis/*.Rmd)
   "patchwork",
   "gridExtra",
   "knitr",
   "kableExtra",
   "gt",
-  "DT",
-  "shinyWidgets",
   "rmarkdown",
   "forcats",
   "targets",

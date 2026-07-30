@@ -2,11 +2,17 @@
 
 This document defines the **gap metrics** used in this project to quantify data coverage and identify gaps in **GBIF-mediated biodiversity occurrence data for Sweden**, based on GBIF Occurrence Cube summaries and reference datasets.
 
+> **Status (2026-07-30 housekeeping):** last substantively updated **2026-04-16**; predates the
+> 2026-07 correctness round, the b-cubed cube migration, the CoL backbone switch, and the marine
+> grid. The metric **definitions** below are still valid, but treat hard-coded **counts, percentages,
+> and some output file names as illustrative/stale** — verify against the live `tar_make()` outputs in
+> `data/{CC}/output/` and the `gaps.outputs` / `overview.outputs` keys in `configs/config_{CC}.yml`.
+
 All metrics are designed to be:
 - **Reproducible** (derived from tracked inputs + scripts)
 - **Comparable** between 10 km and 50 km grids
 - **Interpretable** for reporting and decision-making
-- **Parameterized** (thresholds defined in `config.yml`)
+- **Parameterized** (thresholds defined in `configs/config_{CC}.yml`)
 
 ---
 
@@ -137,7 +143,7 @@ A cell is classified as low-coverage if:
 occurrences > 0 AND occurrences <= quantile(occurrences, q)
 ```
 
-**Implemented quantiles (configurable in config.yml):**
+**Implemented quantiles (configurable in configs/config_{CC}.yml):**
 - `q = 0.05` (lowest 5% of non-zero cells)
 - `q = 0.10` (lowest 10% of non-zero cells)
 - `q = 0.25` (lowest 25% of non-zero cells)
@@ -250,7 +256,7 @@ staleness_months = months between last_ym and current date
 
 #### 4.4.2 Staleness Thresholds
 
-**Configurable parameters (config.yml):**
+**Configurable parameters (configs/config_{CC}.yml):**
 - `stale_months_12 = 12` (1 year threshold)
 - `stale_months_60 = 60` (5 year threshold)
 
@@ -299,7 +305,7 @@ Taxonomic gaps compare GBIF-mediated taxonomic coverage to Swedish reference tax
 
 ### 5.1a Scope-Filtered Summaries (Script 09c)
 
-Script 09c uses the 4-tier reconciliation (section 5.3) to produce **five scope-filtered variants** of every cube-based summary. Each scope is a boolean filter over GBIF species:
+Script 09c uses the 5-tier reconciliation (section 5.3) to produce **five scope-filtered variants** of every cube-based summary. Each scope is a boolean filter over GBIF species:
 
 | Scope | Filter | Use |
 |-------|--------|-----|
@@ -328,13 +334,14 @@ Taxa detected in cubes:
 
 ### 5.3 Matching Strategy
 
-**Method:** 4-tier taxonomic reconciliation (script 09a)
+**Method:** 5-tier taxonomic reconciliation (script 09a)
 
 **Process:**
 1. **Tier 1** — Direct accepted name match (local, exact binomial)
 2. **Tier 2** — Synonym resolution via backbone synonym rows
 3. **Tier 3** — Infraspecific collapse (strip subspecies/variety, re-match locally)
 4. **Tier 4** — GBIF Species API lookup (for remaining unmatched, cached across runs)
+5. **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`; matches on the cube's CoL `specieskey`)
 
 **Result:** ~99.8% occurrence coverage (up from 31% with name-only matching)
 
@@ -410,7 +417,7 @@ taxon in Swedish reference AND no match found in cube taxa set
 - `poorly_sampled_spatial` (flag if <5 cells)
 - `poorly_sampled_abundance` (flag if <10 occurrences)
 
-**Parameters (config.yml):**
+**Parameters (configs/config_{CC}.yml):**
 - `min_cells = 5` (minimum for adequate coverage)
 - `min_occurrences = 10` (minimum for abundance)
 
@@ -517,7 +524,7 @@ Script 10 creates multi-dimensional cross-tabs and priority lists.
 
 ## 7) Parameters Summary
 
-All thresholds are configured in `config.yml` for easy adjustment:
+All thresholds are configured in `configs/config_{CC}.yml` for easy adjustment:
 
 ### Spatial Parameters
 
@@ -541,7 +548,7 @@ taxonomic:
   min_occurrences: 10
   min_cells: 5
   exclude_orders: ["Primates"]        # Orders to exclude from gap analysis
-  year_published_format: "mjd"         # Modified Julian Date conversion
+  col_checklist_key: "7ddf754f-..."    # Catalogue of Life checklist (backbone pin)
 ```
 
 ---
@@ -556,7 +563,7 @@ taxonomic:
 - **Scope summaries + recent-period layer (script 09c):** ~130 files (13 summary types × 5 scopes × 2 grid resolutions, plus tax_cell_recency, species_scope_summary, recent_cutoff)
 - **Integrated overview (script 10):** 18 files
 
-**All outputs documented in `config.yml` under `gaps.outputs` and `overview.outputs`**
+**All outputs documented in `configs/config_{CC}.yml` under `gaps.outputs` and `overview.outputs`**
 
 ---
 

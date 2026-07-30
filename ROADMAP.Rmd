@@ -53,12 +53,12 @@ The full pipeline runs end-to-end for Sweden, and the dashboard is live with nin
 
 | Stage | Status | Notes |
 |-------|--------|-------|
-| Ingestion (01–04) | ✅ | SQL-API cubes (14-col) → parquet, shared EEA grids, GADM admin |
+| Ingestion (01–04) | ✅ | SQL-API cubes (17-col b-cubed superset) → parquet, shared EEA grids, GADM admin |
 | Validation (05) | ✅ | Parquet + column checks |
 | Core summaries (06a/06b) | ✅ | Taxonomy-agnostic aggregations |
 | Spatial gaps (07) | ✅ | Coverage, hotspots, zero-data cells |
 | Temporal gaps (08) | ✅ | Recency, seasonality, trends |
-| Reconciliation (09a) | ✅ | 4-tier matching → **99.8%** occurrence coverage |
+| Reconciliation (09a) | ✅ | 5-tier matching (Tier 5 = Dyntaxa↔CoL crosswalk) → **99.8%** occurrence coverage |
 | Taxonomic gaps (09b) | ✅ | Missing taxa, threat / establishment-means coverage |
 | Scope summaries (09c) | ✅ | Five scopes (all / backbone / threatened / invasive / sensitive) + recent-period layer |
 | Integration (10) | ✅ | Combined overview tables |
@@ -84,7 +84,7 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 
 - **Version:** v0.4.3. **Correctness round complete (2026-07)** — a full audit reconciled every
   headline number across Overview / Taxonomic / Concern, fixed the miscalculations (see Part 3),
-  and added `scripts/12_reconcile.R` as a build-time guardrail. Numbers are clean.
+  and added `scripts/12_reconcile.R` as a reconciliation guardrail (run manually via `run_reconcile()`). Numbers are clean.
 - **Overview "key findings" panel:** shipped 2026-07-24 (app-side, `app.R`) — an auto-generated
   "what matters most" strip at the top of Overview so a policymaker grasps the headline gaps without
   opening eight tabs. *(See ROADMAP §C and TASKS Tier 1.)*
@@ -105,7 +105,7 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 
 ### Calculations & cross-tab alignment
 - [x] **Gap / coverage figures reconcile** across Overview, Taxonomic, and Concern — done in the
-  2026-07 audit; `scripts/12_reconcile.R` now enforces it on every build.
+  2026-07 audit; `scripts/12_reconcile.R` checks it as a manual guardrail (`run_reconcile()`), not wired into `tar_make()`.
 - [x] **Overview "threatened" matches Concern** — verified (both read `match_summary_full`).
 - [x] **Align the `analysis/*.Rmd` reports with the app** — *done 2026-07 (`gap_finder_report_parity.patch`):*
   reports now take threatened / concern counts from `match_summary` (not `tax_by_threat`), keep DD out
@@ -319,7 +319,7 @@ questions raised during the colleague review.
 - **Parquet-based pipeline** — single SQL-API cube per resolution (14 columns incl. publisher and dataset), replacing 18 FST files per basis of record.
 - **Country-aware architecture** — `data/{CC}/` structure, `configs/config_{CC}.yml`, shared EEA grids in `data/shared/grids/`.
 - **09a / 09b / 09c split** with a clean separation of concerns; **script 11 reduced** from ~1700 to ~940 lines toward a pure loader.
-- **4-tier taxonomy reconciliation** — occurrence coverage from **31% → 99.8%**; batched Tier-4 API.
+- **5-tier taxonomy reconciliation (Tier 5 = Dyntaxa↔CoL crosswalk, 09a1)** — occurrence coverage from **31% → 99.8%**; batched Tier-4 API.
 - **Four-layer taxonomy** — backbone + red list + invasive + sensitive, unified via flags.
 - **Five-scope summaries (09c)** — all / backbone / threatened / invasive / sensitive variants pre-computed, so the app's scope toggles are file lookups; `exclude_orders` applied here.
 - **Recent-period cutoff as a pipeline constant** — derived once, saved to `recent_cutoff.rds`, read by all downstream consumers.
@@ -340,7 +340,7 @@ A full reconciliation of every headline number, shipped as pipeline fixes (branc
 - **"Poorly sampled"** redefined as bottom-10 % occurrences OR < 3 cells (was a degenerate `< 1`).
 - **Concern checklist matching corrected** — exact match for red-list/sensitive; invasive de-duped to species-rank, non-hybrid (490→337).
 - **Input guards** — 04 aborts on missing required cube columns; 05 hard-stops on cube cells absent from the grid; `ds$num_rows` fixed.
-- **`scripts/12_reconcile.R`** — a build-time guardrail asserting headline numbers agree across layers.
+- **`scripts/12_reconcile.R`** — a reconciliation guardrail (run manually via `run_reconcile()`) asserting headline numbers agree across layers.
 
 ### App
 - **Nine live tabs**, including the **Species of Concern** tab (Threatened / Invasive / Sensitive sub-tabs) that replaced the old Threatened tab.

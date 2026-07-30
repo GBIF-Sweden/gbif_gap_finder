@@ -5,7 +5,7 @@
 >
 > **Correctness round complete (2026-07).** A full audit reconciled every headline number
 > across Overview / Taxonomic / Concern, fixed the miscalculations (see *Recently closed*),
-> and added `scripts/12_reconcile.R` as a build-time guardrail. **Current focus now:**
+> and added `scripts/12_reconcile.R` as a reconciliation guardrail (run manually via `run_reconcile()`). **Current focus now:**
 > (1) align the analysis reports (`analysis/*.Rmd`) with the corrected app numbers, then
 > (2) the Tier-3 UX / framing / accessibility polish. The analytical scope is complete.
 >
@@ -149,7 +149,7 @@ list**.
 
 ### Calculations & cross-tab alignment
 - [x] **Numbers reconcile after the rerun** — done in the 2026-07 audit; `scripts/12_reconcile.R`
-  now enforces it on every build. Overview / Taxonomic / Concern agree.
+  is available as a manual guardrail (`run_reconcile()`), not wired into `tar_make()`. Overview / Taxonomic / Concern agree.
 - [x] **Overview "threatened" matches Concern exactly** — verified; both read `match_summary_full`.
 - [x] **Align `analysis/*.Rmd` reports with the app** — *done 2026-07 (`gap_finder_report_parity.patch`).*
   Reports now compute threatened/concern counts from `match_summary` (not `tax_by_threat`), keep
@@ -278,7 +278,7 @@ list**.
 - [x] **"Poorly sampled" redefined** — bottom-10 % occurrences OR < 3 cells (config-driven), replacing the degenerate `< 1` test. *(rerun)*
 - [x] **Concern checklist matching corrected** — red-list/sensitive back to exact match (178 sensitive, 4 859 threatened); invasive de-duped to species-rank non-hybrid (490→337). *(rerun)* *(T-I1)*
 - [x] **Input guards (04/05)** — 04 aborts on missing required cube columns + fixes `ds$num_rows`; 05 hard-stops on cube cells absent from the grid. *(rerun)*
-- [x] **`scripts/12_reconcile.R`** — new build-time guardrail asserting the headline numbers agree across layers.
+- [x] **`scripts/12_reconcile.R`** — new reconciliation guardrail (run manually via `run_reconcile()`) asserting the headline numbers agree across layers.
 
 - [x] **T-S1** — App made metadata-driven; kills the Norway "Sweden/Dyntaxa" title bug. *(redeploy)*
 - [x] **Species of Concern tab** built — Threatened / Invasive / Sensitive sub-tabs (replaced the old Threatened tab).

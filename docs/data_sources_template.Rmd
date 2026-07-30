@@ -10,7 +10,7 @@ Documentation of all external datasets for the [COUNTRY] gap analysis.
 
 **Status:** Not yet downloaded
 
-Submit the SQL query from `scripts/01_download_raw_data.R` at
+Submit the SQL query from `scripts/01a_download_raw_data.R` at
 https://www.gbif.org/occurrence/download/sql with `countrycode = '[CC]'`.
 
 Replace `[CC]` with your ISO 3166-1 alpha-2 country code.
@@ -123,7 +123,7 @@ data/[CC]/raw/admin/
 
 ```r
 Sys.setenv(GBIF_GAP_COUNTRY = "[CC]")
-source("scripts/01_download_raw_data.R")
+source("scripts/01a_download_raw_data.R")
 ```
 
 ---

@@ -46,11 +46,13 @@ gbif_gap_finder/
 │   ├── 06b_make_species_summaries.R       # Species-level + bias correction
 │   ├── 07_spatial_gaps.R                  # Spatial gap analysis
 │   ├── 08_temporal_gaps.R                 # Temporal gap analysis
-│   ├── 09a_reconcile_taxonomy.R           # GBIF ↔ backbone matching (4-tier)
-│   ├── 09b_taxonomic_gaps.R              # Taxonomic gap analysis
+│   ├── 09a_reconcile_taxonomy.R           # GBIF ↔ backbone matching (5-tier)
+│   ├── 09a1_build_col_crosswalk.R         # Dyntaxa ↔ CoL key crosswalk (feeds 09a Tier 5)
+│   ├── 09b_taxonomic_gaps.R               # Taxonomic gap analysis
 │   ├── 09c_scope_summaries.R              # Per-scope summaries + recent-period layer
 │   ├── 10_make_gap_overview.R             # Integrated summary tables
-│   └── 11_prepare_gap_finder_data.R       # Bundle data for the Gap Finder app
+│   ├── 11_prepare_gap_finder_data.R       # Bundle data for the Gap Finder app
+│   └── 12_reconcile.R                     # Cross-layer reconciliation guardrail (manual)
 ├── analysis/
 │   ├── 01_overview.Rmd                    # Dashboard overview report
 │   ├── 02_priorities.Rmd                  # Priority actions report
@@ -167,8 +169,8 @@ The cube definition lives in one canonical, version-controlled SQL spec —
 renders it per resolution and **submits the download automatically** via
 `rgbif::occ_download_sql()` (→ `occ_download_wait` → `occ_download_import`); with no GBIF
 credentials it prints the identical query to run by hand at the
-[SQL API](https://www.gbif.org/occurrence/download/sql). Resolved download keys are cached to
-`data/{CC}/raw/cubes/cube_download_keys.yml`.
+[SQL API](https://www.gbif.org/occurrence/download/sql). Resolved download keys are recorded to the
+version-controlled `provenance/cube_downloads_{CC}.yml` (see below).
 
 The schema is a **b-cubed–compatible superset** (b3verse, 2026-07): the original GBIF dimensions
 plus three aggregate measures, so the cube can also feed `b3gbi::process_cube()`:
@@ -232,12 +234,13 @@ to 97.8 %.
 
 ## Taxonomy Architecture
 
-The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as the primary reference for gap analysis. Every GBIF species is matched to the backbone through a 4-tier reconciliation process:
+The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as the primary reference for gap analysis. Every GBIF species is matched to the backbone through a 5-tier reconciliation process:
 
 - **Tier 1** — Direct accepted name match
 - **Tier 2** — Synonym resolution via backbone
 - **Tier 3** — Infraspecific collapse (subspecies → species)
 - **Tier 4** — GBIF Species API lookup
+- **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`, matched on the cube's CoL `specieskey`)
 
 Each species receives three key flags:
 

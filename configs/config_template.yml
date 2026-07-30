@@ -6,7 +6,7 @@
 # Fill in all TODO items, then run:
 #   Sys.setenv(GBIF_GAP_COUNTRY = "CC")
 #   source("scripts/00_setup.R")
-#   source("scripts/01_download_raw_data.R")
+#   source("scripts/01a_download_raw_data.R")
 #
 # Data: data/{CC}/raw/ and data/{CC}/proc/
 # Grids: data/shared/grids/ (shared across European countries)
@@ -168,7 +168,14 @@ parameters:
     # "Poorly sampled" = bottom-quantile occurrences OR fewer than N cells.
     poorly_sampled_occ_quantile: 0.10
     poorly_sampled_min_cells: 3
-    year_published_format: "mjd"     # Modified Julian Date — GBIF SQL API default
+    # --- Optional 09a Tier-4 / 09a1 CoL-crosswalk tuning ---
+    # Read by scripts/09a_reconcile_taxonomy.R and 09a1_build_col_crosswalk.R
+    # but unset here, so the pipeline uses the in-script defaults. Uncomment +
+    # set a value only to override (check the script for the current default):
+    #   api_min_occurrences, api_max_requests, api_max_batches      (09a / 09a1)
+    #   crosswalk_use_bulk_rgbif, crosswalk_include_synonyms,
+    #   crosswalk_min_fuzzy_confidence, crosswalk_parallel_conc,
+    #   crosswalk_parallel_chunk, crosswalk_max_names_per_run       (09a1)
 
   processing:
     large_order_threshold: 500000

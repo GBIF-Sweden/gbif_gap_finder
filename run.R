@@ -39,7 +39,8 @@ cli_dl(c(
   "run_phase_4()"         = "Gap analysis (spatial, temporal, taxonomic)",
   "run_phase_5()"         = "Integrated overview",
   "run_gap_finder_prep()" = "Prepare data for the Gap Finder app",
-  "run_reports()"         = "Render all R Markdown reports"
+  "run_reports()"         = "Render all R Markdown reports",
+  "run_reconcile()"       = "Check headline numbers agree across layers (script 12)"
 ))
 
 cli_h2("Shiny apps")
@@ -104,6 +105,15 @@ run_reports <- function() {
     report_publishers,
     report_priorities
   ))
+}
+
+#' Run the cross-layer reconciliation guardrail (script 12).
+#'
+#' Not part of `tar_make()`. Run after a full build to assert the headline
+#' numbers agree across Overview / Taxonomic / Concern; it calls `stop()` on any
+#' disagreement.
+run_reconcile <- function() {
+  source(here("scripts", "12_reconcile.R"))
 }
 
 #' Locate the prepared Gap Finder bundle (per-country data/<CC>/, or legacy flat).

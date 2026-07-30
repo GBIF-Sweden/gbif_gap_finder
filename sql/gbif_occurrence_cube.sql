@@ -9,8 +9,10 @@
 -- fallback. Keep it valid GBIF SQL (see techdocs.gbif.org "API SQL Downloads").
 --
 -- Placeholders (substituted by render_cube_sql):
---   COUNTRY_CODE  = ISO-3166-1 alpha-2 occurrence country, e.g. SE (the WHERE filter)
---   RESOLUTION    = EEA reference-grid resolution in metres (10000 or 50000)
+--   COUNTRY_CODE      = ISO-3166-1 alpha-2 occurrence country, e.g. SE (the WHERE filter)
+--   RESOLUTION        = EEA reference-grid resolution in metres (10000 or 50000)
+--   COL_CHECKLIST_KEY = Catalogue of Life checklist UUID pinned in classificationdetails
+--                       (parameters.taxonomic.col_checklist_key)
 --
 -- Grain: species x EEA-cell x year x month x basisOfRecord x publisher x
 -- dataset. This is a b-cubed-COMPATIBLE SUPERSET: it keeps the extra dimensions

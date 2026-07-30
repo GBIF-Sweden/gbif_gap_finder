@@ -261,7 +261,6 @@ parameters:
     # occurrences OR occupying fewer than N cells. (Project decision 2026-07-21.)
     poorly_sampled_occ_quantile: 0.10
     poorly_sampled_min_cells: 3
-    year_published_format: "mjd"   # Modified Julian Date — convert in script 04
   processing:
     large_order_threshold: 500000
     low_memory_mode: false

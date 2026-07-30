@@ -5,7 +5,7 @@
 # To run:
 #   Sys.setenv(GBIF_GAP_COUNTRY = "NO")
 #   source("scripts/00_setup.R")
-#   source("scripts/01_download_raw_data.R")
+#   source("scripts/01a_download_raw_data.R")
 #
 # Data: data/NO/raw/ and data/NO/proc/
 # Grids: data/shared/grids/ (shared across European countries)
@@ -142,12 +142,18 @@ parameters:
     # selector (render_cube_sql -> ${COL_CHECKLIST_KEY}). Used by 09a (name
     # matching) and 01b (provenance).
     col_checklist_key: "7ddf754f-d193-4cc9-b351-99906754a03b"
+    # Keep FALSE so the occurrence tabs report ALL of GBIF (matches config_SE
+    # + the 2026-07-21 decision). Code defaults TRUE, so NO must set it explicitly
+    # or its occurrence tabs silently kingdom-scope.
+    restrict_to_backbone_scope: false
     min_occurrences: 10
     min_cells: 5
     gap_species_only: true                                 # gap denominator = species-rank backbone taxa only
     exclude_kingdoms: ["Bacteria", "Archaea", "Viruses"]   # drop non-multicellular kingdoms from the gap
     exclude_orders: ["Primates"]                           # drop Homo sapiens from the gap denominator (no native non-human primates in Norway)
-    year_published_format: "mjd"   # Modified Julian Date — convert in script 04
+    # "Poorly sampled" (Priorities): bottom-quantile occurrences OR < N cells.
+    poorly_sampled_occ_quantile: 0.10
+    poorly_sampled_min_cells: 3
 
   processing:
     large_order_threshold: 500000
