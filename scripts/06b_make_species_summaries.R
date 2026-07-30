@@ -166,6 +166,20 @@ write_summary_type <- function(dt, group_cols, type_name, name_clean, out_subdir
 
 cli_h1("Species-Level Summaries (Script 06b)")
 
+# Full rebuild: clear the per-taxon output dirs first. Filenames are keyed by
+# order/family, so when the cube changes — COL renames a group, or a smaller
+# re-download drops one — the old file lingers as an ORPHAN. 09a/09b/09c/11 glob
+# derived/ for species_summary*.csv, so orphans are read as PHANTOM species and
+# silently inflate the reconciliation universe (fresh cube 76,589 -> 80,940 seen
+# on 2026-07-30). These two dirs are written only by this script, so wiping them
+# guarantees the species universe on disk equals the current cube.
+for (stale_dir in c(here(p_derived, "by_order"), here(p_derived, "by_family"))) {
+  if (dir.exists(stale_dir)) {
+    unlink(stale_dir, recursive = TRUE, force = TRUE)
+    cli_alert_info("Cleared stale per-taxon outputs: {.path {stale_dir}}")
+  }
+}
+
 parquet_files <- list.files(p_cubes, pattern = "\\.parquet$", full.names = TRUE)
 if (length(parquet_files) == 0) cli_abort("No parquet files in: {.path {p_cubes}}")
 
