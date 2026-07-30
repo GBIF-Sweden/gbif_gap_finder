@@ -17,8 +17,8 @@ authors:
 repository-code: "https://github.com/GBIF-Sweden/gbif_gap_finder"
 url: "https://test.gbif.se/gap-finder/"
 license: MIT
-version: "0.4.3"
-date-released: "2026-06-24"
+version: "0.5.0"
+date-released: "2026-07-30"
 keywords:
   - biodiversity
   - GBIF
