@@ -118,110 +118,16 @@ files:
     sensitive_distr: "distribution.txt"
 
 # ============================================================================
-# Derived Summaries
-# ============================================================================
-derived:
-  dir: "derived"
-  core:
-    cell_summary_10km: "cell_summary_10km.csv"
-    cell_summary_50km: "cell_summary_50km.csv"
-    time_summary_10km: "time_summary_10km.csv"
-    time_summary_50km: "time_summary_50km.csv"
-    cell_time_summary_10km: "cell_time_summary_10km.csv"
-    cell_time_summary_50km: "cell_time_summary_50km.csv"
-    order_cell_summary_10km: "order_cell_summary_10km.csv"
-    order_cell_summary_50km: "order_cell_summary_50km.csv"
-    order_time_summary_10km: "order_time_summary_10km.csv"
-    order_time_summary_50km: "order_time_summary_50km.csv"
-    family_time_summary_10km: "family_time_summary_10km.csv"
-    family_time_summary_50km: "family_time_summary_50km.csv"
-    cube_key_summary: "cube_key_summary.csv"
-    grid_lookup_10km: "grid_lookup_10km.csv"
-    grid_lookup_50km: "grid_lookup_50km.csv"
-
-  species:
-    by_order_dir: "by_order"
-    by_family_dir: "by_family"
-    types:
-      - species_summary
-      - species_cell
-      - species_time
-      - species_cell_time
-
-# ============================================================================
 # Gap Analysis Outputs
 # ============================================================================
+# H7 trim (2026-07-30): the former derived / gaps.outputs / overview.outputs
+# name->filename manifest was inert - every output path is hard-coded in the
+# scripts (p_derived / p_gaps / p_tables in R/globals.R) and the lists had
+# drifted. Only the key below is read (cfg_get in 09a). Add a key back here
+# only if a script starts reading it via cfg_get("gaps.outputs.<key>").
 gaps:
-  dir: "gaps"
   outputs:
-    spatial_gaps_10km: "spatial_gaps_10km.csv"
-    spatial_gaps_50km: "spatial_gaps_50km.csv"
-    spatial_thresholds_by_basis: "spatial_thresholds_by_basis.csv"
-    spatial_summary_by_basis: "spatial_summary_by_basis.csv"
-    spatial_summary_by_grid: "spatial_summary_by_grid.csv"
-    spatial_zero_coverage_cells: "spatial_zero_coverage_cells.csv"
-    spatial_low_coverage_cells_q10: "spatial_low_coverage_cells_q10.csv"
-    temporal_overview_year_10km: "temporal_overview_year_10km.csv"
-    temporal_overview_year_50km: "temporal_overview_year_50km.csv"
-    temporal_overview_month_10km: "temporal_overview_month_10km.csv"
-    temporal_overview_month_50km: "temporal_overview_month_50km.csv"
-    temporal_year_by_basis_10km: "temporal_year_by_basis_10km.csv"
-    temporal_year_by_basis_50km: "temporal_year_by_basis_50km.csv"
-    temporal_month_by_basis_10km: "temporal_month_by_basis_10km.csv"
-    temporal_month_by_basis_50km: "temporal_month_by_basis_50km.csv"
-    temporal_year_month_10km: "temporal_year_month_10km.csv"
-    temporal_year_month_50km: "temporal_year_month_50km.csv"
-    temporal_decade_summary_10km: "temporal_decade_summary_10km.csv"
-    temporal_decade_summary_50km: "temporal_decade_summary_50km.csv"
-    temporal_year_completeness_10km: "temporal_year_completeness_10km.csv"
-    temporal_year_completeness_50km: "temporal_year_completeness_50km.csv"
-    temporal_month_completeness_10km: "temporal_month_completeness_10km.csv"
-    temporal_month_completeness_50km: "temporal_month_completeness_50km.csv"
-    temporal_gap_years_detail: "temporal_gap_years_detail.csv"
-    temporal_gap_years_summary: "temporal_gap_years_summary.csv"
-    temporal_sampling_frequency_summary: "temporal_sampling_frequency_summary.csv"
-    temporal_year_by_family_10km: "temporal_year_by_family_10km.csv"
-    temporal_year_by_family_50km: "temporal_year_by_family_50km.csv"
-    cell_recency_10km: "cell_recency_10km.csv"
-    cell_recency_50km: "cell_recency_50km.csv"
     taxonomic_match_table: "taxonomic_match_table.csv"
-    taxonomic_match_summary: "taxonomic_match_summary.csv"
-    taxonomic_missing_taxa: "taxonomic_missing_taxa.csv"
-    taxonomic_missing_threatened: "taxonomic_missing_threatened.csv"
-    taxonomic_gap_summary: "taxonomic_gap_summary.csv"
-    taxonomic_coverage_by_rank: "taxonomic_coverage_by_rank.csv"
-    taxonomic_coverage_by_threat: "taxonomic_coverage_by_threat.csv"
-    taxonomic_coverage_by_basis: "taxonomic_coverage_by_basis.csv"
-    taxonomic_spatial_coverage: "taxonomic_spatial_coverage.csv"
-    taxonomic_threatened_spatial_coverage: "taxonomic_threatened_spatial_coverage.csv"
-    taxonomic_gaps_by_family: "taxonomic_gaps_by_family.csv"
-    taxonomic_gaps_by_order: "taxonomic_gaps_by_order.csv"
-    taxonomic_priority_taxa: "taxonomic_priority_taxa.csv"
-
-# ============================================================================
-# Overview Outputs
-# ============================================================================
-overview:
-  dir: "tables"
-  outputs:
-    dashboard_summary: "dashboard_summary.csv"
-    comparison_grid_resolutions: "comparison_grid_resolutions.csv"
-    comparison_basis_types: "comparison_basis_types.csv"
-    comparison_taxon_ranks: "comparison_taxon_ranks.csv"
-    overview_spatial_gap_rates: "overview_spatial_gap_rates.csv"
-    overview_temporal_year: "overview_temporal_year.csv"
-    overview_temporal_month: "overview_temporal_month.csv"
-    overview_temporal_recency_rates: "overview_temporal_recency_rates.csv"
-    overview_taxonomic_summary: "overview_taxonomic_summary.csv"
-    overview_missing_taxa: "overview_missing_taxa.csv"
-    space_time_basis_10km: "integrated/space_time_basis_10km.csv"
-    space_time_basis_50km: "integrated/space_time_basis_50km.csv"
-    space_taxonomy_simple_10km: "integrated/space_taxonomy_simple_10km.csv"
-    space_taxonomy_basis_10km: "integrated/space_taxonomy_basis_10km.csv"
-    time_taxonomy_basis_10km: "integrated/time_taxonomy_basis_10km.csv"
-    priority_cells_zero_coverage: "integrated/priority_cells_zero_coverage.csv"
-    priority_cells_low_coverage: "integrated/priority_cells_low_coverage.csv"
-    priority_cells_stale: "integrated/priority_cells_stale.csv"
 
 # ============================================================================
 # Analysis Parameters
