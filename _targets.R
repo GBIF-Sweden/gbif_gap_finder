@@ -353,6 +353,23 @@ list(
   ),
 
   # ==========================================================================
+  # Phase 6b: Reconciliation guardrail (script 12)
+  # ==========================================================================
+  # Asserts headline numbers agree across Overview / Taxonomic / Concern.
+  # Inputs: 10 (dashboard_summary_long) + 09c/06a (spatial_gaps_all + grid_lookup)
+  # + 09b (taxonomic_*). tar_option_set(error = "continue") means a failure here
+  # marks THIS target errored (see tar_make()/tar_progress()) without unwinding
+  # the rest of the build — a guardrail signal, not a hard halt.
+  tar_target(
+    reconciliation,
+    {
+      gap_overview; scope_summaries; taxonomic_gaps
+      source(here("scripts", "12_reconcile.R"), local = TRUE)
+      "ok"
+    }
+  ),
+
+  # ==========================================================================
   # Phase 7: Reports (manual trigger)
   # ==========================================================================
 
