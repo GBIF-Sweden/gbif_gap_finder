@@ -1,0 +1,66 @@
+name: Sync CITATION version
+
+# On every semver tag push (e.g. v0.5.0) write that version + today's date into
+# CITATION.cff on the default branch, so the citation metadata always matches the
+# released version instead of being hand-maintained. Shares the v* trigger with
+# publish-shiny-images.yml.
+#
+# Note: the bump lands as a follow-up commit on the default branch (the tagged
+# commit itself keeps whatever CITATION.cff it had). If `main` is protected
+# against direct pushes, grant this workflow an exception or swap the final step
+# for a pull request (peter-evans/create-pull-request).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: citation-version-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync-citation:
+    name: Sync CITATION.cff to tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: true
+
+      - name: Derive version + date from tag
+        id: meta
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          DATE="$(date -u +%Y-%m-%d)"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}"       >> "$GITHUB_OUTPUT"
+          echo "Tag ${GITHUB_REF_NAME} -> version ${VERSION}, date ${DATE}"
+
+      - name: Update CITATION.cff (version + date-released)
+        run: |
+          set -euo pipefail
+          # Dependency-free: both are unique top-level keys on their own line.
+          sed -i -E 's|^version:.*|version: "${{ steps.meta.outputs.version }}"|' CITATION.cff
+          sed -i -E 's|^date-released:.*|date-released: "${{ steps.meta.outputs.date }}"|' CITATION.cff
+          echo "----- CITATION.cff now -----"
+          grep -E '^(version|date-released):' CITATION.cff
+
+      - name: Commit + push if changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- CITATION.cff; then
+            echo "CITATION.cff already matches ${GITHUB_REF_NAME}; nothing to do."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CITATION.cff
+          git commit -m "chore: sync CITATION.cff to ${GITHUB_REF_NAME} [skip ci]"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
