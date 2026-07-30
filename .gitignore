@@ -43,3 +43,5 @@ download_metadata.json
 Thumbs.db
 .positai
 gap_finder_*.patch
+
+analysis/*.html
