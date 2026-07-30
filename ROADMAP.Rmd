@@ -84,7 +84,7 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 
 - **Version:** v0.4.3. **Correctness round complete (2026-07)** — a full audit reconciled every
   headline number across Overview / Taxonomic / Concern, fixed the miscalculations (see Part 3),
-  and added `scripts/12_reconcile.R` as a reconciliation guardrail (run manually via `run_reconcile()`). Numbers are clean.
+  and added `scripts/12_reconcile.R` as a reconciliation guardrail — now **wired into `tar_make()` as the `reconciliation` target (2026-07-30)**, also via `run_reconcile()`. Numbers are clean.
 - **Overview "key findings" panel:** shipped 2026-07-24 (app-side, `app.R`) — an auto-generated
   "what matters most" strip at the top of Overview so a policymaker grasps the headline gaps without
   opening eight tabs. *(See ROADMAP §C and TASKS Tier 1.)*
@@ -105,7 +105,7 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 
 ### Calculations & cross-tab alignment
 - [x] **Gap / coverage figures reconcile** across Overview, Taxonomic, and Concern — done in the
-  2026-07 audit; `scripts/12_reconcile.R` checks it as a manual guardrail (`run_reconcile()`), not wired into `tar_make()`.
+  2026-07 audit; `scripts/12_reconcile.R` now checks it as the **`reconciliation` target in `tar_make()`** (2026-07-30; `error = "continue"` so it flags rather than halts), also via `run_reconcile()`.
 - [x] **Overview "threatened" matches Concern** — verified (both read `match_summary_full`).
 - [x] **Align the `analysis/*.Rmd` reports with the app** — *done 2026-07 (`gap_finder_report_parity.patch`):*
   reports now take threatened / concern counts from `match_summary` (not `tax_by_threat`), keep DD out
@@ -120,8 +120,8 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 - [x] Make the **stale-cell colour scale** legible — *done 2026-07 (`eaa_cb_maps`): binned + colour-blind-safe.*
 - [x] **Log-transformed view** for publisher charts — *done 2026-07 (`readability_2`): optional Linear/Log toggle.*
 - [x] Fix the **Record Types pie** — *done 2026-07 (`readability_1`): "minor types" rollup with the breakdown on hover.*
-- [ ] **Data download buttons on all tables and maps** — *in progress (2026-07, `framing_2`): CSV export on the concern, priority & publisher tables; Data & Sources table + maps pending.*
-- [ ] **Bar titles in downloaded chart images** when > 20 groups.
+- [x] **Data download buttons on all tables and maps** — *done 2026-07-24 (`gap_finder_data_downloads_chart_titles.patch`): CSV export on the Data & Sources table + the Spatial / Record-Types / Concern / Publisher maps.*
+- [x] **Bar titles in downloaded chart images** when > 20 groups — *done 2026-07-24 (same patch).*
 
 ### Framing & interpretation
 - [x] Consistent **measurement → interpretation → action** structure in tab text — *done 2026-07 (`framing_1`): guide strip on the 6 analysis tabs.*
@@ -185,6 +185,8 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
   scope lookup CSV for the Data tab. — *done 2026-07-23 (`gap_finder_sensitivity_scope_lookup.patch`).*
 
 ### Metadata, citation & docs
+- [x] **`CITATION.cff` auto-versioned from git tags** — *done 2026-07-30 (`.github/workflows/citation-version.yml`):* a `v*` tag push writes `version` + `date-released` into the software citation file.
+- [x] **`docs/metrics.md` auto-refreshes** its current-figures snapshot from the pipeline — *done 2026-07-30 (`scripts/13_metrics_snapshot.R` + `metrics_snapshot` target + `run_metrics()`).*
 - [ ] **Recommended citation for the app** (separate from the data DOI, which is done).
 - [ ] **Version / contact / data-provenance block** (the DOI part is done; add version + contact).
 - [ ] **GitHub documentation + user manual**, including framing and interpretation guidance.
@@ -340,7 +342,13 @@ A full reconciliation of every headline number, shipped as pipeline fixes (branc
 - **"Poorly sampled"** redefined as bottom-10 % occurrences OR < 3 cells (was a degenerate `< 1`).
 - **Concern checklist matching corrected** — exact match for red-list/sensitive; invasive de-duped to species-rank, non-hybrid (490→337).
 - **Input guards** — 04 aborts on missing required cube columns; 05 hard-stops on cube cells absent from the grid; `ds$num_rows` fixed.
-- **`scripts/12_reconcile.R`** — a reconciliation guardrail (run manually via `run_reconcile()`) asserting headline numbers agree across layers.
+- **`scripts/12_reconcile.R`** — a reconciliation guardrail asserting headline numbers agree across layers; **wired into `tar_make()` as the `reconciliation` target (2026-07-30)**, also `run_reconcile()`.
+
+### Automation & tooling (2026-07-30)
+- **`12_reconcile` wired into the DAG** — the reconciliation guardrail now runs on every `tar_make()` as the `reconciliation` target (after `gap_overview`; `error = "continue"` flags rather than halts).
+- **Self-refreshing `docs/metrics.md`** — `scripts/13_metrics_snapshot.R` + the `metrics_snapshot` target + `run_metrics()` rewrite the "Current snapshot" block from the output tables on every run (previously hand-maintained, ~3 months stale).
+- **`CITATION.cff` tag-sync CI** — `.github/workflows/citation-version.yml` writes `version` + `date-released` from the pushed `v*` tag (dependency-free `sed`).
+- **Docs/config housekeeping** (`7b95d38`) — README / ROADMAP / TASKS / metrics / configs synced to the current pipeline; dead `year_published_format` dropped; NO-config parity; `.DS_Store` + rendered `analysis/*.html` untracked; applied patches archived; orphan cube-keys file removed.
 
 ### App
 - **Nine live tabs**, including the **Species of Concern** tab (Threatened / Invasive / Sensitive sub-tabs) that replaced the old Threatened tab.

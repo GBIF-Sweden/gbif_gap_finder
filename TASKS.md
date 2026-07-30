@@ -5,7 +5,7 @@
 >
 > **Correctness round complete (2026-07).** A full audit reconciled every headline number
 > across Overview / Taxonomic / Concern, fixed the miscalculations (see *Recently closed*),
-> and added `scripts/12_reconcile.R` as a reconciliation guardrail (run manually via `run_reconcile()`). **Current focus now:**
+> and added `scripts/12_reconcile.R` as a reconciliation guardrail — now wired into `tar_make()` as the `reconciliation` target (2026-07-30), also via `run_reconcile()`. **Current focus now:**
 > (1) align the analysis reports (`analysis/*.Rmd`) with the corrected app numbers, then
 > (2) the Tier-3 UX / framing / accessibility polish. The analytical scope is complete.
 >
@@ -149,7 +149,7 @@ list**.
 
 ### Calculations & cross-tab alignment
 - [x] **Numbers reconcile after the rerun** — done in the 2026-07 audit; `scripts/12_reconcile.R`
-  is available as a manual guardrail (`run_reconcile()`), not wired into `tar_make()`. Overview / Taxonomic / Concern agree.
+  is now **wired into `tar_make()` as the `reconciliation` target** (2026-07-30; `error = "continue"` so it flags rather than halts) and still runs via `run_reconcile()`. Overview / Taxonomic / Concern agree.
 - [x] **Overview "threatened" matches Concern exactly** — verified; both read `match_summary_full`.
 - [x] **Align `analysis/*.Rmd` reports with the app** — *done 2026-07 (`gap_finder_report_parity.patch`).*
   Reports now compute threatened/concern counts from `match_summary` (not `tax_by_threat`), keep
@@ -253,6 +253,8 @@ list**.
   in the Data-tab "Species Scope Lookup" (SE: 134 sensitive spp × 5/25/50 km).*
 
 ### Metadata, citation & docs
+- [x] **`CITATION.cff` auto-versioned from git tags** — *done 2026-07-30 (`.github/workflows/citation-version.yml`):* a `v*` tag push writes `version` + `date-released` into the software citation file.
+- [x] **`docs/metrics.md` current-figures auto-refresh** — *done 2026-07-30 (`scripts/13_metrics_snapshot.R` + `metrics_snapshot` target + `run_metrics()`):* the "Current snapshot" block regenerates from the output tables on every `tar_make()`.
 - [ ] Recommended citation for the app (separate from the data DOI, which is done).
 - [ ] Version / contact / data-provenance block (DOI part done; add version + contact).
 - [ ] GitHub documentation + user manual, including framing and interpretation guidance.
@@ -278,7 +280,13 @@ list**.
 - [x] **"Poorly sampled" redefined** — bottom-10 % occurrences OR < 3 cells (config-driven), replacing the degenerate `< 1` test. *(rerun)*
 - [x] **Concern checklist matching corrected** — red-list/sensitive back to exact match (178 sensitive, 4 859 threatened); invasive de-duped to species-rank non-hybrid (490→337). *(rerun)* *(T-I1)*
 - [x] **Input guards (04/05)** — 04 aborts on missing required cube columns + fixes `ds$num_rows`; 05 hard-stops on cube cells absent from the grid. *(rerun)*
-- [x] **`scripts/12_reconcile.R`** — new reconciliation guardrail (run manually via `run_reconcile()`) asserting the headline numbers agree across layers.
+- [x] **`scripts/12_reconcile.R`** — reconciliation guardrail asserting the headline numbers agree across layers; **wired into the DAG 2026-07-30** as the `reconciliation` target (every `tar_make()`), also `run_reconcile()`.
+
+**Automation & housekeeping (2026-07-30)** — post-audit infrastructure round:
+- [x] **`12_reconcile` wired into `tar_make()`** — now the `reconciliation` target (after `gap_overview`; `error = "continue"` flags rather than halts); also `run_reconcile()`.
+- [x] **Auto-refreshing `docs/metrics.md`** — `scripts/13_metrics_snapshot.R` + `metrics_snapshot` target + `run_metrics()` rewrite the "Current snapshot" block from the output tables on every run (verified: 6,308 cells / 97.8 % / ref 79,670).
+- [x] **`CITATION.cff` tag-sync CI** — `.github/workflows/citation-version.yml`: a `v*` tag push writes `version` + `date-released` (dependency-free `sed`).
+- [x] **Docs/config housekeeping** (`7b95d38`) — README / ROADMAP / TASKS / metrics / configs synced to the current pipeline (5-tier, 17-col, provenance paths); dead `year_published_format` dropped; NO-config parity; `.DS_Store` (`c9beb7b`) + rendered `analysis/*.html` (`90b6d1f`) untracked; 28 patches archived; orphan cube-keys file removed.
 
 - [x] **T-S1** — App made metadata-driven; kills the Norway "Sweden/Dyntaxa" title bug. *(redeploy)*
 - [x] **Species of Concern tab** built — Threatened / Invasive / Sensitive sub-tabs (replaced the old Threatened tab).
@@ -306,11 +314,13 @@ list**.
 ---
 
 ### Suggested next session
-Report↔app parity, **EAA accessibility**, **readability & chart legibility**, and **plain-language
-framing** are all **done** (2026-07, redeploy pending) — seven `gap_finder_*.patch` files in the repo
-root. Small Tier-3 leftovers: CSV download buttons on the remaining tables (Data & Sources) + maps,
-and bar titles baked into downloaded chart images (>20 groups). With the communication layer
-essentially complete, and **T-R3** (script 11 → pure loader) and **T-R7** (`dyntaxa_*`→`backbone_*`)
-are now done, the remaining pipeline-hygiene refactors are **T-R5** (stop 09b re-classifying the
-backbone) and **T-R6** (drop `add_yearmonth_cols`), plus the smaller T-I/T-A/T-Q items. Norway
-replication is deprioritised.
+Correctness, report↔app parity, EAA accessibility, readability, framing, **all Tier-2 pipeline
+refactors (T-R3/5/6/7, T-I/T-A/T-Q)**, and the **2026-07-30 automation round** (reconcile wired into
+the DAG, `metrics.md` auto-refresh, CITATION tag-sync CI, docs/config housekeeping) are **done**. The
+app-side communication patches are committed but **await a redeploy** (blocked — colleague on holiday).
+Remaining substantive work, in rough order: (1) **app-content leftovers** — Swedish vernacular names
+(pipeline half first), sampling-bias → Priorities, per-basis last-12-months, app citation/version
+block, publisher CTAs, user manual; (2) the **marine land/sea toggle**
+(`gap_finder_td5_marine_flag.patch` ready to apply); (3) **Gap Trends** snapshot retrospective;
+(4) **family-level resolution** (gated on Kevin); (5) **Norway replication** (deprioritised). Ready-to-start
+briefs live in `claude/brief-*.md`.
