@@ -22,6 +22,65 @@ library(lubridate)
 library(stringr)
 
 # =============================================================================
+# BASEMAP
+# =============================================================================
+# Single source of truth for the basemap used by every leaflet map in this app.
+#
+# Why this exists: the app used providers$CartoDB.Positron on all maps until
+# CARTO began requiring an API key for its raster basemap endpoint
+# (basemaps.cartocdn.com) and started retiring it. Unkeyed tiles still render
+# but carry a repeating "API KEY REQUIRED" watermark -- which is what the
+# deployed Spatial tab showed. Nothing in this repo changed; the provider did.
+# Note that CartoDB.PositronNoLabels is the SAME raster endpoint and is watermarked
+# too -- switching label variants is not a fix.
+#
+# Default: Esri.WorldGrayCanvas. Keyless, pale grey, and quiet enough to keep the
+# colour-blind-safe RdYlBu cell palette legible on top of it. Known end-of-life:
+# Esri has scheduled the backing service (World_Light_Gray_Base) for retirement
+# in December 2029 -- tracked in audit/external-dependencies-2026-09-07.md.
+#
+# Override without a code change or a rebuild by setting GAP_FINDER_BASEMAP to
+# any leaflet.providers name, e.g.
+#   GAP_FINDER_BASEMAP=CartoDB.Positron
+# An unknown or unavailable name falls back (with a warning) rather than
+# producing a blank map, so a typo in the deploy environment cannot break the
+# maps silently.
+BASEMAP_DEFAULT  <- "Esri.WorldGrayCanvas"
+BASEMAP_FALLBACK <- "OpenStreetMap"
+
+BASEMAP_PROVIDER <- local({
+  known     <- names(leaflet::providers)
+  requested <- Sys.getenv("GAP_FINDER_BASEMAP", "")
+  if (!nzchar(requested)) requested <- BASEMAP_DEFAULT
+  for (candidate in unique(c(requested, BASEMAP_DEFAULT, BASEMAP_FALLBACK))) {
+    if (candidate %in% known) {
+      if (!identical(candidate, requested)) {
+        warning(sprintf(
+          "Basemap '%s' is not available in leaflet.providers; using '%s' instead.",
+          requested, candidate
+        ), call. = FALSE)
+      }
+      return(candidate)
+    }
+  }
+  requested
+})
+
+#' Add the app's standard basemap to a leaflet map
+#'
+#' Every map in the app goes through this helper, so the provider is chosen in
+#' exactly one place. Attribution is deliberately NOT hard-coded here: it is
+#' carried by the leaflet.providers definition of the active provider and is
+#' emitted by addProviderTiles(), so it follows the provider automatically
+#' instead of being a second string that can drift out of sync with it.
+#'
+#' @param map A leaflet map object.
+#' @return The map with the configured basemap tiles added.
+add_basemap <- function(map) {
+  leaflet::addProviderTiles(map, BASEMAP_PROVIDER)
+}
+
+# =============================================================================
 # LOAD DATA
 # =============================================================================
 
@@ -2763,7 +2822,7 @@ server <- function(input, output, session) {
   output$spatial_map <- renderLeaflet({
     req(grid_10km)
     leaflet(grid_10km) |>
-      addProviderTiles(providers$CartoDB.Positron) |>
+      add_basemap() |>
       setView(lng = 16, lat = 63, zoom = 5)
   })
 
@@ -3348,7 +3407,7 @@ server <- function(input, output, session) {
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     leaflet(map_sf) |>
-      addProviderTiles(providers$CartoDB.Positron) |>
+      add_basemap() |>
       addPolygons(
         fillColor = ~bin_pal(occ_cat), fillOpacity = 0.65,
         weight = 0.3, color = "#bbb",
@@ -4085,7 +4144,7 @@ server <- function(input, output, session) {
   output$concern_threat_map <- renderLeaflet({
     req(grid_10km)
     sg <- threatened_spatial_gaps
-    if (is.null(sg)) return(leaflet() |> addProviderTiles(providers$CartoDB.Positron))
+    if (is.null(sg)) return(leaflet() |> add_basemap())
 
     sg_all <- sg |> filter(basisofrecord == "all")
     map_sf <- grid_10km |> left_join(sg_all |> select(eeacellcode, occurrences, n_species), by = "eeacellcode")
@@ -4107,7 +4166,7 @@ server <- function(input, output, session) {
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     m <- leaflet(map_sf) |>
-      addProviderTiles(providers$CartoDB.Positron) |>
+      add_basemap() |>
       addPolygons(fillColor = ~threat_map_pal(occ_cat), fillOpacity = 0.65,
         weight = 0.3, color = "#bbb",
         popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
@@ -4238,7 +4297,7 @@ server <- function(input, output, session) {
   output$concern_inv_map <- renderLeaflet({
     req(grid_10km)
     sg <- invasive_spatial_gaps
-    if (is.null(sg)) return(leaflet() |> addProviderTiles(providers$CartoDB.Positron))
+    if (is.null(sg)) return(leaflet() |> add_basemap())
 
     sg_all <- sg |> filter(basisofrecord == "all")
     map_sf <- grid_10km |> left_join(sg_all |> select(eeacellcode, occurrences, n_species), by = "eeacellcode")
@@ -4260,7 +4319,7 @@ server <- function(input, output, session) {
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     m <- leaflet(map_sf) |>
-      addProviderTiles(providers$CartoDB.Positron) |>
+      add_basemap() |>
       addPolygons(fillColor = ~inv_map_pal(occ_cat), fillOpacity = 0.65,
         weight = 0.3, color = "#bbb",
         popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
@@ -4373,7 +4432,7 @@ server <- function(input, output, session) {
   output$concern_sens_map <- renderLeaflet({
     req(grid_10km)
     sg <- sensitive_spatial_gaps
-    if (is.null(sg)) return(leaflet() |> addProviderTiles(providers$CartoDB.Positron))
+    if (is.null(sg)) return(leaflet() |> add_basemap())
 
     sg_all <- sg |> filter(basisofrecord == "all")
     map_sf <- grid_10km |> left_join(sg_all |> select(eeacellcode, occurrences, n_species), by = "eeacellcode")
@@ -4394,7 +4453,7 @@ server <- function(input, output, session) {
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     m <- leaflet(map_sf) |>
-      addProviderTiles(providers$CartoDB.Positron) |>
+      add_basemap() |>
       addPolygons(fillColor = ~sens_map_pal(occ_cat), fillOpacity = 0.65,
         weight = 0.3, color = "#bbb",
         popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
@@ -4739,7 +4798,7 @@ server <- function(input, output, session) {
       domain = levels(map_sf$dep_cat), na.color = "#ddd")
 
     m <- leaflet(map_sf) |>
-      addProviderTiles(providers$CartoDB.Positron) |>
+      add_basemap() |>
       addPolygons(fillColor = ~dep_pal(dep_cat), fillOpacity = 0.7,
         weight = 0.3, color = "#bbb",
         popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
@@ -5063,7 +5122,7 @@ server <- function(input, output, session) {
     if (is.null(priority_zero_r()) || nrow(priority_zero_r()) == 0) {
       return(
         leaflet() |>
-          addProviderTiles(providers$CartoDB.Positron) |>
+          add_basemap() |>
           setView(lng = 16, lat = 63, zoom = 5)
       )
     }
@@ -5075,12 +5134,12 @@ server <- function(input, output, session) {
       # Codes might not match — show empty map
       return(
         leaflet(grid_10km) |>
-          addProviderTiles(providers$CartoDB.Positron)
+          add_basemap()
       )
     }
 
     leaflet(zero_sf) |>
-      addProviderTiles(providers$CartoDB.Positron) |>
+      add_basemap() |>
       addPolygons(
         fillColor   = pal$coral,
         fillOpacity = 0.7,
@@ -5105,7 +5164,7 @@ server <- function(input, output, session) {
     if (is.null(priority_stale_r()) || nrow(priority_stale_r()) == 0) {
       return(
         leaflet() |>
-          addProviderTiles(providers$CartoDB.Positron) |>
+          add_basemap() |>
           setView(lng = 16, lat = 63, zoom = 5)
       )
     }
@@ -5120,7 +5179,7 @@ server <- function(input, output, session) {
     if (nrow(stale_sf) == 0) {
       return(
         leaflet(grid_10km) |>
-          addProviderTiles(providers$CartoDB.Positron)
+          add_basemap()
       )
     }
 
@@ -5135,7 +5194,7 @@ server <- function(input, output, session) {
       na.color = "#ccc")
 
     leaflet(stale_sf) |>
-      addProviderTiles(providers$CartoDB.Positron) |>
+      add_basemap() |>
       addPolygons(
         fillColor   = ~pal_stale(yrs),
         fillOpacity = 0.7,
