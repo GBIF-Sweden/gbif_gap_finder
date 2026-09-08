@@ -108,6 +108,19 @@ run_reports <- function() {
   ))
 }
 
+#' Check every external dependency without running the pipeline (script 00_preflight).
+#'
+#' Pings the GBIF API surfaces, the registered checklist archives, the basemap
+#' provider and the CI action runtimes, and inspects the local grids, Taxon.csv
+#' layout and caches. Prints a per-check report and stops on any FAIL.
+#'
+#' Also runs automatically as the gating `preflight` target in `tar_make()`.
+#' Pass offline = TRUE (or set PREFLIGHT_OFFLINE=1) to run local checks only.
+run_preflight <- function(offline = FALSE) {
+  preflight_offline <- isTRUE(offline)
+  source(here("scripts", "00_preflight.R"), local = TRUE)
+}
+
 #' Run the cross-layer reconciliation guardrail (script 12).
 #'
 #' Not part of `tar_make()`. Run after a full build to assert the headline

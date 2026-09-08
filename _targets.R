@@ -55,6 +55,29 @@ list(
   # Phase 1: Data Ingestion
   # ==========================================================================
 
+  # 0. Preflight — assert every external dependency before anything runs.
+  #
+  # cue = "always" so it re-runs on every tar_make() rather than being skipped
+  # as up to date; the whole point is to check the outside world, which changes
+  # without changing this repo.
+  #
+  # It returns a CONSTANT TRUE on success, deliberately: a value that varied
+  # (a timestamp, a resolved version) would invalidate raw_data on every run and
+  # re-trigger the downloads. Resolved upstream versions belong in provenance,
+  # not here. On failure it stop()s, and with error = "continue" every dependent
+  # target is skipped — the build stops before it can produce wrong numbers.
+  #
+  # To build on local data during an upstream outage:
+  #   Sys.setenv(PREFLIGHT_OFFLINE = "1"); tar_make()
+  tar_target(
+    preflight,
+    {
+      source(here("scripts", "00_preflight.R"), local = TRUE)
+      TRUE
+    },
+    cue = tar_cue(mode = "always")
+  ),
+
   # Track the canonical cube SQL spec as a file so editing the query (the
   # GROUP BY query IS the cube definition) invalidates the download.
   tar_target(
@@ -67,6 +90,7 @@ list(
   tar_target(
     raw_data,
     {
+      preflight # gate: no downloads if an upstream dependency has changed shape
       cube_sql  # file-dependency: re-download when the canonical cube SQL changes
       source(here("scripts", "01a_download_raw_data.R"), local = TRUE)
       metadata_path <- here(p_data_raw, "download_metadata.json")
@@ -91,6 +115,7 @@ list(
   tar_target(
     grids,
     {
+      preflight # gate: the reference grids are a checked dependency too
       source(here("scripts", "02_ingest_grids.R"), local = TRUE)
       grid_files <- c(
         here(p_data_proc, "grids_10km.gpkg"),
