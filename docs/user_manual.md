@@ -270,7 +270,7 @@ differences.
 If you use the Gap Finder or its outputs, please cite:
 
 > Thöle, L. *gbif_gap_finder: a reproducible pipeline for biodiversity data gap analysis.*
-> Version 0.6.0 (2026-09-08). GBIF Sweden, Swedish Museum of Natural History (NRM).
+> Version 0.7.0 (2026-09-08). GBIF Sweden, Swedish Museum of Natural History (NRM).
 > https://github.com/GBIF-Sweden/gbif_gap_finder
 
 Please also cite the underlying data sources by their DOIs (above / on the Data & Sources
