@@ -82,7 +82,7 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 
 ## Current state
 
-- **Version:** v0.4.3. **Correctness round complete (2026-07)** — a full audit reconciled every
+- **Version:** v0.6.0. **Correctness round complete (2026-07)** — a full audit reconciled every
   headline number across Overview / Taxonomic / Concern, fixed the miscalculations (see Part 3),
   and added `scripts/12_reconcile.R` as a reconciliation guardrail — now **wired into `tar_make()` as the `reconciliation` target (2026-07-30)**, also via `run_reconcile()`. Numbers are clean.
 - **Overview "key findings" panel:** shipped 2026-07-24 (app-side, `app.R`) — an auto-generated
