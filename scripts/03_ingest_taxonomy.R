@@ -437,6 +437,40 @@ if (redlist_available && !is.null(redlist_distr)) {
         "Cleaned threat codes: {length(raw_codes)} unique \u2192 {length(clean_codes)} unique"
       )
     }
+
+    # Vocabulary guard. The red list is an external dependency whose category
+    # codes we hard-depend on: THREATENED_CODES decides who counts as threatened,
+    # and a renamed or retired code fails no schema check — it just quietly moves
+    # the number. Warn in both directions, because the dangerous one is silent:
+    # a code that DISAPPEARS shrinks the threatened count without a trace.
+    seen        <- toupper(clean_codes[nzchar(clean_codes)])
+    unexpected  <- setdiff(seen, EXPECTED_THREAT_CODES)
+    disappeared <- setdiff(EXPECTED_THREAT_CODES, seen)
+    threat_gone <- setdiff(THREATENED_CODES, seen)
+
+    if (length(unexpected)) {
+      cli_alert_warning(
+        "Red list uses category code{?s} we do not expect: {.val {unexpected}}. \\
+         If one of these replaced a threatened code, the threatened count is now wrong \\
+         \u2014 update parameters.taxonomic.expected_threat_categories (and \\
+         threatened_categories if it counts as threatened)."
+      )
+    }
+    if (length(disappeared)) {
+      cli_alert_warning(
+        "Expected red list category code{?s} absent from this release: {.val {disappeared}}."
+      )
+    }
+    if (length(threat_gone)) {
+      cli_alert_danger(
+        "THREATENED code{?s} {.val {threat_gone}} {?is/are} absent from the red list \\
+         \u2014 the threatened totals will be understated. Check the vocabulary \\
+         before trusting this run."
+      )
+    }
+    if (!length(unexpected) && !length(disappeared)) {
+      cli_alert_success("Red list vocabulary matches expectations ({length(seen)} codes)")
+    }
   }
 
   # Create threat lookup by exact scientificName. The Swedish Red List DwC-A keeps

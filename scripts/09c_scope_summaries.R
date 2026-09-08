@@ -105,7 +105,7 @@ if (!exists("bucket_unclassified")) {
 # Directories created by ensure_dirs() in 00_setup.R
 
 exclude_orders <- cfg_get("parameters.taxonomic.exclude_orders", character(0))
-THREATENED_CODES <- c("CR", "EN", "VU", "NT")
+# THREATENED_CODES now comes from R/globals.R (config-driven, one definition).
 
 SCOPE_FLAGS <- c(
   all        = "is_all",

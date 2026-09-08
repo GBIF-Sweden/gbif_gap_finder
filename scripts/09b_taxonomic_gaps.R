@@ -88,7 +88,7 @@ if (!exists("bucket_unclassified")) {
 
 MIN_OCCURRENCES <- cfg_get("parameters.taxonomic.min_occurrences", 10)
 MIN_CELLS       <- cfg_get("parameters.taxonomic.min_cells", 5)
-THREATENED_CODES <- c("CR", "EN", "VU", "NT")
+# THREATENED_CODES now comes from R/globals.R (config-driven, one definition).
 
 # Grid cell code field (for spatial coverage)
 CELLCODE_FIELD <- cfg_get("parameters.grid.cellcode_field", "eeacellcode")

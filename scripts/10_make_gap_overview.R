@@ -200,10 +200,10 @@ dashboard <- data.table(
   # the number of categories (<=4), not the number of threatened reference taxa.
   # Sum n_ref_total instead (mirrors threatened_in_gbif on the next line).
   threatened_in_reference = calc_metric(
-    sum(tax_coverage_threat[threatStatus %in% c("CR", "EN", "VU", "NT")]$n_ref_total, na.rm = TRUE)
+    sum(tax_coverage_threat[threatStatus %in% THREATENED_CODES]$n_ref_total, na.rm = TRUE)
   ),
   threatened_in_gbif = calc_metric(
-    sum(tax_coverage_threat[threatStatus %in% c("CR", "EN", "VU", "NT")]$n_in_gbif, na.rm = TRUE)
+    sum(tax_coverage_threat[threatStatus %in% THREATENED_CODES]$n_in_gbif, na.rm = TRUE)
   ),
   threatened_missing = calc_metric(nrow(tax_missing_threatened)),
   

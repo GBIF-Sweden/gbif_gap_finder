@@ -63,7 +63,7 @@ api_max_batches   <- cfg_get("parameters.taxonomic.api_max_batches", Inf)
 cache_file     <- here(p_data_proc, "col_crosswalk_cache.rds")
 crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
 report_file    <- here(p_gaps, "col_crosswalk_validation.md")
-THREATENED_CODES <- c("CR", "EN", "VU", "NT")
+# THREATENED_CODES now comes from R/globals.R (config-driven, one definition).
 
 # Confirmed regression baseline (both repair patches, 2026-07-27 rerun).
 BASE_MATCH_PCT <- 76.4

@@ -836,6 +836,31 @@ clean_for_filename <- function(x) {
 }
 
 # ============================================================================
+# Red-list vocabulary
+# ============================================================================
+# The set of red-list categories counted as "threatened" was written out by hand
+# in five scripts (09a1, 09b, 09c, 10 twice). Identical today, but five places to
+# keep identical is a defect waiting to happen: change the national red list's
+# vocabulary, miss one, and the Taxonomic and Concern tabs disagree with no error
+# anywhere. One definition, read from config.
+#
+# scripts/12_reconcile.R deliberately keeps its own copy. It is the guardrail
+# that asserts these numbers agree across layers, and a guardrail that shares its
+# definition with the thing it checks has stopped being an independent check.
+THREATENED_CODES <- toupper(as.character(
+  cfg_get("parameters.taxonomic.threatened_categories", c("CR", "EN", "VU", "NT"))
+))
+
+# The full vocabulary we expect the national red list to use. Script 03 compares
+# the delivered codes against this and warns on any difference — a renamed or
+# dropped category silently changes the threatened count, with no schema
+# violation and no error to notice.
+EXPECTED_THREAT_CODES <- toupper(as.character(
+  cfg_get("parameters.taxonomic.expected_threat_categories",
+          c("RE", "CR", "EN", "VU", "NT", "DD", "LC", "NE"))
+))
+
+# ============================================================================
 # Taxonomy Helpers
 # ============================================================================
 

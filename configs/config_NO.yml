@@ -147,6 +147,14 @@ parameters:
     stale_months_60: 60
 
   taxonomic:
+    # Red-list categories counted as "threatened". ONE definition — 09a1/09b/09c/10
+    # all read it from here via globals::THREATENED_CODES. (12_reconcile keeps its
+    # own copy on purpose, so the guardrail stays an independent check.)
+    threatened_categories: ["CR", "EN", "VU", "NT"]
+    # The full vocabulary this red list is expected to use. Script 03 warns when
+    # the delivered codes differ in either direction — a renamed or retired code
+    # moves the threatened count with no error anywhere.
+    expected_threat_categories: ["RE", "CR", "EN", "VU", "NT", "DD", "LC", "NE"]
     # --- GBIF taxonomic backbone: Catalogue of Life Extended Release (COL XR) ---
     # GBIF's permanent default backbone (2025). The cube's `specieskey` is a COL
     # taxonID — usually alphanumeric, but some valid COL ids are purely numeric
