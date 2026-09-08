@@ -755,7 +755,13 @@ cli_h2("Adding Metadata")
 dataset_names <- names(shiny_data)
 
 shiny_data$metadata <- list(
+  # When this bundle was packaged. NOT the age of the data — see snapshot_date.
   created_at = Sys.time(),
+
+  # When GBIF cut the occurrence cube. This is the date a reader means by "how
+  # old is this?", and until now it was computed here (for snapshot_year) and
+  # then thrown away, leaving the app to display created_at instead.
+  snapshot_date = tryCatch(get_snapshot_date(), error = function(e) as.Date(NA)),
   created_by = "scripts/11_prepare_gap_finder_data.R",
   r_version = R.version.string,
   n_datasets = length(dataset_names),

@@ -148,7 +148,21 @@ if (!is.null(spatial_gaps) &&
 priority_stale  <- safe_get("priority_stale_cells")
 comparison_grids <- safe_get("comparison_grids")
 metadata        <- safe_get("metadata")
-GAP_FINDER_VERSION <- "0.4.3"  # app/tool version; keep in sync with CITATION.cff
+# App/tool version. Baked into the image at build time by the Dockerfile
+# (ARG/ENV GAP_FINDER_VERSION), which CI fills from the pushed git tag. A
+# container has no git, so the environment is the only honest source here; a
+# hardcoded constant is what let this read "0.4.3" two releases after v0.5.1.
+# "dev" locally, which is the truth rather than a stale release number.
+GAP_FINDER_VERSION <- Sys.getenv("GAP_FINDER_VERSION", "dev")
+
+# The DATA snapshot date — when GBIF cut the cube — is a different fact from the
+# CODE version above, and from metadata$created_at, which is only when this
+# bundle was packaged. Script 11 records it as metadata$snapshot_date; older
+# bundles do not carry it, hence the fallback.
+GAP_FINDER_SNAPSHOT <- local({
+  d <- metadata$snapshot_date %||% NULL
+  if (is.null(d) || all(is.na(d))) NA else as.Date(d)
+})
 spatial_overview <- safe_get("spatial_overview")
 
 # ---- T-D5 marine coverage toggle ------------------------------------------
@@ -569,8 +583,9 @@ ui <- fluidPage(
     div(class = "header-stats",
       div(style = "display:flex; align-items:center; gap:1.5rem;",
         if (!is.null(metadata)) tagList(
-          span("Prepared: ", span(class = "header-stat-value",
-            format(metadata$created_at, "%d %b %Y"))),
+          span("Data as of: ", span(class = "header-stat-value",
+            if (!is.na(GAP_FINDER_SNAPSHOT)) format(GAP_FINDER_SNAPSHOT, "%d %b %Y")
+            else format(metadata$created_at, "%d %b %Y"))),
           tags$a(href = paste0("https://www.gbif.org/dataset/search?publishingCountry=",
               if (!is.null(metadata$country_code)) metadata$country_code else "SE"),
             target = "_blank", style = "text-decoration: none; color: inherit;",
@@ -718,7 +733,9 @@ ui <- fluidPage(
               tags$strong("Data & sources"), " tab."),
             div(class = "info-note", style = "margin-top:0.5rem; color:#6b6b6b;",
               "App version ", tags$strong(GAP_FINDER_VERSION),
-              " · Data last updated ",
+              " · Data as of ",
+              tags$strong(if (!is.na(GAP_FINDER_SNAPSHOT)) format(GAP_FINDER_SNAPSHOT, "%Y-%m-%d") else "unknown"),
+              " · bundle built ",
               if (!is.null(metadata$created_at)) format(metadata$created_at, "%Y-%m-%d") else "unknown",
               " · Contact GBIF Sweden (Swedish Museum of Natural History) via the ",
               tags$a(href = "https://github.com/GBIF-Sweden/gbif_gap_finder/issues", target = "_blank",

@@ -42,6 +42,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG GBIF_GAP_COUNTRY=SE
 ENV GBIF_GAP_COUNTRY=${GBIF_GAP_COUNTRY}
 
+# Release version, baked in at build time — CI passes the pushed git tag. There
+# is no git inside the image, so this environment variable is what app.R reads
+# (Sys.getenv("GAP_FINDER_VERSION", "dev")). A local `docker build` with no
+# --build-arg produces an image that honestly reports itself as "dev".
+ARG GAP_FINDER_VERSION=dev
+ENV GAP_FINDER_VERSION=${GAP_FINDER_VERSION}
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4 \
     libfontconfig1 \

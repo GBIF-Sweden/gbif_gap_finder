@@ -2,7 +2,7 @@
 title: "GBIF Gap Finder — Overview"
 subtitle: "Integrated Summary of Spatial, Temporal, Taxonomic, and Institutional Gaps"
 author: "GBIF Gap Finder"
-date: "`r format(Sys.Date(), '%B %d, %Y')`"
+date: "`r { source(here::here('R', 'report_helpers.R')); report_stamp() }`"
 output:
   html_document:
     toc: true
@@ -33,7 +33,11 @@ library(knitr)
 library(kableExtra)
 
 # Load the same data bundle as the Shiny app
-data_path <- here("shiny_app", "gap_finder", "data", "shiny_data.rds")
+source(here("R", "report_helpers.R"))
+# The bundle moved to a per-country path in July 2026; this hardcoded flat path
+# no longer existed, so every report failed at this line. Resolved the same way
+# run.R does.
+data_path <- gap_finder_bundle_path()
 app_data <- readRDS(data_path)
 safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
 

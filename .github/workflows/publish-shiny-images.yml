@@ -91,6 +91,7 @@ jobs:
           file: shiny_app/gap_finder/Dockerfile.gap_finder
           build-args: |
             GBIF_GAP_COUNTRY=${{ env.GBIF_GAP_COUNTRY }}
+            GAP_FINDER_VERSION=${{ github.ref_name }}
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
