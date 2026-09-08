@@ -80,6 +80,58 @@ cfg_get <- function(name, default = NULL) {
   result
 }
 
+#' Load an API cache, honouring the project's cache policy
+#'
+#' Every cache in this pipeline stores answers from an external API. Two things
+#' have to be true for that to stay safe, and neither was:
+#'
+#'   1. A FAILED lookup must never be stored as an answer. A cached failure is
+#'      never retried, so one bad run becomes a permanent defect. This is exactly
+#'      how Tier 4 collapsed 3,179 -> 92 in July 2026: ~19,865 HTTP 400s were
+#'      written as "no synonyms" and stayed that way. Callers own this half —
+#'      simply do not write on failure.
+#'
+#'   2. A cache must be discardable. Until now the only way to clear one was
+#'      deleting the file by hand, so a cache could quietly outlive the upstream
+#'      truth it mirrors.
+#'
+#' This helper owns (2). `parameters.cache.force_refresh` discards every cache;
+#' `max_age_days` additionally expires a cheap cache once it is stale.
+#'
+#' Expensive caches pass `max_age_days = NULL` deliberately. The COL synonym and
+#' crosswalk caches represent ~22k API calls, so auto-expiry would turn a routine
+#' rebuild into an hours-long re-query without warning. They are refreshed on
+#' purpose (`force_refresh`), and their age is reported by scripts/00_preflight.R.
+#'
+#' @param path Cache file path (.rds).
+#' @param label Human label for log messages.
+#' @param max_age_days Expire beyond this age; NULL = never expire on age alone.
+#' @return The cached list, or an empty list.
+load_cache <- function(path, label, max_age_days = NULL) {
+  if (isTRUE(cfg_get("parameters.cache.force_refresh", FALSE))) {
+    cli_alert_info("{label}: cache.force_refresh is set \u2014 starting fresh")
+    return(list())
+  }
+  if (!file.exists(path)) {
+    cli_alert_info("{label}: no cache on disk \u2014 starting fresh")
+    return(list())
+  }
+  age <- as.numeric(difftime(Sys.time(), file.mtime(path), units = "days"))
+  if (!is.null(max_age_days) && is.finite(max_age_days) && age > max_age_days) {
+    cli_alert_warning(
+      "{label}: cache is {round(age)}d old (limit {max_age_days}d) \u2014 discarding and re-querying"
+    )
+    return(list())
+  }
+  cached <- tryCatch(readRDS(path), error = function(e) NULL)
+  if (is.null(cached)) {
+    cli_alert_warning("{label}: cache unreadable \u2014 starting fresh")
+    return(list())
+  }
+  cli_alert_info("{label}: {length(cached)} cached entr{?y/ies}, {round(age)}d old")
+  cached
+}
+
 #' Resolve a checklist's Darwin Core Archive URL, preferring the GBIF registry
 #'
 #' The publisher registers its archive endpoint with GBIF, so asking the registry

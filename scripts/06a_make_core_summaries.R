@@ -420,9 +420,11 @@ if (MAKE_PUBLISHER_SUMMARY) {
   cli_h3("Resolving Publisher Names")
 
   publisher_cache_path <- here(p_data_proc, "publisher_name_cache.rds")
-  publisher_cache <- if (file.exists(publisher_cache_path)) {
-    readRDS(publisher_cache_path)
-  } else list()
+  # Cheap cache (a few hundred registry calls), so it honours the age limit.
+  publisher_cache <- load_cache(
+    publisher_cache_path, "Publisher names",
+    max_age_days = cfg_get("parameters.cache.max_age_days", 90)
+  )
 
   pub_10km_path <- here(p_derived, "publisher_summary_10km.csv")
   if (file.exists(pub_10km_path)) {
@@ -433,6 +435,7 @@ if (MAKE_PUBLISHER_SUMMARY) {
 
     if (length(new_uuids) > 0) {
       cli_alert_info("Querying GBIF for {length(new_uuids)} new publisher names...")
+      n_failed <- 0L
       for (i in seq_along(new_uuids)) {
         uuid <- new_uuids[i]
         tryCatch({
@@ -444,16 +447,29 @@ if (MAKE_PUBLISHER_SUMMARY) {
               country = info$country %||% NA_character_
             )
           } else {
-            publisher_cache[[uuid]] <- list(title = NA_character_, country = NA_character_)
+            # Do NOT cache the failure. A rate limit, a transient 5xx, or a UUID
+            # not yet in the registry, written as NA, would never be retried:
+            # the uuid then appears in names(publisher_cache) and is excluded
+            # from new_uuids on every future run. One bad afternoon would pin
+            # those publishers to "unknown" permanently. Left uncached, they are
+            # simply retried next time. (Same trap that collapsed Tier 4 in
+            # July 2026 — see claude/finding-specieskey-type-2026-07-27.md.)
+            n_failed <- n_failed + 1L
           }
         }, error = function(e) {
-          publisher_cache[[uuid]] <<- list(title = NA_character_, country = NA_character_)
+          n_failed <<- n_failed + 1L
         })
         if (i %% 50 == 0) cli_alert_info("  {i}/{length(new_uuids)} resolved")
         Sys.sleep(0.1)
       }
       saveRDS(publisher_cache, publisher_cache_path)
       cli_alert_success("Cached {length(publisher_cache)} publisher names")
+      if (n_failed > 0L) {
+        cli_alert_warning(
+          "{n_failed} publisher lookup{?s} failed and {?was/were} NOT cached \u2014 \\
+           {?it/they} will be retried on the next run"
+        )
+      }
     } else {
       cli_alert_info("All {length(uuids)} publishers already cached")
     }

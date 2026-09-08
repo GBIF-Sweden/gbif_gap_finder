@@ -485,13 +485,11 @@ cli_alert_info("Tier 4 candidates: {scales::comma(nrow(t4_candidates))} species"
 cli_alert_info("  (>= {api_min_occurrences} occ, non-hybrid, binomial+)")
 
 # --- Load or initialise cache ---
-if (file.exists(cache_file)) {
-  api_cache <- readRDS(cache_file)
-  cli_alert_info("Loaded API cache: {scales::comma(length(api_cache))} entries")
-} else {
-  api_cache <- list()
-  cli_alert_info("No existing API cache -- starting fresh")
-}
+# max_age_days = NULL on purpose: this cache is ~22k COL synonym lookups, so
+# expiring it on age would silently turn a routine rebuild into an hours-long
+# re-query. Refresh it deliberately with parameters.cache.force_refresh; its age
+# is reported by scripts/00_preflight.R.
+api_cache <- load_cache(cache_file, "COL synonym cache", max_age_days = NULL)
 
 # Determine which specieskeys still need querying
 t4_candidates[, sk_chr := as.character(specieskey)]

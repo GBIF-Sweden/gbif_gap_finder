@@ -146,6 +146,15 @@ gaps:
 # Analysis Parameters
 # ============================================================================
 parameters:
+  # --- API response caches -------------------------------------------------
+  # Caches mirror answers from external APIs, so they can outlive the truth they
+  # mirror. force_refresh discards all of them on the next run; max_age_days
+  # additionally expires the cheap ones (publisher names). The COL synonym and
+  # crosswalk caches never expire on age — they are ~22k calls each — so refresh
+  # those deliberately. scripts/00_preflight.R reports every cache's age.
+  cache:
+    max_age_days: 90
+    force_refresh: false
   crs: 3035
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]

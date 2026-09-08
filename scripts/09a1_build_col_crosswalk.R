@@ -161,8 +161,9 @@ cli_h2("Matching Dyntaxa names against COL (v2 match API)")
 # Cache: name_std -> list(col_key, status, mtype, conf, col_name). Empty/NONE
 # results ARE cached (valid answer). Transport errors are NOT cached, so they
 # retry on the next run rather than becoming permanent negatives.
-api_cache <- if (file.exists(cache_file)) readRDS(cache_file) else list()
-cli_alert_info("Cache entries: {scales::comma(length(api_cache))}")
+# max_age_days = NULL: like the synonym cache, this is tens of thousands of
+# match calls. Refresh deliberately via parameters.cache.force_refresh.
+api_cache <- load_cache(cache_file, "COL crosswalk cache", max_age_days = NULL)
 
 # Normalise one v2 match response object into a flat record.
 extract_match <- function(usage, acc, diag) {
