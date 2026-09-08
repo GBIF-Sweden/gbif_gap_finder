@@ -84,6 +84,48 @@ fail <- function(d) list(status = "FAIL", detail = d)
   }, error = function(e) NULL)
 }
 
+# Is a URL alive, without downloading what is behind it?
+#
+# HEAD is not universally supported. Dyntaxa's Azure endpoint answers 404 to a
+# HEAD request while serving the archive perfectly well over GET — its API
+# operation is defined for GET only, so HEAD matches no route. Treating that as
+# "unreachable" made this check cry wolf on a healthy endpoint on its very first
+# real run.
+#
+# A ranged GET is not a safe fallback either: that same endpoint ignores
+# `Range: bytes=0-0` and answers 200 with the full body, so a naive fallback
+# would pull a ~100 MB archive on every tar_make(). Instead, start the GET and
+# abort it from the write callback as soon as the first bytes arrive. The status
+# line has already been received by then, and curl::handle_data() still reports
+# it for the aborted transfer — so we learn whether the endpoint is alive having
+# transferred essentially nothing.
+.pf_alive <- function(url) {
+  st <- tryCatch(httr::status_code(httr::HEAD(url, httr::timeout(.PF_TIMEOUT))),
+                 error = function(e) NA_integer_)
+  if (!is.na(st) && st < 400L) {
+    return(list(alive = TRUE, how = sprintf("HEAD %d", st)))
+  }
+
+  h <- curl::new_handle(timeout = .PF_TIMEOUT, range = "0-0", followlocation = TRUE)
+  tryCatch(
+    curl::curl_fetch_stream(url, handle = h, fun = function(chunk) {
+      stop("preflight: enough bytes")  # abort the transfer immediately
+    }),
+    error = function(e) NULL
+  )
+  st2 <- tryCatch(curl::handle_data(h)$status_code, error = function(e) NA_integer_)
+
+  if (!is.na(st2) && st2 > 0L && st2 < 400L) {
+    return(list(alive = TRUE,
+                how = sprintf("GET %d (HEAD unsupported: %s)", st2,
+                              if (is.na(st)) "error" else st)))
+  }
+  list(alive = FALSE,
+       how = sprintf("HEAD %s, GET %s",
+                     if (is.na(st)) "error" else st,
+                     if (is.na(st2)) "error" else st2))
+}
+
 GBIF_V1 <- "https://api.gbif.org/v1"
 GBIF_V2 <- "https://api.gbif.org/v2"
 
@@ -262,14 +304,8 @@ pf_check("checklist_archives", function() {
     u <- tryCatch(resolve_dwca_url(cfg_get(paste0(s, ".dataset_key"), ""), s),
                   error = function(e) "")
     if (!nzchar(u)) { bad <- c(bad, paste0(s, " (no URL)")); next }
-    st <- tryCatch(httr::status_code(httr::HEAD(u, httr::timeout(.PF_TIMEOUT))),
-                   error = function(e) NA_integer_)
-    # 405 = endpoint exists but refuses HEAD; that is fine.
-    if (is.na(st) || (st >= 400L && st != 405L)) {
-      bad <- c(bad, sprintf("%s (HTTP %s)", s, st))
-    } else {
-      okd <- c(okd, s)
-    }
+    res <- .pf_alive(u)
+    if (isTRUE(res$alive)) okd <- c(okd, s) else bad <- c(bad, sprintf("%s (%s)", s, res$how))
   }
   if (length(bad)) {
     return(warn(sprintf("archive endpoint unreachable: %s (raw data on disk is still usable)",
