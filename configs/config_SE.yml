@@ -33,9 +33,15 @@ taxonomy:
   dataset_key: "de8934f4-a136-481c-a87a-b0b202b80a31"
   # DOI + citation are resolved from dataset_key by 01b_resolve_data_sources.R.
   # Do not hand-maintain a doi here — it drifts when the dataset is re-versioned.
-  # The Artdatabanken subscription key is NOT stored here. Set
-  # DYNTAXA_SUBSCRIPTION_KEY in your local .Renviron (gitignored); 01a expands
-  # the placeholder via globals::expand_env() and aborts if it is unset.
+  # FALLBACK ONLY. 01a resolves the archive URL from the GBIF registry
+  # (globals::resolve_dwca_url -> /v1/dataset/{dataset_key}/endpoint) and only
+  # reads this if that lookup fails.
+  #
+  # The subscription key in this URL is PUBLIC: GBIF publishes it unauthenticated
+  # as the registered DWC_ARCHIVE endpoint for the dataset. It is Artdatabanken's
+  # access endpoint, not a credential of ours — do NOT rotate it, that would break
+  # GBIF's own ingestion of Dyntaxa. It lives in .Renviron purely so the repo does
+  # not carry a key-shaped string that reads like a leaked secret.
   export_url: "https://api.artdatabanken.se/taxonservice/v1/DarwinCore/Download?subscription-key=${DYNTAXA_SUBSCRIPTION_KEY}"
 # ============================================================================
 # National Red List

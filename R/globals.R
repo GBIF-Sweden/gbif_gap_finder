@@ -80,6 +80,62 @@ cfg_get <- function(name, default = NULL) {
   result
 }
 
+#' Resolve a checklist's Darwin Core Archive URL, preferring the GBIF registry
+#'
+#' The publisher registers its archive endpoint with GBIF, so asking the registry
+#' means an upstream change — a moved host, a re-issued access key — reaches us
+#' automatically instead of silently breaking a URL frozen in our config.
+#' `<src>.export_url` remains as a fallback and is expanded through
+#' `expand_env()` only if it is actually needed.
+#'
+#' On access keys: these registered endpoints are PUBLIC. GBIF serves them
+#' unauthenticated at /v1/dataset/{key}/endpoint, and some — Dyntaxa's included —
+#' carry an access key in the query string. That key belongs to the publisher and
+#' is published deliberately so the archive can be crawled. It is NOT a
+#' credential of ours: do not treat it as a secret, and do not try to rotate it
+#' (doing so would break GBIF's own ingestion of the dataset).
+#'
+#' @param dataset_key GBIF dataset UUID.
+#' @param src Config prefix, e.g. "taxonomy" / "redlist" (fallback key + messages).
+#' @return A URL string, or "" when neither the registry nor the config supplies one.
+resolve_dwca_url <- function(dataset_key, src) {
+  from_registry <- NULL
+
+  if (!is.null(dataset_key) && nzchar(dataset_key)) {
+    from_registry <- tryCatch({
+      eps <- jsonlite::fromJSON(
+        paste0("https://api.gbif.org/v1/dataset/", dataset_key, "/endpoint"),
+        simplifyVector = TRUE
+      )
+      if (is.data.frame(eps) && nrow(eps) > 0 &&
+          all(c("type", "url") %in% names(eps))) {
+        hit <- eps$url[eps$type == "DWC_ARCHIVE"]
+        if (length(hit) > 0 && nzchar(hit[[1]])) hit[[1]] else NULL
+      } else {
+        NULL
+      }
+    }, error = function(e) {
+      cli_alert_warning(
+        "{src}: GBIF registry lookup failed ({conditionMessage(e)}) \u2014 falling back to config"
+      )
+      NULL
+    })
+  }
+
+  if (!is.null(from_registry)) {
+    cli_alert_success("{src}: archive URL resolved from the GBIF registry")
+    return(from_registry)
+  }
+
+  cfg_url <- cfg_get(paste0(src, ".export_url"), "")
+  if (is.character(cfg_url) && length(cfg_url) == 1L && nzchar(cfg_url)) {
+    cli_alert_info("{src}: no DWC_ARCHIVE endpoint from the registry \u2014 using config export_url")
+    return(expand_env(cfg_url, paste0(src, ".export_url")))
+  }
+
+  ""
+}
+
 #' Expand `${VAR}` placeholders in a config value from the environment
 #'
 #' Lets a config file *reference* a secret without *containing* one. Any

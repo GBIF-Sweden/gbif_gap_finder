@@ -16,7 +16,10 @@ GBIF_USER=your_username_here
 GBIF_EMAIL=your_email_here
 GBIF_PWD=your_password_here
 
-# Artdatabanken (Dyntaxa) API subscription key.
-# Referenced by configs/config_SE.yml as ${DYNTAXA_SUBSCRIPTION_KEY} so the
-# key itself is never committed. Request one at https://api.artdatabanken.se/
+# Artdatabanken (Dyntaxa) API subscription key. OPTIONAL.
+# 01a normally resolves the archive URL from the GBIF registry and never reads
+# this. It is only needed as a fallback if that lookup fails. The key is public
+# (GBIF publishes it as the dataset's registered DWC_ARCHIVE endpoint) — it is
+# kept out of the repo for tidiness, not because it is sensitive. Read the
+# current value from api.gbif.org/v1/dataset/de8934f4-a136-481c-a87a-b0b202b80a31/endpoint
 DYNTAXA_SUBSCRIPTION_KEY=your_subscription_key_here

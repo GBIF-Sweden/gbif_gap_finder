@@ -81,7 +81,12 @@ unzip_safely <- function(zipfile, exdir) {
   })
 }
 
-download_gbif_dataset <- function(dataset_key, export_url, dest_dir, label) {
+# Downloads a Darwin Core Archive from `export_url` (the publisher's endpoint,
+# normally resolved from the GBIF registry by globals::resolve_dwca_url).
+# GBIF itself is consulted here ONLY for the dataset title, for the log line —
+# the archive bytes come from the publisher, not from GBIF. The old name
+# (download_gbif_dataset) implied otherwise and caused exactly that confusion.
+download_checklist_dwca <- function(dataset_key, export_url, dest_dir, label) {
   cli_h2("{label}")
 
   existing <- list.files(dest_dir, pattern = "\\.(txt|csv)$")
@@ -145,7 +150,7 @@ if (length(grid_files) > 0) {
 cli_h1("2 \u2014 National Taxonomy Backbone")
 
 taxonomy_key <- cfg_get("taxonomy.dataset_key", "")
-taxonomy_url <- expand_env(cfg_get("taxonomy.export_url", ""), "taxonomy.export_url")
+taxonomy_url <- resolve_dwca_url(taxonomy_key, "taxonomy")
 taxonomy_doi <- cfg_get("taxonomy.doi", "")
 
 if (taxonomy_key == "" || taxonomy_url == "") {
@@ -154,7 +159,7 @@ if (taxonomy_key == "" || taxonomy_url == "") {
 }
 
 cli_alert_info("DOI: {taxonomy_doi}")
-download_gbif_dataset(taxonomy_key, taxonomy_url, raw_taxonomy_dir,
+download_checklist_dwca(taxonomy_key, taxonomy_url, raw_taxonomy_dir,
   cfg_get("taxonomy.name", "taxonomy"))
 
 # ============================================================================
@@ -165,14 +170,14 @@ cli_h1("3 \u2014 National Red List")
 
 redlist_enabled <- cfg_get("redlist.enabled", FALSE)
 redlist_key <- cfg_get("redlist.dataset_key", "")
-redlist_url <- expand_env(cfg_get("redlist.export_url", ""), "redlist.export_url")
+redlist_url <- if (isTRUE(redlist_enabled)) resolve_dwca_url(redlist_key, "redlist") else ""
 redlist_doi <- cfg_get("redlist.doi", "")
 
 if (!redlist_enabled || redlist_key == "" || redlist_url == "") {
   cli_alert_info("Red list not configured or disabled \u2014 skipping")
 } else {
   cli_alert_info("DOI: {redlist_doi}")
-  download_gbif_dataset(redlist_key, redlist_url, raw_redlist_dir, "red_list")
+  download_checklist_dwca(redlist_key, redlist_url, raw_redlist_dir, "red_list")
 }
 
 # ============================================================================
@@ -183,7 +188,7 @@ cli_h1("3b \u2014 National Invasive Species Registry")
 
 invasives_enabled <- cfg_get("invasives.enabled", FALSE)
 invasives_key <- cfg_get("invasives.dataset_key", "")
-invasives_url <- expand_env(cfg_get("invasives.export_url", ""), "invasives.export_url")
+invasives_url <- if (isTRUE(invasives_enabled)) resolve_dwca_url(invasives_key, "invasives") else ""
 invasives_doi <- cfg_get("invasives.doi", "")
 
 if (!invasives_enabled || invasives_key == "" || invasives_url == "") {
@@ -191,7 +196,7 @@ if (!invasives_enabled || invasives_key == "" || invasives_url == "") {
 } else {
   dir.create(raw_invasives_dir, showWarnings = FALSE, recursive = TRUE)
   cli_alert_info("DOI: {invasives_doi}")
-  download_gbif_dataset(invasives_key, invasives_url, raw_invasives_dir, "invasives")
+  download_checklist_dwca(invasives_key, invasives_url, raw_invasives_dir, "invasives")
 }
 
 # ============================================================================
@@ -202,7 +207,7 @@ cli_h1("3c \u2014 Sensitive Species List")
 
 sensitive_enabled <- cfg_get("sensitive.enabled", FALSE)
 sensitive_key <- cfg_get("sensitive.dataset_key", "")
-sensitive_url <- expand_env(cfg_get("sensitive.export_url", ""), "sensitive.export_url")
+sensitive_url <- if (isTRUE(sensitive_enabled)) resolve_dwca_url(sensitive_key, "sensitive") else ""
 sensitive_doi <- cfg_get("sensitive.doi", "")
 
 if (!sensitive_enabled || sensitive_key == "" || sensitive_url == "") {
@@ -210,7 +215,7 @@ if (!sensitive_enabled || sensitive_key == "" || sensitive_url == "") {
 } else {
   dir.create(raw_sensitive_dir, showWarnings = FALSE, recursive = TRUE)
   cli_alert_info("DOI: {sensitive_doi}")
-  download_gbif_dataset(sensitive_key, sensitive_url, raw_sensitive_dir, "sensitive")
+  download_checklist_dwca(sensitive_key, sensitive_url, raw_sensitive_dir, "sensitive")
 }
 
 # ============================================================================

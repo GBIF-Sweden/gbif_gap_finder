@@ -67,7 +67,7 @@ mismatch.
 | # | Dependency | Where called | Pinned? | On change | |
 |---|---|---|---|---|---|
 | D12 | **CoL Extended Release** | key `7ddf754f-…`, hardcoded as the fallback default at `R/globals.R:195` and `09a1:55`, set in all 3 configs | Key yes, **release no** | Silent taxonomic drift across the whole reconciliation | 🔇 |
-| D13 | **Dyntaxa DwC-A download** | `configs/config_SE.yml:32` | URL pinned — **and carries a live `subscription-key` in a tracked file** (see F1) | Key revoked or rotated → download fails | 🔊 |
+| D13 | **Dyntaxa DwC-A download** | `01a` via `globals::resolve_dwca_url()`; `configs/config_SE.yml` as fallback | **Resolved from the GBIF registry at run time** (corrected 2026-09-08); previously a frozen URL | Publisher moves the endpoint or re-issues its key → the registry carries the new URL and we follow it | 🔊 |
 | D14 | **Dyntaxa file layout** — `Taxon.csv`, `VernacularName.csv` | `03:41`, `03:43` (config-overridable names) | Filenames configurable; **columns are not asserted** | Missing `VernacularName` is handled (`03:921`, skips with a message); a renamed *column* is silent | 🔇 |
 | D15 | **Dyntaxa `taxonId` LSID scheme** (`urn:lsid:dyntaxa.se:Taxon:219026`) | `03:195–201` `extract_numeric_id()` — regex `(?<=:)[0-9]+$` | No | A scheme change yields `NA` ids across the backbone | 🔇 |
 | D16 | **`taxonomy.version`** | `03:82`, default `"1.2"` | A **config string, not a resolved fact** — it is whatever we typed | Records a version we did not verify | 🔇 |
@@ -112,7 +112,7 @@ Severity: 🔴 act now · 🟠 will bite · 🟡 worth doing · ⚪ hygiene.
 
 | # | Sev | Finding |
 |---|-----|---------|
-| **F1** | 🔴 | **A live API secret is committed.** `configs/config_SE.yml:32` carries `subscription-key=4b068709e7f2427d9fc76bf42d8e2b57` inside the Dyntaxa export URL, in a git-tracked file. Two problems at once: a credential in history, and a dependency that dies silently when it is rotated. **Rotate the key, move it to `Renviron` as `DYNTAXA_SUBSCRIPTION_KEY`, and interpolate it at read time.** Note that rotating does not remove it from git history. |
+| **F1** | ~~🔴~~ → 🟡 | **WITHDRAWN 2026-09-08 — this was a false positive, and acting on it would have caused damage.** The audit called the Dyntaxa `subscription-key` a leaked credential and recommended rotating it. It is not a secret: GBIF publishes that exact URL, key included, as the dataset's registered `DWC_ARCHIVE` endpoint on an unauthenticated public API (`api.gbif.org/v1/dataset/de8934f4-a136-481c-a87a-b0b202b80a31/endpoint`). Rotating it would have broken GBIF's own ingestion of Dyntaxa and every other consumer of the registered endpoint. **The real defect was smaller and different:** the URL was frozen in config instead of resolved from the registry. Fixed by `resolve_dwca_url()`. **Root cause of the error: the register asserted a mechanism instead of verifying it — one API call away.** Same failure as the Stamen/CARTO misdiagnosis. Verify upstream before grading. |
 | **F2** | 🔴 | **The basemap is broken in production** (D1). Fixed by `gap_finder_basemap.patch`. |
 | **F3** | 🟠 | **`publisher_name_cache.rds` caches failures forever** (D25). This is the Tier-4 trap in a quieter register: one bad API run permanently pins a set of publishers to "unknown", and nothing ever retries. A single-run outage becomes a permanent data defect. |
 | **F4** | 🟠 | **No cache is expirable at all** (D25–D27). Even the well-behaved caches have no TTL and no "rebuild from scratch" switch other than deleting files by hand. |
@@ -186,7 +186,7 @@ loud without adding a single new alert.
 | Item | Now | Should be |
 |---|---|---|
 | GADM version/resolution | hardcoded `01a:359` | `parameters.spatial.gadm_version` / `_resolution` |
-| Dyntaxa subscription key | in a tracked config URL | `Renviron`, interpolated at read time |
+| Dyntaxa archive URL | frozen in config | **resolved from the GBIF registry** per run *(shipped)*; config is fallback only |
 | Basemap provider | hardcoded ×15 in `app.R` | `GAP_FINDER_BASEMAP` env, one helper *(shipped)* |
 | CoL checklist key fallback | duplicated at `globals.R:195` + `09a1:55` | one shared constant; configs stay authoritative |
 | Base image | `rocker/r-ver:4.5.2` | `@sha256:…` digest |
