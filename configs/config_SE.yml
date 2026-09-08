@@ -146,6 +146,15 @@ gaps:
 # Analysis Parameters
 # ============================================================================
 parameters:
+  # --- Raw downloads -------------------------------------------------------
+  # Archives are skipped when already on disk, so without auto_refresh a
+  # republished upstream release is never picked up: Dyntaxa sat 2.5 months
+  # stale that way. 01a now compares GBIF's pubDate against the date recorded
+  # when we downloaded, and re-fetches when upstream is newer. A registry
+  # lookup failure keeps what is on disk rather than re-downloading blindly.
+  download:
+    auto_refresh: true
+    force: false
   # --- API response caches -------------------------------------------------
   # Caches mirror answers from external APIs, so they can outlive the truth they
   # mirror. force_refresh discards all of them on the next run; max_age_days

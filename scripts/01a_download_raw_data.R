@@ -86,14 +86,98 @@ unzip_safely <- function(zipfile, exdir) {
 # GBIF itself is consulted here ONLY for the dataset title, for the log line —
 # the archive bytes come from the publisher, not from GBIF. The old name
 # (download_gbif_dataset) implied otherwise and caused exactly that confusion.
+# ----------------------------------------------------------------------------
+# Upstream freshness
+# ----------------------------------------------------------------------------
+# A downloaded archive used to be skipped forever simply because the files were
+# on disk, so a republished upstream release was never picked up. Dyntaxa sat
+# 2.5 months stale that way (extract 2026-06-18, upstream republished
+# 2026-08-28) and only surfaced when provenance/upstream_versions_SE.yml started
+# recording the release dates on 2026-09-08.
+#
+# The fix is an exact comparison rather than a file-mtime heuristic: record the
+# upstream publication date we downloaded, in the extract directory, and compare
+# it against what GBIF reports now. mtimes lie — a copy, a restore or a checkout
+# resets them.
+.stamp_file <- function(dest_dir) file.path(dest_dir, ".upstream_published.json")
+
+read_download_stamp <- function(dest_dir) {
+  f <- .stamp_file(dest_dir)
+  if (!file.exists(f)) return(as.Date(NA))
+  s <- tryCatch(jsonlite::read_json(f, simplifyVector = TRUE), error = function(e) NULL)
+  if (is.null(s$published)) return(as.Date(NA))
+  suppressWarnings(as.Date(as.character(s$published)))
+}
+
+write_download_stamp <- function(dest_dir, dataset_key, published) {
+  jsonlite::write_json(
+    list(
+      dataset_key   = dataset_key %||% NA_character_,
+      published     = if (is.na(published)) NA_character_ else format(published, "%Y-%m-%d"),
+      downloaded_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+    ),
+    .stamp_file(dest_dir), pretty = TRUE, auto_unbox = TRUE
+  )
+}
+
+#' Should we (re-)download this source?
+#'
+#' Returns a list(download = logical, reason = character, published = Date).
+#' Fails SAFE: when the registry cannot be reached we keep what we have rather
+#' than re-downloading on a transient network failure.
+check_freshness <- function(dataset_key, dest_dir, label, existing) {
+  if (isTRUE(cfg_get("parameters.download.force", FALSE))) {
+    return(list(download = TRUE, reason = "parameters.download.force is set",
+                published = gbif_dataset_published(dataset_key)))
+  }
+  if (!isTRUE(cfg_get("parameters.download.auto_refresh", TRUE))) {
+    return(list(download = FALSE, reason = "auto_refresh disabled", published = as.Date(NA)))
+  }
+
+  upstream <- gbif_dataset_published(dataset_key)
+  if (is.na(upstream)) {
+    return(list(download = FALSE,
+                reason = "GBIF did not report a publication date \u2014 keeping what is on disk",
+                published = as.Date(NA)))
+  }
+
+  local <- read_download_stamp(dest_dir)
+  if (is.na(local)) {
+    # Downloaded before this check existed: fall back to the newest file mtime.
+    mt <- suppressWarnings(max(file.mtime(file.path(dest_dir, existing)), na.rm = TRUE))
+    local <- if (is.finite(mt)) as.Date(mt) else as.Date(NA)
+  }
+  if (is.na(local)) {
+    return(list(download = TRUE, reason = "no local date could be established",
+                published = upstream))
+  }
+  if (upstream > local) {
+    return(list(download = TRUE,
+                reason = sprintf("GBIF published %s, ours is %s",
+                                 format(upstream), format(local)),
+                published = upstream))
+  }
+  list(download = FALSE,
+       reason = sprintf("up to date (GBIF published %s)", format(upstream)),
+       published = upstream)
+}
+
 download_checklist_dwca <- function(dataset_key, export_url, dest_dir, label) {
   cli_h2("{label}")
 
   existing <- list.files(dest_dir, pattern = "\\.(txt|csv)$")
+  refresh  <- FALSE
+  upstream_published <- as.Date(NA)
+
   if (length(existing) > 0) {
-    cli_alert_info("{label}: {length(existing)} files already present \u2014 skipping")
-    cli_alert_info("Delete files in {.path {dest_dir}} to force re-download")
-    return(invisible(TRUE))
+    fresh <- check_freshness(dataset_key, dest_dir, label, existing)
+    upstream_published <- fresh$published
+    if (!isTRUE(fresh$download)) {
+      cli_alert_success("{label}: {fresh$reason} \u2014 skipping ({length(existing)} files)")
+      return(invisible(TRUE))
+    }
+    refresh <- TRUE
+    cli_alert_warning("{label}: STALE \u2014 {fresh$reason}. Re-downloading.")
   }
 
   dataset_info <- tryCatch({
@@ -112,8 +196,25 @@ download_checklist_dwca <- function(dataset_key, export_url, dest_dir, label) {
   ok <- download_file_safely(export_url, zip_path)
 
   if (ok && file.exists(zip_path)) {
+    # Clear the previous extract ONLY now that the replacement is safely on
+    # disk. A file the new release dropped (say VernacularName.csv) would
+    # otherwise linger and be read by 03 as if it were current — the same silent
+    # staleness this whole check exists to end. A failed download above leaves
+    # the old extract untouched.
+    if (refresh) {
+      old <- setdiff(list.files(dest_dir, full.names = TRUE), zip_path)
+      old <- old[!dir.exists(old)]
+      if (length(old)) {
+        cli_alert_info("{label}: replacing {length(old)} file{?s} from the previous release")
+        unlink(old)
+      }
+    }
     unzip_safely(zip_path, dest_dir)
-    cli_alert_success("{label}: downloaded and extracted")
+    if (is.na(upstream_published)) upstream_published <- gbif_dataset_published(dataset_key)
+    write_download_stamp(dest_dir, dataset_key, upstream_published)
+    cli_alert_success(
+      "{label}: downloaded and extracted{if (!is.na(upstream_published)) glue(' (published {upstream_published})') else ''}"
+    )
     return(invisible(TRUE))
   }
 

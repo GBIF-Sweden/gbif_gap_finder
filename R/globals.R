@@ -132,6 +132,25 @@ load_cache <- function(path, label, max_age_days = NULL) {
   cached
 }
 
+#' The publication date GBIF currently reports for a dataset
+#'
+#' `pubDate`, not `modified`: a metadata-only edit bumps `modified` (the COL
+#' checklist showed published 2026-07-17 / modified 2026-07-23) and must not
+#' trigger a re-download of an unchanged archive.
+#'
+#' @param dataset_key GBIF dataset UUID.
+#' @return A Date, or NA when the key is missing or the lookup fails.
+gbif_dataset_published <- function(dataset_key) {
+  if (is.null(dataset_key) || !nzchar(dataset_key)) return(as.Date(NA))
+  tryCatch({
+    ds <- jsonlite::fromJSON(paste0("https://api.gbif.org/v1/dataset/", dataset_key),
+                             simplifyVector = TRUE)
+    d <- ds$pubDate %||% NA_character_
+    if (is.null(d) || all(is.na(d)) || !nzchar(as.character(d)[1])) return(as.Date(NA))
+    suppressWarnings(as.Date(substr(as.character(d)[1], 1, 10)))
+  }, error = function(e) as.Date(NA))
+}
+
 #' Resolve a checklist's Darwin Core Archive URL, preferring the GBIF registry
 #'
 #' The publisher registers its archive endpoint with GBIF, so asking the registry

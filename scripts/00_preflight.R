@@ -311,7 +311,33 @@ pf_check("checklist_archives", function() {
     return(warn(sprintf("archive endpoint unreachable: %s (raw data on disk is still usable)",
                         paste(bad, collapse = ", "))))
   }
-  ok(sprintf("%s archive endpoint(s) reachable", paste(okd, collapse = ", ")))
+
+  # Say so BEFORE tar_make() spends a quarter of an hour: 01a will re-download
+  # any source GBIF has republished since our extract (parameters.download.auto_refresh).
+  stale <- character()
+  for (s in okd) {
+    dir <- switch(s, taxonomy = raw_taxonomy_dir, redlist = raw_redlist_dir,
+                  invasives = raw_invasives_dir, sensitive = raw_sensitive_dir, NULL)
+    if (is.null(dir) || !dir.exists(dir)) next
+    up <- gbif_dataset_published(cfg_get(paste0(s, ".dataset_key"), ""))
+    if (is.na(up)) next
+    stamp <- file.path(dir, ".upstream_published.json")
+    loc <- if (file.exists(stamp)) {
+      tryCatch(as.Date(as.character(jsonlite::read_json(stamp, simplifyVector = TRUE)$published)),
+               error = function(e) as.Date(NA))
+    } else {
+      mt <- suppressWarnings(max(file.mtime(list.files(dir, full.names = TRUE)), na.rm = TRUE))
+      if (is.finite(mt)) as.Date(mt) else as.Date(NA)
+    }
+    if (!is.na(loc) && up > loc) {
+      stale <- c(stale, sprintf("%s (ours %s, GBIF %s)", s, format(loc), format(up)))
+    }
+  }
+  if (length(stale)) {
+    return(warn(sprintf("upstream has republished since our extract: %s \u2014 01a will re-download",
+                        paste(stale, collapse = "; "))))
+  }
+  ok(sprintf("%s archive endpoint(s) reachable and up to date", paste(okd, collapse = ", ")))
 }, network = TRUE)
 
 pf_check("basemap", function() {
