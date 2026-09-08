@@ -1,0 +1,53 @@
+name: Build Image (PR)
+
+# Why this exists: publish-shiny-images.yml only runs on `v*` tags, so a
+# Dependabot PR against the Dockerfile showed a green check that had verified
+# nothing at all. A base-image or renv.lock change that breaks renv::restore()
+# would surface at the next release tag, mid-release.
+#
+# This builds the BUILDER STAGE ONLY (`target: builder`): the apt system
+# libraries plus renv::restore() under whatever R the base image carries. That
+# is precisely what an R version bump can break, and it needs neither the ~90 MB
+# Git LFS bundle nor the country config - so no LFS bandwidth is spent per PR
+# and nothing is pushed to GHCR.
+on:
+  pull_request:
+    paths:
+      - "shiny_app/gap_finder/Dockerfile.gap_finder"
+      - "renv.lock"
+      - ".github/workflows/build-image-pr.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-image-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build builder stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # The builder stage copies only renv.lock, so the LFS data bundle is
+          # not needed here. Explicit, because the release workflow does need it.
+          lfs: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build builder stage (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: shiny_app/gap_finder/Dockerfile.gap_finder
+          target: builder
+          push: false
+          platforms: linux/amd64
+          cache-from: type=gha,scope=gap-finder
+          cache-to: type=gha,mode=max,scope=gap-finder-pr

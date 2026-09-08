@@ -6,7 +6,8 @@
 # Nothing was watching. See audit/external-dependencies-2026-09-07.md (F12).
 version: 2
 updates:
-  # GitHub Actions used by publish-shiny-images.yml and citation-version.yml.
+  # GitHub Actions used by publish-shiny-images.yml, citation-version.yml and
+  # build-image-pr.yml.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -19,6 +20,7 @@ updates:
   # NOTE: the Dockerfile has a non-standard name. If no PRs appear here within a
   # month, Dependabot is not matching it — pin the base image by digest by hand
   # instead (D22), rather than assuming this is covered.
+  #   Resolved 2026-09-08: it does match. The first run proposed 4.5.2 -> 4.6.1.
   - package-ecosystem: "docker"
     directory: "/shiny_app/gap_finder"
     schedule:
@@ -26,3 +28,18 @@ updates:
     commit-message:
       prefix: "build"
     labels: ["dependencies", "docker"]
+    ignore:
+      # An R minor/major bump is not a dependency update - it swaps the R version
+      # inside the production image. Every renv.lock package recompiles against
+      # the new R, the image's pinned CRAN snapshot date moves forward, and the
+      # Ubuntu base may move under the still-unpinned apt GDAL/GEOS/PROJ (D23).
+      # That is a deliberate exercise, taken together with the local R and a
+      # re-resolved renv.lock - not something to merge from a bot PR.
+      #
+      # Patch bumps (4.5.2 -> 4.5.3) still arrive. Digest-only updates (same tag,
+      # re-pushed image) are expected to keep arriving as well - verify that on
+      # the next monthly run rather than assuming it.
+      - dependency-name: "rocker/r-ver"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
