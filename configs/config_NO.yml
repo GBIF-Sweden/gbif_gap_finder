@@ -28,6 +28,10 @@ admin_boundaries:
   country_code_iso3: "NOR"
   levels: [1, 2]
   force_download: false
+  # GADM release used for administrative boundaries. Pinned deliberately:
+  # a GADM bump renames and re-shapes units, silently moving per-region counts.
+  gadm_version: "4.1"
+  gadm_resolution: 1        # 1 = simplified geometry, 0 = full detail
 
 # ============================================================================
 # National Taxonomy Backbone

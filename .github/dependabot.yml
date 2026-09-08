@@ -1,0 +1,28 @@
+# Dependabot keeps the pinned external versions moving forward on a schedule
+# instead of rotting until something breaks.
+#
+# Why this exists: on 2026-09-08 every action in both workflows was still on
+# the Node 20 majors, 15 days before GitHub removed Node 20 from the runners.
+# Nothing was watching. See audit/external-dependencies-2026-09-07.md (F12).
+version: 2
+updates:
+  # GitHub Actions used by publish-shiny-images.yml and citation-version.yml.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies", "ci"]
+
+  # Base image in shiny_app/gap_finder/Dockerfile.gap_finder (FROM rocker/r-ver).
+  # NOTE: the Dockerfile has a non-standard name. If no PRs appear here within a
+  # month, Dependabot is not matching it — pin the base image by digest by hand
+  # instead (D22), rather than assuming this is covered.
+  - package-ecosystem: "docker"
+    directory: "/shiny_app/gap_finder"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "build"
+    labels: ["dependencies", "docker"]

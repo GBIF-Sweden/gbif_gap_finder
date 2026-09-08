@@ -80,6 +80,38 @@ cfg_get <- function(name, default = NULL) {
   result
 }
 
+#' Expand `${VAR}` placeholders in a config value from the environment
+#'
+#' Lets a config file *reference* a secret without *containing* one. Any
+#' `${NAME}` in `x` is replaced with `Sys.getenv("NAME")`.
+#'
+#' An unset or empty variable is a hard error rather than a silent empty
+#' substitution: a URL that quietly loses its key comes back as an opaque HTTP
+#' failure (or, worse, an HTML error page saved as a .zip) much further down.
+#' Failing here names the missing variable and the file to put it in.
+#'
+#' @param x Character scalar, typically a URL read from the config.
+#' @param what Label for the error message (e.g. "taxonomy.export_url").
+#' @return `x` with every placeholder expanded.
+expand_env <- function(x, what = "config value") {
+  if (is.null(x) || !is.character(x) || length(x) != 1L || !nzchar(x)) return(x)
+  hits <- regmatches(x, gregexpr("\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}", x))[[1]]
+  for (ph in unique(hits)) {
+    nm  <- sub("^\\$\\{(.*)\\}$", "\\1", ph)
+    val <- Sys.getenv(nm, "")
+    if (!nzchar(val)) {
+      cli_abort(c(
+        "{what} needs the environment variable {.envvar {nm}}, which is not set.",
+        "i" = "Add {.code {nm}=<value>} to your local {.file .Renviron} and restart R.",
+        "i" = "The config stores the placeholder deliberately \u2014 the secret is not committed."
+      ))
+    }
+    x <- gsub(ph, val, x, fixed = TRUE)
+  }
+  x
+}
+
+
 # ============================================================================
 # Global Options
 # ============================================================================

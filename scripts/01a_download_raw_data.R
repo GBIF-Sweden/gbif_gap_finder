@@ -145,7 +145,7 @@ if (length(grid_files) > 0) {
 cli_h1("2 \u2014 National Taxonomy Backbone")
 
 taxonomy_key <- cfg_get("taxonomy.dataset_key", "")
-taxonomy_url <- cfg_get("taxonomy.export_url", "")
+taxonomy_url <- expand_env(cfg_get("taxonomy.export_url", ""), "taxonomy.export_url")
 taxonomy_doi <- cfg_get("taxonomy.doi", "")
 
 if (taxonomy_key == "" || taxonomy_url == "") {
@@ -165,7 +165,7 @@ cli_h1("3 \u2014 National Red List")
 
 redlist_enabled <- cfg_get("redlist.enabled", FALSE)
 redlist_key <- cfg_get("redlist.dataset_key", "")
-redlist_url <- cfg_get("redlist.export_url", "")
+redlist_url <- expand_env(cfg_get("redlist.export_url", ""), "redlist.export_url")
 redlist_doi <- cfg_get("redlist.doi", "")
 
 if (!redlist_enabled || redlist_key == "" || redlist_url == "") {
@@ -183,7 +183,7 @@ cli_h1("3b \u2014 National Invasive Species Registry")
 
 invasives_enabled <- cfg_get("invasives.enabled", FALSE)
 invasives_key <- cfg_get("invasives.dataset_key", "")
-invasives_url <- cfg_get("invasives.export_url", "")
+invasives_url <- expand_env(cfg_get("invasives.export_url", ""), "invasives.export_url")
 invasives_doi <- cfg_get("invasives.doi", "")
 
 if (!invasives_enabled || invasives_key == "" || invasives_url == "") {
@@ -202,7 +202,7 @@ cli_h1("3c \u2014 Sensitive Species List")
 
 sensitive_enabled <- cfg_get("sensitive.enabled", FALSE)
 sensitive_key <- cfg_get("sensitive.dataset_key", "")
-sensitive_url <- cfg_get("sensitive.export_url", "")
+sensitive_url <- expand_env(cfg_get("sensitive.export_url", ""), "sensitive.export_url")
 sensitive_doi <- cfg_get("sensitive.doi", "")
 
 if (!sensitive_enabled || sensitive_key == "" || sensitive_url == "") {
@@ -346,6 +346,13 @@ if (!admin_enabled) {
 
   levels <- cfg_get("admin_boundaries.levels", c(1, 2))
   force_dl <- cfg_get("admin_boundaries.force_download", FALSE)
+  # GADM release + generalisation, pinned in config rather than here. A GADM
+  # bump renames and re-shapes administrative units, which moves per-region
+  # counts without any error — so the version has to be a visible, per-country
+  # choice, like every other source. See audit/external-dependencies-2026-09-07.md (F6).
+  gadm_version <- as.character(cfg_get("admin_boundaries.gadm_version", "4.1"))
+  gadm_res     <- as.integer(cfg_get("admin_boundaries.gadm_resolution", 1))
+  cli_alert_info("GADM v{gadm_version} (resolution {gadm_res})")
 
   if (!is.na(iso3)) {
     for (lvl in levels) {
@@ -356,7 +363,7 @@ if (!admin_enabled) {
       }
       tryCatch({
         gadm_data <- gadm(country = iso3, level = lvl, path = tempdir(),
-                          version = "4.1", resolution = 1)
+                          version = gadm_version, resolution = gadm_res)
         admin_sf <- st_as_sf(gadm_data)
         name_col <- paste0("NAME_", lvl)
         gid_col <- paste0("GID_", lvl)

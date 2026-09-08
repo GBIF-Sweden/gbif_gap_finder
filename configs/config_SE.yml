@@ -20,6 +20,10 @@ admin_boundaries:
   country_code_iso3: "SWE"
   levels: [1, 2]
   force_download: false
+  # GADM release used for administrative boundaries. Pinned deliberately:
+  # a GADM bump renames and re-shapes units, silently moving per-region counts.
+  gadm_version: "4.1"
+  gadm_resolution: 1        # 1 = simplified geometry, 0 = full detail
 
 # ============================================================================
 # National Taxonomy Backbone
@@ -29,7 +33,10 @@ taxonomy:
   dataset_key: "de8934f4-a136-481c-a87a-b0b202b80a31"
   # DOI + citation are resolved from dataset_key by 01b_resolve_data_sources.R.
   # Do not hand-maintain a doi here — it drifts when the dataset is re-versioned.
-  export_url: "https://api.artdatabanken.se/taxonservice/v1/DarwinCore/Download?subscription-key=4b068709e7f2427d9fc76bf42d8e2b57"
+  # The Artdatabanken subscription key is NOT stored here. Set
+  # DYNTAXA_SUBSCRIPTION_KEY in your local .Renviron (gitignored); 01a expands
+  # the placeholder via globals::expand_env() and aborts if it is unset.
+  export_url: "https://api.artdatabanken.se/taxonservice/v1/DarwinCore/Download?subscription-key=${DYNTAXA_SUBSCRIPTION_KEY}"
 # ============================================================================
 # National Red List
 # ============================================================================
