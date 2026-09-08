@@ -1,4 +1,8 @@
-cff-version: 1.3.0
+# CFF 1.2.0 is the latest RELEASED schema; 1.3.0 is unreleased and no validator
+# accepts it (cffconvert: 'Unrecognized value for key "cff-version"'). This file
+# carried 1.3.0 until 2026-09-08, which also breaks GitHub's own "Cite this
+# repository" widget. citation-version.yml now validates on every release.
+cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
 title: "gbif_gap_finder: a reproducible pipeline for biodiversity data gap analysis"
 abstract: >-

@@ -58,7 +58,9 @@ jobs:
           # A malformed CITATION.cff should fail the release, not sit broken in
           # the repo until someone tries to cite the software. Runs after the
           # rewrite above, so it validates exactly what is about to be committed.
-          python -m pip install --quiet cffconvert
+          # Pinned: the validator is itself an external dependency, and an
+          # unpinned one can start or stop failing a release on its own.
+          python -m pip install --quiet 'cffconvert==2.0.0'
           cffconvert --validate -i CITATION.cff
 
       - name: Commit + push if changed
