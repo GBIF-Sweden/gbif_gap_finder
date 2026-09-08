@@ -119,6 +119,11 @@ resolve_dataset <- function(dataset_key, config_doi, name, label) {
     config_doi         = config_doi,
     doi_matches_config = matches,
     title              = ds$title %||% name,
+    # The upstream release markers. GBIF already returns these on every dataset
+    # lookup; we were throwing them away, which is why a Catalogue of Life
+    # release could change underneath the pipeline with nothing to show for it.
+    published          = ds$pubDate  %||% NA_character_,
+    modified           = ds$modified %||% NA_character_,
     citation           = sprintf("%s. Dataset accessed via GBIF.org. %s",
                                  ds$title %||% (name %||% label), gbif_doi),
     resolves           = TRUE
@@ -168,6 +173,116 @@ resolve_publisher_count <- function(download_key) {
   pg <- .gbif_get(url)
   if (is.null(pg) || is.null(pg$count)) return(NA_integer_)
   as.integer(pg$count)
+}
+
+# ----------------------------------------------------------------------------
+# Upstream version provenance
+# ----------------------------------------------------------------------------
+
+#' Write the resolved upstream versions to version-controlled provenance
+#'
+#' The point of this file is that DRIFT BECOMES A DIFF. Every source here is
+#' pinned by a stable key (a dataset UUID, a download key), but the *release*
+#' behind that key moves: a new Catalogue of Life Extended Release changes names
+#' and taxon ids without changing its dataset key. Recording the resolved
+#' release next to the key means `git diff` after a run answers "did anything
+#' upstream move?" — the question that went unanswered for the whole July
+#' backbone migration.
+#'
+#' Two deliberate choices:
+#'   - NO run timestamp. If the file carried one, every run would diff and real
+#'     drift would drown in the noise. An empty diff must mean "nothing moved".
+#'   - Dates truncated to the day, for the same reason.
+#'
+#' Unlike data/ (gitignored), provenance/ is committed — that is what makes the
+#' history readable later.
+write_upstream_versions <- function(cubes, checklists) {
+  as_day <- function(x) {
+    if (is.null(x) || length(x) == 0L || all(is.na(x)) || !nzchar(as.character(x)[1])) {
+      return(NA_character_)
+    }
+    d <- suppressWarnings(as.Date(substr(as.character(x)[1], 1, 10)))
+    if (is.na(d)) NA_character_ else format(d, "%Y-%m-%d")
+  }
+  checklist_entry <- function(m) {
+    if (is.null(m)) return(NULL)
+    if (!isTRUE(m$resolves)) {
+      return(list(resolves = FALSE, reason = m$reason %||% "unresolved"))
+    }
+    list(dataset_key = m$dataset_key %||% NA_character_,
+         title       = m$title %||% NA_character_,
+         published   = as_day(m$published),
+         modified    = as_day(m$modified),
+         doi         = m$doi %||% NA_character_)
+  }
+  cube_entry <- function(m) {
+    if (is.null(m)) return(NULL)
+    if (!isTRUE(m$resolves)) {
+      return(list(resolves = FALSE, reason = m$reason %||% "unresolved"))
+    }
+    list(download_key = m$download_key %||% NA_character_,
+         doi          = m$doi %||% NA_character_,
+         created      = as_day(m$created))
+  }
+
+  payload <- list(
+    col_backbone = checklist_entry(checklists$col_backbone),
+    taxonomy     = checklist_entry(checklists$taxonomy),
+    redlist      = checklist_entry(checklists$redlist),
+    invasives    = checklist_entry(checklists$invasives),
+    sensitive    = checklist_entry(checklists$sensitive),
+    cubes        = Filter(Negate(is.null), lapply(cubes, cube_entry)),
+    gadm         = list(
+      version    = as.character(cfg_get("admin_boundaries.gadm_version", "4.1")),
+      resolution = as.integer(cfg_get("admin_boundaries.gadm_resolution", 1))
+    )
+  )
+  payload <- Filter(Negate(is.null), payload)
+
+  path <- here("provenance", paste0("upstream_versions_", COUNTRY_CODE, ".yml"))
+  dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE)
+
+  # Compare against the committed file BEFORE overwriting, and say out loud what
+  # moved. A diff nobody reads is only half a guardrail.
+  if (file.exists(path)) {
+    old <- tryCatch(yaml::read_yaml(path), error = function(e) NULL)
+    if (!is.null(old)) {
+      flat <- function(x, prefix = "") {
+        out <- character()
+        for (nm in names(x)) {
+          v <- x[[nm]]
+          key <- if (nzchar(prefix)) paste0(prefix, ".", nm) else nm
+          if (is.list(v)) out <- c(out, flat(v, key))
+          else out[key] <- if (is.null(v) || all(is.na(v))) "NA" else as.character(v)[1]
+        }
+        out
+      }
+      a <- flat(old); b <- flat(payload)
+      changed <- names(b)[vapply(names(b), function(k)
+        !identical(unname(a[k]), unname(b[k])), logical(1))]
+      changed <- setdiff(changed, names(b)[!names(b) %in% names(a)])
+      for (k in changed) {
+        cli_alert_warning(
+          "UPSTREAM DRIFT \u2014 {k}: {a[[k]] %||% 'absent'} \u2192 {b[[k]]}"
+        )
+      }
+      if (!length(changed)) cli_alert_success("No upstream version drift since the last run")
+    }
+  }
+
+  header <- c(
+    "# Resolved upstream versions, auto-written by scripts/01b on every run.",
+    "# VERSION-CONTROLLED provenance \u2014 commit this file. Do not hand-edit.",
+    "#",
+    "# Each source is pinned by a stable key, but the RELEASE behind that key",
+    "# moves. This records the release, so `git diff provenance/` after a run",
+    "# answers \"did anything upstream change?\". There is deliberately no run",
+    "# timestamp here: an empty diff must mean nothing moved.",
+    ""
+  )
+  writeLines(c(header, yaml::as.yaml(payload)), path)
+  cli_alert_success("Upstream versions written to {.path {path}}")
+  invisible(path)
 }
 
 # ----------------------------------------------------------------------------
@@ -269,6 +384,10 @@ out_path <- file.path(p_data_proc, "data_sources_meta.rds")
 dir.create(dirname(out_path), showWarnings = FALSE, recursive = TRUE)
 saveRDS(data_sources_meta, out_path)
 cli_alert_success("Saved {.path {out_path}}")
+
+# data_sources_meta.rds lives under data/ and is gitignored, so it cannot show
+# drift over time. The committed provenance file can.
+write_upstream_versions(cubes, checklists)
 
 bad_cubes <- Filter(function(x) !isTRUE(x$resolves), cubes)
 if (length(bad_cubes)) {

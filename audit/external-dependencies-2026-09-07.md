@@ -154,7 +154,7 @@ The assertions that matter — each one maps to a break we have had or nearly ha
 | Grids | both `.gpkg` present and readable | D19 |
 | Caches | age and negative-entry count per cache, warn past a threshold | D25–D28 |
 
-### H-2 — Resolved versions into provenance at run time
+### H-2 — Resolved versions into provenance at run time *(shipped 2026-09-08)*
 
 Drift should show up as a **diff**, not a surprise. Extend `data_sources_meta` (`01b:229–239`) with
 a `resolved` block written on every run and committed:
