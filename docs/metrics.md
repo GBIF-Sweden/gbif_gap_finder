@@ -24,31 +24,31 @@ This document defines the **gap metrics** used in this project to quantify data 
 
 **Temporal** &mdash; years 1551&ndash;2026 (476 yr) &middot; median staleness (10 km) 0 mo &middot; cells unsampled &gt;1 yr 22.2%, &gt;5 yr 5.3%.
 
-**Taxonomic** &mdash; reference 79,670 &middot; in GBIF 57,672 (72.4%) &middot; missing 21,998. Threatened (CR/EN/VU/NT): reference 4,859 &middot; in GBIF 4,738 &middot; missing 121.
+**Taxonomic** &mdash; reference 79,756 &middot; in GBIF 57,694 (72.3%) &middot; missing 22,062. Threatened (CR/EN/VU/NT): reference 4,859 &middot; in GBIF 4,737 &middot; missing 122.
 
 Coverage by rank:
 
 | taxonRank | n_ref_total | n_in_gbif | n_missing | pct_coverage |
 | --- | --- | --- | --- | --- |
-| species | 75976 | 56680 | 19296 | 74.6 |
-| subspecies | 1881 | 435 | 1446 | 23.13 |
-| variety | 1620 | 496 | 1124 | 30.62 |
-| form | 193 | 61 | 132 | 31.61 |
+| species | 76058 | 56704 | 19354 | 74.55 |
+| subspecies | 1885 | 434 | 1451 | 23.02 |
+| variety | 1622 | 496 | 1126 | 30.58 |
+| form | 191 | 60 | 131 | 31.41 |
 
 Coverage by threat status:
 
 | threatStatus | n_ref_total | n_in_gbif | n_missing | pct_coverage |
 | --- | --- | --- | --- | --- |
-| (no status) | 25249 | 11393 | 13856 | 45.12 |
+| (no status) | 25350 | 11430 | 13920 | 45.09 |
 | RE | 201 | 155 | 46 | 77.11 |
 | EX | 1 | 1 | 0 | 100 |
 | CR | 322 | 307 | 15 | 95.34 |
-| EN | 918 | 892 | 26 | 97.17 |
+| EN | 918 | 891 | 27 | 97.06 |
 | VU | 1660 | 1618 | 42 | 97.47 |
 | NT | 1959 | 1921 | 38 | 98.06 |
-| LC | 18640 | 18142 | 498 | 97.33 |
+| LC | 18633 | 18135 | 498 | 97.33 |
 | DD | 1067 | 953 | 114 | 89.32 |
-| NE | 29653 | 22290 | 7363 | 75.17 |
+| NE | 29645 | 22283 | 7362 | 75.17 |
 
 Priority counts:
 
@@ -57,7 +57,7 @@ Priority counts:
 | Cells - Zero coverage | 138 |
 | Cells - Low coverage (Q10) | 624 |
 | Cells - Stale (5+ years) | 329 |
-| Taxa - Threatened missing | 121 |
+| Taxa - Threatened missing | 122 |
 | Taxa - Poorly sampled | 506 |
 <!-- METRICS_SNAPSHOT:END -->
 
