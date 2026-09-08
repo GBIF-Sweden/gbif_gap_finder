@@ -1,5 +1,11 @@
 name: Publish Shiny Images
 
+# Action versions: all five actions below are pinned to their Node 24 majors.
+# GitHub removes Node 20 from the runners on 2026-09-23; the previous majors
+# (checkout@v4, setup-buildx@v3, login@v3, metadata@v5, build-push@v6) all
+# declare `using: node20` and stop working on that date. Every input this
+# workflow passes survives the bump unchanged. See
+# audit/external-dependencies-2026-09-07.md (D24 / F10).
 on:
   push:
     tags:
@@ -24,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -44,7 +50,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           lfs: true
 
@@ -53,10 +59,10 @@ jobs:
         run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -64,7 +70,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ steps.vars.outputs.owner }}/gap-finder
           tags: |
@@ -79,7 +85,7 @@ jobs:
             org.opencontainers.image.version=${{ github.ref_name }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: shiny_app/gap_finder/Dockerfile.gap_finder

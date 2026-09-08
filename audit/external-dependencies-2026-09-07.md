@@ -88,7 +88,7 @@ mismatch.
 | D21 | **`renv.lock` ↔ image** | `Dockerfile.gap_finder` | **Consistent by construction** — the image is built by `renv::restore(lockfile = 'renv.lock')`, so container packages *are* the lockfile. No drift is possible on this path | — | ✅ |
 | D22 | **Base image `rocker/r-ver:4.5.2`** | `Dockerfile.gap_finder` | Tag-pinned, **not digest-pinned** | Tag can be re-pushed; rebuild silently differs | 🔇 |
 | D23 | **apt packages** | `Dockerfile.gap_finder` | Unpinned (`apt-get install` = latest) | GDAL/GEOS/PROJ can move under `sf`/`terra` between rebuilds | 🔇 |
-| D24 | **CI actions** (`checkout@v4`, `build-push-action@v6`, `metadata-action@v5`) | both workflows | Tag-pinned, not SHA-pinned | Standard supply-chain exposure | 🔇 |
+| D24 | **CI actions** (checkout, setup-buildx, login, metadata, build-push) | both workflows | Major-pinned to the Node 24 releases as of 2026-09-08; **not SHA-pinned** | **Hard deadline hit once already:** GitHub removes Node 20 from the runners on **2026-09-23**, and all five majors previously in use declared `using: node20`. Bumped 2026-09-08. A re-pushed major tag can still change under us | 🔊 then 🔇 |
 
 **On the leaflet.providers hypothesis:** it does not hold, and the mechanism is worth recording so
 nobody re-tests it. The Dockerfile restores site-library straight from `renv.lock`, so the running
@@ -122,6 +122,7 @@ Severity: 🔴 act now · 🟠 will bite · 🟡 worth doing · ⚪ hygiene.
 | **F8** | 🟡 | **Vocabulary changes are unguarded** (D17). A renamed IUCN category or sensitivity level silently shrinks a count with no schema violation. |
 | **F9** | 🟡 | **Dyntaxa LSID parsing is an unasserted regex** (D15). A scheme change produces `NA` ids, not an error. |
 | **F10** | ⚪ | **Base image and apt packages are not digest-pinned** (D22, D23) — GDAL/GEOS/PROJ can move under `sf`/`terra` between rebuilds of the "same" image. |
+| **F12** | 🟠 | **The CI actions carried a dated kill switch and nothing was watching it.** Node 20 leaves the GitHub runners on **2026-09-23**; all five actions in both workflows ran on it. Surfaced only as a yellow annotation on the v0.5.1 run, 15 days before both workflows would have stopped building images and syncing `CITATION.cff`. Majors bumped 2026-09-08. **This is the register's own failure mode, caught by luck rather than by the preflight** — H-1 should assert on CI action runtimes too, or Dependabot should own them. |
 | **F11** | ⚪ | **The stale NO cache** `data/NO/proc/gbif_name_cache.rds` (D28) should be deleted before the Norway port runs. |
 
 ---
