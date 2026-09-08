@@ -1,4 +1,11 @@
-FROM rocker/r-ver:4.5.2 AS builder
+# Base image pinned BY DIGEST, not just by tag. A tag can be re-pushed, so two
+# builds of "the same" image can differ - and with apt packages unpinned below,
+# GDAL/GEOS/PROJ can move underneath sf/terra between rebuilds with nothing in
+# this repo changing. The digest is the multi-arch index for rocker/r-ver:4.5.2,
+# verified with `docker buildx imagetools inspect rocker/r-ver:4.5.2` on
+# 2026-09-08. Dependabot proposes bumps; see
+# audit/external-dependencies-2026-09-07.md (D22 / F10).
+FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV RENV_CONFIG_PAK_ENABLED=FALSE
@@ -33,7 +40,7 @@ COPY renv.lock ./renv.lock
 
 RUN R -q -e "renv::consent(provided = TRUE); renv::restore(lockfile = 'renv.lock', library = '/usr/local/lib/R/site-library', prompt = FALSE)"
 
-FROM rocker/r-ver:4.5.2
+FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c
 
 ENV DEBIAN_FRONTEND=noninteractive
 
