@@ -1,0 +1,51 @@
+# Resolved upstream versions, auto-written by scripts/01b on every run.
+# VERSION-CONTROLLED provenance — commit this file. Do not hand-edit.
+#
+# Each source is pinned by a stable key, but the RELEASE behind that key
+# moves. This records the release, so `git diff provenance/` after a run
+# answers "did anything upstream change?". There is deliberately no run
+# timestamp here: an empty diff must mean nothing moved.
+
+col_backbone:
+  dataset_key: 7ddf754f-d193-4cc9-b351-99906754a03b
+  title: Catalogue of Life
+  published: '2026-07-17'
+  modified: '2026-07-23'
+  doi: https://doi.org/10.48580/dgykv
+taxonomy:
+  dataset_key: de8934f4-a136-481c-a87a-b0b202b80a31
+  title: Dyntaxa. Svensk taxonomisk databas
+  published: '2026-08-28'
+  modified: '2026-08-28'
+  doi: https://doi.org/10.15468/j43wfc
+redlist:
+  dataset_key: 87e639cc-30a9-4007-bd2c-b0cab60326b9
+  title: The Swedish Red List 2025
+  published: '2026-04-30'
+  modified: '2026-04-30'
+  doi: https://doi.org/10.15468/zbbyqv
+invasives:
+  dataset_key: c1a61294-6195-4055-9b22-a2e48e5e16d7
+  title: Global Register of Introduced and Invasive Species - Sweden
+  published: '2026-03-25'
+  modified: '2026-03-25'
+  doi: https://doi.org/10.15468/i57bff
+sensitive:
+  dataset_key: 0bfa983c-1ef3-4ade-8b07-13d4365f11ff
+  title: List of Restricted Access Species In Sweden
+  published: '2026-03-18'
+  modified: '2026-03-18'
+  doi: https://doi.org/10.15468/jwbtsb
+cubes:
+  grid10km:
+    download_key: 0017309-260721160103020
+    doi: https://doi.org/10.15468/dl.hnyfzq
+    created: '2026-07-29'
+  grid50km:
+    download_key: 0017385-260721160103020
+    doi: https://doi.org/10.15468/dl.wqdsy3
+    created: '2026-07-29'
+gadm:
+  version: '4.1'
+  resolution: 1
+
