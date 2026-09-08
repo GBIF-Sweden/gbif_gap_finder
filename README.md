@@ -280,6 +280,52 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 | Integration | 10 | Overview tables | ~5 min |
 | App Prep | 11 | Shiny data bundle | ~10 min |
 
+## Deployment
+
+The Shiny app ships as a container image. A `v*` tag push builds and publishes it;
+nothing is deployed automatically from this repository.
+
+**What a tag push does** (`.github/workflows/publish-shiny-images.yml`):
+
+1. `validate-release` checks the app, Dockerfile and data bundle are present, and that
+   `shiny_data.rds` is the real ~90 MB file rather than an un-fetched Git LFS pointer.
+2. `publish` builds `shiny_app/gap_finder/Dockerfile.gap_finder` for `linux/amd64` and
+   pushes to GHCR as `ghcr.io/gbif-sweden/gap-finder`, tagged with the git tag,
+   `latest`, and `sha-<commit>`.
+3. `.github/workflows/citation-version.yml` writes the version and date into
+   `CITATION.cff` on the default branch as a follow-up commit — so `git pull` after a
+   release, or the next push is rejected as non-fast-forward.
+
+**Build arguments** (CI supplies both; a local build gets the defaults):
+
+| Arg | Default | Effect |
+|-----|---------|--------|
+| `GBIF_GAP_COUNTRY` | `SE` | Which config and data bundle are baked in |
+| `GAP_FINDER_VERSION` | `dev` | What the app reports as its version; CI passes the git tag |
+
+**Runtime environment:**
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `GBIF_GAP_COUNTRY` | baked at build | Selects the bundle at `data/{CC}/shiny_data.rds` |
+| `GAP_FINDER_VERSION` | baked at build | Shown in the About panel; `dev` when unset |
+| `GAP_FINDER_BASEMAP` | `Esri.WorldGrayCanvas` | Any `leaflet.providers` name. An unknown name warns and falls back rather than rendering a blank map. Do not use a `CartoDB.*` provider: CARTO raster basemaps now require an API key and render an "API KEY REQUIRED" watermark |
+
+Run it locally:
+
+```bash
+docker run --rm -p 3838:3838 ghcr.io/gbif-sweden/gap-finder:latest
+# then open http://localhost:3838
+```
+
+**The last hop is manual and lives outside this repo.** The public instance at
+<https://test.gbif.se/gap-finder/> is updated by a GBIF Sweden colleague pulling the
+published image onto the NRM server. A green build therefore does NOT mean the change
+is live — confirm the deploy separately, and say which tag should be pulled.
+
+> TODO: document the server-side command / service definition here, so this is not
+> only in one person's head. See `audit/external-dependencies-2026-09-07.md`.
+
 ## Requirements
 
 - R >= 4.1.0

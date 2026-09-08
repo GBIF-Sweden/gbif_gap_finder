@@ -72,7 +72,7 @@ list(
   tar_target(
     preflight,
     {
-      source(here("scripts", "00_preflight.R"), local = TRUE)
+      source(script_preflight, local = TRUE)
       TRUE
     },
     cue = tar_cue(mode = "always")
@@ -86,13 +86,168 @@ list(
     format = "file"
   ),
 
+  # ==========================================================================
+  # Script file tracking
+  # ==========================================================================
+  # `targets` hashes a target's COMMAND, not the contents of a file that command
+  # source()s. So `source(here("scripts", "03_ingest_taxonomy.R"))` inside a
+  # target means editing 03 does NOT invalidate it: tar_make() reports the target
+  # as up to date and silently keeps the old result.
+  #
+  # Until 2026-09-08 only 09a, 09a1, 09c and 11 were tracked. The other fourteen
+  # scripts could be edited with no effect on the next build — the same failure
+  # this project's whole dependency audit is about (something changes, nothing
+  # notices), living in the DAG itself. It bit us the day the red-list vocabulary
+  # guard (03) and the provenance writer (01b) were added: both needed a manual
+  # tar_invalidate() to run at all.
+  #
+  # Every script in scripts/ now has a target here, and its consumer source()s
+  # the TARGET rather than a literal path. Keep that invariant: a new script gets
+  # an entry here in the same commit.
+
+  tar_target(
+    script_preflight,
+    here("scripts", "00_preflight.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_01a,
+    here("scripts", "01a_download_raw_data.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_01b,
+    here("scripts", "01b_resolve_data_sources.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_02,
+    here("scripts", "02_ingest_grids.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_03,
+    here("scripts", "03_ingest_taxonomy.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_04,
+    here("scripts", "04_convert_cubes_parquet.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_05,
+    here("scripts", "05_validate_inputs.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_06a,
+    here("scripts", "06a_make_core_summaries.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_06b,
+    here("scripts", "06b_make_species_summaries.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_07,
+    here("scripts", "07_spatial_gaps.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_08,
+    here("scripts", "08_temporal_gaps.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_09a,
+    here("scripts", "09a_reconcile_taxonomy.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_09a1,
+    here("scripts", "09a1_build_col_crosswalk.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_09b,
+    here("scripts", "09b_taxonomic_gaps.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_09c,
+    here("scripts", "09c_scope_summaries.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_10,
+    here("scripts", "10_make_gap_overview.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_gap_finder,
+    here("scripts", "11_prepare_gap_finder_data.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_12,
+    here("scripts", "12_reconcile.R"),
+    format = "file"
+  ),
+
+  tar_target(
+    script_13,
+    here("scripts", "13_metrics_snapshot.R"),
+    format = "file"
+  ),
+
+  # R/ is not "a script" but it IS pipeline logic: globals.R carries the schemas,
+  # path constants, THREATENED_CODES and every shared helper; packages.R the
+  # library set. Neither was tracked, so the 2026-09-08 change that moved
+  # THREATENED_CODES out of five scripts and into globals.R would not have
+  # invalidated a single target — the subtlest version of this whole problem.
+  #
+  # raw_data and grids are the only roots below preflight and everything else
+  # descends from them, so declaring this there reaches the entire DAG.
+  #
+  # Cost, deliberately accepted: editing globals.R rebuilds the pipeline. That is
+  # the correct semantics — a change to shared analysis logic can move any number
+  # downstream — but it is a real cost. Drop this target and its two references
+  # if you would rather judge that by hand.
+  tar_target(
+    project_setup,
+    c(here("scripts", "00_setup.R"), here("R", "globals.R"), here("R", "packages.R")),
+    format = "file"
+  ),
+
+
+
   # 1.0a Download raw data — taxonomy, red list, invasives, sensitive, admin (script 01a)
   tar_target(
     raw_data,
     {
-      preflight # gate: no downloads if an upstream dependency has changed shape
+      preflight     # gate: no downloads if an upstream dependency has changed shape
+      project_setup # shared logic (globals/packages/setup) is a real dependency
       cube_sql  # file-dependency: re-download when the canonical cube SQL changes
-      source(here("scripts", "01a_download_raw_data.R"), local = TRUE)
+      source(script_01a, local = TRUE)
       metadata_path <- here(p_data_raw, "download_metadata.json")
       stopifnot(file.exists(metadata_path))
       metadata_path
@@ -105,7 +260,7 @@ list(
     data_sources_meta,
     {
       raw_data  # 01a writes the cube download keys that 01b resolves
-      source(here("scripts", "01b_resolve_data_sources.R"), local = TRUE)
+      source(script_01b, local = TRUE)
       here("data", COUNTRY_CODE, "proc", "data_sources_meta.rds")
     },
     format = "file"
@@ -115,8 +270,9 @@ list(
   tar_target(
     grids,
     {
-      preflight # gate: the reference grids are a checked dependency too
-      source(here("scripts", "02_ingest_grids.R"), local = TRUE)
+      preflight     # gate: the reference grids are a checked dependency too
+      project_setup # shared logic (globals/packages/setup) is a real dependency
+      source(script_02, local = TRUE)
       grid_files <- c(
         here(p_data_proc, "grids_10km.gpkg"),
         here(p_data_proc, "grids_50km.gpkg")
@@ -132,7 +288,7 @@ list(
     taxa_reference,
     {
       raw_data  # depends on download step
-      source(here("scripts", "03_ingest_taxonomy.R"), local = TRUE)
+      source(script_03, local = TRUE)
       output_files <- c(
         here(p_data_proc, "taxa_reference_current.rds"),
         here(p_data_proc, "taxonomy_backbone.csv")
@@ -148,7 +304,7 @@ list(
     cube_parquet,
     {
       raw_data  # cubes are downloaded by 01a before conversion
-      source(here("scripts", "04_convert_cubes_parquet.R"), local = TRUE)
+      source(script_04, local = TRUE)
       manifest_path <- here(p_data_proc, "cubes", "cube_manifest.csv")
       stopifnot(file.exists(manifest_path))
       manifest_path
@@ -164,7 +320,7 @@ list(
     validation_report,
     {
       grids; taxa_reference; cube_parquet
-      source(here("scripts", "05_validate_inputs.R"), local = TRUE)
+      source(script_05, local = TRUE)
       reports <- sort(
         list.files(here("logs"), pattern = "^validation_report_.*\\.md$", full.names = TRUE),
         decreasing = TRUE
@@ -184,7 +340,7 @@ list(
     core_summaries,
     {
       validation_report
-      source(here("scripts", "06a_make_core_summaries.R"), local = TRUE)
+      source(script_06a, local = TRUE)
       # Match 06a outputs only — exclude per-scope files produced by 09c
       # which live in the same directory (cell_summary_all_10km.csv etc.)
       all_csvs <- list.files(
@@ -207,7 +363,7 @@ list(
     species_summaries,
     {
       core_summaries
-      source(here("scripts", "06b_make_species_summaries.R"), local = TRUE)
+      source(script_06b, local = TRUE)
       species_files <- list.files(
         here(p_data_proc, "derived"),
         pattern = "\\.csv$", recursive = TRUE, full.names = TRUE
@@ -225,7 +381,7 @@ list(
     spatial_gaps,
     {
       core_summaries
-      source(here("scripts", "07_spatial_gaps.R"), local = TRUE)
+      source(script_07, local = TRUE)
       list.files(here(p_data_proc, "gaps"), pattern = "^spatial_.*\\.csv$", full.names = TRUE)
     },
     format = "file"
@@ -235,23 +391,9 @@ list(
     temporal_gaps,
     {
       core_summaries
-      source(here("scripts", "08_temporal_gaps.R"), local = TRUE)
+      source(script_08, local = TRUE)
       list.files(here(p_data_proc, "gaps"), pattern = "^temporal_.*\\.csv$|^cell_recency.*\\.csv$", full.names = TRUE)
     },
-    format = "file"
-  ),
-
-  # Track script 09a as a file so functional edits auto-invalidate downstream.
-  tar_target(
-    script_09a,
-    here("scripts", "09a_reconcile_taxonomy.R"),
-    format = "file"
-  ),
-
-  # Track 09a1 so edits to the crosswalk builder auto-invalidate downstream.
-  tar_target(
-    script_09a1,
-    here("scripts", "09a1_build_col_crosswalk.R"),
     format = "file"
   ),
 
@@ -286,7 +428,7 @@ list(
     taxonomic_gaps,
     {
       reconcile_taxonomy; core_summaries; species_summaries; col_crosswalk
-      source(here("scripts", "09b_taxonomic_gaps.R"), local = TRUE)
+      source(script_09b, local = TRUE)
       list.files(here(p_data_proc, "gaps"), pattern = "^taxonomic_.*\\.csv$", full.names = TRUE)
     },
     format = "file"
@@ -297,13 +439,6 @@ list(
   # summaries + the recent-period layer (cell_recency, basis_recent,
   # spatial_gaps zero-filled, cell_last_year, tax_cell_recency) +
   # recent_cutoff.rds as a pipeline constant.
-  # Track script 09c as a file so functional edits auto-invalidate downstream.
-  tar_target(
-    script_09c,
-    here("scripts", "09c_scope_summaries.R"),
-    format = "file"
-  ),
-
   tar_target(
     scope_summaries,
     {
@@ -342,7 +477,7 @@ list(
     gap_overview,
     {
       spatial_gaps; temporal_gaps; taxonomic_gaps
-      source(here("scripts", "10_make_gap_overview.R"), local = TRUE)
+      source(script_10, local = TRUE)
       all_tables <- list.files(here(p_output, "tables"), pattern = "\\.csv$", recursive = TRUE, full.names = TRUE)
       if (length(all_tables) == 0) stop("No overview tables created")
       all_tables
@@ -353,14 +488,6 @@ list(
   # ==========================================================================
   # Phase 6: Gap Finder Data Prep (script 11)
   # ==========================================================================
-
-  # Track the bundle script as a file so editing it auto-invalidates the bundle.
-  # (Targets normally tracks only the source() call, not the file's contents.)
-  tar_target(
-    script_gap_finder,
-    here("scripts", "11_prepare_gap_finder_data.R"),
-    format = "file"
-  ),
 
   tar_target(
     gap_finder_data,
@@ -389,7 +516,7 @@ list(
     reconciliation,
     {
       gap_overview; scope_summaries; taxonomic_gaps
-      source(here("scripts", "12_reconcile.R"), local = TRUE)
+      source(script_12, local = TRUE)
       "ok"
     }
   ),
@@ -404,7 +531,7 @@ list(
     metrics_snapshot,
     {
       gap_overview
-      source(here("scripts", "13_metrics_snapshot.R"), local = TRUE)
+      source(script_13, local = TRUE)
       "ok"
     }
   ),
