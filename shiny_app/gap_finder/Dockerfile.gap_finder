@@ -5,7 +5,7 @@
 # verified with `docker buildx imagetools inspect rocker/r-ver:4.5.2` on
 # 2026-09-08. Dependabot proposes bumps; see
 # audit/external-dependencies-2026-09-07.md (D22 / F10).
-FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c AS builder
+FROM rocker/r-ver:4.6.1@sha256:a5df0ae591422cc1733e97da03a9f4eff4cf172e40895225959aa93bb7ff7517 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV RENV_CONFIG_PAK_ENABLED=FALSE
@@ -40,7 +40,7 @@ COPY renv.lock ./renv.lock
 
 RUN R -q -e "renv::consent(provided = TRUE); renv::restore(lockfile = 'renv.lock', library = '/usr/local/lib/R/site-library', prompt = FALSE)"
 
-FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c
+FROM rocker/r-ver:4.6.1@sha256:a5df0ae591422cc1733e97da03a9f4eff4cf172e40895225959aa93bb7ff7517
 
 ENV DEBIAN_FRONTEND=noninteractive
 
