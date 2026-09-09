@@ -131,7 +131,7 @@ cli_alert_info(
 # ============================================================================
 cli_h2("Loading cube species universe (for validation)")
 sum_files <- list.files(
-  here(p_data_proc, "derived"),
+  p_derived,
   pattern = "species_summary.*10km\\.csv$", recursive = TRUE, full.names = TRUE
 )
 cube_sp <- NULL

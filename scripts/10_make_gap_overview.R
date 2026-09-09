@@ -718,7 +718,7 @@ cli_h2("Creating Overview-Derived Tables")
 snapshot_year <- year(get_snapshot_date())
 
 # Recent-period cutoff (rolling 12 months from the snapshot), produced by 09c.
-.recent_cutoff   <- safe_read(here(p_data_proc, "recent_cutoff.rds"), type = "rds")
+.recent_cutoff   <- safe_read(here(p_timepoint, "recent_cutoff.rds"), type = "rds")
 recent_cutoff_ym <- if (!is.null(.recent_cutoff)) .recent_cutoff$cutoff_ym else
                     as.integer(paste0(snapshot_year - 1L, "01"))
 recent_label     <- if (!is.null(.recent_cutoff)) .recent_cutoff$label else

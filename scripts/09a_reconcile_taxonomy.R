@@ -78,7 +78,7 @@ col_checklist_key <- cfg_get("parameters.taxonomic.col_checklist_key",
 # Output paths (p_gaps defined in R/globals.R)
 # Directory created by ensure_dirs() in 00_setup.R
 
-reconciliation_file <- here(p_data_proc, "taxonomic_reconciliation.rds")
+reconciliation_file <- here(p_timepoint, "taxonomic_reconciliation.rds")
 
 cli_h1("09a -- Taxonomic Reconciliation")
 
@@ -90,14 +90,14 @@ cli_h1("09a -- Taxonomic Reconciliation")
 cli_h2("Loading GBIF species from occurrence cubes")
 
 sum_files <- list.files(
-  here(p_data_proc, "derived"),
+  p_derived,
   pattern = "species_summary.*10km\\.csv$",
   recursive = TRUE, full.names = TRUE
 )
 
 if (length(sum_files) == 0) {
   cli_abort(
-    "No species_summary files found in {.path {here(p_data_proc, 'derived')}}. Run 06b first."
+    "No species_summary files found in {.path {p_derived}}. Run 06b first."
   )
 }
 cli_alert_info("Reading {length(sum_files)} species_summary files")

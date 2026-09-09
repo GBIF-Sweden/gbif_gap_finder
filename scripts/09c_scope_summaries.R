@@ -128,7 +128,7 @@ SCOPE_FLAGS <- c(
 
 cli_h2("Loading Reconciliation Table")
 
-recon_path <- here(p_data_proc, "taxonomic_reconciliation.rds")
+recon_path <- here(p_timepoint, "taxonomic_reconciliation.rds")
 if (!file.exists(recon_path)) {
   cli_abort(c(
     "Reconciliation table not found: {.path {recon_path}}",
@@ -290,7 +290,7 @@ recent_cutoff <- list(
   label       = recent_label,
   computed_at = Sys.time()
 )
-saveRDS(recent_cutoff, here(p_data_proc, "recent_cutoff.rds"))
+saveRDS(recent_cutoff, here(p_timepoint, "recent_cutoff.rds"))
 cli_alert_success("Saved: recent_cutoff.rds")
 rm(ym_probe, all_ym); gc()
 

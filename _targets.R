@@ -467,7 +467,7 @@ list(
     {
       reconcile_taxonomy; cube_parquet; grids
       source(script_09c, local = TRUE)
-      recent_cutoff <- here(p_data_proc, "recent_cutoff.rds")
+      recent_cutoff <- here(p_timepoint, "recent_cutoff.rds")
       stopifnot(file.exists(recent_cutoff))
 
       # Per-scope files (cell_summary_all_10km.csv etc.)

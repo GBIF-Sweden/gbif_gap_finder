@@ -222,7 +222,7 @@ cli_h2("Loading Recent-Period Cutoff")
 # reproducible across reruns instead of drifting with the run date (T-R3).
 snapshot_year <- year(get_snapshot_date())
 
-recent_cutoff <- safe_read(here(p_data_proc, "recent_cutoff.rds"), type = "rds")
+recent_cutoff <- safe_read(here(p_timepoint, "recent_cutoff.rds"), type = "rds")
 if (!is.null(recent_cutoff)) {
   shiny_data$last_year    <- recent_cutoff$cutoff_ym
   shiny_data$recent_label <- recent_cutoff$label
