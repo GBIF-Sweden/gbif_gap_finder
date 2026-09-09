@@ -141,6 +141,18 @@ list(
     format = "file"
   ),
 
+  # 04b builds the historical time-point cubes. It is tracked here because this
+  # file's invariant says every script in scripts/ gets an entry in the same
+  # commit — but it is deliberately NOT wired into the live DAG: historical time
+  # points are computed once and frozen, and they are driven by run_timepoint.R
+  # (Stage 2) rather than by tar_make(). Tracking it now means the consumer
+  # target can be added later without having to remember this one too.
+  tar_target(
+    script_04b,
+    here("scripts", "04b_build_historical_cubes.R"),
+    format = "file"
+  ),
+
   tar_target(
     script_05,
     here("scripts", "05_validate_inputs.R"),
@@ -235,6 +247,17 @@ list(
   tar_target(
     project_setup,
     c(here("scripts", "00_setup.R"), here("R", "globals.R"), here("R", "packages.R")),
+    format = "file"
+  ),
+
+  # R/eea_grid.R and R/historic_io.R are pipeline logic too, but for the
+  # HISTORICAL path only: 04b is their sole consumer. They are kept out of
+  # project_setup on purpose — folding them in would rebuild the entire live DAG
+  # for a change that cannot move a single live number. This target gives them
+  # the same "edit it and something notices" guarantee at the right blast radius.
+  tar_target(
+    r_historic,
+    c(here("R", "eea_grid.R"), here("R", "historic_io.R")),
     format = "file"
   ),
 
