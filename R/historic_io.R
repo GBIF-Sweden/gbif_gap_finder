@@ -32,7 +32,9 @@
 #   version matching, no roll-up, no API fallback, no "wrong build" failure
 #   mode. 01d and historic_taxon_keys() are retired; do not reintroduce them.
 #
-# Dependencies: data.table, here, cli (all attached by R/packages.R)
+# Dependencies: data.table, here, cli (all attached by R/packages.R).
+#   NOT R.utils — see the gz section below. Deliberately kept optional so the
+#   historical path adds nothing to renv.lock.
 # ============================================================================
 
 # ============================================================================
@@ -284,15 +286,71 @@ decode_historic_delivery <- function(path, out_path = NULL,
 }
 
 # ============================================================================
+# Reading gzipped deliveries without R.utils
+# ============================================================================
+# `data.table::fread()` cannot open a .gz at all unless the optional R.utils
+# package is installed — and even with it, fread's gz path DECOMPRESSES THE
+# WHOLE FILE to a temp file before returning anything. That is not a detail:
+# measured 2026-09-09, `fread(gz, nrows = 0L)` took 0.24 s on a 5 MB gz and
+# 4.39 s on a 103 MB one, i.e. it is O(file size), not O(1). On the 393 MB 2024
+# delivery a header peek is therefore ~17 s and several GB of temp writes — and
+# 04b peeks three times per snapshot (header check, snapshot check, real read).
+#
+# So: peek through a connection (O(1), no package), and do the one real read
+# through the system decompressor (no package, no second copy on disk beyond
+# fread's own temp file). R.utils remains a fallback for a machine with no gzip.
+
+#' First `n` lines of a possibly-gzipped text file, without decompressing it all
+historic_readlines <- function(path, n) {
+  con <- if (grepl("\\.gz$", path)) gzfile(path, "rt") else file(path, "rt")
+  on.exit(close(con), add = TRUE)
+  readLines(con, n = n, warn = FALSE)
+}
+
+#' Header field names of a possibly-gzipped TSV
+historic_header <- function(path) {
+  first <- historic_readlines(path, 1L)
+  if (!length(first) || !nzchar(first[1])) {
+    cli_abort("File is empty or has no header row: {.path {basename(path)}}")
+  }
+  strsplit(first[1], "\t", fixed = TRUE)[[1]]
+}
+
+#' fread() a possibly-gzipped file without requiring R.utils
+#'
+#' Note fread still stages the decompressed stream in `tempdir()`, so the
+#' machine needs room for the uncompressed delivery (~4-6 GB per snapshot).
+#' Pass `tmpdir =` through `...` to put that somewhere with space.
+historic_fread <- function(path, ...) {
+  if (!grepl("\\.gz$", path)) return(data.table::fread(path, ...))
+  prog <- Sys.which(c("gzip", "zcat", "gzcat"))
+  prog <- prog[nzchar(prog)]
+  if (length(prog)) {
+    flag <- if (names(prog)[1] == "gzip") "-dc" else ""
+    return(data.table::fread(
+      cmd = paste(shQuote(unname(prog[1])), flag, shQuote(path)), ...))
+  }
+  if (!requireNamespace("R.utils", quietly = TRUE)) {
+    cli_abort(c(
+      "Cannot read {.path {basename(path)}}: it is gzipped, there is no gzip on \\
+       PATH, and {.pkg R.utils} is not installed.",
+      "i" = "Either one is enough: put gzip on PATH, or \\
+             {.code install.packages('R.utils')}."
+    ))
+  }
+  data.table::fread(path, ...)   # fread's own gz path, via R.utils
+}
+
+# ============================================================================
 # Readers
 # ============================================================================
 
 #' Assert a file's header carries every expected column
 #'
 #' Shape is checked BEFORE the multi-gigabyte read, so a delivery with a changed
-#' column set costs a second rather than twenty minutes and a wrong cube.
+#' column set costs milliseconds rather than twenty minutes and a wrong cube.
 historic_check_header <- function(path, expected, what) {
-  hdr <- names(data.table::fread(path, nrows = 0L, sep = "\t"))
+  hdr <- historic_header(path)
   missing <- setdiff(expected, hdr)
   if (length(missing)) {
     cli_abort(c(
@@ -324,9 +382,13 @@ read_historic_occurrences <- function(path, expect = NULL, select = NULL) {
   historic_check_header(path, HISTORIC_OCC_COLS, "occurrence")
 
   if (!is.null(expect)) {
-    peek <- data.table::fread(path, sep = "\t", select = "snapshot",
-                              nrows = 1000L, showProgress = FALSE)
-    got <- unique(as.character(peek$snapshot))
+    # Connection read, not fread: see the note above historic_readlines().
+    hdr   <- historic_header(path)
+    icol  <- match("snapshot", hdr)
+    lines <- historic_readlines(path, 1001L)[-1]
+    got   <- unique(vapply(strsplit(lines, "\t", fixed = TRUE),
+                           function(x) if (length(x) >= icol) x[icol] else NA_character_,
+                           character(1)))
     if (!identical(got, expect)) {
       cli_abort(c(
         "Snapshot column disagrees with the filename in {.path {basename(path)}}",
@@ -347,8 +409,8 @@ read_historic_occurrences <- function(path, expect = NULL, select = NULL) {
   )
   classes <- classes[lengths(classes) > 0L]
 
-  dt <- data.table::fread(path, sep = "\t", select = select,
-                          colClasses = classes, showProgress = TRUE)
+  dt <- historic_fread(path, sep = "\t", select = select,
+                       colClasses = classes, showProgress = TRUE)
 
   # species_id is the join key for the whole taxonomy step. An NA here means
   # either a blank field or an integer overflow, and both would silently drop
@@ -382,7 +444,7 @@ read_historic_taxonomy <- function(path, expect = NULL) {
   path <- decode_historic_delivery(path)
   historic_check_header(path, HISTORIC_TAX_COLS, "taxonomy")
 
-  tax <- data.table::fread(
+  tax <- historic_fread(
     path, sep = "\t", select = HISTORIC_TAX_COLS,
     colClasses = list(integer = "species_id",
                       character = setdiff(HISTORIC_TAX_COLS, "species_id")),
