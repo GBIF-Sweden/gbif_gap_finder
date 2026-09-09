@@ -165,6 +165,20 @@ parameters:
     max_age_days: 90
     force_refresh: false
   crs: 3035
+  # --- Gap closure between time points (script 14) --------------------------
+  # The source split the "Gaps filled" tab is built on. Step 0 measured that
+  # mechanism is very nearly a proxy for source: Artportalen-only gained pairs
+  # were 71.9% fieldwork, everything else 21.0%. One averaged bar would describe
+  # neither stream, so every closure table is split by these groups.
+  # Membership is a national fact and belongs here rather than in code; anything
+  # not listed falls into "collections".
+  closure:
+    frozen_quantile: 0.10
+    source_groups:
+      observation_platforms:
+        - 38b4c89f-584c-41bb-bd8f-cd1def33e92f   # Artportalen (SLU Artdatabanken)
+        - 50c9509d-22c7-4a22-a47d-8c48425ef4a7   # iNaturalist research-grade
+        - 8a863029-f435-446a-821e-275f4f641165   # Observation.org
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]
   temporal:

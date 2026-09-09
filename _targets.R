@@ -231,6 +231,15 @@ list(
     format = "file"
   ),
 
+  # 14 differences time points. Like 04b it is tracked but NOT wired into the
+  # live DAG: it needs at least two completed time points, which tar_make() does
+  # not produce, and it must run with GAP_FINDER_TIMEPOINT unset.
+  tar_target(
+    script_14,
+    here("scripts", "14_gap_closure.R"),
+    format = "file"
+  ),
+
   # R/ is not "a script" but it IS pipeline logic: globals.R carries the schemas,
   # path constants, THREATENED_CODES and every shared helper; packages.R the
   # library set. Neither was tracked, so the 2026-09-08 change that moved
@@ -257,7 +266,7 @@ list(
   # the same "edit it and something notices" guarantee at the right blast radius.
   tar_target(
     r_historic,
-    c(here("R", "eea_grid.R"), here("R", "historic_io.R")),
+    c(here("R", "eea_grid.R"), here("R", "historic_io.R"), here("R", "closure.R")),
     format = "file"
   ),
 
