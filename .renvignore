@@ -1,0 +1,6 @@
+# renv scans every .R and .Rmd for dependencies, including prose in documentation.
+# ROADMAP.Rmd mentions b3gbi::process_cube() when describing the b-cubed schema
+# migration; that is a sentence about the standard, not a call this project makes,
+# and b3gbi is not installed. Without this line renv::status() reports it as a
+# missing dependency forever.
+ROADMAP.Rmd

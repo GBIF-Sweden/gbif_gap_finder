@@ -298,7 +298,13 @@ decode_historic_delivery <- function(path, out_path = NULL,
 #
 # So: peek through a connection (O(1), no package), and do the one real read
 # through the system decompressor (no package, no second copy on disk beyond
-# fread's own temp file). R.utils remains a fallback for a machine with no gzip.
+# fread's own temp file).
+#
+# There is deliberately NO R.utils fallback. A `requireNamespace("R.utils")`
+# here is a real dependency as far as renv is concerned — it turns up in
+# renv::status() as used-but-not-recorded — and it would only ever be reached on
+# a machine with no gzip, zcat or gzcat, which is neither macOS nor rocker/r-ver.
+# Paying a lockfile entry for an unreachable branch is the wrong trade.
 
 #' First `n` lines of a possibly-gzipped text file, without decompressing it all
 historic_readlines <- function(path, n) {
@@ -325,20 +331,16 @@ historic_fread <- function(path, ...) {
   if (!grepl("\\.gz$", path)) return(data.table::fread(path, ...))
   prog <- Sys.which(c("gzip", "zcat", "gzcat"))
   prog <- prog[nzchar(prog)]
-  if (length(prog)) {
-    flag <- if (names(prog)[1] == "gzip") "-dc" else ""
-    return(data.table::fread(
-      cmd = paste(shQuote(unname(prog[1])), flag, shQuote(path)), ...))
-  }
-  if (!requireNamespace("R.utils", quietly = TRUE)) {
+  if (!length(prog)) {
     cli_abort(c(
-      "Cannot read {.path {basename(path)}}: it is gzipped, there is no gzip on \\
-       PATH, and {.pkg R.utils} is not installed.",
-      "i" = "Either one is enough: put gzip on PATH, or \\
-             {.code install.packages('R.utils')}."
+      "Cannot read {.path {basename(path)}}: it is gzipped and there is no \\
+       gzip, zcat or gzcat on PATH.",
+      "i" = "Every platform this project runs on ships one (macOS, rocker/r-ver). \\
+             Elsewhere, decompress the delivery first: {.code gunzip -k <file>.gz}"
     ))
   }
-  data.table::fread(path, ...)   # fread's own gz path, via R.utils
+  flag <- if (names(prog)[1] == "gzip") "-dc" else ""
+  data.table::fread(cmd = paste(shQuote(unname(prog[1])), flag, shQuote(path)), ...)
 }
 
 # ============================================================================
