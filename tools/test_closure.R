@@ -110,6 +110,77 @@ ok(inherits(try(closure_build_grain(cube[, .(specieskey)], PLATFORMS), silent = 
             "try-error"),
    "a cube missing columns is refused by name, not by a downstream crash")
 
+cli_h2("re-keying, and the full chain script 14 walks")
+# This section exists because BOTH bugs that reached the real data lived in the
+# untestable half of script 14: first the grain aggregation, then the re-key
+# that still expected the pre-move column name. Walking the same sequence here -
+# build grain, re-key, difference - is what closes that hole.
+cube_from <- data.table::as.data.table(list(
+  specieskey  = c("S1", "S2", "S3", "S9"),
+  eeacellcode = c("C1", "C1", "C2", "C3"),
+  datasetkey  = c("D1", "D1", "D2", "D1"),
+  year        = c(2010L, 2011L, 2012L, 2015L),
+  occurrences = c(10L, 5L, 3L, 7L)
+))
+cube_to <- data.table::as.data.table(list(
+  specieskey  = c("S1", "S2", "S3", "S1", "S3"),
+  eeacellcode = c("C1", "C1", "C2", "C4", "C3"),
+  datasetkey  = c("D1", "D1", "D2", "D1", "D2"),
+  year        = c(2010L, 2011L, 2012L, 2022L, 1995L),
+  occurrences = c(20L, 5L, 3L, 4L, 2L)
+))
+# S1 and S2 are synonyms of one national taxon; S9 is not on the checklist.
+lookup <- data.table::as.data.table(list(
+  specieskey       = c("S1", "S2", "S3"),
+  backbone_taxonID = c("T1", "T1", "T2")))
+
+gf2 <- closure_build_grain(cube_from, "D1")
+gt2 <- closure_build_grain(cube_to,   "D1")
+
+rk_g_from <- closure_rekey(gf2, lookup, "gbif")
+eq(rk_g_from$n_dropped, 0L, "gbif space drops nothing")
+eq(sort(unique(rk_g_from$grain$key)), c("S1", "S2", "S3", "S9"),
+   "gbif space keeps the specieskey as the key")
+
+rk_d_from <- closure_rekey(gf2, lookup, "dyntaxa")
+rk_d_to   <- closure_rekey(gt2, lookup, "dyntaxa")
+eq(rk_d_from$n_dropped, 1L, "S9 has no taxonID and is dropped, and counted")
+eq(sort(unique(rk_d_from$grain$key)), c("T1", "T2"), "S1 and S2 collapse onto T1")
+eq(nrow(closure_pairs(rk_d_from$grain)), 2L,
+   "two specieskeys in one cell become ONE (taxon, cell) pair")
+eq(nrow(closure_pairs(rk_g_from$grain)), 4L, "gbif space still sees four pairs")
+
+# A duplicated specieskey in the lookup would fan the grain out and inflate
+# every occurrence count, with no error anywhere.
+bad_lookup <- rbind(lookup, data.table::as.data.table(
+  list(specieskey = "S1", backbone_taxonID = "T1")))
+eq(sum(closure_rekey(gf2, bad_lookup, "dyntaxa")$grain$occ),
+   sum(closure_rekey(gf2, lookup, "dyntaxa")$grain$occ),
+   "a duplicated lookup row does not inflate occurrences")
+
+# ...and now the whole chain, exactly as 14 runs it.
+for (ks in c("gbif", "dyntaxa")) {
+  a <- closure_rekey(gf2, lookup, ks)$grain
+  b <- closure_rekey(gt2, lookup, ks)$grain
+  pa <- closure_pairs(a); pb <- closure_pairs(b)
+  cl <- closure_cells(closure_cell_view(a), closure_cell_view(b),
+                      c("C1", "C2", "C3", "C4"))
+  sp2 <- closure_species(pa, pb)
+  me <- closure_mechanism(data.table::fsetdiff(pb, pa), b, 2021L)
+  sm2 <- closure_summary(pa, pb, cl, sp2, me, key_space = ks, baseline_year = 2021L)
+  ok(nrow(sm2) > 0L, sprintf("%s: the full build -> re-key -> difference chain runs", ks))
+  eq(sm2[metric == "pairs_gained" & source_group == "total", value], 2,
+     sprintf("%s: two pairs gained", ks))
+}
+# The loss is visible in GBIF space and invisible in Dyntaxa space, because S9
+# is off the checklist entirely. That is why n_dropped has to be reported.
+eq(nrow(data.table::fsetdiff(closure_pairs(rk_g_from$grain),
+                             closure_pairs(closure_rekey(gt2, lookup, "gbif")$grain))), 1L,
+   "gbif space sees the off-checklist species disappear")
+eq(nrow(data.table::fsetdiff(closure_pairs(rk_d_from$grain),
+                             closure_pairs(rk_d_to$grain))), 0L,
+   "dyntaxa space cannot see it, because it was never in that space")
+
 cli_h2("mechanism survives an integer min_year")
 gt_int <- data.table::copy(gt)
 gt_int[, min_year := as.integer(min_year)]

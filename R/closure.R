@@ -115,6 +115,44 @@ closure_build_grain <- function(dt, platforms) {
   g[]
 }
 
+#' Re-key a grain from GBIF specieskey into another key space
+#'
+#' `closure_build_grain()` emits `key` holding the GBIF specieskey. In "gbif"
+#' space that is already the key and this is a no-op. In "dyntaxa" space each
+#' specieskey is mapped to its national-checklist taxonID, and species with no
+#' taxonID are DROPPED and counted, not silently carried.
+#'
+#' Several specieskeys collapsing onto one taxonID is expected and wanted - that
+#' is synonyms resolving. The reverse would be a defect, so the lookup is forced
+#' unique on specieskey first: a duplicated specieskey would fan the grain out
+#' and inflate every occurrence count downstream with no error anywhere.
+#'
+#' @param grain Output of closure_build_grain().
+#' @param lookup data.table(specieskey, backbone_taxonID); ignored for "gbif".
+#' @param key_space "gbif" or "dyntaxa".
+#' @return list(grain, n_dropped)
+closure_rekey <- function(grain, lookup, key_space = c("gbif", "dyntaxa")) {
+  key_space <- match.arg(key_space)
+  if (identical(key_space, "gbif")) return(list(grain = grain, n_dropped = 0L))
+
+  need <- c("specieskey", "backbone_taxonID")
+  if (length(setdiff(need, names(lookup)))) {
+    cli_abort("closure_rekey(): lookup needs {paste(need, collapse = ' and ')}")
+  }
+  lk <- lookup[!is.na(backbone_taxonID) & nzchar(as.character(backbone_taxonID)),
+               .(key = as.character(specieskey),
+                 .taxon_key = as.character(backbone_taxonID))]
+  lk <- unique(lk, by = "key")          # fan-out guard, see above
+
+  before <- data.table::uniqueN(grain$key)
+  g <- merge(grain, lk, by = "key")
+  after  <- data.table::uniqueN(g$key)
+  g[, key := .taxon_key][, .taxon_key := NULL]
+  list(grain = g[, .(key, eeacellcode, datasetkey, source_group,
+                     min_year, occ, n_rec)],
+       n_dropped = before - after)
+}
+
 # ============================================================================
 # Grain -> the derived views
 # ============================================================================

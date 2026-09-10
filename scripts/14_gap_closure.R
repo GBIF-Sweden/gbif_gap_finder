@@ -183,6 +183,19 @@ read_match_table <- function(tp) {
                 "i" = "Run {.code Rscript run_timepoint.R {tp}} first (script 09a)."))
   }
   m <- data.table::fread(f, showProgress = FALSE)
+  # Fail here, by name, rather than 20 minutes later inside a data.table join.
+  # `class` and `order` drive the taxonomic panel; `backbone_taxonID` is the
+  # entire Dyntaxa key space.
+  need <- c("specieskey", "backbone_taxonID", "class", "order")
+  absent <- setdiff(need, names(m))
+  if (length(absent)) {
+    cli_abort(c(
+      "Match table for {tp} is missing column{?s}: {paste(absent, collapse = ', ')}",
+      "i" = "Header found: {paste(names(m), collapse = ', ')}",
+      "x" = "Script 09a's output shape has changed; closure cannot be computed \\
+             against it without checking what moved."
+    ))
+  }
   m[, specieskey := as.character(specieskey)]
   if ("backbone_taxonID" %in% names(m)) m[, backbone_taxonID := as.character(backbone_taxonID)]
   m
@@ -193,27 +206,6 @@ grid_cellcodes <- function(res_km) {
   f <- here(p_data_proc, sprintf("cellcodes_%dkm.txt", res_km))
   if (!file.exists(f)) cli_abort(c("Missing {.path {f}}", "i" = "Run script 02."))
   unique(readLines(f, warn = FALSE))
-}
-
-#' Re-key a grain into one of the two key spaces
-#'
-#' @return list(grain = re-keyed grain, n_dropped = keys with no taxonID)
-rekey_grain <- function(grain, match_tbl, key_space) {
-  g <- data.table::copy(grain)
-  if (identical(key_space, "gbif")) {
-    g[, key := as.character(specieskey)]
-    return(list(grain = g[, .(key, eeacellcode, datasetkey, source_group,
-                              min_year, occ, n_rec)], n_dropped = 0L))
-  }
-  lk <- unique(match_tbl[!is.na(backbone_taxonID) & nzchar(backbone_taxonID),
-                         .(specieskey, key = backbone_taxonID)])
-  g[, specieskey := as.character(specieskey)]
-  before <- data.table::uniqueN(g$specieskey)
-  g <- merge(g, lk, by = "specieskey")
-  after <- data.table::uniqueN(g$specieskey)
-  list(grain = g[, .(key, eeacellcode, datasetkey, source_group,
-                     min_year, occ, n_rec)],
-       n_dropped = before - after)
 }
 
 # ============================================================================
@@ -266,8 +258,8 @@ for (pr in pairs_to_do) {
 
     for (ks in KEY_SPACES) {
       tag <- sprintf("%dkm_%s", res_km, ks)
-      rf <- rekey_grain(raw_from, mt_from, ks)
-      rt <- rekey_grain(raw_to,   mt_to,   ks)
+      rf <- closure_rekey(raw_from, mt_from, ks)
+      rt <- closure_rekey(raw_to,   mt_to,   ks)
       gf <- rf$grain; gt <- rt$grain
       if (ks == "dyntaxa") {
         cli_alert_info(
