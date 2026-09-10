@@ -45,6 +45,13 @@
 # Usage:
 #   Rscript -e 'source("scripts/14_gap_closure.R")'
 #   GAP_CLOSURE_PAIR="2021-01-01,2024-01-01" Rscript -e 'source(...)'   # one pair
+#   GAP_CLOSURE_PAIR="2024-01-01,2026-07-29" Rscript -e 'source(...)'   # cross-regime
+#
+# TIME POINTS = the directories under proc/timepoints/ PLUS the live cube at the
+#   root. The live cube is not copied into timepoints/; it is labelled with its
+#   download date (from data_sources_meta.rds) and its paths resolved to
+#   proc/cubes/ and proc/gaps/. So the third time point above appears without
+#   any extra run of run_timepoint.R.
 #
 # Dependencies: scripts/00_setup.R, data.table, arrow, R/closure.R
 # ============================================================================
@@ -118,6 +125,70 @@ timepoints <- timepoints[vapply(
   function(tp) file.exists(file.path(tp_root, tp, "cubes", "cube_10km.parquet")),
   logical(1))]
 
+# ---------------------------------------------------------------------------
+# THE LIVE CUBE IS A TIME POINT ALREADY. It does not need copying or re-running.
+# With GAP_FINDER_TIMEPOINT unset, p_timepoint == p_data_proc, so the live
+# pipeline's own outputs - proc/cubes/ and proc/gaps/taxonomic_match_table.csv -
+# ARE this time point's cube and match table. They are simply at the root rather
+# than under timepoints/. Labelling them with the cube's download date and
+# resolving paths accordingly is the whole of the integration.
+#' The live cube's download date, or NA - never today's date
+#'
+#' get_snapshot_date() falls back to Sys.Date() when the metadata carries no
+#' cube date. That is right for staleness scoring and wrong here: it would
+#' label the live time point with whatever day the script happened to run, and
+#' the label is the time point's identity. This reads the same metadata and
+#' returns NA rather than guessing.
+live_timepoint_date <- function() {
+  meta_path <- here(p_data_proc, "data_sources_meta.rds")
+  if (!file.exists(meta_path)) return(NA_character_)
+  meta  <- tryCatch(readRDS(meta_path), error = function(e) NULL)
+  cubes <- meta$cubes
+  if (is.null(cubes) || !length(cubes)) return(NA_character_)
+  d <- tryCatch(
+    do.call(c, lapply(cubes, function(x) {
+      v <- x$created
+      if (is.null(v) || all(is.na(v))) as.Date(NA) else as.Date(v)
+    })),
+    error = function(e) as.Date(NA))
+  d <- d[!is.na(d)]
+  if (!length(d)) NA_character_ else as.character(max(d))
+}
+
+LIVE_TP    <- live_timepoint_date()
+live_cube  <- here(p_cubes, "cube_10km.parquet")
+live_match <- here(p_gaps, "taxonomic_match_table.csv")
+live_ok    <- !is.na(LIVE_TP) && file.exists(live_cube) && file.exists(live_match)
+
+if (live_ok) {
+  timepoints <- sort(unique(c(timepoints, LIVE_TP)))
+  cli_alert_info(
+    "Live cube included as time point {.val {LIVE_TP}} (read from the root, not copied)")
+} else {
+  # NEVER stay silent here. A missing live point is the most likely reason
+  # GAP_CLOSURE_PAIR fails to match, and the previous version printed nothing
+  # at all when the date could not be resolved - three states, two branches.
+  cli_alert_warning(
+    "Live cube NOT available as a time point - only the snapshot time points \\
+     below can be compared.")
+  if (is.na(LIVE_TP)) {
+    cli_bullets(c("x" = "no cube download date in {.path {here(p_data_proc, 'data_sources_meta.rds')}}"))
+  } else {
+    cli_bullets(c("v" = "cube download date {.val {LIVE_TP}}"))
+  }
+  if (!file.exists(live_cube))  cli_bullets(c("x" = "missing {.path {live_cube}}"))
+  if (!file.exists(live_match)) cli_bullets(c("x" = "missing {.path {live_match}}"))
+  cli_bullets(c(
+    "i" = "Fix by running the live pipeline at the repo root with \\
+           {.envvar GAP_FINDER_TIMEPOINT} unset: {.code tar_make()}, then re-run this script."
+  ))
+}
+
+#' Where does this time point's data live: under timepoints/, or at the root?
+tp_is_live <- function(tp) live_ok && identical(tp, LIVE_TP)
+tp_cubes_dir <- function(tp) if (tp_is_live(tp)) here(p_cubes) else file.path(tp_root, tp, "cubes")
+tp_gaps_dir  <- function(tp) if (tp_is_live(tp)) here(p_gaps)  else file.path(tp_root, tp, "gaps")
+
 if (length(timepoints) < 2L) {
   cli_abort(c(
     "Need at least two time points to difference; found \\
@@ -132,7 +203,11 @@ pair_spec <- Sys.getenv("GAP_CLOSURE_PAIR", "")
 if (nzchar(pair_spec)) {
   p <- trimws(strsplit(pair_spec, ",")[[1]])
   if (length(p) != 2L || !all(p %in% timepoints)) {
-    cli_abort("GAP_CLOSURE_PAIR must name two existing time points, comma separated.")
+    cli_abort(c(
+      "GAP_CLOSURE_PAIR must name two existing time points, comma separated.",
+      "x" = "Not found: {.val {setdiff(p, timepoints)}}",
+      "i" = "Available: {.val {timepoints}}"
+    ))
   }
   pairs_to_do <- list(p)
 } else {
@@ -144,7 +219,12 @@ if (nzchar(pair_spec)) {
 #' partly taxonomy churn rather than data. run_timepoint.R records it; this
 #' turns that record into a check.
 reference_release <- function(tp) {
-  f <- file.path(tp_root, tp, "reference_version.yml")
+  # The live point has no reference_version.yml - run_timepoint.R writes those,
+  # and the live pipeline is driven by targets. Its equivalent is the tracked
+  # provenance file that 01b rewrites on every run, which is where
+  # run_timepoint.R copies from in the first place.
+  f <- if (tp_is_live(tp)) here("provenance", glue("upstream_versions_{COUNTRY_CODE}.yml"))
+       else file.path(tp_root, tp, "reference_version.yml")
   if (!file.exists(f)) return(NA_character_)
   r <- tryCatch(yaml::read_yaml(f), error = function(e) NULL)
   if (is.null(r$taxonomy$published)) NA_character_ else as.character(r$taxonomy$published)
@@ -160,7 +240,7 @@ reference_release <- function(tp) {
 #' and record count. Only five columns are read: the cube is ~42 M rows and the
 #' other twelve are not needed here.
 read_grain <- function(tp, res_km) {
-  path <- file.path(tp_root, tp, "cubes", sprintf("cube_%dkm.parquet", res_km))
+  path <- file.path(tp_cubes_dir(tp), sprintf("cube_%dkm.parquet", res_km))
   if (!file.exists(path)) {
     cli_abort(c("Missing cube: {.path {path}}",
                 "i" = "Run {.code scripts/04b_build_historical_cubes.R} first."))
@@ -181,7 +261,7 @@ read_grain <- function(tp, res_km) {
 
 #' specieskey -> Dyntaxa taxonID and the reconciled taxonomy, for one time point
 read_match_table <- function(tp) {
-  f <- file.path(tp_root, tp, "gaps", "taxonomic_match_table.csv")
+  f <- file.path(tp_gaps_dir(tp), "taxonomic_match_table.csv")
   if (!file.exists(f)) {
     cli_abort(c("Missing match table for {tp}: {.path {f}}",
                 "i" = "Run {.code Rscript run_timepoint.R {tp}} first (script 09a)."))
@@ -240,12 +320,34 @@ for (pr in pairs_to_do) {
 
   # The snapshot regime runs to 2024-01-01; anything later comes from a live
   # cube and is a different measurement.
-  regime_boundary <- (as.Date(from) <= as.Date("2024-01-01")) &&
-                     (as.Date(to)   >  as.Date("2024-01-01"))
+  # A pair straddles the regime boundary when exactly one end is the live cube.
+  # Defined by WHAT the time point is, not by a hard-coded date, so a snapshot
+  # delivered in 2027 stays a snapshot and a second cube stays a cube.
+  regime_boundary <- xor(tp_is_live(from), tp_is_live(to))
+  ks_for_pair <- KEY_SPACES
+
   if (regime_boundary) {
-    cli_alert_warning(
-      "This pair straddles the snapshot -> cube boundary. The app must mark it: \\
-       the step is a method change, not a result."
+    # GBIF key space CANNOT cross this boundary and must not be attempted.
+    # The snapshots key on legacy Backbone nub integers ("8128385"); the cube
+    # keys on Catalogue of Life ids ("4Z659"). The two vocabularies do not
+    # overlap, so a set difference would report every baseline pair as lost and
+    # every comparison pair as gained - roughly six million of each, all of it
+    # fiction, and none of it erroring. Dyntaxa taxonID is the only key both
+    # sides reach, which is the entire argument of the harmonisation brief.
+    ks_for_pair <- "dyntaxa"
+    cli_alert_warning(c(
+      "This pair straddles the snapshot -> cube boundary."
+    ))
+    cli_alert_info("GBIF key space skipped: legacy nub ids and COL ids share no vocabulary")
+    cli_alert_info(
+      "10 km is unreliable here: snapshot cells come from 2 dp coordinates and \\
+       cube cells from full precision, so ~4% of records sit one cell away \\
+       (~0.9% at 50 km). Treat 50 km as the headline across this pair."
+    )
+    cli_alert_info(
+      "Filters differ too: the cube applies hasgeospatialissues = FALSE and \\
+       occurrencestatus = 'PRESENT'; the snapshots cannot. Residuals are small \\
+       but they are not zero."
     )
   }
   baseline_year <- as.integer(format(as.Date(from), "%Y"))
@@ -260,7 +362,7 @@ for (pr in pairs_to_do) {
     raw_from  <- read_grain(from, res_km)
     raw_to    <- read_grain(to,   res_km)
 
-    for (ks in KEY_SPACES) {
+    for (ks in ks_for_pair) {
       tag <- sprintf("%dkm_%s", res_km, ks)
       rf <- closure_rekey(raw_from, mt_from, ks)
       rt <- closure_rekey(raw_to,   mt_to,   ks)
@@ -319,11 +421,20 @@ for (pr in pairs_to_do) {
       # that VANISHES because a name moved is visible, but a pair that APPEARS
       # for the same reason looks exactly like new data.
       summ <- rbind(summ, data.table::data.table(
-        metric = c("taxonomic_churn_floor_pct", "groups_flagged_volatile"),
+        metric = c("taxonomic_churn_floor_pct", "groups_flagged_volatile",
+                   # 1 when this resolution's cells are not comparable across the
+                   # pair: 2 dp snapshot coordinates against full-precision cube
+                   # coordinates move ~4% of records one cell at 10 km.
+                   "coordinate_precision_unreliable",
+                   # 1 when the two ends were built with different occurrence
+                   # filters (the cube has hasgeospatialissues/occurrencestatus).
+                   "filters_differ"),
         source_group = "total", key_space = ks,
         value = c(round(100 * nrow(data.table::fsetdiff(pairs_from, pairs_to)) /
                           max(nrow(pairs_from), 1), 3),
-                  sum(grp$churn_flag, na.rm = TRUE))), fill = TRUE)
+                  sum(grp$churn_flag, na.rm = TRUE),
+                  as.integer(regime_boundary && res_km == 10L),
+                  as.integer(regime_boundary))), fill = TRUE)
       summ[, resolution := sprintf("%dkm", res_km)]
       summaries[[tag]] <- summ
 
