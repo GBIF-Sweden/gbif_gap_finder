@@ -164,15 +164,10 @@ read_grain <- function(tp, res_km) {
   dt <- data.table::as.data.table(arrow::read_parquet(
     path, col_select = c("specieskey", "eeacellcode", "datasetkey",
                          "year", "occurrences")))
-  g <- dt[, .(min_year = suppressWarnings(min(year, na.rm = TRUE)),
-              occ      = sum(as.numeric(occurrences), na.rm = TRUE),
-              n_rec    = .N),
-          by = .(specieskey, eeacellcode, datasetkey)]
+  # The aggregation lives in R/closure.R so it can be unit-tested; doing it
+  # inline here is what let an integer/Inf type mismatch reach the real data.
+  g <- closure_build_grain(dt, PLATFORMS)
   rm(dt); invisible(gc())
-  # min(na.rm = TRUE) over an all-NA group returns Inf: that is "no year", not a
-  # year, and it must not sort as one.
-  g[!is.finite(min_year), min_year := NA_real_]
-  g[, source_group := closure_source_group(datasetkey, PLATFORMS)]
   cli_alert_info(
     "{tp} {res_km} km: {scales::comma(nrow(g))} (species x cell x dataset) rows, \\
      {scales::comma(sum(g$occ))} occurrences"

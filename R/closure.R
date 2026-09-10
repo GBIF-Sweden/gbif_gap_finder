@@ -66,6 +66,56 @@ closure_source_group <- function(datasetkey, platforms) {
 }
 
 # ============================================================================
+# Building the grain
+# ============================================================================
+
+#' Reduce raw cube rows to the closure grain
+#'
+#' One row per (key, eeacellcode, datasetkey) with min_year, occurrences and a
+#' record count.
+#'
+#' TYPE CONSISTENCY IS THE WHOLE POINT OF THIS FUNCTION EXISTING.
+#' `min(year, na.rm = TRUE)` returns an INTEGER for a group that has any year,
+#' and `Inf` - a DOUBLE - for a group where every record lacks one. data.table
+#' requires one type across all groups, so the moment the first year-less pair
+#' appears the aggregation dies with "Column 1 of result for group N is type
+#' 'double' but expecting type 'integer'". On the real 2021 cube that was group
+#' 289 of ~5.3 million.
+#'
+#' Coercing `year` and `occurrences` to double BEFORE the aggregation fixes it
+#' and is also faster than coercing inside `j`: data.table's GForce optimisation
+#' applies to `min(x, na.rm = TRUE)` on a plain column but not to
+#' `min(as.numeric(x), ...)`.
+#'
+#' Inf is then mapped to NA: "no year" is the unattributable bucket, not a year,
+#' and it must not sort as one.
+#'
+#' @param dt data.table with specieskey, eeacellcode, datasetkey, year,
+#'   occurrences. Modified by reference - pass a copy if that matters.
+#' @param platforms Dataset keys counted as observation platforms.
+#' @return data.table(key, eeacellcode, datasetkey, source_group, min_year,
+#'   occ, n_rec)
+closure_build_grain <- function(dt, platforms) {
+  need <- c("specieskey", "eeacellcode", "datasetkey", "year", "occurrences")
+  missing <- setdiff(need, names(dt))
+  if (length(missing)) {
+    cli_abort("closure_build_grain(): missing column{?s} {paste(missing, collapse = ', ')}")
+  }
+  dt <- data.table::as.data.table(dt)
+  dt[, year        := as.numeric(year)]
+  dt[, occurrences := as.numeric(occurrences)]
+  g <- dt[, .(min_year = suppressWarnings(min(year, na.rm = TRUE)),
+              occ      = sum(occurrences, na.rm = TRUE),
+              n_rec    = .N),
+          by = .(key = as.character(specieskey),
+                 eeacellcode = as.character(eeacellcode),
+                 datasetkey  = as.character(datasetkey))]
+  g[!is.finite(min_year), min_year := NA_real_]
+  g[, source_group := closure_source_group(datasetkey, platforms)]
+  g[]
+}
+
+# ============================================================================
 # Grain -> the derived views
 # ============================================================================
 
@@ -200,6 +250,10 @@ closure_mechanism <- function(gained, grain_to, baseline_year) {
       n_cells = integer(), n_species = integer()))
   }
   g <- merge(grain_to, gained, by = c("key", "eeacellcode"))
+  # Same integer/Inf trap as in closure_build_grain(): if a caller hands us an
+  # integer min_year, the first all-NA group returns Inf and the aggregation
+  # dies on a type mismatch. Coerce once, here, rather than trust the caller.
+  g[, min_year := as.numeric(min_year)]
 
   per_group <- function(dt, label) {
     if (!nrow(dt)) return(NULL)

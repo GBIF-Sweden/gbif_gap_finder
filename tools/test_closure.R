@@ -79,6 +79,44 @@ pf <- closure_pairs(gf); pt <- closure_pairs(gt)
 gained <- data.table::fsetdiff(pt, pf)
 lost   <- data.table::fsetdiff(pf, pt)
 
+cli_h2("grain construction (the integer/Inf trap)")
+# This is the case that reached the real data and killed script 14: a
+# (species, cell, dataset) group where EVERY record lacks a year. min() returns
+# an integer for groups that have one and Inf - a double - for this one, and
+# data.table refuses the type mismatch. `year` arrives from parquet as an
+# INTEGER, which is exactly when it bites.
+cube <- data.table::as.data.table(list(
+  specieskey  = c("A", "A", "B",  "B",  "C"),
+  eeacellcode = c("C1", "C1", "C2", "C2", "C3"),
+  datasetkey  = c("D1", "D1", "D2", "D2", "D1"),
+  year        = c(2010L, 2014L, NA_integer_, NA_integer_, 2019L),   # integer!
+  occurrences = c(1L, 2L, 3L, 4L, 5L)
+))
+bg <- try(closure_build_grain(cube, PLATFORMS), silent = TRUE)
+ok(!inherits(bg, "try-error"),
+   "a group whose records ALL lack a year does not blow up the aggregation")
+if (!inherits(bg, "try-error")) {
+  eq(nrow(bg), 3L, "one grain row per (species, cell, dataset)")
+  ok(is.double(bg$min_year), "min_year is double for every group, never integer")
+  ok(is.na(bg[key == "B", min_year]), "the year-less group gets NA, not Inf")
+  eq(bg[key == "A", min_year], 2010, "the earliest year wins where there is one")
+  eq(bg[key == "A", occ], 3, "occurrences are summed within the group")
+  eq(bg[key == "A", n_rec], 2L, "records are counted")
+  eq(bg[key == "A", source_group], "observation_platforms", "D1 is a platform")
+  eq(bg[key == "B", source_group], "collections", "D2 is not")
+  ok(!any(is.infinite(bg$min_year)), "no Inf survives into the grain")
+}
+ok(inherits(try(closure_build_grain(cube[, .(specieskey)], PLATFORMS), silent = TRUE),
+            "try-error"),
+   "a cube missing columns is refused by name, not by a downstream crash")
+
+cli_h2("mechanism survives an integer min_year")
+gt_int <- data.table::copy(gt)
+gt_int[, min_year := as.integer(min_year)]
+ok(!inherits(try(closure_mechanism(gained, gt_int, BASELINE_YEAR), silent = TRUE),
+             "try-error"),
+   "closure_mechanism coerces min_year itself rather than trusting the caller")
+
 cli_h2("pairs")
 eq(nrow(pf), 4L, "4 pairs at the baseline")
 eq(nrow(pt), 7L, "7 pairs at the comparison point")
