@@ -78,6 +78,10 @@ if (!dir.exists(closure_dir)) dir.create(closure_dir, recursive = TRUE, showWarn
 PLATFORMS <- as.character(cfg_get(
   "parameters.closure.source_groups.observation_platforms", character()))
 FROZEN_Q  <- as.numeric(cfg_get("parameters.closure.frozen_quantile", 0.10))
+# Groups losing at least this share of their baseline pairs are flagged as
+# taxonomically volatile. 1% sits an order of magnitude above the stable clades
+# (insects and birds run 0.15-0.2%) and well below the fungal orders (1.8-12%).
+CHURN_WARN_PCT <- as.numeric(cfg_get("parameters.closure.churn_warn_pct", 1.0))
 RESOLUTIONS <- c(10L, 50L)
 KEY_SPACES  <- c("dyntaxa", "gbif")
 
@@ -296,11 +300,30 @@ for (pr in pairs_to_do) {
         by = .(class, order)]
       grp[, fill_rate := round(
         data.table::fifelse(pairs_from > 0, 100 * pairs_gained / pairs_from, NA_real_), 3)]
+      # Loss rate is the taxonomic-churn indicator, and it belongs beside fill
+      # rate rather than in a caveat. Backbone reassignment inside a clade shows
+      # up as pairs vanishing from the baseline: Agaricales loses 4.3% and
+      # Boletales 12.2% of their baseline pairs between 2021 and 2024, against
+      # 0.19% for Coleoptera and 0.15% for Odonata. A reader ranking groups by
+      # fill rate alone cannot tell a volatile clade from a stable one.
+      # See claude/finding-backbone-churn-within-regime-2026-09-10.md.
+      grp[, loss_rate := round(
+        data.table::fifelse(pairs_from > 0, 100 * pairs_lost / pairs_from, NA_real_), 3)]
+      grp[, churn_flag := !is.na(loss_rate) & loss_rate >= CHURN_WARN_PCT]
       data.table::setorder(grp, -pairs_gained)
 
       summ <- closure_summary(pairs_from, pairs_to, cells, species, mech,
                               key_space = ks, baseline_year = baseline_year,
                               regime_boundary = regime_boundary)
+      # The national churn floor. Read it as a floor, not an estimate: a pair
+      # that VANISHES because a name moved is visible, but a pair that APPEARS
+      # for the same reason looks exactly like new data.
+      summ <- rbind(summ, data.table::data.table(
+        metric = c("taxonomic_churn_floor_pct", "groups_flagged_volatile"),
+        source_group = "total", key_space = ks,
+        value = c(round(100 * nrow(data.table::fsetdiff(pairs_from, pairs_to)) /
+                          max(nrow(pairs_from), 1), 3),
+                  sum(grp$churn_flag, na.rm = TRUE))), fill = TRUE)
       summ[, resolution := sprintf("%dkm", res_km)]
       summaries[[tag]] <- summ
 

@@ -174,6 +174,10 @@ parameters:
   # not listed falls into "collections".
   closure:
     frozen_quantile: 0.10
+    # A class x order group losing at least this share of its baseline
+    # species x cell pairs is flagged as taxonomically volatile. Fungal orders
+    # run 1.8-12%; insects and birds run 0.15-0.2%.
+    churn_warn_pct: 1.0
     source_groups:
       observation_platforms:
         - 38b4c89f-584c-41bb-bd8f-cd1def33e92f   # Artportalen (SLU Artdatabanken)
