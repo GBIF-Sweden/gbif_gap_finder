@@ -286,6 +286,64 @@ ok(inherits(try(closure_cells(closure_cell_view(gf), closure_cell_view(gt),
                               character()), silent = TRUE), "try-error"),
    "an empty cell universe is refused, not silently taken from the data")
 
+cli_h2("closure_taxon_lookup(): the lost taxa must still have names")
+# The bug this covers shipped to the real tables: annotating from the LATER
+# match table alone leaves every lost taxon with NA name/class/order, and the
+# group roll-up then collects all of them into one (NA, NA) row at 100% loss.
+# 155 species on 2021 -> 2024; 717 species and 26,962 pairs on 2024 -> live.
+TAX_COLS <- c("class", "order", "backbone_scientificName", "taxonRank")
+mt <- function(ids, cls, ord, nm, cols = TRUE) {
+  d <- data.table::as.data.table(list(
+    specieskey = paste0("gk", ids), backbone_taxonID = as.character(ids),
+    class = cls, order = ord, backbone_scientificName = nm))
+  if (cols) d[, taxonRank := "species"]
+  d[]
+}
+# `to` has lost taxon 3 and renamed taxon 1; `from` has all three.
+mt_to   <- mt(c(1, 2), c("Aves", "Insecta"), c("Passeriformes", "Diptera"),
+              c("Corvus cornix", "Eristalis nemorum"))
+mt_from <- mt(c(1, 2, 3), c("Aves", "Insecta", "Eudicots"),
+              c("Passeriformes", "Diptera", "Rosales"),
+              c("Corvus corone cornix", "Eristalis nemorum", "Rosa mollis"))
+
+tl <- closure_taxon_lookup(mt_to, mt_from, TAX_COLS, "backbone_taxonID")
+eq(tl$n_fallback, 1L, "lookup: one key annotated from the earlier taxonomy")
+eq(nrow(tl$lookup), 3L, "lookup: covers taxa present at either end")
+ok(uniqueN(tl$lookup$key) == nrow(tl$lookup), "lookup: unique on key (no fan-out)")
+eq(tl$lookup[key == "1", backbone_scientificName], "Corvus cornix",
+   "lookup: a taxon at BOTH ends keeps the LATER name")
+eq(tl$lookup[key == "3", backbone_scientificName], "Rosa mollis",
+   "lookup: a LOST taxon is named from the earlier taxonomy")
+eq(tl$lookup[key == "3", class], "Eudicots", "lookup: the lost taxon keeps its class")
+ok(!any(is.na(tl$lookup$class)), "lookup: no NA class survives")
+
+# The no-op case: `to` is a superset, so nothing falls back.
+eq(closure_taxon_lookup(mt_from, mt_to, TAX_COLS, "backbone_taxonID")$n_fallback, 0L,
+   "lookup: no fallback when the later taxonomy is a superset")
+eq(closure_taxon_lookup(mt_to, NULL, TAX_COLS, "backbone_taxonID")$n_fallback, 0L,
+   "lookup: a missing earlier match table is tolerated, not an error")
+
+# A column absent from the earlier table must become NA, not shift the others.
+short <- closure_taxon_lookup(mt_to, mt(3, "Eudicots", "Rosales", "Rosa mollis", FALSE),
+                              TAX_COLS, "backbone_taxonID")$lookup
+ok(is.na(short[key == "3", taxonRank]), "lookup: a column missing upstream becomes NA")
+eq(short[key == "3", class], "Eudicots", "lookup: columns do not shift when one is missing")
+eq(names(short), c("key", TAX_COLS), "lookup: column names and order are stable")
+
+# A duplicated key in the earlier table must not fan the join out.
+dup <- closure_taxon_lookup(
+  mt_to, rbind(mt_from, mt(3, "Eudicots", "Rosales", "Rosa villosa")),
+  TAX_COLS, "backbone_taxonID")$lookup
+ok(uniqueN(dup$key) == nrow(dup), "lookup: a duplicated key upstream cannot fan out")
+
+# gbif key space uses specieskey and behaves identically.
+eq(closure_taxon_lookup(mt_to, mt_from, TAX_COLS, "specieskey")$lookup[
+     key == "gk3", backbone_scientificName], "Rosa mollis",
+   "lookup: gbif key space annotates lost taxa too")
+ok(inherits(try(closure_taxon_lookup(mt_to, mt_from, TAX_COLS, "nope"), silent = TRUE),
+            "try-error"),
+   "lookup: an unknown key column is refused by name")
+
 cli_h2("Result")
 if (fail == 0L) { cli_alert_success("All closure checks passed"); quit(status = 0L) }
 cli_abort("{fail} closure check{?s} failed")

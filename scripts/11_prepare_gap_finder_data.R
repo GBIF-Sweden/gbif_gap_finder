@@ -747,7 +747,49 @@ if (file.exists(pub_cell_tax_path)) {
 
 
 # ==============================================================================
-# 15. Metadata
+# 15. Gap Closure — the "Gaps filled" tab (from 14)
+# ==============================================================================
+# Loading only. The binding, the species thinning and the totals-before-thinning
+# rule all live in closure_bundle() in R/closure.R, where they are unit-tested
+# against the real tables by tools/test_closure_bundle.R. That split is
+# deliberate: the last two bugs to reach real closure data both lived in an
+# untested I/O half, and this is another one.
+# ==============================================================================
+
+cli_h2("Loading Gap Closure Tables (from 14)")
+
+source(here("R", "closure.R"))
+
+CLOSURE_KEEP_TOP <- 1000L
+closure_dir      <- here(p_data_proc, "closure")
+closure_pairs    <- character()
+
+cb <- closure_bundle(closure_dir, keep_top = CLOSURE_KEEP_TOP)
+
+if (length(cb$pairs)) {
+  closure_pairs <- cb$pairs
+  for (nm in names(cb$tables)) {
+    shiny_data[[paste0("closure_", nm)]] <- as_tibble(cb$tables[[nm]])
+  }
+  for (i in seq_len(nrow(cb$report))) {
+    r <- cb$report[i]
+    cli_alert_info(
+      "Closure species {r$pair_id}: {scales::comma(r$n_species_kept)} of \\
+       {scales::comma(r$n_species_full)} rows kept \\
+       ({round(100 * r$n_species_kept / r$n_species_full, 1)}%)")
+  }
+  cli_alert_success(
+    "Gap closure: {length(closure_pairs)} pair{?s} \\
+     ({paste(closure_pairs, collapse = ', ')})")
+} else {
+  cli_alert_info(
+    "No closure tables in {.path {closure_dir}} - run \\
+     {.code scripts/14_gap_closure.R} to enable the Gaps filled tab")
+}
+
+
+# ==============================================================================
+# 16. Metadata
 # ==============================================================================
 
 cli_h2("Adding Metadata")
@@ -798,6 +840,18 @@ shiny_data$metadata <- list(
   has_sensitive_scope   = !is.null(shiny_data$sensitive_time_summary),
 
   has_kingdom_cell_recency = !is.null(shiny_data$kingdom_cell_recency),
+
+  # Gaps filled tab. Hidden outright when there is no closure data rather than
+  # shown empty: a country with only one time point has nothing to say here, and
+  # an empty tab reads as a broken one.
+  has_closure = !is.null(shiny_data$closure_summary) &&
+    !is.null(shiny_data$closure_pair_index) &&
+    nrow(shiny_data$closure_pair_index) > 0,
+  closure_pairs = closure_pairs,
+  # Surfaced so the tab can say "top 1,000 shown" rather than implying the
+  # species list is exhaustive. Red-listed and lost/contracted species are
+  # complete regardless; see closure_bundle().
+  closure_species_top_n = CLOSURE_KEEP_TOP,
 
   # T-D5 marine coverage toggle
   has_marine = !is.null(shiny_data$cell_marine_lookup) &&

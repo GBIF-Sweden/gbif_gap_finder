@@ -436,3 +436,202 @@ closure_summary <- function(pairs_from, pairs_to, cells, species, mechanism,
   data.table::setcolorder(out, c("metric", "source_group", "key_space", "value"))
   out[]
 }
+
+# ============================================================================
+# Taxon annotation
+# ============================================================================
+
+#' Build the key -> taxonomy lookup that names the closure tables
+#'
+#' `to` first, `from` only as a fallback for keys `to` does not have.
+#'
+#' A taxon present at BOTH ends is described by the LATER taxonomy. That is what
+#' makes the two key spaces comparable and it is unchanged here.
+#'
+#' But a taxon that is GONE by `to` has no row in `to` at all. Annotating from
+#' `to` alone therefore leaves every lost species with NA name, class and order,
+#' and then rolls all of them into a single (NA, NA) group whose loss_rate is
+#' 100% by construction, because every pair in it is a lost pair.
+#'
+#' Measured on the delivered tables: 155 species / 229 baseline pairs for
+#' 2021 -> 2024, and 717 species / 26,962 pairs - 8.5% of all loss - for
+#' 2024 -> live. All 717 are recoverable from the `from` side: Rosa mollis,
+#' Huperzia europaea, Galium palustre subsp. elongatum and 714 others. Unfixed,
+#' the taxonomic panel renders an unnamed bar at 100% loss, and the "still open"
+#' panel cannot name a single species we no longer have - which is the one thing
+#' that panel is for.
+#'
+#' The lookup is forced unique on key at every step. A duplicated key would fan
+#' out the species join and inflate every group total with no error anywhere -
+#' the same failure mode closure_rekey() guards against upstream, and the reason
+#' this belongs here under test rather than inline in script 14.
+#'
+#' @param mt_to Match table (script 09a output) for the later time point.
+#' @param mt_from Match table for the earlier time point; may be NULL.
+#' @param tax_cols Character vector of taxonomy columns to carry across.
+#' @param lk_key Key column: "specieskey" in gbif space, "backbone_taxonID" in
+#'   dyntaxa space.
+#' @return list(lookup = data.table(key, <tax_cols>) unique on key,
+#'   n_fallback = number of keys annotated from `from`)
+closure_taxon_lookup <- function(mt_to, mt_from, tax_cols, lk_key) {
+  if (!lk_key %in% names(mt_to)) {
+    cli_abort("closure_taxon_lookup(): {lk_key} is not a column of the later match table")
+  }
+  lk <- unique(mt_to[, c(lk_key, tax_cols), with = FALSE])
+  data.table::setnames(lk, lk_key, "key")
+  lk <- unique(lk, by = "key")
+
+  if (is.null(mt_from) || !nrow(mt_from) || !lk_key %in% names(mt_from)) {
+    return(list(lookup = lk[], n_fallback = 0L))
+  }
+
+  fb_cols <- intersect(tax_cols, names(mt_from))
+  fb <- unique(mt_from[, c(lk_key, fb_cols), with = FALSE])
+  data.table::setnames(fb, lk_key, "key")
+  fb <- unique(fb, by = "key")
+  fb <- fb[!(key %in% lk$key)]
+  if (!nrow(fb)) return(list(lookup = lk[], n_fallback = 0L))
+
+  # A column the earlier match table does not carry stays NA rather than
+  # silently shifting into the wrong slot: a shape change between time points is
+  # worth seeing, not papering over.
+  for (cc in setdiff(tax_cols, fb_cols)) {
+    data.table::set(fb, j = cc, value = NA_character_)
+  }
+  out <- data.table::rbindlist(
+    list(lk, fb[, c("key", tax_cols), with = FALSE]), use.names = TRUE)
+  list(lookup = out[], n_fallback = nrow(fb))
+}
+
+# ============================================================================
+# Bundling for the app
+# ============================================================================
+
+#' Assemble script 14's closure CSVs into the tables the "Gaps filled" tab reads
+#'
+#' Binds each family of tables into ONE long table tagged with pair_id,
+#' resolution and key_space, so the app filters rather than juggling list names.
+#' Nothing is differenced here or at runtime - script 14 already did it.
+#'
+#' The file list is the source of truth for what exists, not a
+#' RESOLUTIONS x KEY_SPACES guess: a pair that straddles the regime boundary has
+#' no gbif-space tables at all, by design, and a guess would produce silent NULLs
+#' where the absence is meaningful.
+#'
+#' THE SPECIES TABLE IS THINNED, AND THAT IS THE ONE THING THAT CAN GO WRONG
+#' QUIETLY. Full, it is ~57,000 rows per pair x resolution x key space; across
+#' three pairs that is roughly half a million rows of mostly-untouched species,
+#' against a bundle that has sat at 78-80 MB since July and should not start
+#' growing now (finding-bundle-size-2026-07-23.md). Rows are cut to the three
+#' populations the tab enumerates BY NAME and nothing else:
+#'
+#'   - every red-listed species              (the threatened-species panel)
+#'   - every species that lost or contracted (the "where to go next" list, and
+#'     the taxa closure_taxon_lookup() above just made nameable)
+#'   - the top `keep_top` by cells gained and by cells lost
+#'
+#' `species_totals` is computed BEFORE the cut, from the full table. That is the
+#' invariant the tab depends on: a displayed COUNT comes from species_totals, a
+#' displayed NAME comes from species. A tile that counted the kept rows would
+#' under-report and still look plausible, which is the worst kind of wrong.
+#'
+#' @param closure_dir Directory script 14 wrote to (data/{CC}/proc/closure).
+#' @param keep_top Rows kept per resolution x key space beyond the red-listed
+#'   and lost/contracted species.
+#' @param threat_cats Red-list categories treated as "threatened" for the cut.
+#' @return list(tables = named list of data.tables, pairs = character vector,
+#'   report = data.table(pair_id, n_species_full, n_species_kept))
+closure_bundle <- function(closure_dir, keep_top = 1000L,
+                           threat_cats = c("CR", "EN", "VU", "NT", "RE", "DD")) {
+  date_re <- "\\d{4}-\\d{2}-\\d{2}"
+  empty <- list(tables = list(), pairs = character(),
+                report = data.table::data.table(
+                  pair_id = character(), n_species_full = integer(),
+                  n_species_kept = integer()))
+  if (!dir.exists(closure_dir)) return(empty)
+
+  sum_re    <- sprintf("^closure_summary_(%s)_(%s)\\.csv$", date_re, date_re)
+  sum_files <- list.files(closure_dir, pattern = sum_re)
+  if (!length(sum_files)) return(empty)
+
+  read_family <- function(prefix, from, to) {
+    pat <- sprintf("^closure_%s_(\\d+)km_([a-z]+)_%s_%s\\.csv$", prefix, from, to)
+    fs  <- list.files(closure_dir, pattern = pat)
+    if (!length(fs)) return(NULL)
+    data.table::rbindlist(lapply(fs, function(f) {
+      m <- regmatches(f, regexec(pat, f))[[1]]
+      d <- data.table::fread(file.path(closure_dir, f), showProgress = FALSE)
+      d[, `:=`(pair_id    = paste(from, to, sep = "__"),
+               resolution = paste0(m[2], "km"),
+               key_space  = m[3])]
+      d[]
+    }), use.names = TRUE, fill = TRUE)
+  }
+
+  acc <- list(summary = list(), cells = list(), group = list(), mechanism = list(),
+              datasets = list(), species = list(), species_totals = list())
+  pairs <- character()
+  report <- list()
+
+  for (sf in sum_files) {
+    m <- regmatches(sf, regexec(sum_re, sf))[[1]]
+    from <- m[2]; to <- m[3]; pid <- paste(from, to, sep = "__")
+
+    s <- data.table::fread(file.path(closure_dir, sf), showProgress = FALSE)
+    s[, `:=`(pair_id = pid, from_date = from, to_date = to)]
+    acc$summary[[pid]] <- s
+
+    for (nm in c("cells", "group", "mechanism", "datasets")) {
+      acc[[nm]][[pid]] <- read_family(nm, from, to)
+    }
+
+    sp <- read_family("species", from, to)
+    if (!is.null(sp)) {
+      # Totals FIRST, off the full table. See the note above.
+      acc$species_totals[[pid]] <- sp[, .(
+        n_species    = .N,
+        cells_gained = sum(cells_gained, na.rm = TRUE),
+        cells_lost   = sum(cells_lost,   na.rm = TRUE)
+      ), by = .(pair_id, resolution, key_space, status,
+                threat = data.table::fifelse(
+                  threatStatus_redlist %in% threat_cats, threatStatus_redlist, "none"))]
+
+      # The rank is taken WITHIN each resolution x key space. Ranking across the
+      # pile would spend the whole budget on 10 km and leave 50 km with nothing.
+      sp[, keep :=
+           threatStatus_redlist %in% threat_cats |
+           status %in% c("lost", "contracted") |
+           data.table::frank(-cells_gained, ties.method = "first") <= keep_top |
+           data.table::frank(-cells_lost,   ties.method = "first") <= keep_top,
+         by = .(resolution, key_space)]
+      acc$species[[pid]] <- sp[keep == TRUE][, keep := NULL]
+      report[[pid]] <- data.table::data.table(
+        pair_id = pid, n_species_full = nrow(sp),
+        n_species_kept = nrow(acc$species[[pid]]))
+    }
+    pairs <- c(pairs, pid)
+  }
+
+  tables <- list()
+  for (nm in names(acc)) {
+    b <- data.table::rbindlist(acc[[nm]], use.names = TRUE, fill = TRUE)
+    if (nrow(b)) tables[[nm]] <- b
+  }
+
+  # The pair index the tab's selectors are built from. regime_boundary travels
+  # with it so the app never infers "is this cross-pipeline?" from the dates -
+  # script 14 already decided, and the warnings hang off that decision.
+  if (!is.null(tables$summary)) {
+    flags <- c("regime_boundary", "mechanism_boundary_year", "filters_differ")
+    idx <- tables$summary[metric %in% flags,
+                          .(value = max(value)), by = .(pair_id, from_date, to_date, metric)]
+    idx <- data.table::dcast(idx, pair_id + from_date + to_date ~ metric,
+                             value.var = "value", fill = 0)
+    for (fl in setdiff(flags, names(idx))) data.table::set(idx, j = fl, value = 0)
+    data.table::setorder(idx, from_date, to_date)
+    tables$pair_index <- idx
+  }
+
+  list(tables = tables, pairs = pairs,
+       report = data.table::rbindlist(report, use.names = TRUE))
+}

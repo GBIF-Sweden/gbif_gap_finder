@@ -386,13 +386,25 @@ for (pr in pairs_to_do) {
 
       # Taxonomic roll-up: class/order come from the reconciled match table, not
       # from the cube, so both key spaces are described by the same taxonomy.
+      # The later time point wins for any taxon present at both ends; the
+      # earlier one is consulted only for taxa that are GONE by `to`, which
+      # would otherwise be unnamed and pile up in a single (NA, NA) group at
+      # 100% loss. See closure_taxon_lookup() in R/closure.R.
       tax_cols <- intersect(c("class", "order", "backbone_scientificName",
                               "taxonRank", "threatStatus_redlist",
                               "threatStatus_backbone"), names(mt_to))
       lk_key <- if (ks == "gbif") "specieskey" else "backbone_taxonID"
-      lk <- unique(mt_to[, c(lk_key, tax_cols), with = FALSE])
-      data.table::setnames(lk, lk_key, "key")
-      lk <- unique(lk, by = "key")
+      tl <- closure_taxon_lookup(mt_to, mt_from, tax_cols, lk_key)
+      lk <- tl$lookup
+      if (tl$n_fallback) {
+        # cli::qty() supplies the pluralisation quantity explicitly. Without it
+        # the quantity comes from the preceding substitution - scales::comma(),
+        # a CHARACTER - and cli then reads it as singular forever:
+        # "26,962 key absent". Verified against cli 3.6.2.
+        cli_alert_info(
+          "{tag}: {scales::comma(tl$n_fallback)} key{cli::qty(tl$n_fallback)}{?s} \\
+           absent from the {to} taxonomy, annotated from {from} (the lost taxa)")
+      }
 
       sp_out <- merge(species, lk, by = "key", all.x = TRUE)
       grp <- merge(species, lk[, .(key, class, order)], by = "key", all.x = TRUE)[
@@ -428,13 +440,23 @@ for (pr in pairs_to_do) {
                    "coordinate_precision_unreliable",
                    # 1 when the two ends were built with different occurrence
                    # filters (the cube has hasgeospatialissues/occurrencestatus).
-                   "filters_differ"),
+                   "filters_differ",
+                   # Species excluded by the re-key because they carry no
+                   # national-checklist taxonID. Until now these were reported
+                   # to the console and then thrown away, which left the app
+                   # unable to caveat its own species tile: 4,345 "newly
+                   # recorded" in Dyntaxa space against 9,637 in GBIF space is
+                   # only interpretable next to the 14,213 species that are off
+                   # the checklist entirely. In gbif space nothing is dropped
+                   # and both are 0 by construction.
+                   "species_off_checklist_from", "species_off_checklist_to"),
         source_group = "total", key_space = ks,
         value = c(round(100 * nrow(data.table::fsetdiff(pairs_from, pairs_to)) /
                           max(nrow(pairs_from), 1), 3),
                   sum(grp$churn_flag, na.rm = TRUE),
                   as.integer(regime_boundary && res_km == 10L),
-                  as.integer(regime_boundary))), fill = TRUE)
+                  as.integer(regime_boundary),
+                  rf$n_dropped, rt$n_dropped)), fill = TRUE)
       summ[, resolution := sprintf("%dkm", res_km)]
       summaries[[tag]] <- summ
 
