@@ -71,7 +71,9 @@ report_file    <- here(p_gaps, "col_crosswalk_validation.md")
 .xw_base <- cfg_get("parameters.taxonomic.crosswalk_baseline", list())
 BASE_MATCH_PCT          <- as.numeric(.xw_base$match_pct          %||% NA_real_)
 BASE_OCC_PCT            <- as.numeric(.xw_base$occ_pct            %||% NA_real_)
-BASE_MISSING_THREATENED <- as.numeric(.xw_base$missing_threatened %||% NA_real_)
+# `missing_threatened` is the pre-2026-09-30 key name, still accepted.
+BASE_MISSING_THREATENED <- as.numeric(
+  .xw_base$threatened_not_crosswalked %||% .xw_base$missing_threatened %||% NA_real_)
 
 # ============================================================================
 # Step 1: Load Dyntaxa reference + classify accepted/synonym
@@ -424,15 +426,19 @@ if (length(cube_keys) > 0) {
     sprintf("- Matched cube species: %s / %s",
             scales::comma(length(cube_matched)), scales::comma(length(cube_keys))),
     "",
-    "## Missing threatened (must not regress)",
-    sprintf("- Threatened accepted Dyntaxa taxa: %s", scales::comma(n_threat)),
-    sprintf("- ...present in GBIF: %s", scales::comma(n_threat_ingbif)),
-    cmp("Missing threatened taxa", missing_threat, BASE_MISSING_THREATENED, "", "lower")
+    "## Threatened taxa reached by the crosswalk (must not regress)",
+    paste0("_A health check on the crosswalk, NOT the official \"missing threatened\" figure. ",
+           "That one (docs/metrics.md, Overview) is scoped to species rank and uses every ",
+           "matching tier, so it is lower._"),
+    sprintf("- Threatened accepted Dyntaxa taxa (unscoped): %s", scales::comma(n_threat)),
+    sprintf("- ...reached through the crosswalk alone: %s", scales::comma(n_threat_ingbif)),
+    cmp("Threatened taxa not reached by the crosswalk", missing_threat,
+        BASE_MISSING_THREATENED, "", "lower")
   )
 
   cli_alert_info("Matched cube species: {pct_species}% (baseline {BASE_MATCH_PCT}%)")
   cli_alert_info("Occurrence coverage: {pct_occ}% (baseline {BASE_OCC_PCT}%)")
-  cli_alert_info("Missing threatened: {missing_threat} (baseline {BASE_MISSING_THREATENED})")
+  cli_alert_info("Threatened not reached by crosswalk: {missing_threat} (baseline {BASE_MISSING_THREATENED})")
   n_regressed <- sum(grepl("REGRESSED", report, fixed = TRUE))
   if (n_regressed > 0) {
     cli_alert_warning("{n_regressed} crosswalk metric{?s} below baseline -- see {.path {report_file}}")

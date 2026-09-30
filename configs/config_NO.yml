@@ -178,7 +178,7 @@ parameters:
     # crosswalk_baseline:
     #   match_pct: 75.3
     #   occ_pct: 99.1
-    #   missing_threatened: 152
+    #   threatened_not_crosswalked: 152
     # Keep FALSE so the occurrence tabs report ALL of GBIF (matches config_SE
     # + the 2026-07-21 decision). Code defaults TRUE, so NO must set it explicitly
     # or its occurrence tabs silently kingdom-scope.

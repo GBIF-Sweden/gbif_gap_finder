@@ -160,6 +160,9 @@ A run has not regressed when these hold:
 - `data/{CC}/proc/gaps/col_crosswalk_validation.md` — script 09a1 compares its own matching
   figures against `parameters.taxonomic.crosswalk_baseline` in the country config and prints
   `REGRESSED` when one drops. Update that baseline deliberately after a verified rebuild.
+  These are crosswalk health checks, not the published figures: e.g. "threatened not reached by
+  the crosswalk" (152) is higher than the official "missing threatened" (122) because it counts
+  all ranks and ignores the name-matching tiers.
 - `scripts/12_reconcile.R` (the `reconciliation` target) — Overview, Taxonomic and Concern agree.
 
 ## Data Sources
@@ -359,8 +362,8 @@ docker run --rm -p 3838:3838 ghcr.io/gbif-sweden/gap-finder:latest
 published image onto the NRM server. A green build therefore does NOT mean the change
 is live — confirm the deploy separately, and say which tag should be pulled.
 
-> TODO: document the server-side command / service definition here, so this is not
-> only in one person's head. See `audit/external-dependencies-2026-09-07.md`.
+> The server-side pull command / service definition will be added here by the server
+> maintainer.
 
 ## Requirements
 

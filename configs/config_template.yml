@@ -192,7 +192,7 @@ parameters:
     # crosswalk_baseline:
     #   match_pct: 75.3
     #   occ_pct: 99.1
-    #   missing_threatened: 152
+    #   threatened_not_crosswalked: 152
     # When true, kingdom-scopes the 06a/08 cube ("all") to backbone kingdoms.
     # Keep FALSE so the occurrence-based tabs report all of GBIF and dashboard
     # totals reconcile with the app; only Taxonomic/Concern are backbone-relative.

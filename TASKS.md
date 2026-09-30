@@ -84,6 +84,8 @@ list**.
     × cell); family there needs the family × cell layer that was measured and left out.*
   - [x] App reads **"threatened"** from the bundle (`metadata$threatened_codes`, written by 11)
     instead of hardcoding CR/EN/VU/NT; DD listed beside them as `CONCERN_CODES` — *done 2026-09-30.*
+    **Decision 2026-09-30 (Lena): keep DD** in the Concern "missing threatened" tables, shown beside
+    the threatened species but never counted as threatened.
 
 - [ ] **Norway replication, end-to-end (Phase 2)** — *deprioritised to the end (2026-07-28); still
   de-risked and ready whenever wanted (ran clean end-to-end before the session-5 changes; the
