@@ -1,11 +1,25 @@
 # Base image pinned BY DIGEST, not just by tag. A tag can be re-pushed, so two
-# builds of "the same" image can differ - and with apt packages unpinned below,
-# GDAL/GEOS/PROJ can move underneath sf/terra between rebuilds with nothing in
-# this repo changing. The digest is the multi-arch index for rocker/r-ver:4.5.2,
-# verified with `docker buildx imagetools inspect rocker/r-ver:4.5.2` on
-# 2026-09-08. Dependabot proposes bumps; see
+# builds of "the same" image can differ. The apt packages are pinned too, by
+# an Ubuntu archive snapshot date (APT_SNAPSHOT below), so GDAL/GEOS/PROJ cannot
+# move underneath sf/terra between rebuilds with nothing in this repo changing.
+# The digest is the multi-arch index for rocker/r-ver:4.5.2, verified with
+# `docker buildx imagetools inspect rocker/r-ver:4.5.2` on 2026-09-08.
+# Dependabot proposes bumps; see
 # audit/external-dependencies-2026-09-07.md (D22 / F10).
+#
+# apt pinning (audit D23, 2026-09-30): every apt call reads the Ubuntu archive as
+# it was at APT_SNAPSHOT (snapshot.ubuntu.com, apt >= 2.7 on noble), so the
+# system libraries are identical on every rebuild. Individual version pins were
+# not used: Ubuntu drops superseded versions from the live archive, which would
+# break the build at the next security update. Trade-off: security fixes arrive
+# only when this date moves. Bump it deliberately at each release (and after a
+# security advisory for GDAL/PROJ/GEOS/curl/openssl), then rebuild and check.
+# `--error-on=any` makes a failed snapshot fetch stop the build instead of
+# installing from stale or empty package lists.
+ARG APT_SNAPSHOT=20260930T000000Z
+
 FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c AS builder
+ARG APT_SNAPSHOT
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV RENV_CONFIG_PAK_ENABLED=FALSE
@@ -15,7 +29,8 @@ ENV RENV_CONFIG_PAK_ENABLED=FALSE
 # renv::restore() installs every package in renv.lock, not only what app.R
 # loads, so without it the image build fails at `redland`. Package names are
 # for Ubuntu 24.04 (noble), the base of rocker/r-ver:4.5.x.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
+    && apt-get update --error-on=any && apt-get install -y --no-install-recommends \
     cmake \
     g++ \
     gdal-bin \
@@ -47,6 +62,7 @@ COPY renv.lock ./renv.lock
 RUN R -q -e "renv::consent(provided = TRUE); renv::restore(lockfile = 'renv.lock', library = '/usr/local/lib/R/site-library', prompt = FALSE)"
 
 FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c
+ARG APT_SNAPSHOT
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -62,7 +78,8 @@ ENV GBIF_GAP_COUNTRY=${GBIF_GAP_COUNTRY}
 ARG GAP_FINDER_VERSION=dev
 ENV GAP_FINDER_VERSION=${GAP_FINDER_VERSION}
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
+    && apt-get update --error-on=any && apt-get install -y --no-install-recommends \
     libcurl4 \
     libfontconfig1 \
     libfribidi0 \

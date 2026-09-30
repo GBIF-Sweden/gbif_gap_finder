@@ -366,4 +366,5 @@ the app can be tagged and redeployed.
 **Nothing active is left.** Parked (Lena, 2026-09-30): **Gaps filled** review
 (`claude/brief-gaps-filled-review.md`), **Norway** re-run, **CARE** tab, and all of ROADMAP §C
 (snapshot cubes, reproducibility archive, scheduled re-runs, policy outputs). Small hygiene left:
-apt pinning in the Dockerfile (D23). Ready-to-start briefs live in `claude/brief-*.md`.
+~~apt pinning in the Dockerfile (D23)~~ — done 2026-09-30 (Ubuntu archive snapshot, `APT_SNAPSHOT`); bump the
+date at each release. Ready-to-start briefs live in `claude/brief-*.md`.

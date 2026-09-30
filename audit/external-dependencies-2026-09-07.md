@@ -87,7 +87,7 @@ mismatch.
 |---|---|---|---|---|---|
 | D21 | **`renv.lock` ↔ image** | `Dockerfile.gap_finder` | **Consistent by construction** — the image is built by `renv::restore(lockfile = 'renv.lock')`, so container packages *are* the lockfile. No drift is possible on this path | — | ✅ |
 | D22 | **Base image `rocker/r-ver:4.5.2`** | `Dockerfile.gap_finder` | Tag-pinned, **not digest-pinned** | Tag can be re-pushed; rebuild silently differs | 🔇 |
-| D23 | **apt packages** | `Dockerfile.gap_finder` | Unpinned (`apt-get install` = latest) | GDAL/GEOS/PROJ can move under `sf`/`terra` between rebuilds | 🔇 |
+| D23 | **apt packages** | `Dockerfile.gap_finder` | **Pinned 2026-09-30** by Ubuntu archive snapshot (`APT_SNAPSHOT`, `APT::Snapshot`); was unpinned | Moves only when the snapshot date is bumped | ✅ |
 | D24 | **CI actions** (checkout, setup-buildx, login, metadata, build-push) | both workflows | Major-pinned to the Node 24 releases as of 2026-09-08; **not SHA-pinned** | **Hard deadline hit once already:** GitHub removes Node 20 from the runners on **2026-09-23**, and all five majors previously in use declared `using: node20`. Bumped 2026-09-08. A re-pushed major tag can still change under us | 🔊 then 🔇 |
 
 **On the leaflet.providers hypothesis:** it does not hold, and the mechanism is worth recording so
