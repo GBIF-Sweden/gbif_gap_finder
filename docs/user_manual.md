@@ -39,9 +39,10 @@ You do not need to read every tab. This is the shortest path from "we have some 
    Family) and, where offered, the **scope** filter to focus on your group. Bird records
    dominate Swedish GBIF data, so if you work on anything else, filtering *out* Aves is
    what makes the real gaps visible.
-2. **See the geographic holes for that group.** On the **Spatial** tab, red or empty cells
-   are places with few or no GBIF records for your selection — candidate areas where your
-   observations or specimens would add coverage that currently doesn't exist.
+2. **See the geographic holes for that group.** On the **Spatial** tab, filter down to your
+   kingdom, class or order; grey and pale cells are places with no or few GBIF records for
+   your selection — candidate areas where your observations or specimens would add coverage
+   that currently doesn't exist.
 3. **Check what's most urgent.** The **Priorities** tab ranks the gaps: never‑sampled and
    long‑stale cells, and the taxonomic groups furthest below their fair share of records.
 4. **Look at species of concern.** On **Species of Concern**, "missing" threatened or
@@ -84,13 +85,23 @@ national needle most.
 
 How biodiversity observations are distributed across Sweden's **10 km EEA reference grid**.
 Each cell is coloured by a metric you choose: total occurrences, data **recency**, species
-richness, or observations. Read it as: **red or pale cells are gaps or stale; blue cells
-are well covered.** The recency view flags cells with no GBIF records in the last 10 years
-(red) or 5–10 years (orange). Filtering to non‑Aves groups reveals sampling gaps that bird
-data otherwise hides. The distribution histogram shows whether many cells hold only token
-data (1–10 records). Target empty and red cells for fieldwork or data mobilisation — but
-for stale cells, check national/regional sources first before treating them as true survey
-gaps.
+richness, or observations in the last 12 months. Read it as: **grey cells have no data,
+pale cells have few or old records, dark cells many or recent ones.** In the recency view the
+palest cells have no GBIF records from the last 10 years, and light cells none from the last
+5–10 years.
+
+- **Coverage area:** *Land + sea*, *Land only* or *Sea only*. Land only shows Swedish land;
+  Sea only shows Swedish waters (the EEZ plus archipelago and internal waters). A few cells
+  along the Norwegian and Finnish borders and just beyond the EEZ lie outside Sweden; they
+  appear only in Land + sea, because part of each cell holds Swedish records.
+- **Taxonomic filter:** kingdom → class → order. It changes the Occurrences and Data recency
+  maps (all record types). Species richness and the last‑12‑months view are not split by
+  taxon.
+
+Filtering to non‑Aves groups reveals sampling gaps that bird data otherwise hides. The
+distribution histogram shows whether many cells hold only token data (1–10 records). Target
+grey and pale cells for fieldwork or data mobilisation — but for stale cells, check
+national/regional sources first before treating them as true survey gaps.
 
 ### Temporal
 
@@ -122,8 +133,9 @@ occurrence resolves to it.
 ### Species of Concern
 
 GBIF coverage of the species that most need it, across three sub‑tabs sharing one taxonomy
-filter. A species shown as **missing / unmonitored has no GBIF records at all** — the
-highest conservation‑data priority.
+filter (kingdom → phylum → class → order → family). A species shown as **missing /
+unmonitored has no GBIF records at all** — the highest conservation‑data priority. Tables
+show the Swedish name where Dyntaxa has one. Reintroduced native species count as native.
 
 - **Threatened** — national Red List species in the IUCN categories CR, EN, VU, NT (and DD
   reported separately, not counted as threatened). Missing threatened species can't support
@@ -148,8 +160,10 @@ Which organisations publish Sweden's GBIF data, and how concentrated that publis
 few publishers usually dominate the volume. The **dependency map** flags **single‑publisher
 cells** — a 10 km cell whose records all come from one organisation. That's both an
 infrastructure vulnerability (if one publisher stops, the cell goes dark) and a partnership
-opportunity (a second contributor safeguards it). Use the taxonomic filters to see which
-publishers cover which groups.
+opportunity (a second contributor safeguards it). Use the taxonomic filters (kingdom →
+class → order) to see which publishers cover which groups, and the **publisher category**
+filter (citizen science, research data, private sector) to see how the map looks when only
+one kind of publisher is counted.
 
 ### Record Types
 
@@ -175,11 +189,14 @@ a given run used.
   backbone* and a *full‑GBIF overview*, and narrow to sub‑populations: **threatened**,
   **invasive**, **sensitive**, or by **establishment means** (native, introduced, invasive).
   Scope switching is a fast lookup, not a recomputation.
-- **Taxonomic cascade filters.** Kingdom → Phylum → Class → Order → Family, applied across
-  the relevant tabs. The single most useful move on most tabs is removing Aves.
+- **Taxonomic cascade filters.** Kingdom → Phylum → Class → Order → Family on Temporal,
+  Taxonomic and Species of Concern; kingdom → class → order on Spatial and Publishers. The
+  single most useful move on most tabs is removing Aves.
 - **Grid resolution.** Maps and cell metrics use the **10 km** EEA grid (primary) with a
   **50 km** option for a coarser national view. Grids are Europe‑wide (EPSG:3035, ETRS89‑
-  LAEA) clipped to Sweden via GADM boundaries; an optional marine (EEZ) mode adds sea cells.
+  LAEA) clipped to Sweden via GADM boundaries; the Swedish EEZ adds sea cells, and the
+  **Coverage area** toggle on Spatial switches between land + sea, land only and sea only
+  (it also drives the Overview coverage figures and the Priorities cells).
 - **Last 12 months.** A recent‑activity window (by observation date) available on Overview,
   Record Types, and the concern tabs — use it to see whether recent effort is closing
   historical gaps or reinforcing them.
@@ -193,7 +210,7 @@ a given run used.
 These are the interpretation rules the dashboard is built around. They matter most for
 anyone deciding where to spend effort.
 
-- **A gap is a data gap.** Empty or red means *no GBIF records for the current selection* —
+- **A gap is a data gap.** A grey cell means *no GBIF records for the current selection* —
   not that nothing lives there or that no one has studied it. Non‑digitised, embargoed, or
   outside‑GBIF data may exist. Always sanity‑check striking gaps against national/regional
   knowledge before acting.
@@ -258,10 +275,10 @@ listed live on the **Data & Sources** tab):
 
 Spatial reference: EEA 10 km + 50 km grids; administrative boundaries from GADM.
 
-Under the hood, every GBIF species is matched to the backbone through a 4‑tier
-reconciliation (accepted‑name → synonym → infraspecific collapse → GBIF API lookup),
-reaching ~99.8% occurrence coverage — so the taxonomic figures are robust to naming
-differences.
+Under the hood, every GBIF species is matched to the backbone through a 5‑tier
+reconciliation (accepted name → synonym → infraspecific collapse → GBIF API synonym →
+Catalogue of Life crosswalk), reaching ~99.8% of occurrences — so the taxonomic figures are
+robust to naming differences.
 
 ---
 
@@ -296,4 +313,4 @@ in the Overview **Methods, limitations & glossary** panel. For issues, correctio
 suggestions, use the project repository. This manual describes the dashboard's content and
 interpretation; the repository README covers installation and the analysis pipeline.
 
-*Last updated: 2026‑07‑29.*
+*Last updated: 2026‑09‑30.*

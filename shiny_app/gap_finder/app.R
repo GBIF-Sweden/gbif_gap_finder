@@ -21,6 +21,9 @@ library(glue)
 library(lubridate)
 library(stringr)
 
+# Base R has %||% from 4.4.0; define it for older R so top-level code can use it.
+if (!exists("%||%", mode = "function")) `%||%` <- function(a, b) if (is.null(a)) b else a
+
 # =============================================================================
 # BASEMAP
 # =============================================================================
@@ -35,7 +38,7 @@ library(stringr)
 # too -- switching label variants is not a fix.
 #
 # Default: Esri.WorldGrayCanvas. Keyless, pale grey, and quiet enough to keep the
-# colour-blind-safe RdYlBu cell palette legible on top of it. Known end-of-life:
+# colour-blind-safe cell palettes (see "Palette rule" below) legible on top of it. Known end-of-life:
 # Esri has scheduled the backing service (World_Light_Gray_Base) for retirement
 # in December 2029 -- tracked in audit/external-dependencies-2026-09-07.md.
 #
@@ -148,6 +151,37 @@ if (!is.null(spatial_gaps) &&
 priority_stale  <- safe_get("priority_stale_cells")
 comparison_grids <- safe_get("comparison_grids")
 metadata        <- safe_get("metadata")
+
+# Red-list codes counted as "threatened". One definition, from the project config
+# (parameters.taxonomic.threatened_categories -> THREATENED_CODES), carried in the
+# bundle metadata by script 11. The fallback only covers bundles built before that.
+# DD (Data Deficient) is NOT threatened; the Concern tables still list it next to
+# the threatened species, as CONCERN_CODES, so a reader sees both.
+THREATENED_CODES <- toupper(as.character(
+  metadata$threatened_codes %||% c("CR", "EN", "VU", "NT")))
+CONCERN_CODES <- unique(c(THREATENED_CODES, "DD"))
+
+# Establishment means -> display group. Dyntaxa's vocabulary grows (the
+# 2026-09 release added "nativeReintroduced"), and an unmapped value used to
+# become NA and silently drop out of the Overview chart (plotly: "Ignoring 1
+# observations"). Reintroduced natives count as native; anything else new
+# becomes "Other" so it stays visible until it is given a group.
+NATIVE_TERMS <- c("native", "nativeReintroduced")
+ESTAB_LEVELS <- c("Native", "Introduced", "Invasive", "Naturalised", "Uncertain",
+                  "Other", "Unclassified")
+estab_group <- function(x, merge_naturalised = FALSE) {
+  x <- as.character(x)
+  out <- dplyr::case_when(
+    is.na(x) | x == ""                  ~ "Unclassified",
+    x %in% NATIVE_TERMS                 ~ "Native",
+    x == "introduced"                   ~ "Introduced",
+    x == "naturalised"                  ~ if (merge_naturalised) "Introduced" else "Naturalised",
+    x == "invasive"                     ~ "Invasive",
+    x == "uncertain"                    ~ "Uncertain",
+    TRUE                                ~ "Other"
+  )
+  factor(out, levels = ESTAB_LEVELS)
+}
 # App/tool version. Baked into the image at build time by the Dockerfile
 # (ARG/ENV GAP_FINDER_VERSION), which CI fills from the pushed git tag. A
 # container has no git, so the environment is the only honest source here; a
@@ -176,6 +210,12 @@ marine_codes <- if (!is.null(cell_marine_lookup) &&
   as.character(cell_marine_lookup$eeacellcode[cell_marine_lookup$marine %in% TRUE])
 } else character(0)
 has_marine <- length(marine_codes) > 0
+# Cells outside Sweden (foreign land along the border, foreign waters beyond the
+# EEZ; kept in the grid for their data). Script 11 marks them from 2026-09-30;
+# older bundles have no `area` column, so nothing is outside.
+outside_codes <- if (!is.null(cell_marine_lookup) && "area" %in% names(cell_marine_lookup)) {
+  as.character(cell_marine_lookup$eeacellcode[cell_marine_lookup$area %in% "outside"])
+} else character(0)
 
 # Administrative boundaries (optional)
 admin_level1     <- safe_get("admin_level1")
@@ -215,6 +255,7 @@ species_scope_lookup  <- safe_get("species_scope_lookup")
 tax_by_invasive       <- safe_get("tax_by_invasive")
 kingdom_cell_recency  <- safe_get("kingdom_cell_recency")
 tax_cell_recency      <- safe_get("tax_cell_recency")
+order_cell_recency    <- safe_get("order_cell_recency")   # from 09c via 11 (2026-09-30)
 
 # Species of Concern — scope-specific data (from 09c via 11)
 threatened_spatial_gaps <- safe_get("threatened_spatial_gaps")
@@ -232,9 +273,80 @@ sensitive_cell_summary   <- safe_get("sensitive_cell_summary")
 publisher_taxonomy      <- safe_get("publisher_taxonomy")
 publisher_cell_taxonomy <- safe_get("publisher_cell_taxonomy")
 
+# =============================================================================
+# GAP CLOSURE (from 14 via 11) — the "Gaps filled" tab
+# =============================================================================
+# Everything here is precomputed. The tab differences nothing at runtime; it
+# filters long tables on pair_id / resolution / key_space / source_group.
+#
+# Key space is fixed to dyntaxa. GBIF space exists for the within-regime pairs
+# as a regression fixture and is deliberately NOT offered as a control: mixing
+# 9,637 (gbif) "species newly recorded" into a tab whose every other number is
+# Dyntaxa-space would be incoherent, and across the regime boundary gbif space
+# does not exist at all — legacy nub integers against COL ids share no
+# vocabulary. See claude/finding-closure-results-2026-09-10.md §3.
+closure_summary        <- safe_get("closure_summary")
+closure_cells          <- safe_get("closure_cells")
+closure_group          <- safe_get("closure_group")
+closure_mechanism      <- safe_get("closure_mechanism")
+closure_datasets       <- safe_get("closure_datasets")
+closure_species        <- safe_get("closure_species")
+closure_species_totals <- safe_get("closure_species_totals")
+closure_pair_index     <- safe_get("closure_pair_index")
+
+CLOSURE_KS <- "dyntaxa"
+
+# Release switch (2026-09-30): the tab is under review, so it stays hidden unless
+# the deployment sets GAP_FINDER_SHOW_GAPS_FILLED=true. Everything else in the
+# app ships without it; the closure data in the bundle is simply not shown.
+SHOW_GAPS_FILLED <- tolower(Sys.getenv("GAP_FINDER_SHOW_GAPS_FILLED", "false")) %in%
+  c("true", "1", "yes")
+
+has_closure <- SHOW_GAPS_FILLED && isTRUE(metadata$has_closure) &&
+  !is.null(closure_pair_index) && nrow(closure_pair_index) > 0 &&
+  !is.null(closure_summary)
+
+# Pair label: "2021-01-01 → 2024-01-01", with a marker when the two ends were
+# built by different pipelines, so the selector itself carries the warning.
+closure_pair_choices <- if (has_closure) {
+  lbl <- paste0(closure_pair_index$from_date, " → ", closure_pair_index$to_date,
+                ifelse(closure_pair_index$regime_boundary == 1, "  ⚠", ""))
+  setNames(closure_pair_index$pair_id, lbl)
+} else character(0)
+
+closure_species_top_n <- metadata$closure_species_top_n %||% NA_integer_
+
+# One scalar out of the long summary table.
+closure_val <- function(pair, metric_name, res, source_group = "total") {
+  if (!has_closure) return(NA_real_)
+  v <- closure_summary$value[
+    closure_summary$pair_id      == pair &
+      closure_summary$metric     == metric_name &
+      closure_summary$resolution == res &
+      closure_summary$key_space  == CLOSURE_KS &
+      closure_summary$source_group == source_group]
+  if (!length(v)) NA_real_ else v[1]
+}
+
+closure_is_cross <- function(pair) {
+  if (!has_closure) return(FALSE)
+  isTRUE(closure_pair_index$regime_boundary[closure_pair_index$pair_id == pair][1] == 1)
+}
+
+# The warning marker used on every panel that a regime boundary compromises.
+# Deliberately not a bare icon: an unexplained triangle is decoration. Each call
+# says what is wrong with THIS number.
+closure_warn <- function(text) {
+  tags$span(class = "gloss", tabindex = "0", `data-tip` = text,
+            `aria-label` = paste("Caveat:", text),
+            style = "color:#EE6677; font-weight:600; margin-left:0.25rem;", "⚠")
+}
+
 has_kingdom_recency   <- !is.null(kingdom_cell_recency)
 has_tax_cell_recency  <- !is.null(tax_cell_recency) &&
                          "class" %in% names(tax_cell_recency)
+has_order_cell_recency <- !is.null(order_cell_recency) &&
+                          all(c("class", "order") %in% names(order_cell_recency))
 
 # Kingdom choices for spatial filter
 spatial_kingdom_choices <- if (has_kingdom_recency) {
@@ -524,6 +636,31 @@ pal <- list(
   plum  = "#AA3377",
   text  = "#2d2d2d", muted = "#6b6b6b"
 )
+
+# Palette rule (2026-09-30) — one place for every chart and map colour decision:
+#   categorical -> Paul Tol, the `pal` list above (kept deliberately; colour-blind safe)
+#   sequential  -> viridis, end = 0.9, for counts and recency on the maps. The pale
+#                  end marks few records / old records, the dark end many / recent.
+#                  end = 0.9 keeps the palest colour visible on the grey basemap.
+#   diverging   -> RdYlBu, only for values above/below an expected level
+#                  (blue = covered / gained, red = gap / lost).
+#   no data     -> grey, always.
+PAL_NODATA <- "#dddddd"
+PAL_DIV    <- c("#d7191c", "#fdae61", "#ffffbf", "#abd9e9", "#2c7bb6")  # red -> blue
+
+# n sequential colours, pale (few / old) -> dark (many / recent).
+# recent_first = TRUE flips it for factor levels ordered newest first
+# ("< 1 year", "1-3 years", ...).
+pal_seq <- function(n, recent_first = FALSE) {
+  cols <- viridisLite::viridis(n, begin = 0, end = 0.9, direction = -1)
+  cols <- substr(cols, 1, 7)  # drop the alpha byte: plain #RRGGBB for leaflet and plotly
+  if (recent_first) rev(cols) else cols
+}
+
+# The same colours as a plotly colorscale: list(list(0, col), ..., list(1, col)).
+pal_to_cs <- function(cols) {
+  Map(function(p, col) list(p, col), seq(0, 1, length.out = length(cols)), cols)
+}
 
 
 # =============================================================================
@@ -1056,8 +1193,8 @@ ui <- fluidPage(
 
           read_guide(
             "How many GBIF records and species each 10 km cell holds, and how recent they are.",
-            "Red or pale cells are gaps or stale; blue cells are well covered. A gap means missing GBIF records — not necessarily absent biodiversity.",
-            "Target empty and red cells for fieldwork or data mobilisation; for stale cells, check national or regional sources before treating them as survey gaps."),
+            "Pale cells have few or old records, dark cells many or recent ones; grey cells have none. A gap means missing GBIF records — not necessarily absent biodiversity.",
+            "Target grey and pale cells for fieldwork or data mobilisation; for stale cells, check national or regional sources before treating them as survey gaps."),
 
           # About section (expandable)
           div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--sage);",
@@ -1077,9 +1214,9 @@ ui <- fluidPage(
                   "can reveal sampling gaps that are otherwise hidden. The ", tags$strong("Class filter"),
                   " allows further refinement within a kingdom."),
                 p(tags$strong("Data recency"), " shows how stale each cell's most recent observation is. ",
-                  "Red cells have no GBIF-mediated records dated within the last 10 years \u2014 recent data may exist outside GBIF, so check national/regional sources before prioritising resurvey. ",
-                  "Orange cells (5\u201310 years) are approaching staleness. Green cells have data from the ",
-                  "last 5 years."),
+                  "The palest cells have no GBIF-mediated records dated within the last 10 years \u2014 recent data may exist outside GBIF, so check national/regional sources before prioritising resurvey. ",
+                  "Light cells (5\u201310 years) are approaching staleness. The darkest cells have data from ",
+                  "the last year; grey cells have no data at all."),
                 p(tags$strong("Occurrence distribution"), " (histogram) shows how records are spread across cells. ",
                   "A healthy dataset has a smooth distribution; a spike at the low end indicates many cells ",
                   "with only token data (1\u201310 records), which may be insufficient for ecological analysis."),
@@ -1104,7 +1241,8 @@ ui <- fluidPage(
                 if (has_marine) tagList(
                   div(class = "filter-label", "Coverage area"),
                   radioGroupButtons("coverage_area", label = NULL,
-                    choices = c("Land + sea" = "land_sea", "Land only" = "land_only"),
+                    choices = c("Land + sea" = "land_sea", "Land only" = "land_only",
+                                "Sea only" = "sea_only"),
                     selected = "land_sea", size = "sm"),
                   tags$hr(style = "margin: 0.6rem 0; border-color: #eee;")
                 ),
@@ -1118,7 +1256,11 @@ ui <- fluidPage(
                   tags$hr(style = "margin: 0.5rem 0; border-color: #eee;"),
                   div(class = "filter-label", "Taxonomic filter"),
                   uiOutput("spatial_kingdom_filter_ui"),
-                  uiOutput("spatial_class_filter_ui")
+                  uiOutput("spatial_class_filter_ui"),
+                  if (has_order_cell_recency) uiOutput("spatial_order_filter_ui"),
+                  div(class = "info-note", style = "margin-top:0.4rem; font-size:0.85rem;",
+                    "Applies to Occurrences and Data recency (all record types). ",
+                    "Species richness and the last-12-months view are not split by taxon.")
                 )),
               if (has_admin) div(class = "card",
                 tags$h2(class = "card-title", icon("border-all"), "Administrative Boundaries"),
@@ -1217,6 +1359,142 @@ ui <- fluidPage(
                   selected = "log", inline = TRUE)
               ),
               plotlyOutput("temporal_heatmap", height = "350px")))
+          )
+        )
+      ),
+
+      # =====================================================================
+      # GAPS FILLED TAB
+      # =====================================================================
+      # Hidden entirely without closure data — a country with one time point has
+      # nothing to say here, and an empty tab reads as a broken one.
+      if (has_closure) tabPanel(
+        title = tagList(icon("arrow-trend-up"), "Gaps filled"),
+        value = "gaps_filled",
+        div(style = "padding: 1.25rem 0;",
+
+          read_guide(
+            "What changed between two points in time: species × cell pairs gained and lost, which cells filled, and whether the gain came from new fieldwork or from digitising a backlog.",
+            "A gained pair means a species is now recorded in a cell where it was not before. It is better knowledge of where species are, not usually a new species.",
+            "Use the taxonomic and “still open” panels to pick the next target; check the loss rate before comparing one group to another."),
+
+          uiOutput("closure_banner"),
+
+          div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--sage);",
+            actionLink("closure_about_toggle", tagList(
+              icon("info-circle"), " About this tab",
+              icon("chevron-down", style = "float:right; margin-top:3px;")
+            ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
+            conditionalPanel(
+              condition = "input.closure_about_toggle % 2 == 1",
+              div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
+                p("Each time point is a complete rebuild of the gap analysis against the data as it stood on that date. ",
+                  "The headline measure is the ", tags$strong("species × cell pair"), ": one species recorded in one grid cell. ",
+                  "Counting pairs rather than cells is what gives the measure headroom — binary cell fill saturates almost immediately."),
+                p(tags$strong("Mechanism"), " splits gained pairs by the earliest year among the records supporting them. ",
+                  "A record dated at or after the baseline year cannot have been in the baseline, so it is new fieldwork. An earlier record had to both exist ",
+                  "and be unpublished at the cut, so it is backlog digitisation. ",
+                  "The boundary is definitional rather than empirical and it puts a step in the year histogram; that is why the year is stated on the panel."),
+                p(tags$strong("Mechanism is always split by source"), " and never averaged. The observation-platform stream grows mostly by observing and the ",
+                  "collections stream mostly by digitising; a single national average describes neither. ",
+                  "A pair supported by records from both streams is counted in both, so the two do not sum to the total."),
+                p(tags$strong("Loss rate"), " sits beside fill rate in the taxonomic panel because taxonomic groups are not equally stable. ",
+                  "Records get re-identified between species — heavily in fungi, lichens and bryophytes, barely at all in birds and beetles — and that shows up as pairs ",
+                  "vanishing from the baseline. Ranking groups by fill rate alone compares a re-determined clade to a stable one."),
+                p(tags$strong("Taxa are matched on national-checklist identifiers"), ", never on GBIF keys, which is what lets time points built from different sources be compared at all. ",
+                  "Species with no checklist identifier are excluded and counted separately — the tile beneath the species count says how many.")
+              )
+            )
+          ),
+
+          fluidRow(
+            column(9,
+              div(class = "stat-grid",
+                div(class = "stat-box",
+                  div(class = "stat-value sage", uiOutput("cl_tile_gained", inline = TRUE)),
+                  div(class = "stat-label", "Species × cell pairs gained")),
+                div(class = "stat-box",
+                  div(class = "stat-value coral", uiOutput("cl_tile_lost", inline = TRUE)),
+                  div(class = "stat-label", "Pairs lost")),
+                div(class = "stat-box",
+                  div(class = "stat-value slate", uiOutput("cl_tile_species", inline = TRUE)),
+                  div(class = "stat-label", "Species newly recorded")),
+                div(class = "stat-box",
+                  div(class = "stat-value sand", uiOutput("cl_tile_cells", inline = TRUE)),
+                  div(class = "stat-label", "Cells filled (0 → >0)")),
+                div(class = "stat-box",
+                  div(class = "stat-value plum", uiOutput("cl_tile_fieldwork", inline = TRUE)),
+                  div(class = "stat-label", "Gain from new fieldwork"))
+              ),
+              div(class = "info-note", style = "margin-top:0.5rem;",
+                uiOutput("cl_tile_footnote"))
+            ),
+            column(3,
+              div(class = "card",
+                tags$h2(class = "card-title", icon("sliders-h"), "Compare"),
+                selectInput("cl_pair", "Time points",
+                  choices = closure_pair_choices,
+                  selected = closure_pair_choices[length(closure_pair_choices)]),
+                div(class = "filter-label", "Resolution"),
+                radioGroupButtons("cl_res", label = NULL,
+                  choices = c("10 km" = "10km", "50 km" = "50km"),
+                  selected = "10km", size = "sm"),
+                div(class = "filter-label", style = "margin-top:0.6rem;", "Source"),
+                radioButtons("cl_source", NULL,
+                  choices = c("Both streams" = "total",
+                              "Observation platforms" = "observation_platforms",
+                              "Collections" = "collections"),
+                  selected = "total"),
+                uiOutput("cl_res_note")
+              )
+            )
+          ),
+
+          fluidRow(
+            column(7, div(class = "card",
+              tags$h2(class = "card-title", icon("map"), "Change in species richness"),
+              div(class = "info-note", style = "margin-top:0;",
+                "Blue cells gained species, red cells lost them, grey cells did not change. ",
+                "A diverging scale is used deliberately: losses are small but real, and a one-sided scale would hide them."),
+              leafletOutput("cl_map", height = "480px"),
+              map_dl_btn("cl_map_dl", "Download cell change (CSV)"))),
+            column(5, div(class = "card",
+              tags$h2(class = "card-title", icon("compass-drafting"), "Fieldwork or digitisation?"),
+              div(class = "info-note", style = "margin-top:0;",
+                uiOutput("cl_mech_note")),
+              plotlyOutput("cl_mechanism", height = "400px")))
+          ),
+
+          fluidRow(
+            column(12, div(class = "card",
+              tags$h2(class = "card-title", icon("leaf"), "Where the gain is, and how stable the group is"),
+              div(class = "info-note", style = "margin-top:0;",
+                "Fill rate is gained pairs as a share of the group's baseline. Loss rate is the same for pairs that vanished. ",
+                "A high loss rate means records were re-identified between species, not that the group shrank — read its fill rate with that in mind."),
+              plotlyOutput("cl_group", height = "460px")))
+          ),
+
+          fluidRow(
+            column(5, div(class = "card",
+              tags$h2(class = "card-title", icon("circle-half-stroke"), "Still open"),
+              div(class = "info-note", style = "margin-top:0;",
+                "Cells that hold no data now, split by whether they ever did. ",
+                "Below, cells judged against the baseline's own low-data threshold carried forward, so “keeping pace” is measured against a fixed bar rather than a moving one."),
+              tableOutput("cl_still_open"))),
+            column(7, div(class = "card",
+              tags$h2(class = "card-title", icon("list"), "Species that lost ground"),
+              div(class = "info-note", style = "margin-top:0;",
+                uiOutput("cl_species_note")),
+              DTOutput("cl_species_table")))
+          ),
+
+          fluidRow(
+            column(12, div(class = "card",
+              tags$h2(class = "card-title", icon("database"), "Which datasets the gain rests on"),
+              div(class = "info-note", style = "margin-top:0;",
+                "“Would vanish” counts gained pairs resting on this dataset alone; “touches” counts pairs it contributes to at all. ",
+                "Both are order-independent — no tie-break is applied, so the columns do not sum to 100%."),
+              DTOutput("cl_dataset_table")))
           )
         )
       ),
@@ -1464,6 +1742,7 @@ ui <- fluidPage(
               column(2, uiOutput("concern_phylum_ui")),
               column(2, uiOutput("concern_class_ui")),
               column(2, uiOutput("concern_order_ui")),
+              column(2, uiOutput("concern_family_ui")),
               column(2,
                 if (has_establishment) selectInput("concern_scope", "Scope",
                   choices = scope_choices, selected = "all")
@@ -1706,7 +1985,8 @@ ui <- fluidPage(
                   tags$em("Private sector"), " (environmental consultancies and companies), and ",
                   tags$em("Research data"), " (universities, museums, herbaria, government agencies, ",
                   "sequencing facilities, field stations and marine institutes). ",
-                  "Bars in the charts are colour-coded by category."),
+                  "Bars in the charts are colour-coded by category. ",
+                  "Choosing a category also limits the dependency map to publishers of that type."),
                 p(tags$strong("Publisher Dependency per Cell"), " maps each 10 km grid cell by the number ",
                   "of distinct publishers contributing data. ",
                   "Cells with a single publisher are both an infrastructure vulnerability and a partnership opportunity \u2014 ",
@@ -2030,19 +2310,25 @@ server <- function(input, output, session) {
     if (!has_marine || is.null(input$coverage_area)) "land_sea" else input$coverage_area
   })
   land_only <- reactive(identical(coverage_area(), "land_only"))
+  sea_only  <- reactive(identical(coverage_area(), "sea_only"))
 
+  # Land only = Swedish land, Sea only = Swedish sea (EEZ + internal waters),
+  # both decided in script 11. Cells outside Sweden (border / foreign waters)
+  # appear only in Land + sea (2026-09-30).
   drop_marine <- function(df) {
-    if (is.null(df) || !has_marine || !land_only()) return(df)
+    if (is.null(df) || !has_marine) return(df)
     if (!"eeacellcode" %in% names(df)) return(df)
-    df[!(as.character(df$eeacellcode) %in% marine_codes), , drop = FALSE]
+    code   <- as.character(df$eeacellcode)
+    is_sea <- code %in% marine_codes
+    is_out <- code %in% outside_codes
+    if (land_only()) return(df[!is_sea & !is_out, , drop = FALSE])
+    if (sea_only())  return(df[is_sea, , drop = FALSE])
+    df
   }
 
   # Filtered reactive views consumed by the governed renders (Overview coverage,
   # Spatial map/stats, Priorities zero/stale).
-  grid_10km_r      <- reactive(
-    if (land_only() && !is.null(grid_10km))
-      grid_10km[!(as.character(grid_10km$eeacellcode) %in% marine_codes), ]
-    else grid_10km)
+  grid_10km_r      <- reactive(drop_marine(grid_10km))
   spatial_gaps_r   <- reactive(drop_marine(spatial_gaps))
   cell_recency_r   <- reactive(drop_marine(cell_recency))
   priority_zero_r  <- reactive(drop_marine(priority_zero))
@@ -2322,10 +2608,8 @@ server <- function(input, output, session) {
     # Scale selection
     scale_mode <- if (!is.null(input$heatmap_scale)) input$heatmap_scale else "log"
 
-    heatmap_cs <- list(
-      list(0, "#f6f5f1"), list(0.25, "#cfe0ee"),
-      list(0.5, "#88b1d4"), list(0.75, "#3f72a8"),
-      list(1, "#1d456b"))
+    # Sequential (palette rule): few = pale -> many = dark
+    heatmap_cs <- pal_to_cs(pal_seq(5))
 
     if (scale_mode == "binned") {
       # Categorical bins like the spatial histogram
@@ -2351,11 +2635,8 @@ server <- function(input, output, session) {
       )
 
       # Discrete colorscale mapped to bin integers 0–6
-      binned_cs <- list(
-        list(0, "#f0efea"), list(0.167, "#dbe6f2"),
-        list(0.333, "#aac4dd"), list(0.5, "#7aa6cc"),
-        list(0.667, "#4f82ad"), list(0.833, "#2f5f8a"),
-        list(1, "#1d456b"))
+      # Bin 0 (no records) = grey, bins 1-6 sequential (palette rule)
+      binned_cs <- pal_to_cs(c(PAL_NODATA, pal_seq(6)))
 
       p <- plot_ly(hm, x = ~month, y = ~year, z = ~occ_bin, type = "heatmap",
         colorscale = binned_cs, customdata = ~occ_label,
@@ -2471,7 +2752,7 @@ server <- function(input, output, session) {
       ms <- as_tibble(match_summary_full)
       tc <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
       if (!is.na(tc)) {
-        in_set <- ms[[tc]] %in% c("CR", "EN", "VU", "NT")
+        in_set <- ms[[tc]] %in% THREATENED_CODES
         n_ref  <- sum(in_set, na.rm = TRUE)
         n_gbif <- sum(in_set & ms$matched_any, na.rm = TRUE)
         list(available = n_ref > 0, n_ref_total = n_ref, n_in_gbif = n_gbif,
@@ -2507,7 +2788,7 @@ server <- function(input, output, session) {
     matched <- if ("matched_any" %in% names(ms)) ms$matched_any else rep(FALSE, nrow(ms))
     inv <- if ("is_invasive" %in% names(ms)) ms$is_invasive else rep(FALSE, nrow(ms))
     sen <- if ("is_sensitive" %in% names(ms)) ms$is_sensitive else rep(FALSE, nrow(ms))
-    is_thr <- thr %in% c("CR", "EN", "VU", "NT")
+    is_thr <- thr %in% THREATENED_CODES
     list(
       thr_total   = sum(is_thr, na.rm = TRUE),
       thr_in_gbif = sum(is_thr & matched, na.rm = TRUE),
@@ -2803,23 +3084,16 @@ server <- function(input, output, session) {
   output$overview_establishment <- renderPlotly({
     req(tax_by_establishment)
     df <- tax_by_establishment |>
-      mutate(
-        label = case_when(
-          is.na(establishmentMeans) | establishmentMeans == "" ~ "Unclassified",
-          establishmentMeans == "native" ~ "Native",
-          establishmentMeans == "introduced" ~ "Introduced",
-          establishmentMeans == "invasive" ~ "Invasive",
-          establishmentMeans == "naturalised" ~ "Naturalised",
-          establishmentMeans == "uncertain" ~ "Uncertain",
-          TRUE ~ establishmentMeans
-        ),
-        label = factor(label, levels = c("Native", "Introduced", "Invasive",
-                                          "Naturalised", "Uncertain", "Unclassified"))
-      ) |>
+      mutate(label = estab_group(establishmentMeans)) |>
+      group_by(label) |>
+      summarise(n_ref_total = sum(n_ref_total, na.rm = TRUE),
+                n_in_gbif   = sum(n_in_gbif, na.rm = TRUE), .groups = "drop") |>
+      mutate(pct_coverage = round(100 * n_in_gbif / n_ref_total, 2)) |>
       arrange(label)
 
     estab_colors <- c(Native = pal$sage, Introduced = pal$sand, Invasive = pal$coral,
-                       Naturalised = pal$slate, Uncertain = pal$plum, Unclassified = "#ccc")
+                       Naturalised = pal$slate, Uncertain = pal$plum, Other = pal$muted,
+                       Unclassified = "#cccccc")
 
     plot_ly(df, x = ~label, y = ~pct_coverage, type = "bar",
       marker = list(color = estab_colors[as.character(df$label)]),
@@ -2868,6 +3142,42 @@ server <- function(input, output, session) {
     selectizeInput("spatial_class_filter", "Class", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
+  # Spatial order filter — cascading from kingdom + class (2026-09-30)
+  output$spatial_order_filter_ui <- renderUI({
+    ch <- c("All orders" = "")
+    if (has_order_cell_recency &&
+        !is.null(input$spatial_class_filter) && input$spatial_class_filter != "") {
+      orders <- order_cell_recency |>
+        filter(kingdom == input$spatial_kingdom_filter,
+               class == input$spatial_class_filter, order != "Unplaced") |>
+        pull(order) |> unique() |> sort()
+      ch <- c("All orders" = "", setNames(orders, orders))
+    }
+    selectizeInput("spatial_order_filter", "Order", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
+  })
+
+  # The most specific taxon table for the current Spatial filter, one row per
+  # cell: eeacellcode, total_occ, staleness_months. NULL = no taxon filter.
+  spatial_taxon_cells <- reactive({
+    k  <- input$spatial_kingdom_filter %||% ""
+    cl <- input$spatial_class_filter %||% ""
+    od <- input$spatial_order_filter %||% ""
+    if (nzchar(od) && nzchar(cl) && has_order_cell_recency) {
+      d <- order_cell_recency |> filter(kingdom == k, class == cl, order == od)
+      lab <- od
+    } else if (nzchar(cl) && has_tax_cell_recency) {
+      d <- tax_cell_recency |> filter(kingdom == k, class == cl)
+      lab <- cl
+    } else if (nzchar(k) && has_kingdom_recency) {
+      d <- kingdom_cell_recency |> filter(kingdom == k)
+      lab <- k
+    } else {
+      return(NULL)
+    }
+    list(label = lab,
+         cells = d |> select(eeacellcode, total_occ, staleness_months))
+  })
+
   # Reactive map update when map_var, basis, or taxonomy filter changes
   observe({
     req(grid_10km, spatial_gaps, input$map_var)
@@ -2883,23 +3193,12 @@ server <- function(input, output, session) {
 
     sf_base <- active_spatial |> filter(basisofrecord == basis_selected())
 
-    # Taxonomy filter state
-    kingdom_filter_active <- !is.null(input$spatial_kingdom_filter) &&
-                             input$spatial_kingdom_filter != ""
-    class_filter_active <- !is.null(input$spatial_class_filter) &&
-                           input$spatial_class_filter != ""
+    # Taxonomy filter state: kingdom -> class -> order, most specific wins
+    taxon <- spatial_taxon_cells()
 
     if (input$map_var == "stale") {
-      # Use class-level recency if class filter is active
-      if (class_filter_active && has_tax_cell_recency) {
-        rec <- tax_cell_recency |>
-          filter(kingdom == input$spatial_kingdom_filter,
-                 class == input$spatial_class_filter) |>
-          select(eeacellcode, staleness_months)
-      } else if (kingdom_filter_active && has_kingdom_recency) {
-        rec <- kingdom_cell_recency |>
-          filter(kingdom == input$spatial_kingdom_filter) |>
-          select(eeacellcode, staleness_months)
+      if (!is.null(taxon)) {
+        rec <- taxon$cells |> select(eeacellcode, staleness_months)
       } else if (!is.null(active_recency)) {
         rec <- active_recency |> filter(basisofrecord == basis_selected()) |>
           select(eeacellcode, staleness_months)
@@ -2920,13 +3219,11 @@ server <- function(input, output, session) {
         stale_cat = factor(stale_cat, levels = c(
           "< 1 year", "1–3 years", "3–5 years", "5–10 years", "> 10 years", "No data")))
       stale_pal <- colorFactor(
-        # Colour-blind-safe RdYlBu: recent = blue → stale = red; grey = no data
-        palette = c("#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c", "#dddddd"),
+        # Sequential (palette rule): recent = dark -> stale = pale; grey = no data
+        palette = c(pal_seq(5, recent_first = TRUE), PAL_NODATA),
         domain = levels(map_sf$stale_cat), na.color = "#ddd")
-      legend_title <- if (class_filter_active) {
-        paste0("Data recency (", input$spatial_class_filter, ")")
-      } else if (kingdom_filter_active) {
-        paste0("Data recency (", input$spatial_kingdom_filter, ")")
+      legend_title <- if (!is.null(taxon)) {
+        paste0("Data recency (", taxon$label, ")")
       } else {
         "Data recency"
       }
@@ -2957,8 +3254,8 @@ server <- function(input, output, session) {
         sp_cat = factor(sp_cat, levels = c(
           "1–10", "11–100", "101–1,000", "> 1,000", "No data")))
       sp_pal <- colorFactor(
-        # Colour-blind-safe RdYlBu: few = red → many = blue; grey = no data
-        palette = c("#d7191c", "#fdae61", "#abd9e9", "#2c7bb6", "#dddddd"),
+        # Sequential (palette rule): few = pale -> many = dark; grey = no data
+        palette = c(pal_seq(4), PAL_NODATA),
         domain = levels(map_sf$sp_cat), na.color = "#ddd")
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Species: ", comma(n_species))
 
@@ -2980,7 +3277,7 @@ server <- function(input, output, session) {
           newly_covered = replace_na(newly_covered, FALSE)
         )
       map_sf$fill_col <- case_when(
-        map_sf$newly_covered ~ "#E69F00",
+        map_sf$newly_covered ~ pal$sand,
         map_sf$last_year > 0 ~ pal$slate,
         TRUE ~ "#e0dfda"
       )
@@ -2996,15 +3293,20 @@ server <- function(input, output, session) {
           fillOpacity = 0.7, weight = 0.3, color = "#999",
           popup       = popup_fn) |>
         addLegend("bottomright",
-          colors = c("#E69F00", pal$slate, "#e0dfda"),
+          colors = c(pal$sand, pal$slate, "#e0dfda"),
           labels = c("Newly covered", paste0("Observed in ", last_year_label), "No observations"),
           title = paste0("Observed ", last_year_label))
       return()
 
     } else {
-      # Occurrences: fixed categorical breaks
-      map_sf <- grid_10km |> left_join(
-        sf_base |> select(eeacellcode, occurrences), by = "eeacellcode")
+      # Occurrences: fixed categorical breaks. With a taxon filter, the counts
+      # come from the taxon x cell table (all record types).
+      occ_src <- if (!is.null(taxon)) {
+        taxon$cells |> transmute(eeacellcode, occurrences = total_occ)
+      } else {
+        sf_base |> select(eeacellcode, occurrences)
+      }
+      map_sf <- grid_10km |> left_join(occ_src, by = "eeacellcode")
       map_sf <- map_sf |>
         mutate(occ_cat = case_when(
           is.na(occurrences) | occurrences == 0 ~ "No data",
@@ -3017,8 +3319,8 @@ server <- function(input, output, session) {
         occ_cat = factor(occ_cat, levels = c(
           "1–100", "101–1,000", "1,001–10,000", "10,001–100,000", "> 100,000", "No data")))
       occ_pal <- colorFactor(
-        # Colour-blind-safe RdYlBu: few = red → many = blue; grey = no data
-        palette = c("#d7191c", "#fdae61", "#ffffbf", "#abd9e9", "#2c7bb6", "#dddddd"),
+        # Sequential (palette rule): few = pale -> many = dark; grey = no data
+        palette = c(pal_seq(5), PAL_NODATA),
         domain = levels(map_sf$occ_cat), na.color = "#ddd")
       popup_fn <- ~paste0("Cell: ", eeacellcode, "<br>Occurrences: ", comma(occurrences))
 
@@ -3028,7 +3330,8 @@ server <- function(input, output, session) {
           fillColor   = ~occ_pal(occ_cat),
           fillOpacity = 0.7, weight = 0.3, color = "#999",
           popup       = popup_fn) |>
-        addLegend("bottomright", pal = occ_pal, values = ~occ_cat, title = "Occurrences")
+        addLegend("bottomright", pal = occ_pal, values = ~occ_cat,
+          title = if (!is.null(taxon)) paste0("Occurrences (", taxon$label, ")") else "Occurrences")
     }
   })
 
@@ -3419,8 +3722,8 @@ server <- function(input, output, session) {
       )
 
     bin_pal <- colorFactor(
-      # Colour-blind-safe RdYlBu: few = red → many = blue; grey = no data
-      palette = c("#d7191c", "#fdae61", "#ffffbf", "#abd9e9", "#2c7bb6", "#dddddd"),
+      # Sequential (palette rule): few = pale -> many = dark; grey = no data
+      palette = c(pal_seq(5), PAL_NODATA),
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     leaflet(map_sf) |>
@@ -3959,6 +4262,27 @@ server <- function(input, output, session) {
     selectizeInput("concern_order", "Order", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
+  # Family: filter only (decision 2026-09-30), same cascade and cap as the
+  # Taxonomic tab. Choices come from tax_by_family (backbone classification,
+  # the same one match_summary_full carries), so every choice can match rows.
+  output$concern_family_ui <- renderUI({
+    ch <- c("All" = "")
+    if (!is.null(tax_by_family)) {
+      df <- tax_by_family
+      if (!is.null(input$concern_kingdom) && input$concern_kingdom != "")
+        df <- df |> filter(kingdom == input$concern_kingdom)
+      if (!is.null(input$concern_phylum) && input$concern_phylum != "")
+        df <- df |> filter(phylum == input$concern_phylum)
+      if (!is.null(input$concern_class) && input$concern_class != "")
+        df <- df |> filter(class == input$concern_class)
+      if (!is.null(input$concern_order) && input$concern_order != "")
+        df <- df |> filter(order == input$concern_order)
+      fam <- sort(unique(df$family[!is.na(df$family) & df$family != ""]))
+      if (length(fam) <= 200) ch <- c("All" = "", setNames(fam, fam))
+    }
+    selectizeInput("concern_family", "Family", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
+  })
+
   # Shared reactive: filter match_summary by concern-tab filters + scope
   concern_filtered_taxa <- reactive({
     req(match_summary_full)
@@ -3975,7 +4299,7 @@ server <- function(input, output, session) {
       if (scope == "present") {
         ms <- ms |> filter(occurrenceStatus == "present" | is.na(occurrenceStatus) | occurrenceStatus == "")
       } else if (scope == "native_present") {
-        ms <- ms |> filter(establishmentMeans == "native", occurrenceStatus == "present")
+        ms <- ms |> filter(establishmentMeans %in% NATIVE_TERMS, occurrenceStatus == "present")
       } else if (scope == "introduced_present") {
         ms <- ms |> filter(establishmentMeans %in% c("introduced", "naturalised"), occurrenceStatus == "present")
       } else if (scope == "invasive") {
@@ -3992,6 +4316,8 @@ server <- function(input, output, session) {
       ms <- ms |> filter(class == input$concern_class)
     if (!is.null(input$concern_order) && input$concern_order != "" && "order" %in% names(ms))
       ms <- ms |> filter(order == input$concern_order)
+    if (!is.null(input$concern_family) && input$concern_family != "" && "family" %in% names(ms))
+      ms <- ms |> filter(family == input$concern_family)
     ms
   })
 
@@ -4005,7 +4331,7 @@ server <- function(input, output, session) {
     threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
     if (is.na(threat_col)) return(NULL)
     ms |> mutate(threatStatus = .data[[threat_col]]) |>
-      filter(!is.na(threatStatus), threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+      filter(!is.na(threatStatus), threatStatus %in% CONCERN_CODES)
   })
 
   output$concern_cr <- renderText({
@@ -4036,7 +4362,7 @@ server <- function(input, output, session) {
   output$concern_threat_coverage_line <- renderText({
     ms <- concern_threat_data()
     if (is.null(ms)) return("Threat coverage unavailable")
-    thr <- ms[ms$threatStatus %in% c("CR", "EN", "VU", "NT"), ]
+    thr <- ms[ms$threatStatus %in% THREATENED_CODES, ]
     n_ref <- nrow(thr)
     if (n_ref == 0) return("No threatened (CR/EN/VU/NT) species in the current selection")
     n_gbif <- sum(thr$matched_any, na.rm = TRUE)
@@ -4053,20 +4379,14 @@ server <- function(input, output, session) {
 
     if (has_estab && (is.null(scope) || scope == "all")) {
       df <- ms |>
-        mutate(estab = case_when(
-          establishmentMeans == "native" ~ "Native",
-          establishmentMeans %in% c("introduced", "naturalised") ~ "Introduced",
-          establishmentMeans == "invasive" ~ "Invasive",
-          establishmentMeans == "uncertain" ~ "Uncertain",
-          TRUE ~ "Unclassified"
-        )) |>
+        mutate(estab = as.character(estab_group(establishmentMeans, merge_naturalised = TRUE))) |>
         group_by(threatStatus, estab) |>
         summarise(n_total = n(), n_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop") |>
         mutate(pct = round(100 * n_gbif / n_total, 1)) |>
-        filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+        filter(threatStatus %in% CONCERN_CODES)
 
       estab_cols <- c(Native = pal$slate, Introduced = pal$sand, Invasive = pal$coral,
-                       Uncertain = pal$plum, Unclassified = "#ccc")
+                       Uncertain = pal$plum, Other = pal$muted, Unclassified = "#cccccc")
 
       plot_ly(df, x = ~threatStatus, y = ~n_total, color = ~estab, type = "bar",
         colors = estab_cols,
@@ -4080,7 +4400,7 @@ server <- function(input, output, session) {
         group_by(threatStatus) |>
         summarise(n_total = n(), n_gbif = sum(matched_any, na.rm = TRUE), .groups = "drop") |>
         mutate(pct = round(100 * n_gbif / n_total, 1)) |>
-        filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+        filter(threatStatus %in% CONCERN_CODES)
 
       threat_cols <- c(CR = pal$coral, EN = "#EE8866", VU = pal$sand, NT = pal$slate, DD = "#999999")
 
@@ -4101,19 +4421,13 @@ server <- function(input, output, session) {
 
     if (has_estab && (is.null(scope) || scope == "all")) {
       df <- ms |> filter(!matched_any) |>
-        mutate(estab = case_when(
-          establishmentMeans == "native" ~ "Native",
-          establishmentMeans %in% c("introduced", "naturalised") ~ "Introduced",
-          establishmentMeans == "invasive" ~ "Invasive",
-          establishmentMeans == "uncertain" ~ "Uncertain",
-          TRUE ~ "Unclassified"
-        )) |>
+        mutate(estab = as.character(estab_group(establishmentMeans, merge_naturalised = TRUE))) |>
         group_by(threatStatus, estab) |>
         summarise(n_missing = n(), .groups = "drop") |>
-        filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+        filter(threatStatus %in% CONCERN_CODES)
 
       estab_cols <- c(Native = pal$slate, Introduced = pal$sand, Invasive = pal$coral,
-                       Uncertain = pal$plum, Unclassified = "#ccc")
+                       Uncertain = pal$plum, Other = pal$muted, Unclassified = "#cccccc")
 
       plot_ly(df, x = ~threatStatus, y = ~n_missing, color = ~estab, type = "bar",
         colors = estab_cols,
@@ -4125,7 +4439,7 @@ server <- function(input, output, session) {
       df <- ms |>
         group_by(threatStatus) |>
         summarise(n_missing = sum(!matched_any, na.rm = TRUE), .groups = "drop") |>
-        filter(threatStatus %in% c("CR", "EN", "VU", "NT", "DD"))
+        filter(threatStatus %in% CONCERN_CODES)
 
       threat_cols <- c(CR = pal$coral, EN = "#EE8866", VU = pal$sand, NT = pal$slate, DD = "#999999")
 
@@ -4140,10 +4454,10 @@ server <- function(input, output, session) {
     ms <- concern_threat_data()
     if (!is.null(ms) && nrow(ms) > 0) {
       df <- ms |>
-        filter(!matched_any, threatStatus %in% c("CR", "EN", "VU", "NT", "DD")) |>
+        filter(!matched_any, threatStatus %in% CONCERN_CODES) |>
         select(any_of(c("scientificName", "vernacularName", "threatStatus", "establishmentMeans",
                          "kingdom", "phylum", "class", "order", "family"))) |>
-        arrange(factor(threatStatus, levels = c("CR", "EN", "VU", "NT", "DD")), order, family)
+        arrange(factor(threatStatus, levels = CONCERN_CODES), order, family)
     } else {
       df <- tibble(Message = "No missing threatened species for current filters.")
     }
@@ -4178,8 +4492,8 @@ server <- function(input, output, session) {
       )
 
     threat_map_pal <- colorFactor(
-      # Colour-blind-safe RdYlBu: few = red → many = blue; grey = no data
-      palette = c("#d7191c", "#fdae61", "#abd9e9", "#2c7bb6", "#dddddd"),
+      # Sequential (palette rule): few = pale -> many = dark; grey = no data
+      palette = c(pal_seq(4), PAL_NODATA),
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     m <- leaflet(map_sf) |>
@@ -4331,8 +4645,8 @@ server <- function(input, output, session) {
       )
 
     inv_map_pal <- colorFactor(
-      # Colour-blind-safe RdYlBu: few = red → many = blue; grey = no data
-      palette = c("#d7191c", "#fdae61", "#abd9e9", "#2c7bb6", "#dddddd"),
+      # Sequential (palette rule): few = pale -> many = dark; grey = no data
+      palette = c(pal_seq(4), PAL_NODATA),
       domain = levels(map_sf$occ_cat), na.color = "#ddd")
 
     m <- leaflet(map_sf) |>
@@ -4779,8 +5093,19 @@ server <- function(input, output, session) {
   output$pub_dependency_map <- renderLeaflet({
     req(grid_10km)
 
-    # If taxonomy filter is active AND we have per-cell taxonomy data, recompute
-    if (pub_tax_active() && !is.null(publisher_cell_taxonomy)) {
+    # Publisher category filter (2026-09-30): count only publishers of that type.
+    type_sel <- input$pub_type_filter %||% ""
+    type_keys <- NULL
+    if (nzchar(type_sel) && !is.null(publisher_summary) &&
+        all(c("publishingorgkey", "publisher_name") %in% names(publisher_summary))) {
+      ps <- publisher_summary |> distinct(publishingorgkey, publisher_name)
+      cat_ <- classify_publisher(ifelse(!is.na(ps$publisher_name), ps$publisher_name, ""))
+      type_keys <- ps$publishingorgkey[cat_ == type_sel]
+    }
+
+    # If a taxonomy or category filter is active AND we have per-cell publisher
+    # data, recompute
+    if ((pub_tax_active() || !is.null(type_keys)) && !is.null(publisher_cell_taxonomy)) {
       pct <- publisher_cell_taxonomy
       if (!is.null(input$pub_kingdom) && input$pub_kingdom != "")
         pct <- pct |> filter(kingdom == input$pub_kingdom)
@@ -4788,6 +5113,8 @@ server <- function(input, output, session) {
         pct <- pct |> filter(class == input$pub_class)
       if (!is.null(input$pub_order) && input$pub_order != "")
         pct <- pct |> filter(order == input$pub_order)
+      if (!is.null(type_keys))
+        pct <- pct |> filter(publishingorgkey %in% type_keys)
 
       cell_dep <- pct |>
         group_by(eeacellcode) |>
@@ -4821,7 +5148,8 @@ server <- function(input, output, session) {
         popup = ~paste0("<strong>Cell:</strong> ", eeacellcode,
           "<br><strong>Publishers:</strong> ", n_publishers)) |>
       addLegend("bottomright", pal = dep_pal, values = ~dep_cat,
-        title = "Publishers per cell")
+        title = if (nzchar(type_sel)) paste0("Publishers per cell (", type_sel, ")")
+                else "Publishers per cell")
 
     if (!is.null(admin_level1))
       m <- m |> addPolygons(data = admin_level1, group = "admin1",
@@ -4917,7 +5245,7 @@ server <- function(input, output, session) {
     invasive_gap <- ""
     if (has_establishment && !is.null(match_summary_full)) {
       ms <- match_summary_full |> as_tibble()
-      native_stats <- ms |> filter(establishmentMeans == "native")
+      native_stats <- ms |> filter(establishmentMeans %in% NATIVE_TERMS)
       invasive_stats <- ms |> filter(establishmentMeans == "invasive")
       n_native_missing <- sum(!native_stats$matched_any, na.rm = TRUE)
       n_native_total <- nrow(native_stats)
@@ -5204,8 +5532,8 @@ server <- function(input, output, session) {
 
     pal_stale <- colorBin(
       # Binned (not continuous) so the legend reads as discrete recency bands.
-      # Colour-blind-safe RdYlBu: recent = blue → stale = red.
-      palette = c("#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c"),
+      # Sequential (palette rule): recent = dark -> stale = pale.
+      palette = pal_seq(5, recent_first = TRUE),
       domain = yrs,
       bins = c(0, 1, 3, 5, 10, Inf),
       na.color = "#ccc")
@@ -5482,6 +5810,386 @@ server <- function(input, output, session) {
     if (is.null(publisher_cell_dep)) return(NULL)
     publisher_cell_dep
   }, "publisher_dependency_cells")
+
+  # ===================================================================
+  # GAPS FILLED
+  # ===================================================================
+  # Reads precomputed closure tables; nothing is differenced here.
+
+  cl_pair <- reactive({ req(has_closure, input$cl_pair); input$cl_pair })
+  cl_res  <- reactive({ req(input$cl_res); input$cl_res })
+  cl_src  <- reactive({ input$cl_source %||% "total" })
+  cl_cross <- reactive(closure_is_cross(cl_pair()))
+
+  cl_slice <- function(tbl) {
+    if (is.null(tbl)) return(NULL)
+    tbl |> filter(pair_id == cl_pair(), resolution == cl_res(),
+                  key_space == CLOSURE_KS)
+  }
+
+  cl_num <- function(metric_name, source_group = "total") {
+    closure_val(cl_pair(), metric_name, cl_res(), source_group)
+  }
+
+  cl_fmt <- function(x) if (is.na(x)) "—" else comma(x)
+
+  # --- the banner ---------------------------------------------------
+  # Named numbers, not a generic caution. A warning a reader cannot act on is
+  # decoration, and this one has to survive being quoted out of context.
+  output$closure_banner <- renderUI({
+    req(has_closure)
+    if (!cl_cross()) {
+      return(div(class = "info-note",
+        style = "border-left:4px solid var(--sage); margin-bottom:1rem;",
+        tags$strong("Like for like. "),
+        "Both time points were built by the same query against the same source, so every panel below is comparable."))
+    }
+    lost   <- cl_num("pairs_lost")
+    from   <- cl_num("pairs_from")
+    rate   <- if (!is.na(lost) && !is.na(from) && from > 0) 100 * lost / from else NA_real_
+    div(class = "card",
+      style = "margin-bottom:1rem; border-left:4px solid #EE6677; background:#fff7f8;",
+      tags$h2(class = "card-title", style = "color:#EE6677;",
+        icon("triangle-exclamation"), "These two time points were built differently"),
+      p(style = "margin-bottom:0.5rem;",
+        "The earlier point comes from a GBIF snapshot export; the later one from the occurrence cube. ",
+        "The cube filters ", tags$code("hasgeospatialissues = FALSE"), " and ",
+        tags$code("occurrencestatus = 'PRESENT'"), " and the snapshot cannot, and cube cells are built from ",
+        "full-precision coordinates against the snapshot's two decimal places. ",
+        tags$strong("Part of what this pair reports is the pipeline changing, not Sweden's data.")),
+      tags$ul(style = "margin-bottom:0.5rem;",
+        tags$li(tags$strong("Gains are the sound half"), " — and more so at 50 km, where cell assignment is not in question."),
+        tags$li(tags$strong("Losses are not a measurement. "),
+          if (!is.na(rate)) sprintf("%s pairs, %.1f%% of the baseline, against about 1%% between two like-for-like points. ",
+                                    comma(lost), rate) else "",
+          "The worst-hit groups are birds, which are taxonomically the most stable thing here — the signature of the absence-record filter, not of anything lost."),
+        tags$li(tags$strong("Mechanism cannot be attributed. "),
+          "Pairs that appear because a coordinate resolved differently or a name now matches carry the old dates of their records, so a method change reads as backlog digitisation."),
+        tags$li(tags$strong("The loss-rate flag saturates"), " — it trips for about three quarters of all groups here, so it stops telling volatile clades from stable ones.")),
+      p(style = "margin-bottom:0; font-size:0.9rem; color:var(--text-secondary);",
+        "The fix is a recent snapshot built by the same query as the older ones. Until then, treat this pair as an indication of direction, not a measurement of change."))
+  })
+
+  output$cl_res_note <- renderUI({
+    req(has_closure)
+    if (!cl_cross()) return(NULL)
+    div(class = "info-note", style = "margin-top:0.6rem; font-size:0.85rem;",
+      if (identical(cl_res(), "10km"))
+        tagList(tags$strong("50 km is the safer read here. "),
+                "About 4% of records sit one cell away at 10 km because the two ends round coordinates differently.")
+      else
+        tagList(tags$strong("50 km. "), "Cell assignment is not in question at this resolution (~0.9% affected)."))
+  })
+
+  # --- tiles --------------------------------------------------------
+  # Counts come from closure_summary, never from the species table, which is
+  # thinned to the rows the tab lists by name. See closure_bundle().
+  output$cl_tile_gained <- renderUI({
+    req(has_closure)
+    tagList(cl_fmt(cl_num("pairs_gained")),
+      if (cl_cross()) closure_warn(
+        "Comparable in direction but not exactly: the later point applies occurrence filters the earlier one cannot."))
+  })
+
+  output$cl_tile_lost <- renderUI({
+    req(has_closure)
+    tagList(cl_fmt(cl_num("pairs_lost")),
+      if (cl_cross()) closure_warn(
+        "Not a measurement across this pair. Most of it is the occurrence filter and the taxonomy path differing between the two ends, not data going away."))
+  })
+
+  output$cl_tile_species <- renderUI({
+    req(has_closure)
+    tagList(cl_fmt(cl_num("species_newly_recorded")),
+      closure_warn(
+        "New to the national checklist within this comparison, not new to science. Species with no checklist identifier are excluded — see the note below."))
+  })
+
+  output$cl_tile_cells <- renderUI({
+    req(has_closure)
+    filled <- cl_num("cells_filled"); universe <- cl_num("cells_universe")
+    occupied <- cl_num("cells_occupied_to")
+    tagList(cl_fmt(filled),
+      if (!is.na(occupied) && !is.na(universe) && occupied >= universe)
+        closure_warn("Every cell at this resolution now holds data, so binary fill has nothing left to report. Use pairs gained.")
+      else if (cl_cross())
+        closure_warn("Inflated across this pair: a cell can 'fill' because the later point places the same record in a different cell."))
+  })
+
+  output$cl_tile_fieldwork <- renderUI({
+    req(has_closure)
+    m <- cl_slice(closure_mechanism)
+    if (is.null(m) || !nrow(m)) return("—")
+    mm <- m |> filter(source_group == cl_src())
+    if (!nrow(mm)) return("—")
+    tot <- sum(mm$n_pairs, na.rm = TRUE)
+    fw  <- sum(mm$n_pairs[mm$mechanism == "fieldwork"], na.rm = TRUE)
+    tagList(if (tot > 0) sprintf("%.0f%%", 100 * fw / tot) else "—",
+      if (cl_cross()) closure_warn(
+        "Not attributable across this pair — a method change looks like backlog digitisation because the records it surfaces carry old dates.")
+      else if (identical(cl_src(), "total")) closure_warn(
+        "A national average across two streams that behave differently. Switch Source to see each on its own."))
+  })
+
+  output$cl_tile_footnote <- renderUI({
+    req(has_closure)
+    off_to   <- cl_num("species_off_checklist_to")
+    off_from <- cl_num("species_off_checklist_from")
+    by_year  <- cl_num("mechanism_boundary_year")
+    tagList(
+      if (!is.na(off_to)) tagList(
+        tags$strong(comma(off_to)), " species in the later time point carry no national-checklist identifier and are excluded from every number above",
+        if (!is.na(off_from)) tagList(" (", comma(off_from), " in the earlier one)"), ". "),
+      if (!is.na(by_year)) tagList(
+        "Fieldwork means the earliest supporting record is dated ", tags$strong(format(by_year)),
+        " or later — a definitional boundary, not an observed one."))
+  })
+
+  # --- map ----------------------------------------------------------
+  cl_cell_data <- reactive({
+    d <- cl_slice(closure_cells)
+    req(!is.null(d), nrow(d) > 0)
+    d
+  })
+
+  output$cl_map <- renderLeaflet({
+    req(has_closure)
+    grid <- if (identical(cl_res(), "50km")) safe_get("grid_50km") else grid_10km
+    req(grid)
+    d <- cl_cell_data()
+
+    map_sf <- grid |>
+      left_join(d |> select(eeacellcode, delta_species, n_species_from,
+                            n_species_to, delta_occ, status),
+                by = "eeacellcode") |>
+      mutate(
+        d_cat = case_when(
+          is.na(delta_species) ~ "Not in comparison",
+          delta_species <= -20 ~ "Lost 20+",
+          delta_species <    0 ~ "Lost 1–19",
+          delta_species ==   0 ~ "No change",
+          delta_species <=  20 ~ "Gained 1–20",
+          delta_species <= 100 ~ "Gained 21–100",
+          TRUE                 ~ "Gained 100+"
+        ),
+        d_cat = factor(d_cat, levels = c(
+          "Lost 20+", "Lost 1–19", "No change", "Gained 1–20",
+          "Gained 21–100", "Gained 100+", "Not in comparison"))
+      )
+
+    # Diverging, colour-blind-safe (RdBu): red = lost, blue = gained.
+    div_pal <- colorFactor(
+      palette = c("#b2182b", "#ef8a62", "#f7f7f7", "#d1e5f0", "#67a9cf",
+                  "#2166ac", "#dddddd"),
+      domain = levels(map_sf$d_cat), na.color = "#ddd")
+
+    leaflet(map_sf) |>
+      add_basemap() |>
+      addPolygons(
+        fillColor = ~div_pal(d_cat), fillOpacity = 0.7,
+        weight = 0.3, color = "#bbb",
+        popup = ~paste0(
+          "<strong>Cell:</strong> ", eeacellcode,
+          "<br><strong>Species then:</strong> ", comma(n_species_from),
+          "<br><strong>Species now:</strong> ", comma(n_species_to),
+          "<br><strong>Change:</strong> ", ifelse(is.na(delta_species), "—",
+            paste0(ifelse(delta_species > 0, "+", ""), comma(delta_species))),
+          "<br><strong>Status:</strong> ", status)) |>
+      addLegend("bottomright", pal = div_pal, values = ~d_cat,
+        title = "Species change")
+  })
+
+  output$cl_map_dl <- dl_csv(function() {
+    if (!has_closure) return(NULL)
+    cl_cell_data()
+  }, "gaps_filled_cells")
+
+  # --- mechanism ----------------------------------------------------
+  # Two bars, never one. The streams differ by a factor of seven within a
+  # regime; a single stacked bar reports an average that describes neither.
+  output$cl_mech_note <- renderUI({
+    req(has_closure)
+    tagList(
+      "Gained pairs split by the earliest year among their supporting records. ",
+      tags$strong("Shown per stream, never averaged"), " — a pair supported by both is counted in both, so the bars do not sum to the total.")
+  })
+
+  output$cl_mechanism <- renderPlotly({
+    req(has_closure)
+    m <- cl_slice(closure_mechanism)
+    validate(need(!is.null(m) && nrow(m) > 0, "No mechanism data for this selection."))
+
+    lbl <- c(total = "Both streams",
+             observation_platforms = "Observation platforms",
+             collections = "Collections")
+    mech_lbl <- c(fieldwork = "New fieldwork",
+                  digitisation = "Backlog digitisation",
+                  unattributable = "No date")
+
+    d <- m |>
+      mutate(stream = factor(unname(lbl[source_group]), levels = unname(lbl)),
+             mech   = factor(unname(mech_lbl[mechanism]), levels = unname(mech_lbl))) |>
+      filter(!is.na(stream), !is.na(mech)) |>
+      group_by(stream) |>
+      mutate(share = 100 * n_pairs / sum(n_pairs, na.rm = TRUE)) |>
+      ungroup()
+
+    p <- plot_ly(d, x = ~share, y = ~stream, color = ~mech, type = "bar",
+                 orientation = "h",
+                 colors = c(pal$sage, pal$slate, "#bbbbbb"),
+                 hovertemplate = paste0(
+                   "%{y}<br>%{fullData.name}: %{x:.1f}%<br>",
+                   "%{customdata} pairs<extra></extra>"),
+                 customdata = ~comma(n_pairs)) |>
+      layout(barmode = "stack",
+             xaxis = list(title = "Share of gained pairs (%)", range = c(0, 100)),
+             yaxis = list(title = ""),
+             legend = list(orientation = "h", y = -0.15))
+    plotly_layout(p, dl_title = "mechanism_by_source")
+  })
+
+  # --- taxonomic ----------------------------------------------------
+  output$cl_group <- renderPlotly({
+    req(has_closure)
+    g <- cl_slice(closure_group)
+    validate(need(!is.null(g) && nrow(g) > 0, "No taxonomic data for this selection."))
+
+    # Blank ranks are LABELLED, not dropped — the same "Unclassified" bucket the
+    # rest of the app uses, so nothing leaves the chart silently. The size floor
+    # below is what keeps the panel readable, and it is a stated threshold.
+    d <- g |>
+      mutate(across(c(class, order),
+                    ~ ifelse(is.na(.x) | trimws(.x) == "", "Unclassified", .x))) |>
+      filter(pairs_from >= 5000) |>
+      arrange(desc(pairs_gained)) |>
+      head(25) |>
+      mutate(label = paste0(class, " / ", order),
+             label = factor(label, levels = rev(label)))
+    validate(need(nrow(d) > 0, "No groups above the reporting threshold."))
+
+    p <- plot_ly(d) |>
+      add_bars(x = ~fill_rate, y = ~label, name = "Fill rate (gained / baseline)",
+               orientation = "h", marker = list(color = pal$sage),
+               hovertemplate = paste0("%{y}<br>Fill rate %{x:.1f}%<br>",
+                                      "%{customdata} pairs gained<extra></extra>"),
+               customdata = ~comma(pairs_gained)) |>
+      add_bars(x = ~loss_rate, y = ~label, name = "Loss rate (vanished / baseline)",
+               orientation = "h", marker = list(color = pal$coral),
+               hovertemplate = paste0("%{y}<br>Loss rate %{x:.1f}%<br>",
+                                      "%{customdata} pairs lost<extra></extra>"),
+               customdata = ~comma(pairs_lost)) |>
+      layout(barmode = "group",
+             xaxis = list(title = "% of the group's baseline pairs"),
+             yaxis = list(title = "", automargin = TRUE),
+             legend = list(orientation = "h", y = -0.12))
+    plotly_layout(p, dl_title = "closure_by_group")
+  })
+
+  # --- still open ---------------------------------------------------
+  output$cl_still_open <- renderTable({
+    req(has_closure)
+    d <- cl_slice(closure_cells)
+    if (is.null(d) || !nrow(d)) return(NULL)
+    low <- if ("low_status" %in% names(d)) table(d$low_status) else NULL
+
+    rows <- tibble::tibble(
+      Measure = c("Cells with no data now",
+                  "  of which never had any",
+                  "  of which had data and lost it",
+                  "Cells filled this period"),
+      Cells = comma(c(
+        cl_num("cells_empty_now"), cl_num("cells_never_filled"),
+        cl_num("cells_regressed"), cl_num("cells_filled")))
+    )
+    if (!is.null(low)) {
+      rows <- dplyr::bind_rows(rows, tibble::tibble(
+        Measure = c("Below the baseline's low-data bar, still",
+                    "Fell below it this period",
+                    "Rose above it this period"),
+        Cells = comma(c(as.integer(low["still_low"] %||% 0),
+                        as.integer(low["worsened"] %||% 0),
+                        as.integer(low["improved"] %||% 0)))))
+    }
+    rows
+  }, striped = TRUE, width = "100%")
+
+  # --- species ------------------------------------------------------
+  output$cl_species_note <- renderUI({
+    req(has_closure)
+    tagList(
+      "Species that lost or shrank their recorded range. ",
+      tags$strong("Every red-listed species and every species that lost ground is listed in full"), "; ",
+      if (!is.na(closure_species_top_n))
+        tagList("beyond those, the top ", comma(closure_species_top_n), " movers each way are shown. ")
+      else NULL,
+      if (cl_cross())
+        tags$span(style = "color:#EE6677;",
+          "Across this pair, most of this list is names resolving differently between the two pipelines — aggregates, varieties and subspecies especially — not range contraction.")
+      else
+        "A species can appear here because its records were re-identified as something else rather than because it disappeared.")
+  })
+
+  output$cl_species_table <- renderDT({
+    req(has_closure)
+    d <- cl_slice(closure_species)
+    if (is.null(d) || !nrow(d)) {
+      return(datatable(tibble(Message = "No species data for this selection."),
+                       rownames = FALSE, options = list(dom = "t")))
+    }
+    df <- d |>
+      filter(status %in% c("lost", "contracted", "shifted"), cells_lost > 0) |>
+      arrange(desc(cells_lost)) |>
+      select(any_of(c("backbone_scientificName", "class", "order", "taxonRank",
+                      "threatStatus_redlist", "cells_from", "cells_to",
+                      "cells_lost", "cells_gained", "status"))) |>
+      rename(any_of(c(Species = "backbone_scientificName", Class = "class",
+                      Order = "order", Rank = "taxonRank",
+                      `Red list` = "threatStatus_redlist",
+                      `Cells then` = "cells_from", `Cells now` = "cells_to",
+                      `Cells lost` = "cells_lost", `Cells gained` = "cells_gained",
+                      Status = "status")))
+    if (!nrow(df)) {
+      return(datatable(tibble(Message = "No species lost ground in this comparison."),
+                       rownames = FALSE, options = list(dom = "t")))
+    }
+    for (cn in c("Class", "Order", "Rank", "Red list", "Status")) {
+      if (cn %in% names(df)) df[[cn]] <- as.factor(df[[cn]])
+    }
+    if ("Species" %in% names(df)) df$Ref <- taxon_ref(df$Species)
+    datatable(df, extensions = "Buttons", rownames = FALSE, escape = FALSE,
+      options = list(pageLength = 12, scrollX = TRUE, dom = "Bfrtip",
+        buttons = list(list(extend = "csv", text = "Download CSV"))),
+      style = "bootstrap4", filter = "top")
+  })
+
+  # --- datasets -----------------------------------------------------
+  output$cl_dataset_table <- renderDT({
+    req(has_closure)
+    d <- cl_slice(closure_datasets)
+    if (is.null(d) || !nrow(d)) {
+      return(datatable(tibble(Message = "No dataset data for this selection."),
+                       rownames = FALSE, options = list(dom = "t")))
+    }
+    src <- cl_src()
+    if (!identical(src, "total") && "source_group" %in% names(d)) {
+      d <- d |> filter(source_group == src)
+    }
+    df <- d |>
+      arrange(desc(vanish_pct)) |>
+      head(40) |>
+      select(any_of(c("datasetkey", "source_group", "vanish_if_dropped",
+                      "vanish_pct", "touched", "touched_pct"))) |>
+      rename(any_of(c(Dataset = "datasetkey", Stream = "source_group",
+                      `Pairs that would vanish` = "vanish_if_dropped",
+                      `Would vanish (%)` = "vanish_pct",
+                      `Pairs touched` = "touched",
+                      `Touches (%)` = "touched_pct")))
+    if ("Stream" %in% names(df)) df$Stream <- as.factor(df$Stream)
+    datatable(df, extensions = "Buttons", rownames = FALSE,
+      options = list(pageLength = 10, scrollX = TRUE, dom = "Bfrtip",
+        buttons = list(list(extend = "csv", text = "Download CSV"))),
+      style = "bootstrap4", filter = "top")
+  })
 }
 
 shinyApp(ui, server)

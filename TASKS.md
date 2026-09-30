@@ -175,7 +175,8 @@ list**.
   cells, so the clip widening (centroid ∈ land ∪ EEZ) did the work; the `marine` cell flag stays inert
   until the app's terrestrial-only filter is built (`gap_finder_td5_marine_flag.patch` ready). See
   `claude/finding-td5-marine-coverage.md`.* *(rerun)*
-- [ ] **T-D7.3** — Decide whether to fold the recency > 10-years category into Priorities.
+- [x] **T-D7.3** — ~~Fold the recency > 10-years category into Priorities~~ — *decided 2026-09-30:
+  no; Priorities keeps the 5-year threshold, Spatial recency already shows > 10 years.*
 
 ---
 
@@ -191,7 +192,7 @@ list**.
   Reports now compute threatened/concern counts from `match_summary` (not `tax_by_threat`), keep
   **DD** out of the threatened set, and use the app's 3-category publisher classifier. Verified in R:
   report `threat_cov` == app `ov_threat_stats`; classifier output identical to the app's. *(re-knit reports.)*
-- [ ] Decide whether the publisher dependency map should respond to the category filter.
+- [x] Publisher dependency map follows the category filter — *done 2026-09-30.*
   *(Note: the Publishers **count** 434 vs 419 is not a bug — 419 is the count for a selected
   taxonomic group; at "All" it is 434, matching the Overview.)*
 
@@ -273,9 +274,10 @@ list**.
   the reference lists with resolved titles + DOIs, so the edition is verifiable in-app. (redeploy)*
 
 ### Priorities & Record Types
-- [ ] Document what the Priorities "targets for the next 12 months" are based on.
-- [ ] Integrate the sampling-bias data into the Priorities tab (remaining Priorities-tab review item).
-- [ ] Basis of record "last 12 months" per-basis breakdown — data exists in 09c's
+- [x] Document what the Priorities "targets for the next 12 months" are based on — *done (tab text +
+  manual: 1.5× the last-12-months rate; checked 2026-09-30).*
+- [x] Integrate the sampling-bias data into the Priorities tab — *done 2026-07-29 (`729614b`).*
+- [x] *(done 2026-07-29, `729614b`)* Basis of record "last 12 months" per-basis breakdown — data exists in 09c's
   `basis_recent_<scope>_<grid>.csv`; app integration pending.
 
 ### Temporal & Data tab
@@ -295,12 +297,12 @@ list**.
 ### Metadata, citation & docs
 - [x] **`CITATION.cff` auto-versioned from git tags** — *done 2026-07-30 (`.github/workflows/citation-version.yml`):* a `v*` tag push writes `version` + `date-released` into the software citation file.
 - [x] **`docs/metrics.md` current-figures auto-refresh** — *done 2026-07-30 (`scripts/13_metrics_snapshot.R` + `metrics_snapshot` target + `run_metrics()`):* the "Current snapshot" block regenerates from the output tables on every `tar_make()`.
-- [ ] Recommended citation for the app (separate from the data DOI, which is done).
-- [ ] Version / contact / data-provenance block (DOI part done; add version + contact).
-- [ ] GitHub documentation + user manual, including framing and interpretation guidance.
+- [x] Recommended citation for the app — *done 2026-07-29 (`729614b`).*
+- [x] Version / contact / data-provenance block — *done 2026-07-29 (`729614b`).*
+- [x] GitHub documentation + user manual — *done: `docs/user_manual.md`, updated 2026-09-30.*
 
 ### Calls to action
-- [ ] Direct publisher CTAs ("Do you hold data for these taxa?", "Can your institution help fill
+- [x] *(done 2026-07-29, `729614b`)* Direct publisher CTAs ("Do you hold data for these taxa?", "Can your institution help fill
   these cells?", "Contact GBIF Sweden for publication support.").
 
 ---
@@ -354,11 +356,14 @@ list**.
 ---
 
 ### Suggested next session
-Correctness, report↔app parity, EAA accessibility, readability, framing, **all Tier-2 pipeline
-refactors (T-R3/5/6/7, T-I/T-A/T-Q)**, and the **2026-07-30 automation round** (reconcile wired into
-the DAG, `metrics.md` auto-refresh, CITATION tag-sync CI, docs/config housekeeping) are **done**. The
-app-side communication patches are committed but **await a redeploy** (blocked — colleague on holiday).
-Remaining substantive work, in rough order: (1) **app-content leftovers** — sampling-bias → Priorities, per-basis last-12-months, app citation/version
-block, publisher CTAs, user manual; (2) ~~marine toggle~~ done (Land + sea / Land only / Sea only); (3) ~~Gap Trends~~ → **Gaps filled** (in review on `feature/gaps-filled`);
-(4) ~~family filter~~ done where the data allows (Temporal, Taxonomic, Concern; 2026-09-30); (5) **Norway replication** (deprioritised). Ready-to-start
-briefs live in `claude/brief-*.md`.
+*(Updated 2026-09-30.)* Correctness, report↔app parity, EAA accessibility, readability, framing,
+all Tier-2 refactors, the automation round, the dependency hardening, and **every app-content
+leftover** (citation/version block, CTAs, Troudet in Priorities, per-basis last 12 months,
+Swedish names, user manual, palette rule, family/order filters, Sea only, publisher-category map)
+are **done**. The Gaps filled tab is hidden behind `GAP_FINDER_SHOW_GAPS_FILLED`, so the rest of
+the app can be tagged and redeployed.
+
+**Nothing active is left.** Parked (Lena, 2026-09-30): **Gaps filled** review
+(`claude/brief-gaps-filled-review.md`), **Norway** re-run, **CARE** tab, and all of ROADMAP §C
+(snapshot cubes, reproducibility archive, scheduled re-runs, policy outputs). Small hygiene left:
+apt pinning in the Dockerfile (D23). Ready-to-start briefs live in `claude/brief-*.md`.

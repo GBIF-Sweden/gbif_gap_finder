@@ -310,7 +310,7 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 - **Taxonomic filters** go kingdom → phylum → class → order → family on the Temporal,
   Taxonomic and Species of Concern tabs. Spatial filters kingdom → class → order (script 09c
   writes `order_cell_recency_<grid>.csv`, ~620k rows / ~2 MB in the bundle) and applies to the
-  Occurrences and Data recency maps. Publishers filter to class/order. Family on Spatial or
+  Occurrences and Data recency maps. Publishers filter kingdom → class → order, plus a publisher-category filter that also drives the dependency map. Family on Spatial or
   Publishers would need a family × cell layer, which was measured and left out (~110 MB at 10 km).
 - **Establishment means** are grouped by `estab_group()` in `app.R` (reintroduced natives count
   as native); a value Dyntaxa adds later shows up as "Other" instead of disappearing.
@@ -361,6 +361,7 @@ nothing is deployed automatically from this repository.
 | `GBIF_GAP_COUNTRY` | baked at build | Selects the bundle at `data/{CC}/shiny_data.rds` |
 | `GAP_FINDER_VERSION` | baked at build | Shown in the About panel; `dev` when unset |
 | `GAP_FINDER_BASEMAP` | `Esri.WorldGrayCanvas` | Any `leaflet.providers` name. An unknown name warns and falls back rather than rendering a blank map. Do not use a `CartoDB.*` provider: CARTO raster basemaps now require an API key and render an "API KEY REQUIRED" watermark |
+| `GAP_FINDER_SHOW_GAPS_FILLED` | `false` | `true` shows the **Gaps filled** tab. Off by default while the tab is under review; the closure data stays in the bundle either way |
 
 Run it locally:
 
