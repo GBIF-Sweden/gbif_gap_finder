@@ -320,8 +320,7 @@ for (src in c("redlist", "invasives", "sensitive")) {
 # backbone is a controlled, version-pinned choice; here we resolve the same key's
 # checklist dataset for citation/provenance. Non-fatal: unlike a dead cube key, a
 # transient COL lookup failure is reported but must never stop the pipeline.
-col_key <- cfg_get("parameters.taxonomic.col_checklist_key",
-                   "7ddf754f-d193-4cc9-b351-99906754a03b")
+col_key <- get_col_checklist_key()
 checklists$col_backbone <- resolve_dataset(
   col_key, NULL,
   "Catalogue of Life Extended Release (GBIF default backbone)",

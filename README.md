@@ -128,12 +128,19 @@ source("scripts/06a_make_core_summaries.R")     # Core + publisher summaries
 source("scripts/06b_make_species_summaries.R")  # Species-level summaries
 source("scripts/07_spatial_gaps.R")             # Spatial gaps
 source("scripts/08_temporal_gaps.R")            # Temporal gaps
+source("scripts/09a1_build_col_crosswalk.R")    # Backbone ↔ CoL crosswalk (Tier 5)
 source("scripts/09a_reconcile_taxonomy.R")      # GBIF ↔ backbone matching
 source("scripts/09b_taxonomic_gaps.R")          # Taxonomic gaps
 source("scripts/09c_scope_summaries.R")         # Per-scope summaries + recent period
 source("scripts/10_make_gap_overview.R")        # Overview tables
 source("scripts/11_prepare_gap_finder_data.R") # Gap Finder data bundle
+source("scripts/12_reconcile.R")                # Cross-tab consistency checks
+source("scripts/13_metrics_snapshot.R")         # Refresh docs/metrics.md
 ```
+
+`scripts/00_preflight.R` checks every external dependency first (it gates `tar_make()`;
+`PREFLIGHT_OFFLINE=1` skips the network checks), and `scripts/01b_resolve_data_sources.R`
+resolves dataset DOIs and writes `provenance/`.
 
 Or use `targets`:
 
@@ -141,6 +148,19 @@ Or use `targets`:
 source("run.R")
 tar_make()
 ```
+
+### 5. Check the results
+
+A run has not regressed when these hold:
+
+- `git diff docs/metrics.md` — script 13 rewrites the current figures on every run; only the
+  dates should change unless the data did.
+- `git diff provenance/` — shows whether anything upstream (backbone, red list, CoL release)
+  moved.
+- `data/{CC}/proc/gaps/col_crosswalk_validation.md` — script 09a1 compares its own matching
+  figures against `parameters.taxonomic.crosswalk_baseline` in the country config and prints
+  `REGRESSED` when one drops. Update that baseline deliberately after a verified rebuild.
+- `scripts/12_reconcile.R` (the `reconciliation` target) — Overview, Taxonomic and Concern agree.
 
 ## Data Sources
 
@@ -266,6 +286,22 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 4. Download cubes via GBIF SQL API (change `countrycode` in the query)
 5. Place EEA grids in `data/shared/grids/` (shared, one-time download)
 6. Run the pipeline from script 01
+7. After the first verified run, set `parameters.taxonomic.crosswalk_baseline` from
+   `col_crosswalk_validation.md` so later runs are checked against it
+
+## App colours and filters
+
+- **Palette rule** (defined once, near the top of `shiny_app/gap_finder/app.R`):
+  categorical charts use the Paul Tol colours in `pal`; maps of counts and recency use
+  sequential viridis (pale = few or old records, dark = many or recent, grey = no data);
+  diverging RdYlBu is kept for values above/below an expected level.
+- **Taxonomic filters** go kingdom → phylum → class → order → family on the Temporal,
+  Taxonomic and Species of Concern tabs. Spatial filters to kingdom/class and Publishers to
+  class/order: family there would need a family × cell layer, which was measured and left out
+  (~110 MB at 10 km).
+- **Threatened** means the config's `threatened_categories` (CR / EN / VU / NT), passed to
+  the app in the bundle metadata. Data Deficient (DD) is listed next to them in the Concern
+  tables but never counted as threatened.
 
 ## Pipeline Phases
 
@@ -335,6 +371,10 @@ is live — confirm the deploy separately, and say which tag should be pulled.
 - Pipeline packages: `sf`, `data.table`, `arrow`, `dplyr`, `scales`, `stringr`, `cli` (see `R/packages.R`)
 - Shiny app packages: `shiny`, `plotly`, `leaflet`, `DT`, `ggplot2` (see `app_packages` in `R/packages.R`)
 - Optional: `mregions2` — only when `marine.enabled` (fetches the EEZ; see *Marine coverage*)
+  - `mregions2` pulls in `redland`, which needs the Redland C libraries at the OS level.
+    `renv::restore()` installs it regardless of `marine.enabled`, so a clean restore needs them:
+    macOS `brew install redland`; Ubuntu/Debian `librdf0-dev` (build) and `librdf0t64` (runtime,
+    `librdf0` before 24.04). The Docker image installs both.
 - Full dependency list managed via `renv`
 
 ## License

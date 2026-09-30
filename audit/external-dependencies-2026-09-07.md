@@ -188,7 +188,7 @@ loud without adding a single new alert.
 | GADM version/resolution | hardcoded `01a:359` | `parameters.spatial.gadm_version` / `_resolution` |
 | Dyntaxa archive URL | frozen in config | **resolved from the GBIF registry** per run *(shipped)*; config is fallback only |
 | Basemap provider | hardcoded ×15 in `app.R` | `GAP_FINDER_BASEMAP` env, one helper *(shipped)* |
-| CoL checklist key fallback | duplicated at `globals.R:195` + `09a1:55` | one shared constant; configs stay authoritative |
+| CoL checklist key fallback | duplicated in 7 places (globals, 00_preflight ×3, 01b, 09a, 09a1) | one shared constant; configs stay authoritative *(shipped 2026-09-30: `COL_CHECKLIST_KEY_DEFAULT` + `get_col_checklist_key()` in `R/globals.R`)* |
 | Base image | `rocker/r-ver:4.5.2` | `@sha256:…` digest |
 | CI actions | `@v4` / `@v5` / `@v6` | commit SHAs |
 | `taxonomy.version` | typed string `03:82` | resolved from the archive EML, config as fallback |

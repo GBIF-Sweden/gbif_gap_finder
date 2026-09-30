@@ -80,6 +80,21 @@ cfg_get <- function(name, default = NULL) {
   result
 }
 
+#' Catalogue of Life checklist key: one fallback, defined once
+#'
+#' Configs stay authoritative (`parameters.taxonomic.col_checklist_key`, set in
+#' every configs/config_{CC}.yml). This is only the fallback when a config omits
+#' it. It used to be repeated as a literal in seven places across globals.R,
+#' 00_preflight, 01b, 09a and 09a1, so a change of GBIF's CoL checklist key
+#' meant finding them all (audit/external-dependencies-2026-09-07.md, H-4).
+COL_CHECKLIST_KEY_DEFAULT <- "7ddf754f-d193-4cc9-b351-99906754a03b"
+
+#' @return The configured CoL checklist key, or the default, as a string
+get_col_checklist_key <- function() {
+  as.character(cfg_get("parameters.taxonomic.col_checklist_key",
+                       COL_CHECKLIST_KEY_DEFAULT))
+}
+
 #' Load an API cache, honouring the project's cache policy
 #'
 #' Every cache in this pipeline stores answers from an external API. Two things
@@ -394,8 +409,7 @@ render_cube_sql <- function(resolution,
   # Pin the COL checklist in the classificationdetails selector so the backbone is
   # a deliberate, version-controlled choice (GBIF's default is COL but mutable).
   sql <- gsub("${COL_CHECKLIST_KEY}",
-              as.character(cfg_get("parameters.taxonomic.col_checklist_key",
-                                   "7ddf754f-d193-4cc9-b351-99906754a03b")),
+              get_col_checklist_key(),
               sql, fixed = TRUE)
   sql
 }

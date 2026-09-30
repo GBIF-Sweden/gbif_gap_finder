@@ -10,6 +10,11 @@ FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f363512
 ENV DEBIAN_FRONTEND=noninteractive
 ENV RENV_CONFIG_PAK_ENABLED=FALSE
 
+# librdf0-dev: `redland` (via rdflib <- mregions2, the optional marine EEZ
+# fetcher) compiles against the Redland C libraries (librdf/raptor/rasqal).
+# renv::restore() installs every package in renv.lock, not only what app.R
+# loads, so without it the image build fails at `redland`. Package names are
+# for Ubuntu 24.04 (noble), the base of rocker/r-ver:4.5.x.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     g++ \
@@ -25,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     libpng-dev \
     libproj-dev \
+    librdf0-dev \
     libssl-dev \
     libtiff5-dev \
     libudunits2-dev \
@@ -68,6 +74,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     libpng16-16 \
     libproj-dev \
+    librdf0t64 \
     libssl3 \
     libtiff6 \
     libudunits2-0 \

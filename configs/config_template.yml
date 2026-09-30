@@ -186,6 +186,13 @@ parameters:
     # ${COL_CHECKLIST_KEY}). Drives name matching in 09a and provenance in 01b.
     # Update only if GBIF's default COL checklist key changes.
     col_checklist_key: "7ddf754f-d193-4cc9-b351-99906754a03b"
+    # Regression baseline for 09a1's validation report. Unset until this country
+    # has a verified run: the report then shows values without comparing. See
+    # config_SE.yml for the definitions and the shape:
+    # crosswalk_baseline:
+    #   match_pct: 75.3
+    #   occ_pct: 99.1
+    #   missing_threatened: 152
     # When true, kingdom-scopes the 06a/08 cube ("all") to backbone kingdoms.
     # Keep FALSE so the occurrence-based tabs report all of GBIF and dashboard
     # totals reconcile with the app; only Taxonomic/Concern are backbone-relative.

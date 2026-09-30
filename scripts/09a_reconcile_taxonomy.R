@@ -72,8 +72,7 @@ cache_file <- here(p_data_proc, "col_synonym_cache.rds")
 # so the cube's `specieskey` is a COL taxonID (alphanumeric, e.g. "6VFN8"), not
 # an integer nub key. Tier 4 resolves synonyms within this COL checklist dataset;
 # override per-country in config if GBIF's COL checklist key ever changes.
-col_checklist_key <- cfg_get("parameters.taxonomic.col_checklist_key",
-                             "7ddf754f-d193-4cc9-b351-99906754a03b")
+col_checklist_key <- get_col_checklist_key()
 
 # Output paths (p_gaps defined in R/globals.R)
 # Directory created by ensure_dirs() in 00_setup.R

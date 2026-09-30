@@ -861,6 +861,9 @@ shiny_data$metadata <- list(
 
   last_year = shiny_data$last_year %||% NA,
   recent_label = shiny_data$recent_label %||% NA,
+  # The project's single "threatened" definition (config -> globals), so the app
+  # reads it instead of hardcoding CR/EN/VU/NT.
+  threatened_codes = THREATENED_CODES,
 
   # Resolved provenance for the Data & sources tab: cube DOIs, checklist DOIs,
   # contributing datasets + publisher count (from 01b)
