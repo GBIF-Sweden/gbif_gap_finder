@@ -488,7 +488,7 @@ list(
       # Non-scope 09c outputs
       tax_cell_recency <- list.files(
         here(p_derived),
-        pattern = "^tax_cell_recency_(10|50)km\\.csv$",
+        pattern = "^(tax|order)_cell_recency_(10|50)km\\.csv$",
         full.names = TRUE
       )
       species_scope <- here(p_derived, "species_scope_summary.csv")

@@ -191,20 +191,68 @@ if (!is.null(shiny_data$grid_10km) && !is.null(shiny_data$admin_level1)) {
   shiny_data$cell_admin_lookup <- cell_admin
   cli_alert_success("Cell-admin lookup: {nrow(cell_admin)} cells mapped")
 
-  # T-D5 fix: widen the toggle's marine flag to catch SEA cells the EEZ
-  # centroid-test misses -- coastal/archipelago cells in internal waters (landward
-  # of the EEZ baseline) and offshore data cells beyond the EEZ. These sit OUTSIDE
-  # every admin unit (admin_name_level1 == NA), so treat "in EEZ OR not in any
-  # admin unit" as sea. Without this they linger in the Baltic under "Land only".
-  # (10 km only; the admin lookup is 10 km.)
+  # T-D5: land / sea / outside for the Coverage area toggle (10 km; the admin
+  # lookup is 10 km). Rewritten 2026-09-30 after two wrong rules:
+  #   - "in EEZ or off Swedish land" flagged the Norwegian/Finnish land cells the
+  #     grid keeps along the border (they carry data) as sea;
+  #   - "nearer the EEZ than Swedish land" still let the Torne valley and the
+  #     Norwegian coast by Strömstad through, because the EEZ runs up to them.
+  # The rule now asks whether a centroid is inside SWEDEN at all:
+  #   territory = Swedish land (admin) + Swedish EEZ, with interior holes filled
+  #               (slivers where the GADM and Marine Regions coastlines disagree)
+  #   land      = centroid on Swedish land, or in a filled hole > 5 km from the EEZ
+  #               (inland holes in the admin layer, e.g. lakes)
+  #   sea       = centroid off Swedish land and in the EEZ, or in a filled hole
+  #               within 5 km of the EEZ (archipelago / internal waters)
+  #   outside   = everything else: foreign land along the border and foreign
+  #               waters beyond the EEZ, kept in the grid only for their data.
+  # Land only shows `land`, Sea only shows `sea`; `outside` only in Land + sea.
+  # Needs the cached EEZ polygon from 02; without it: sea = in EEZ and off land,
+  # everything else land (the pre-2026-09-30 behaviour minus the widening).
   if (!is.null(shiny_data$cell_marine_lookup)) {
-    off_land <- cell_admin$eeacellcode[is.na(cell_admin$admin_name_level1)]
-    cml <- shiny_data$cell_marine_lookup
-    n_eez <- sum(cml$marine, na.rm = TRUE)
-    cml$marine <- cml$marine | (cml$eeacellcode %in% off_land)
+    cml    <- shiny_data$cell_marine_lookup
+    is_10  <- grepl("^10km", cml$eeacellcode)
+    in_eez <- cml$marine %in% TRUE
+    on_land_codes <- cell_admin$eeacellcode[!is.na(cell_admin$admin_name_level1)]
+    on_land <- cml$eeacellcode %in% on_land_codes
+
+    eez_path <- cfg_get("marine.eez_file", NULL)
+    eez_path <- if (!is.null(eez_path)) here(eez_path) else
+      here(p_data_raw, "marine", paste0("marine_", cfg_get("marine.zone", "eez"), ".gpkg"))
+
+    area <- ifelse(in_eez & !on_land, "sea", "land")
+    if (file.exists(eez_path)) {
+      old_s2 <- sf_use_s2(FALSE)
+      cen  <- st_transform(grid_centroids, 3035)
+      land <- st_union(st_transform(shiny_data$admin_level1, 3035))
+      zone <- st_union(st_transform(st_read(eez_path, quiet = TRUE), 3035))
+      # Swedish territory with its interior holes filled (exterior rings only).
+      terr  <- st_cast(st_sfc(st_union(st_buffer(land, 0), st_buffer(zone, 0))), "POLYGON")
+      terr  <- st_union(st_sfc(lapply(terr, function(p) st_polygon(list(p[[1]]))),
+                               crs = st_crs(zone)))
+      in_terr <- lengths(st_intersects(cen, terr)) > 0
+      d_eez   <- as.numeric(st_distance(cen, zone))
+      sf_use_s2(old_s2)
+      k <- match(cml$eeacellcode, cen$eeacellcode)       # NA for 50 km codes
+      terr_i <- !is.na(k) & in_terr[pmax(k, 1L)]
+      near_i <- !is.na(k) & d_eez[pmax(k, 1L)] <= 5000
+      area <- ifelse(on_land, "land",
+              ifelse(in_eez | (terr_i & near_i), "sea",
+              ifelse(terr_i, "land", "outside")))
+    } else {
+      cli_alert_warning("EEZ polygon not found at {.path {eez_path}}: sea = in EEZ and off Swedish land; nothing marked outside.")
+      cli_alert_info("Re-run 02 to cache the EEZ polygon.")
+    }
+    # 50 km: no admin lookup at that resolution, so keep the plain EEZ flag.
+    area[!is_10] <- ifelse(in_eez[!is_10], "sea", "land")
+
+    cml$area   <- area
+    cml$marine <- area == "sea"
     shiny_data$cell_marine_lookup <- cml
-    n_sea <- sum(cml$marine, na.rm = TRUE)
-    cli_alert_success("Marine flag widened for toggle: {scales::comma(n_eez)} EEZ + {scales::comma(n_sea - n_eez)} off-land = {scales::comma(n_sea)} sea cells")
+    cli_alert_success(paste0(
+      "Coverage area (10 km): {scales::comma(sum(area == 'land' & is_10))} land, ",
+      "{scales::comma(sum(area == 'sea' & is_10))} sea, ",
+      "{scales::comma(sum(area == 'outside' & is_10))} outside Sweden (border/foreign waters)"))
   }
 
   rm(grid_centroids); invisible(gc())
@@ -419,6 +467,14 @@ if (!is.null(tcr)) {
   cli_alert_success(
     "Kingdom cell recency: {scales::comma(nrow(shiny_data$kingdom_cell_recency))} rows"
   )
+}
+
+# Order x cell recency (Spatial tab order filter). Optional: an older 09c run
+# without it just leaves the order filter hidden in the app.
+ocr <- safe_read(here(p_derived, paste0("order_cell_recency_", GRID, ".csv")))
+if (!is.null(ocr)) {
+  shiny_data$order_cell_recency <- as_tibble(ocr)
+  cli_alert_success("Order cell recency: {scales::comma(nrow(ocr))} rows")
 }
 
 
@@ -840,6 +896,7 @@ shiny_data$metadata <- list(
   has_sensitive_scope   = !is.null(shiny_data$sensitive_time_summary),
 
   has_kingdom_cell_recency = !is.null(shiny_data$kingdom_cell_recency),
+  has_order_cell_recency = !is.null(shiny_data$order_cell_recency),
 
   # Gaps filled tab. Hidden outright when there is no closure data rather than
   # shown empty: a country with only one time point has nothing to say here, and

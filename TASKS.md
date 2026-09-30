@@ -82,6 +82,24 @@ list**.
   - [x] ~~Family on **Spatial** and **Publishers**~~ — *not possible under "filter only": Spatial
     filters `tax_cell_recency` (class × cell) and Publishers `publisher_cell_taxonomy` (class/order
     × cell); family there needs the family × cell layer that was measured and left out.*
+  - [x] **Order filter on Spatial** — *done 2026-09-30:* 09c writes `order_cell_recency_<grid>.csv`
+    (kingdom × class × order × cell: total_occ, staleness_months; ~620k rows at 10 km, ~2 MB xz in
+    the bundle), 11 loads it, and the Spatial filter cascades kingdom → class → order. The filter
+    now drives the Occurrences map as well as Data recency (all record types); richness and
+    last-12-months are not split by taxon, and the panel says so.
+  - [x] **"Sea only"** added to the Spatial coverage-area toggle — *done 2026-09-30* (Land + sea /
+    Land only / Sea only).
+    *Fixes, same day:* "Sea only" first drew the Norwegian/Finnish land border as a ring (the old
+    sea rule "in EEZ or off Swedish land" caught foreign border cells kept for their data), and a
+    distance rule still let Torne valley and Strömstad-area land through. Script 11 now writes
+    `area` = land / sea / outside from Swedish land + EEZ with interior holes filled; outside cells
+    (254 for SE) show only in Land + sea. SE: 4,490 land + 1,564 sea + 254 outside = 6,308.
+  - [x] **Establishment fix** — *done 2026-09-30:* the 2026-09-29 Dyntaxa added
+    `nativeReintroduced` (4 species), which fell outside the chart's factor levels and triggered
+    plotly's "Ignoring 1 observations" on the Overview. `estab_group()` now maps reintroduced →
+    Native (also in the native scope filter and the native coverage stat) and anything new →
+    "Other". The Concern stacked charts' `"#ccc"` became `"#cccccc"` (3-digit hex is rejected by
+    some farver/plotly versions).
   - [x] App reads **"threatened"** from the bundle (`metadata$threatened_codes`, written by 11)
     instead of hardcoding CR/EN/VU/NT; DD listed beside them as `CONCERN_CODES` — *done 2026-09-30.*
     **Decision 2026-09-30 (Lena): keep DD** in the Concern "missing threatened" tables, shown beside
@@ -341,7 +359,6 @@ refactors (T-R3/5/6/7, T-I/T-A/T-Q)**, and the **2026-07-30 automation round** (
 the DAG, `metrics.md` auto-refresh, CITATION tag-sync CI, docs/config housekeeping) are **done**. The
 app-side communication patches are committed but **await a redeploy** (blocked — colleague on holiday).
 Remaining substantive work, in rough order: (1) **app-content leftovers** — sampling-bias → Priorities, per-basis last-12-months, app citation/version
-block, publisher CTAs, user manual; (2) the **marine land/sea toggle**
-(`gap_finder_td5_marine_flag.patch` ready to apply); (3) ~~Gap Trends~~ → **Gaps filled** (in review on `feature/gaps-filled`);
+block, publisher CTAs, user manual; (2) ~~marine toggle~~ done (Land + sea / Land only / Sea only); (3) ~~Gap Trends~~ → **Gaps filled** (in review on `feature/gaps-filled`);
 (4) ~~family filter~~ done where the data allows (Temporal, Taxonomic, Concern; 2026-09-30); (5) **Norway replication** (deprioritised). Ready-to-start
 briefs live in `claude/brief-*.md`.

@@ -255,6 +255,15 @@ nodes — the grid is then byte-for-byte the old behaviour. For Sweden this surf
 zero-coverage 10 km sea cells (Baltic / Skagerrak / Kattegat), dropping 10 km coverage from ~100 %
 to 97.8 %.
 
+In the app, the Spatial tab's **Coverage area** toggle switches between *Land + sea*, *Land only*
+and *Sea only*. It governs the Spatial map and statistics, the Overview coverage figures and the
+Priorities zero/stale cells. Script 11 sorts every 10 km cell into three groups: *land* (centroid
+on Swedish land), *sea* (off land and in the Swedish EEZ, or in a coastal gap between the land and
+EEZ outlines) and *outside* (foreign land along the Norwegian/Finnish border and foreign waters
+beyond the EEZ, kept in the grid because they carry data). Land only shows land, Sea only shows sea,
+and outside cells appear only in Land + sea. For Sweden: 4,490 land + 1,564 sea + 254 outside =
+6,308 cells.
+
 ## Taxonomy Architecture
 
 The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as the primary reference for gap analysis. Every GBIF species is matched to the backbone through a 5-tier reconciliation process:
@@ -299,9 +308,12 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
   sequential viridis (pale = few or old records, dark = many or recent, grey = no data);
   diverging RdYlBu is kept for values above/below an expected level.
 - **Taxonomic filters** go kingdom → phylum → class → order → family on the Temporal,
-  Taxonomic and Species of Concern tabs. Spatial filters to kingdom/class and Publishers to
-  class/order: family there would need a family × cell layer, which was measured and left out
-  (~110 MB at 10 km).
+  Taxonomic and Species of Concern tabs. Spatial filters kingdom → class → order (script 09c
+  writes `order_cell_recency_<grid>.csv`, ~620k rows / ~2 MB in the bundle) and applies to the
+  Occurrences and Data recency maps. Publishers filter to class/order. Family on Spatial or
+  Publishers would need a family × cell layer, which was measured and left out (~110 MB at 10 km).
+- **Establishment means** are grouped by `estab_group()` in `app.R` (reintroduced natives count
+  as native); a value Dyntaxa adds later shows up as "Other" instead of disappearing.
 - **Threatened** means the config's `threatened_categories` (CR / EN / VU / NT), passed to
   the app in the bundle metadata. Data Deficient (DD) is listed next to them in the Concern
   tables but never counted as threatened.
