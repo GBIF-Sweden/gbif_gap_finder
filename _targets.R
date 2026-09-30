@@ -141,6 +141,18 @@ list(
     format = "file"
   ),
 
+  # 04b builds the historical time-point cubes. It is tracked here because this
+  # file's invariant says every script in scripts/ gets an entry in the same
+  # commit — but it is deliberately NOT wired into the live DAG: historical time
+  # points are computed once and frozen, and they are driven by run_timepoint.R
+  # (Stage 2) rather than by tar_make(). Tracking it now means the consumer
+  # target can be added later without having to remember this one too.
+  tar_target(
+    script_04b,
+    here("scripts", "04b_build_historical_cubes.R"),
+    format = "file"
+  ),
+
   tar_target(
     script_05,
     here("scripts", "05_validate_inputs.R"),
@@ -219,6 +231,15 @@ list(
     format = "file"
   ),
 
+  # 14 differences time points. Like 04b it is tracked but NOT wired into the
+  # live DAG: it needs at least two completed time points, which tar_make() does
+  # not produce, and it must run with GAP_FINDER_TIMEPOINT unset.
+  tar_target(
+    script_14,
+    here("scripts", "14_gap_closure.R"),
+    format = "file"
+  ),
+
   # R/ is not "a script" but it IS pipeline logic: globals.R carries the schemas,
   # path constants, THREATENED_CODES and every shared helper; packages.R the
   # library set. Neither was tracked, so the 2026-09-08 change that moved
@@ -235,6 +256,17 @@ list(
   tar_target(
     project_setup,
     c(here("scripts", "00_setup.R"), here("R", "globals.R"), here("R", "packages.R")),
+    format = "file"
+  ),
+
+  # R/eea_grid.R and R/historic_io.R are pipeline logic too, but for the
+  # HISTORICAL path only: 04b is their sole consumer. They are kept out of
+  # project_setup on purpose — folding them in would rebuild the entire live DAG
+  # for a change that cannot move a single live number. This target gives them
+  # the same "edit it and something notices" guarantee at the right blast radius.
+  tar_target(
+    r_historic,
+    c(here("R", "eea_grid.R"), here("R", "historic_io.R"), here("R", "closure.R")),
     format = "file"
   ),
 
@@ -444,7 +476,7 @@ list(
     {
       reconcile_taxonomy; cube_parquet; grids
       source(script_09c, local = TRUE)
-      recent_cutoff <- here(p_data_proc, "recent_cutoff.rds")
+      recent_cutoff <- here(p_timepoint, "recent_cutoff.rds")
       stopifnot(file.exists(recent_cutoff))
 
       # Per-scope files (cell_summary_all_10km.csv etc.)
@@ -456,7 +488,7 @@ list(
       # Non-scope 09c outputs
       tax_cell_recency <- list.files(
         here(p_derived),
-        pattern = "^tax_cell_recency_(10|50)km\\.csv$",
+        pattern = "^(tax|order)_cell_recency_(10|50)km\\.csv$",
         full.names = TRUE
       )
       species_scope <- here(p_derived, "species_scope_summary.csv")

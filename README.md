@@ -128,12 +128,19 @@ source("scripts/06a_make_core_summaries.R")     # Core + publisher summaries
 source("scripts/06b_make_species_summaries.R")  # Species-level summaries
 source("scripts/07_spatial_gaps.R")             # Spatial gaps
 source("scripts/08_temporal_gaps.R")            # Temporal gaps
+source("scripts/09a1_build_col_crosswalk.R")    # Backbone ↔ CoL crosswalk (Tier 5)
 source("scripts/09a_reconcile_taxonomy.R")      # GBIF ↔ backbone matching
 source("scripts/09b_taxonomic_gaps.R")          # Taxonomic gaps
 source("scripts/09c_scope_summaries.R")         # Per-scope summaries + recent period
 source("scripts/10_make_gap_overview.R")        # Overview tables
 source("scripts/11_prepare_gap_finder_data.R") # Gap Finder data bundle
+source("scripts/12_reconcile.R")                # Cross-tab consistency checks
+source("scripts/13_metrics_snapshot.R")         # Refresh docs/metrics.md
 ```
+
+`scripts/00_preflight.R` checks every external dependency first (it gates `tar_make()`;
+`PREFLIGHT_OFFLINE=1` skips the network checks), and `scripts/01b_resolve_data_sources.R`
+resolves dataset DOIs and writes `provenance/`.
 
 Or use `targets`:
 
@@ -141,6 +148,22 @@ Or use `targets`:
 source("run.R")
 tar_make()
 ```
+
+### 5. Check the results
+
+A run has not regressed when these hold:
+
+- `git diff docs/metrics.md` — script 13 rewrites the current figures on every run; only the
+  dates should change unless the data did.
+- `git diff provenance/` — shows whether anything upstream (backbone, red list, CoL release)
+  moved.
+- `data/{CC}/proc/gaps/col_crosswalk_validation.md` — script 09a1 compares its own matching
+  figures against `parameters.taxonomic.crosswalk_baseline` in the country config and prints
+  `REGRESSED` when one drops. Update that baseline deliberately after a verified rebuild.
+  These are crosswalk health checks, not the published figures: e.g. "threatened not reached by
+  the crosswalk" (152) is higher than the official "missing threatened" (122) because it counts
+  all ranks and ignores the name-matching tiers.
+- `scripts/12_reconcile.R` (the `reconciliation` target) — Overview, Taxonomic and Concern agree.
 
 ## Data Sources
 
@@ -232,6 +255,15 @@ nodes — the grid is then byte-for-byte the old behaviour. For Sweden this surf
 zero-coverage 10 km sea cells (Baltic / Skagerrak / Kattegat), dropping 10 km coverage from ~100 %
 to 97.8 %.
 
+In the app, the Spatial tab's **Coverage area** toggle switches between *Land + sea*, *Land only*
+and *Sea only*. It governs the Spatial map and statistics, the Overview coverage figures and the
+Priorities zero/stale cells. Script 11 sorts every 10 km cell into three groups: *land* (centroid
+on Swedish land), *sea* (off land and in the Swedish EEZ, or in a coastal gap between the land and
+EEZ outlines) and *outside* (foreign land along the Norwegian/Finnish border and foreign waters
+beyond the EEZ, kept in the grid because they carry data). Land only shows land, Sea only shows sea,
+and outside cells appear only in Land + sea. For Sweden: 4,490 land + 1,564 sea + 254 outside =
+6,308 cells.
+
 ## Taxonomy Architecture
 
 The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as the primary reference for gap analysis. Every GBIF species is matched to the backbone through a 5-tier reconciliation process:
@@ -266,6 +298,25 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 4. Download cubes via GBIF SQL API (change `countrycode` in the query)
 5. Place EEA grids in `data/shared/grids/` (shared, one-time download)
 6. Run the pipeline from script 01
+7. After the first verified run, set `parameters.taxonomic.crosswalk_baseline` from
+   `col_crosswalk_validation.md` so later runs are checked against it
+
+## App colours and filters
+
+- **Palette rule** (defined once, near the top of `shiny_app/gap_finder/app.R`):
+  categorical charts use the Paul Tol colours in `pal`; maps of counts and recency use
+  sequential viridis (pale = few or old records, dark = many or recent, grey = no data);
+  diverging RdYlBu is kept for values above/below an expected level.
+- **Taxonomic filters** go kingdom → phylum → class → order → family on the Temporal,
+  Taxonomic and Species of Concern tabs. Spatial filters kingdom → class → order (script 09c
+  writes `order_cell_recency_<grid>.csv`, ~620k rows / ~2 MB in the bundle) and applies to the
+  Occurrences and Data recency maps. Publishers filter kingdom → class → order, plus a publisher-category filter that also drives the dependency map. Family on Spatial or
+  Publishers would need a family × cell layer, which was measured and left out (~110 MB at 10 km).
+- **Establishment means** are grouped by `estab_group()` in `app.R` (reintroduced natives count
+  as native); a value Dyntaxa adds later shows up as "Other" instead of disappearing.
+- **Threatened** means the config's `threatened_categories` (CR / EN / VU / NT), passed to
+  the app in the bundle metadata. Data Deficient (DD) is listed next to them in the Concern
+  tables but never counted as threatened.
 
 ## Pipeline Phases
 
@@ -302,6 +353,7 @@ nothing is deployed automatically from this repository.
 |-----|---------|--------|
 | `GBIF_GAP_COUNTRY` | `SE` | Which config and data bundle are baked in |
 | `GAP_FINDER_VERSION` | `dev` | What the app reports as its version; CI passes the git tag |
+| `APT_SNAPSHOT` | `20260930T000000Z` | Ubuntu archive snapshot the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Bump the default in the Dockerfile at each release |
 
 **Runtime environment:**
 
@@ -310,6 +362,7 @@ nothing is deployed automatically from this repository.
 | `GBIF_GAP_COUNTRY` | baked at build | Selects the bundle at `data/{CC}/shiny_data.rds` |
 | `GAP_FINDER_VERSION` | baked at build | Shown in the About panel; `dev` when unset |
 | `GAP_FINDER_BASEMAP` | `Esri.WorldGrayCanvas` | Any `leaflet.providers` name. An unknown name warns and falls back rather than rendering a blank map. Do not use a `CartoDB.*` provider: CARTO raster basemaps now require an API key and render an "API KEY REQUIRED" watermark |
+| `GAP_FINDER_SHOW_GAPS_FILLED` | `false` | `true` shows the **Gaps filled** tab. Off by default while the tab is under review; the closure data stays in the bundle either way |
 
 Run it locally:
 
@@ -323,8 +376,8 @@ docker run --rm -p 3838:3838 ghcr.io/gbif-sweden/gap-finder:latest
 published image onto the NRM server. A green build therefore does NOT mean the change
 is live — confirm the deploy separately, and say which tag should be pulled.
 
-> TODO: document the server-side command / service definition here, so this is not
-> only in one person's head. See `audit/external-dependencies-2026-09-07.md`.
+> The server-side pull command / service definition will be added here by the server
+> maintainer.
 
 ## Requirements
 
@@ -335,6 +388,10 @@ is live — confirm the deploy separately, and say which tag should be pulled.
 - Pipeline packages: `sf`, `data.table`, `arrow`, `dplyr`, `scales`, `stringr`, `cli` (see `R/packages.R`)
 - Shiny app packages: `shiny`, `plotly`, `leaflet`, `DT`, `ggplot2` (see `app_packages` in `R/packages.R`)
 - Optional: `mregions2` — only when `marine.enabled` (fetches the EEZ; see *Marine coverage*)
+  - `mregions2` pulls in `redland`, which needs the Redland C libraries at the OS level.
+    `renv::restore()` installs it regardless of `marine.enabled`, so a clean restore needs them:
+    macOS `brew install redland`; Ubuntu/Debian `librdf0-dev` (build) and `librdf0t64` (runtime,
+    `librdf0` before 24.04). The Docker image installs both.
 - Full dependency list managed via `renv`
 
 ## License

@@ -9,14 +9,14 @@
 col_backbone:
   dataset_key: 7ddf754f-d193-4cc9-b351-99906754a03b
   title: Catalogue of Life
-  published: '2026-07-17'
-  modified: '2026-07-23'
-  doi: https://doi.org/10.48580/dgykv
+  published: '2026-06-19'
+  modified: '2026-09-21'
+  doi: https://doi.org/10.48580/dgyy9
 taxonomy:
   dataset_key: de8934f4-a136-481c-a87a-b0b202b80a31
   title: Dyntaxa. Svensk taxonomisk databas
-  published: '2026-08-28'
-  modified: '2026-08-28'
+  published: '2026-09-29'
+  modified: '2026-09-29'
   doi: https://doi.org/10.15468/j43wfc
 redlist:
   dataset_key: 87e639cc-30a9-4007-bd2c-b0cab60326b9

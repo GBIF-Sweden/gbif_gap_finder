@@ -107,7 +107,7 @@ cli_alert_info("Threatened categories: {paste(THREATENED_CODES, collapse = ', ')
 
 cli_h2("Loading Reconciliation Table")
 
-recon_path <- here(p_data_proc, "taxonomic_reconciliation.rds")
+recon_path <- here(p_timepoint, "taxonomic_reconciliation.rds")
 if (!file.exists(recon_path)) {
   cli_abort(c(
     "Reconciliation table not found: {.path {recon_path}}",

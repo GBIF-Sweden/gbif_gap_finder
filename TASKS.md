@@ -21,8 +21,8 @@
 ## Tier 1 — Major work
 
 *Substantial builds.* **Sequencing (updated 2026-07-28 with Lena):** the **key-findings panel**
-(2026-07-24) and the **b3verse cube-stack** (2026-07-27) have shipped. **Gap Trends** is the next
-build; **family-level resolution** waits on Kevin's per-group call; the **CoL backbone** is
+(2026-07-24) and the **b3verse cube-stack** (2026-07-27) have shipped. **Gap Trends** is superseded
+by **Gaps filled** (2026-09); **family** is a filter only (2026-09-30, Kevin gate closed); the **CoL backbone** is
 **owned and done** (2026-07-30); **Norway replication** is de-risked but **deprioritised to the end of the
 list**.
 
@@ -34,7 +34,9 @@ list**.
   nav was already built; this was the remaining Overview piece.* **App-side only (app.R →
   redeploy, no `tar_make`).** *(§1.11.2)*
 
-- [ ] **Snapshot-based "Gap Trends" retrospective** *(supersedes T-D3; scheduled for the following sprint, ~next week — 2026-07-24)*
+- [x] ~~**Snapshot-based "Gap Trends" retrospective**~~ *(superseded 2026-09 by the **Gaps filled** tab on
+  `feature/gaps-filled`: time points 2021 / 2024 / live cube. A 2023/2024/2025 snapshot run is out of
+  scope. Sub-items kept for the record.)*
   - [ ] Generate cubes from GBIF monthly snapshots (DuckDB/Arrow) instead of SQL-API downloads.
   - [ ] Multi-snapshot runner across dates (2023/2024/2025); collect dashboard metrics.
   - [ ] New "Gap Trends" tab/report (coverage %, zero-coverage cells, stale-cell trend,
@@ -71,7 +73,37 @@ list**.
     — *done 2026-07-24: family×cell ≈ 2 M rows / ~110 MB RAM / ~19–29 MB compressed at 10km
     (11.6× class-level, larger than `publisher_cell_taxonomy`), and sparse (36 % of groups ≤5
     occ) → **drill-down-only**. See `claude/finding-family-resolution-2026-07-24.md`.*
-  - [ ] Decide family-as-default vs drill-down-only — **gated on Kevin's per-group call (confirmed 2026-07-24); parked until then.** Recommendation stands: drill-down-only, per-group and/or occ>5. Then build.
+  - [x] ~~Decide family-as-default vs drill-down-only — gated on Kevin.~~ *Settled 2026-09-30: **filter
+    only** (class → order → family) on existing tables; no family×cell layer; Kevin gate closed.
+    Other tabs take family from COL (cube); Gaps filled uses Dyntaxa.*
+  - [x] Family filter on **Concern** — *done 2026-09-30* (`concern_family`, cascade from
+    `tax_by_family`, same 200-family cap as the Taxonomic tab). Temporal (`temp_family`) and
+    Taxonomic (`tax_family_filter`) already had it.
+  - [x] ~~Family on **Spatial** and **Publishers**~~ — *not possible under "filter only": Spatial
+    filters `tax_cell_recency` (class × cell) and Publishers `publisher_cell_taxonomy` (class/order
+    × cell); family there needs the family × cell layer that was measured and left out.*
+  - [x] **Order filter on Spatial** — *done 2026-09-30:* 09c writes `order_cell_recency_<grid>.csv`
+    (kingdom × class × order × cell: total_occ, staleness_months; ~620k rows at 10 km, ~2 MB xz in
+    the bundle), 11 loads it, and the Spatial filter cascades kingdom → class → order. The filter
+    now drives the Occurrences map as well as Data recency (all record types); richness and
+    last-12-months are not split by taxon, and the panel says so.
+  - [x] **"Sea only"** added to the Spatial coverage-area toggle — *done 2026-09-30* (Land + sea /
+    Land only / Sea only).
+    *Fixes, same day:* "Sea only" first drew the Norwegian/Finnish land border as a ring (the old
+    sea rule "in EEZ or off Swedish land" caught foreign border cells kept for their data), and a
+    distance rule still let Torne valley and Strömstad-area land through. Script 11 now writes
+    `area` = land / sea / outside from Swedish land + EEZ with interior holes filled; outside cells
+    (254 for SE) show only in Land + sea. SE: 4,490 land + 1,564 sea + 254 outside = 6,308.
+  - [x] **Establishment fix** — *done 2026-09-30:* the 2026-09-29 Dyntaxa added
+    `nativeReintroduced` (4 species), which fell outside the chart's factor levels and triggered
+    plotly's "Ignoring 1 observations" on the Overview. `estab_group()` now maps reintroduced →
+    Native (also in the native scope filter and the native coverage stat) and anything new →
+    "Other". The Concern stacked charts' `"#ccc"` became `"#cccccc"` (3-digit hex is rejected by
+    some farver/plotly versions).
+  - [x] App reads **"threatened"** from the bundle (`metadata$threatened_codes`, written by 11)
+    instead of hardcoding CR/EN/VU/NT; DD listed beside them as `CONCERN_CODES` — *done 2026-09-30.*
+    **Decision 2026-09-30 (Lena): keep DD** in the Concern "missing threatened" tables, shown beside
+    the threatened species but never counted as threatened.
 
 - [ ] **Norway replication, end-to-end (Phase 2)** — *deprioritised to the end (2026-07-28); still
   de-risked and ready whenever wanted (ran clean end-to-end before the session-5 changes; the
@@ -143,7 +175,8 @@ list**.
   cells, so the clip widening (centroid ∈ land ∪ EEZ) did the work; the `marine` cell flag stays inert
   until the app's terrestrial-only filter is built (`gap_finder_td5_marine_flag.patch` ready). See
   `claude/finding-td5-marine-coverage.md`.* *(rerun)*
-- [ ] **T-D7.3** — Decide whether to fold the recency > 10-years category into Priorities.
+- [x] **T-D7.3** — ~~Fold the recency > 10-years category into Priorities~~ — *decided 2026-09-30:
+  no; Priorities keeps the 5-year threshold, Spatial recency already shows > 10 years.*
 
 ---
 
@@ -159,7 +192,7 @@ list**.
   Reports now compute threatened/concern counts from `match_summary` (not `tax_by_threat`), keep
   **DD** out of the threatened set, and use the app's 3-category publisher classifier. Verified in R:
   report `threat_cov` == app `ov_threat_stats`; classifier output identical to the app's. *(re-knit reports.)*
-- [ ] Decide whether the publisher dependency map should respond to the category filter.
+- [x] Publisher dependency map follows the category filter — *done 2026-09-30.*
   *(Note: the Publishers **count** 434 vs 419 is not a bug — 419 is the count for a selected
   taxonomic group; at "All" it is 434, matching the Overview.)*
 
@@ -204,6 +237,10 @@ list**.
   (in-GBIF/missing, threat, establishment), all choropleth maps (RdYlBu — blue = covered/recent,
   red = gap/stale), dependency map, and the Priorities stale map binned. Sensitive map was already
   CB-safe.* *(redeploy.)*
+  *Updated 2026-09-30 (palette rule): categorical stays Paul Tol (`pal`); maps of
+  counts and recency moved from RdYlBu to sequential viridis (`pal_seq()`, pale = few/old,
+  dark = many/recent, grey = no data); RdYlBu kept only for diverging values. The publisher
+  dependency map keeps its own ordered colours (fragile = 1 publisher stands out).*
 - [x] Logical header structure; a "methods & limitations" expandable section — *done 2026-07
   (`gap_finder_eaa_a11y_structure.patch`): `h1` → `h2` (59 card titles) → `h3`; native `<details>`
   Methods, limitations & glossary panel on the Overview.* *(redeploy.)*
@@ -229,17 +266,18 @@ list**.
 - [x] Put the 25/50 km generalised-coordinate caution directly on sensitive-species maps. — *done
   2026-07-24 (`gap_finder_concern_finishing.patch`): persistent "coordinates generalised (5–50 km)"
   caption on the sensitive map via leaflet `addControl`. (redeploy)*
-- [ ] Swedish common names in the bottom table. *(blocked app-side: no `vernacularName` in the bundle
-  or pipeline — needs 03 to carry Dyntaxa vernacular names through 09a/09b into `match_summary`, then a rebuild.)*
+- [x] Swedish common names in the bottom table. *(Checked 2026-09-30: already done — `vernacularName`
+  is in the bundle for 28,303 of 79,756 taxa and shown in the Threatened, Invasive and Sensitive tables.)*
 - [x] Confirm the April-2026 red list is the one in use; link it in "About." — *done 2026-07-24
   (`gap_finder_concern_finishing.patch`): current edition is the **Swedish Red List 2025**
   (`swedishredlist2025`; the list is 5-yearly, so there is no 2026 edition). Concern "About" now lists
   the reference lists with resolved titles + DOIs, so the edition is verifiable in-app. (redeploy)*
 
 ### Priorities & Record Types
-- [ ] Document what the Priorities "targets for the next 12 months" are based on.
-- [ ] Integrate the sampling-bias data into the Priorities tab (remaining Priorities-tab review item).
-- [ ] Basis of record "last 12 months" per-basis breakdown — data exists in 09c's
+- [x] Document what the Priorities "targets for the next 12 months" are based on — *done (tab text +
+  manual: 1.5× the last-12-months rate; checked 2026-09-30).*
+- [x] Integrate the sampling-bias data into the Priorities tab — *done 2026-07-29 (`729614b`).*
+- [x] *(done 2026-07-29, `729614b`)* Basis of record "last 12 months" per-basis breakdown — data exists in 09c's
   `basis_recent_<scope>_<grid>.csv`; app integration pending.
 
 ### Temporal & Data tab
@@ -259,12 +297,12 @@ list**.
 ### Metadata, citation & docs
 - [x] **`CITATION.cff` auto-versioned from git tags** — *done 2026-07-30 (`.github/workflows/citation-version.yml`):* a `v*` tag push writes `version` + `date-released` into the software citation file.
 - [x] **`docs/metrics.md` current-figures auto-refresh** — *done 2026-07-30 (`scripts/13_metrics_snapshot.R` + `metrics_snapshot` target + `run_metrics()`):* the "Current snapshot" block regenerates from the output tables on every `tar_make()`.
-- [ ] Recommended citation for the app (separate from the data DOI, which is done).
-- [ ] Version / contact / data-provenance block (DOI part done; add version + contact).
-- [ ] GitHub documentation + user manual, including framing and interpretation guidance.
+- [x] Recommended citation for the app — *done 2026-07-29 (`729614b`).*
+- [x] Version / contact / data-provenance block — *done 2026-07-29 (`729614b`).*
+- [x] GitHub documentation + user manual — *done: `docs/user_manual.md`, updated 2026-09-30.*
 
 ### Calls to action
-- [ ] Direct publisher CTAs ("Do you hold data for these taxa?", "Can your institution help fill
+- [x] *(done 2026-07-29, `729614b`)* Direct publisher CTAs ("Do you hold data for these taxa?", "Can your institution help fill
   these cells?", "Contact GBIF Sweden for publication support.").
 
 ---
@@ -318,13 +356,15 @@ list**.
 ---
 
 ### Suggested next session
-Correctness, report↔app parity, EAA accessibility, readability, framing, **all Tier-2 pipeline
-refactors (T-R3/5/6/7, T-I/T-A/T-Q)**, and the **2026-07-30 automation round** (reconcile wired into
-the DAG, `metrics.md` auto-refresh, CITATION tag-sync CI, docs/config housekeeping) are **done**. The
-app-side communication patches are committed but **await a redeploy** (blocked — colleague on holiday).
-Remaining substantive work, in rough order: (1) **app-content leftovers** — Swedish vernacular names
-(pipeline half first), sampling-bias → Priorities, per-basis last-12-months, app citation/version
-block, publisher CTAs, user manual; (2) the **marine land/sea toggle**
-(`gap_finder_td5_marine_flag.patch` ready to apply); (3) **Gap Trends** snapshot retrospective;
-(4) **family-level resolution** (gated on Kevin); (5) **Norway replication** (deprioritised). Ready-to-start
-briefs live in `claude/brief-*.md`.
+*(Updated 2026-09-30.)* Correctness, report↔app parity, EAA accessibility, readability, framing,
+all Tier-2 refactors, the automation round, the dependency hardening, and **every app-content
+leftover** (citation/version block, CTAs, Troudet in Priorities, per-basis last 12 months,
+Swedish names, user manual, palette rule, family/order filters, Sea only, publisher-category map)
+are **done**. The Gaps filled tab is hidden behind `GAP_FINDER_SHOW_GAPS_FILLED`, so the rest of
+the app can be tagged and redeployed.
+
+**Nothing active is left.** Parked (Lena, 2026-09-30): **Gaps filled** review
+(`claude/brief-gaps-filled-review.md`), **Norway** re-run, **CARE** tab, and all of ROADMAP §C
+(snapshot cubes, reproducibility archive, scheduled re-runs, policy outputs). Small hygiene left:
+~~apt pinning in the Dockerfile (D23)~~ — done 2026-09-30 (Ubuntu archive snapshot, `APT_SNAPSHOT`); bump the
+date at each release. Ready-to-start briefs live in `claude/brief-*.md`.

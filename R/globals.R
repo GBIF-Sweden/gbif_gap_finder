@@ -80,6 +80,21 @@ cfg_get <- function(name, default = NULL) {
   result
 }
 
+#' Catalogue of Life checklist key: one fallback, defined once
+#'
+#' Configs stay authoritative (`parameters.taxonomic.col_checklist_key`, set in
+#' every configs/config_{CC}.yml). This is only the fallback when a config omits
+#' it. It used to be repeated as a literal in seven places across globals.R,
+#' 00_preflight, 01b, 09a and 09a1, so a change of GBIF's CoL checklist key
+#' meant finding them all (audit/external-dependencies-2026-09-07.md, H-4).
+COL_CHECKLIST_KEY_DEFAULT <- "7ddf754f-d193-4cc9-b351-99906754a03b"
+
+#' @return The configured CoL checklist key, or the default, as a string
+get_col_checklist_key <- function() {
+  as.character(cfg_get("parameters.taxonomic.col_checklist_key",
+                       COL_CHECKLIST_KEY_DEFAULT))
+}
+
 #' Load an API cache, honouring the project's cache policy
 #'
 #' Every cache in this pipeline stores answers from an external API. Two things
@@ -266,23 +281,66 @@ p_configs  <- here("configs")
 p_data     <- here("data", COUNTRY_CODE)
 p_data_raw <- here("data", COUNTRY_CODE, "raw")
 p_data_proc <- here("data", COUNTRY_CODE, "proc")
-p_output   <- here("data", COUNTRY_CODE, "output")
 p_logs     <- here("logs")
 
+# ============================================================================
+# Time point — a DIRECTORY, not a column
+# ============================================================================
+# The gap pipeline is run once per point in time. Rather than thread a time
+# argument through scripts 05-11, everything a run RECOMPUTES hangs off one
+# root, and that root moves. Scripts keep writing where they always wrote.
+#
+# GAP_FINDER_TIMEPOINT unset  ->  p_timepoint == p_data_proc, i.e. every path
+# below is byte-identical to what it has always been. That is the property that
+# makes this safe to ship on a branch that also has to stay releasable, and
+# there is a test for it: see tools/test_timepoint_paths.R.
+#
+# GAP_FINDER_TIMEPOINT=2021-01-01  ->  everything lands under
+# data/{CC}/proc/timepoints/2021-01-01/, side by side with the live results.
+#
+# Driven by run_timepoint.R. Do NOT set this by hand in an interactive session
+# and then forget: the next tar_make() would write the live pipeline's results
+# into a time-point directory.
+GAP_TIMEPOINT <- Sys.getenv("GAP_FINDER_TIMEPOINT", "")
+p_timepoint <- if (nzchar(GAP_TIMEPOINT)) {
+  here(p_data_proc, "timepoints", GAP_TIMEPOINT)
+} else {
+  p_data_proc
+}
+
+# --- Time-VARYING: recomputed from whichever cube this run is looking at -----
 # Derived data paths (from scripts 06a/06b)
-p_derived   <- here(p_data_proc, "derived")
-p_by_order  <- here(p_data_proc, "derived", "by_order")
-p_by_family <- here(p_data_proc, "derived", "by_family")
+p_derived   <- here(p_timepoint, "derived")
+p_by_order  <- here(p_timepoint, "derived", "by_order")
+p_by_family <- here(p_timepoint, "derived", "by_family")
 
 # Gap analysis paths (from scripts 07-09)
-p_gaps <- here(p_data_proc, "gaps")
+p_gaps <- here(p_timepoint, "gaps")
 
-# Cube path (from script 04)
-p_cubes <- here(p_data_proc, "cubes")
+# Cube path (from script 04 / 04b)
+p_cubes <- here(p_timepoint, "cubes")
 
-# Output paths (from script 10)
+# Output paths (from script 10).
+# NOTE p_output is a SIBLING of proc/ in the live layout (data/{CC}/output), not
+# a child of it, so it cannot just be repointed under p_timepoint: with the env
+# var unset that would silently move every live output into data/{CC}/proc/output.
+# Branch explicitly so the live path is preserved exactly.
+p_output <- if (nzchar(GAP_TIMEPOINT)) {
+  here(p_timepoint, "output")
+} else {
+  here("data", COUNTRY_CODE, "output")
+}
 p_tables     <- here(p_output, "tables")
 p_integrated <- here(p_output, "tables", "integrated")
+
+# --- Time-INVARIANT: pinned, shared by every time point ---------------------
+# These stay at p_data_proc and are deliberately NOT repointed:
+#   grids_*.gpkg  cellcodes_*.txt  country_boundary_10km.rds
+#   taxa_reference_current.rds  taxa_reference_classified.rds
+#   col_crosswalk.rds  col_crosswalk_cache.rds  col_synonym_cache.rds
+#   publisher_name_cache.rds  data_sources_meta.rds
+# The Dyntaxa reference above all: a moving national checklist would manufacture
+# change on its own and every closure number would be part artefact.
 
 # ============================================================================
 # Coordinate Reference System
@@ -351,8 +409,7 @@ render_cube_sql <- function(resolution,
   # Pin the COL checklist in the classificationdetails selector so the backbone is
   # a deliberate, version-controlled choice (GBIF's default is COL but mutable).
   sql <- gsub("${COL_CHECKLIST_KEY}",
-              as.character(cfg_get("parameters.taxonomic.col_checklist_key",
-                                   "7ddf754f-d193-4cc9-b351-99906754a03b")),
+              get_col_checklist_key(),
               sql, fixed = TRUE)
   sql
 }
@@ -504,7 +561,7 @@ cli_alert_info("Country: {cfg_get('country.name', COUNTRY_CODE)} ({COUNTRY_CODE}
 #' Create all derived/output directories if they don't exist
 ensure_dirs <- function() {
   dirs <- c(
-    p_data_raw, p_data_proc, p_output, p_logs,
+    p_data_raw, p_data_proc, p_timepoint, p_output, p_logs,
     p_derived, p_by_order, p_by_family,
     p_gaps, p_cubes, p_tables, p_integrated,
     raw_gbif_cube_dir, raw_grid_dir,
@@ -968,6 +1025,18 @@ resolve_threat_status <- function(dt, cols = c("threatStatus_redlist",
 #'   if that is also NA, falls back to Sys.Date() with a warning.
 #' @return A single Date.
 get_snapshot_date <- function(fallback = as.Date(NA)) {
+  # A historical time point IS its own reference date. Without this, a 2021-01-01
+  # snapshot would be scored for staleness against whenever the LIVE cube was
+  # downloaded (2026-07-29), so every cell in it would read as five years stale
+  # and the recency layer would be meaningless rather than merely wrong.
+  if (nzchar(GAP_TIMEPOINT)) {
+    d <- suppressWarnings(as.Date(GAP_TIMEPOINT))
+    if (!is.na(d)) return(d)
+    cli_alert_warning(
+      "GAP_FINDER_TIMEPOINT ({GAP_TIMEPOINT}) is not a date - falling back to \\
+       the cube download date, which is almost certainly the wrong reference."
+    )
+  }
   meta_path <- here(p_data_proc, "data_sources_meta.rds")
   if (file.exists(meta_path)) {
     meta  <- tryCatch(readRDS(meta_path), error = function(e) NULL)

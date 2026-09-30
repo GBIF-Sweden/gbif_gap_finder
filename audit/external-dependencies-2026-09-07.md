@@ -87,7 +87,7 @@ mismatch.
 |---|---|---|---|---|---|
 | D21 | **`renv.lock` ↔ image** | `Dockerfile.gap_finder` | **Consistent by construction** — the image is built by `renv::restore(lockfile = 'renv.lock')`, so container packages *are* the lockfile. No drift is possible on this path | — | ✅ |
 | D22 | **Base image `rocker/r-ver:4.5.2`** | `Dockerfile.gap_finder` | Tag-pinned, **not digest-pinned** | Tag can be re-pushed; rebuild silently differs | 🔇 |
-| D23 | **apt packages** | `Dockerfile.gap_finder` | Unpinned (`apt-get install` = latest) | GDAL/GEOS/PROJ can move under `sf`/`terra` between rebuilds | 🔇 |
+| D23 | **apt packages** | `Dockerfile.gap_finder` | **Pinned 2026-09-30** by Ubuntu archive snapshot (`APT_SNAPSHOT`, `APT::Snapshot`); was unpinned | Moves only when the snapshot date is bumped | ✅ |
 | D24 | **CI actions** (checkout, setup-buildx, login, metadata, build-push) | both workflows | Major-pinned to the Node 24 releases as of 2026-09-08; **not SHA-pinned** | **Hard deadline hit once already:** GitHub removes Node 20 from the runners on **2026-09-23**, and all five majors previously in use declared `using: node20`. Bumped 2026-09-08. A re-pushed major tag can still change under us | 🔊 then 🔇 |
 
 **On the leaflet.providers hypothesis:** it does not hold, and the mechanism is worth recording so
@@ -188,7 +188,7 @@ loud without adding a single new alert.
 | GADM version/resolution | hardcoded `01a:359` | `parameters.spatial.gadm_version` / `_resolution` |
 | Dyntaxa archive URL | frozen in config | **resolved from the GBIF registry** per run *(shipped)*; config is fallback only |
 | Basemap provider | hardcoded ×15 in `app.R` | `GAP_FINDER_BASEMAP` env, one helper *(shipped)* |
-| CoL checklist key fallback | duplicated at `globals.R:195` + `09a1:55` | one shared constant; configs stay authoritative |
+| CoL checklist key fallback | duplicated in 7 places (globals, 00_preflight ×3, 01b, 09a, 09a1) | one shared constant; configs stay authoritative *(shipped 2026-09-30: `COL_CHECKLIST_KEY_DEFAULT` + `get_col_checklist_key()` in `R/globals.R`)* |
 | Base image | `rocker/r-ver:4.5.2` | `@sha256:…` digest |
 | CI actions | `@v4` / `@v5` / `@v6` | commit SHAs |
 | `taxonomy.version` | typed string `03:82` | resolved from the archive EML, config as fallback |

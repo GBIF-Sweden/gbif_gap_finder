@@ -88,6 +88,10 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 - **Overview "key findings" panel:** shipped 2026-07-24 (app-side, `app.R`) — an auto-generated
   "what matters most" strip at the top of Overview so a policymaker grasps the headline gaps without
   opening eight tabs. *(See ROADMAP §C and TASKS Tier 1.)*
+- **Section A is complete (2026-09-30).** Every app-alignment item is done or decided; the open
+  work left is parked (see below).
+- **Parked (2026-09-30):** the **Gaps filled** tab (built, under review — hidden in the app until
+  `GAP_FINDER_SHOW_GAPS_FILLED=true`), **Norway** re-run, the **CARE** tab, and all of Section C.
 - **Norway:** scaffolded (`config_NO.yml`, feature flags); **ran clean end-to-end before the 2026-07
   per-country changes** and expected clean now — ready to re-run (not yet re-run post-changes).
 - **Disclaimer:** Built with AI assistance (Anthropic's Claude).
@@ -110,7 +114,8 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 - [x] **Align the `analysis/*.Rmd` reports with the app** — *done 2026-07 (`gap_finder_report_parity.patch`):*
   reports now take threatened / concern counts from `match_summary` (not `tax_by_threat`), keep DD out
   of "threatened," and use the app's 3-category publisher classifier. Verified numerically in R.
-- [ ] Decide whether the **publisher dependency map** should respond to the category filter.
+- [x] **Publisher dependency map follows the category filter** — *done 2026-09-30:* choosing
+  Citizen science / Research data / Private sector counts only publishers of that type per cell.
   *(The Publishers count 434 vs 419 is not a bug — 419 is the per-group count; "All" = 434.)*
 
 ### Look & readability
@@ -140,6 +145,10 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
   + `gap_finder_eaa_cb_maps.patch`):* categorical charts (in-GBIF/missing, threat, establishment) and
   all choropleth maps (RdYlBu — blue = covered/recent, red = gap/stale), dependency map, and the
   Priorities stale map binned. Sensitive map was already CB-safe.
+  *Updated 2026-09-30 (palette rule): categorical stays Paul Tol (`pal`); maps of
+  counts and recency moved from RdYlBu to sequential viridis (`pal_seq()`, pale = few/old,
+  dark = many/recent, grey = no data); RdYlBu kept only for diverging values. The publisher
+  dependency map keeps its own ordered colours (fragile = 1 publisher stands out).*
 - [x] Logical **header structure**; a **"methods & limitations"** expandable — *done 2026-07
   (`gap_finder_eaa_a11y_structure.patch`):* `h1` → `h2` (59 card titles) → `h3`; native `<details>`
   Methods, limitations & glossary panel on the Overview.
@@ -163,17 +172,19 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
   2026-07-24 (`gap_finder_taxonomic_concern_polish.patch`; redeploy).*
 - [x] Put the **25/50 km generalised-coordinate caution directly on sensitive-species maps**,
   not only in text. — *done 2026-07-24 (`gap_finder_concern_finishing.patch`; redeploy).*
-- [ ] **Swedish common names** in the bottom table. *(blocked app-side: no `vernacularName` in
-  bundle/pipeline; needs 03 → `match_summary` + rebuild.)*
+- [x] **Swedish common names** in the bottom table. *(Checked 2026-09-30: already in place —
+  the bundle's `taxonomic_match_summary` carries `vernacularName` for 28,303 of 79,756 taxa, and
+  the Threatened, Invasive and Sensitive tables show it. No rebuild needed.)*
 - [x] **Confirm the April-2026 red list** is the one in use and link it in "About." — *done 2026-07-24:
   Swedish Red List 2025 (`swedishredlist2025`); linked in Concern "About" (`gap_finder_concern_finishing.patch`; redeploy).*
 
 ### Priorities & Record Types
-- [ ] **Document what the Priorities "targets for the next 12 months" are based on.**
-- [ ] **Integrate the sampling-bias data into the Priorities tab** (the remaining Priorities-tab
-  review item).
-- [ ] **Basis of record "last 12 months" per-basis breakdown** — data exists in 09c's
-  `basis_recent_<scope>_<grid>.csv`; app integration pending.
+- [x] **Document what the Priorities "targets for the next 12 months" are based on.** — *done:* the
+  tab and the user manual state it (1.5× the last-12-months rate). *(Checked 2026-09-30.)*
+- [x] **Integrate the sampling-bias data into the Priorities tab** — *done 2026-07-29 (`729614b`):*
+  the Taxonomic Mobilization Targets rank orders by Troudet bias.
+- [x] **Basis of record "last 12 months" per-basis breakdown** — *done 2026-07-29 (`729614b`):*
+  Record Types stat boxes read `all_basis_recent`.
 
 ### Temporal & Data tab
 - [x] **Default to the last *complete* year** on the temporal tab; keep the current partial
@@ -187,13 +198,16 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 ### Metadata, citation & docs
 - [x] **`CITATION.cff` auto-versioned from git tags** — *done 2026-07-30 (`.github/workflows/citation-version.yml`):* a `v*` tag push writes `version` + `date-released` into the software citation file.
 - [x] **`docs/metrics.md` auto-refreshes** its current-figures snapshot from the pipeline — *done 2026-07-30 (`scripts/13_metrics_snapshot.R` + `metrics_snapshot` target + `run_metrics()`).*
-- [ ] **Recommended citation for the app** (separate from the data DOI, which is done).
-- [ ] **Version / contact / data-provenance block** (the DOI part is done; add version + contact).
-- [ ] **GitHub documentation + user manual**, including framing and interpretation guidance.
+- [x] **Recommended citation for the app** — *done 2026-07-29 (`729614b`):* Overview "How to cite,
+  version & contact" card.
+- [x] **Version / contact / data-provenance block** — *done 2026-07-29 (`729614b`)*; version comes
+  from the git tag (`GAP_FINDER_VERSION`).
+- [x] **GitHub documentation + user manual** — *done:* `docs/user_manual.md` (2026-07-29, updated
+  2026-09-30 for the palette, filters and coverage-area toggle).
 
 ### Calls to action
-- [ ] **Direct publisher CTAs**: "Do you hold data for these taxa?", "Can your institution
-  help fill these cells?", "Contact GBIF Sweden for publication support."
+- [x] **Direct publisher CTAs** — *done 2026-07-29 (`729614b`):* "Do you hold data for these taxa or
+  areas?" card on Publishers, with "How to publish to GBIF" and "Contact GBIF Sweden"."
 
 ## B. Technical improvements
 
@@ -227,24 +241,33 @@ Ordered from the immediate, near-term work down to exploratory ideas. The curren
 
 ### Deferred
 - [x] **Swedish marine cells** — EEZ brought into the grid universe (config-gated, SE on). *Done 2026-07-28 (`gap_finder_td5_marine.patch`): 10 km 97.8 % coverage / 138 zero-coverage sea cells, 50 km 100 %; the `marine` flag awaits the app filter. See `claude/finding-td5-marine-coverage.md`. (T-D5)*
-- [ ] Decide whether to fold the **recency > 10-years** category into Priorities. *(T-D7.3)*
+- [x] ~~Fold the **recency > 10-years** category into Priorities~~ — *decided 2026-09-30: no.*
+  Priorities keeps the 5-year stale threshold; the Spatial recency map already shows > 10 years.
+  *(T-D7.3)*
 
 ## C. Larger features (planned — scope & timing TBD)
 
 > **Sequencing (updated 2026-07-28 with Lena).** The **key-findings panel** (2026-07-24) and the
-> **b3verse cube-stack rewrite** (2026-07-27) have shipped. Next build: **Gap Trends**.
-> **Family-level resolution** stays parked on Kevin's per-group call; the **CoL backbone** is now
+> **b3verse cube-stack rewrite** (2026-07-27) have shipped. **Gap Trends is superseded by
+> "Gaps filled"** (2026-09, branch `feature/gaps-filled`, time points 2021 / 2024 / live cube).
+> **Family** is settled as a **filter only** (2026-09-30), no longer gated on Kevin; the **CoL backbone** is now
 > **owned and done** (2026-07-30, GBIF confirmed); **Norway replication** is de-risked but **moved to the end of the list**.
 
-### Snapshot-based retrospective — "Gap Trends" (high value)
-*Scheduled for the following sprint (~next week), after the key-findings panel (2026-07-24).*
+> **⏸ Section C parked (2026-09-30, Lena).** Nothing here is scheduled; the Gaps filled tab is
+> built and under review, and stays hidden in the app meanwhile.
+
+### Snapshot-based retrospective — "Gap Trends" → superseded by "Gaps filled"
+*Superseded 2026-09: built as the **Gaps filled** tab on `feature/gaps-filled` (time points
+2021-01-01, 2024-01-01 and the live cube 2026-07-29; closure tables from script 14). A new
+2023/2024/2025 snapshot run is **out of scope**. Items below are kept for the record.*
 GBIF publishes complete monthly snapshots in Parquet. This unlocks two things:
-- [ ] **Generate cubes from snapshots** (DuckDB/Arrow) instead of SQL-API downloads — a
-  self-contained pipeline with no manual download step.
-- [ ] **Run across snapshot dates** (e.g. 2023/2024/2025) and add a **"Gap Trends"** tab/report showing whether mobilisation is actually closing gaps (taxonomic coverage, zero-coverage cells,
+- [ ] ⏸ **Generate cubes from snapshots** (DuckDB/Arrow) instead of SQL-API downloads — a
+  self-contained pipeline with no manual download step. *(Parked. `04b` already builds the
+  historical time-point cubes this way.)*
+- [x] ~~**Run across snapshot dates** (e.g. 2023/2024/2025)~~ *(superseded by Gaps filled — 2021 / 2024 / live)* and add a **"Gap Trends"** tab/report showing whether mobilisation is actually closing gaps (taxonomic coverage, zero-coverage cells,
   stale-cell trends, threatened-species trajectory, publisher diversity).
-- [ ] **Reproducibility without Zenodo** — archive code + config + snapshot date, not 30 GB of derived data.
-- [ ] Rebuild a **"Filling the Tab over time -track"** vtab from dated snapshots here.
+- [ ] ⏸ **Reproducibility without Zenodo** — archive code + config + snapshot date, not 30 GB of derived data. *(Parked.)*
+- [x] ~~Rebuild a **"Filling the Tab over time -track"** vtab from dated snapshots here.~~ *(Superseded by Gaps filled.)*
 
 ### b3verse cube-stack rewrite — ✅ DONE (2026-07-27)
 *Delivered on branch `feature/b3verse-cube-stack`; live SE re-download succeeded (17-col cube) and the pipeline runs green on it.*
@@ -264,13 +287,13 @@ GBIF publishes complete monthly snapshots in Parquet. This unlocks two things:
 - [x] A top **"what matters"** strip with auto-computed findings (spatial coverage, staleness, threatened-species gap, most under-represented group, publisher dependency, recent momentum), each reusing its tab's reactive so the numbers reconcile; zero-value gaps and missing bundle objects drop their card; the most severe gap is auto-ranked as the headline. Delivered in `app.R` (commit `5fef6f6`); rides the next redeploy. *(The persona nav was already built; this was the remaining Overview piece.)* **App-side only (app.R → redeploy, no `tar_make`).**
 
 ### Operations automation
-- [ ] Scheduled re-runs (cadence likely **half-yearly**), notification + auto-retry,
-  auto-generated reports, deployment on the NRM server.
+- [ ] ⏸ Scheduled re-runs (cadence likely **half-yearly**), notification + auto-retry,
+  auto-generated reports, deployment on the NRM server. *(Parked.)*
 
 ### Policy outputs layer
-- [ ] Annual Sweden **GBF Target 21** brief; EuropaBON / EBV national contribution report; multi-country Target 21 comparison (GBIF Secretariat handoff). Ties to the snapshot retrospective.
+- [ ] ⏸ Annual Sweden **GBF Target 21** brief; EuropaBON / EBV national contribution report; multi-country Target 21 comparison (GBIF Secretariat handoff). Ties to the snapshot retrospective. *(Parked.)*
 
-### Norway replication & country abstraction (Phase 2) — deprioritised to the end (2026-07-28)
+### Norway replication & country abstraction (Phase 2) — ⏸ parked (2026-09-30)
 *Still de-risked and ready whenever wanted: ran clean before the session-5 changes; the per-country + single `GBIF_GAP_COUNTRY` prereqs are tight, so a clean re-run is expected.*
 - [ ] Fill `config_NO.yml` DOIs; run end-to-end; document Sweden-specific assumptions that break.
 - [ ] Taxonomy / red-list **field abstraction** (generic DwC-A mapping, varying threat-status columns).
@@ -278,7 +301,7 @@ GBIF publishes complete monthly snapshots in Parquet. This unlocks two things:
 
 ## D. Additional ideas (exploratory / future possibility)
 
-- [ ] **CARE / Indigenous-data-governance tab** — flag cells overlapping Indigenous territories (e.g. Sámi), compare data density / recency / publisher diversity, surface in a "data equity" tab. **Must support data sovereignty, not surveil or extract** — needs GIDA-Sápmi consultation and ethical review. The app must not treat Sámi/Indigenous data as just another gap to mobilise.
+- [ ] ⏸ *(parked 2026-09-30)* **CARE / Indigenous-data-governance tab** — flag cells overlapping Indigenous territories (e.g. Sámi), compare data density / recency / publisher diversity, surface in a "data equity" tab. **Must support data sovereignty, not surveil or extract** — needs GIDA-Sápmi consultation and ethical review. The app must not treat Sámi/Indigenous data as just another gap to mobilise.
 - [ ] **EcoBon ecosystem cubes** — overlay ecosystem-level cubes to find under-sampled
   ecosystems; start with a data-availability + grid-alignment assessment.
 - [ ] **EuropaBON / EBOCC alignment** — position node-level gap analysis as EuropaBON input; map to EBV workflow templates.
@@ -305,7 +328,7 @@ questions raised during the colleague review.
 | **D1** | Primary users | **Broadest audience** — not just GBIF staff but policy makers, researchers, funders, agencies, publishers. The full communication layer and EAA accessibility are **in scope for v1**, not optional. |
 | **D2** | App name & URL | **GBIF Gap Finder**, at **`gbif.se/gap-finder`** (slug `gap-finder`, hyphenated). Tagline: *"Finding the gaps in Sweden's GBIF-mediated data."* |
 | **D3** | Current partial year in temporal trends | **Default = last *complete* year**; the partial current year stays available but is not the default, so charts don't show a misleading end-of-series drop. |
-| **D4** | Lowest taxonomic level | **Go to family where feasible** (Class/Order aren't meaningful, esp. for plants). Compute is not the constraint — bundle size / sparsity is; measure first, keep family×cell drill-down-only, consult Kevin per group. *Measured 2026-07-24: family×cell ≈2M rows / ~110MB at 10km, sparse → drill-down-only confirmed; per-group build pending Kevin. See `claude/finding-family-resolution-2026-07-24.md`.* |
+| **D4** | Lowest taxonomic level | **Go to family where feasible** (Class/Order aren't meaningful, esp. for plants). Compute is not the constraint — bundle size / sparsity is; measure first, keep family×cell drill-down-only, consult Kevin per group. *Measured 2026-07-24: family×cell ≈2M rows / ~110MB at 10km, sparse. **Settled 2026-09-30: family is a filter only** (class → order → family) on existing tables — no family×cell layer, Kevin gate closed. Other tabs take family from COL (cube); Gaps filled uses Dyntaxa (its key space). Temporal and Taxonomic already have it; Spatial, Concern and Publishers to follow. See `claude/finding-family-resolution-2026-07-24.md`.* |
 | **D5** | Communication-layer scope for v1 | **Full** (follows from D1). |
 | **D6** | Versioned comparison / annual report | **Defer the in-app feature**; it rides on the snapshot retrospective (Part 2 C). |
 | **D7** | Invasives taxonomic level | **Species level, single graph** — Order/Family is uninformative. |
@@ -385,8 +408,10 @@ These looked like bugs but were diagnosed as non-bugs or app-side artifacts:
 
 ## Open questions
 
-1. **Grid bundling** — bundle EEA grids or always download?
-2. **GBIF authentication** — how to handle API credentials for cube downloads?
+1. ~~**Grid bundling**~~ — *answered:* EEA grids are a one-time manual download to
+   `data/shared/grids/`; the file on disk is the pin (audit D19).
+2. ~~**GBIF authentication**~~ — *answered:* `01a` submits the cube SQL with the user's GBIF
+   credentials (`rgbif`); without them it prints the identical query to run at the SQL API.
 3. **Unicellular organisms** — currently excluded (no backbone coverage) for taxonoic gap; monitor future checklists.
 4. **CARE metrics** — what does "CARE-aligned data" mean quantitatively? Needs GIDA-Sápmi consultation.
 5. **EcoBon cubes** — data format, resolution, availability; EEA-grid compatibility?

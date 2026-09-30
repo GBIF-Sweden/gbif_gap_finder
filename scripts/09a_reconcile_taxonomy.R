@@ -72,13 +72,12 @@ cache_file <- here(p_data_proc, "col_synonym_cache.rds")
 # so the cube's `specieskey` is a COL taxonID (alphanumeric, e.g. "6VFN8"), not
 # an integer nub key. Tier 4 resolves synonyms within this COL checklist dataset;
 # override per-country in config if GBIF's COL checklist key ever changes.
-col_checklist_key <- cfg_get("parameters.taxonomic.col_checklist_key",
-                             "7ddf754f-d193-4cc9-b351-99906754a03b")
+col_checklist_key <- get_col_checklist_key()
 
 # Output paths (p_gaps defined in R/globals.R)
 # Directory created by ensure_dirs() in 00_setup.R
 
-reconciliation_file <- here(p_data_proc, "taxonomic_reconciliation.rds")
+reconciliation_file <- here(p_timepoint, "taxonomic_reconciliation.rds")
 
 cli_h1("09a -- Taxonomic Reconciliation")
 
@@ -90,14 +89,14 @@ cli_h1("09a -- Taxonomic Reconciliation")
 cli_h2("Loading GBIF species from occurrence cubes")
 
 sum_files <- list.files(
-  here(p_data_proc, "derived"),
+  p_derived,
   pattern = "species_summary.*10km\\.csv$",
   recursive = TRUE, full.names = TRUE
 )
 
 if (length(sum_files) == 0) {
   cli_abort(
-    "No species_summary files found in {.path {here(p_data_proc, 'derived')}}. Run 06b first."
+    "No species_summary files found in {.path {p_derived}}. Run 06b first."
   )
 }
 cli_alert_info("Reading {length(sum_files)} species_summary files")

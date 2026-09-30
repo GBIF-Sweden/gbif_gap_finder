@@ -49,6 +49,7 @@
 #
 #   Not scope-filtered (single version):
 #     - tax_cell_recency_<grid>.csv             kingdom x class x cell recency
+#     - order_cell_recency_<grid>.csv           kingdom x class x order x cell recency
 #     - recent_cutoff.rds                       cutoff_ym + recent_label constants
 #     - species_scope_summary.csv                per-species scope flags
 #
@@ -128,7 +129,7 @@ SCOPE_FLAGS <- c(
 
 cli_h2("Loading Reconciliation Table")
 
-recon_path <- here(p_data_proc, "taxonomic_reconciliation.rds")
+recon_path <- here(p_timepoint, "taxonomic_reconciliation.rds")
 if (!file.exists(recon_path)) {
   cli_abort(c(
     "Reconciliation table not found: {.path {recon_path}}",
@@ -290,7 +291,7 @@ recent_cutoff <- list(
   label       = recent_label,
   computed_at = Sys.time()
 )
-saveRDS(recent_cutoff, here(p_data_proc, "recent_cutoff.rds"))
+saveRDS(recent_cutoff, here(p_timepoint, "recent_cutoff.rds"))
 cli_alert_success("Saved: recent_cutoff.rds")
 rm(ym_probe, all_ym); gc()
 
@@ -642,6 +643,40 @@ for (grid_label in names(grid_map)) {
     rm(tcr)
   }
 
+  # --------------------------------------------------------------------------
+  # Order cell recency (kingdom x class x order x cell) -- not scope-filtered.
+  # Drives the Spatial tab's order filter (2026-09-30). Same definitions as
+  # tax_cell_recency one rank down; ~3.7x its rows (~620k at 10 km for SE), so
+  # only the columns the map needs are written.
+  # --------------------------------------------------------------------------
+
+  if (all(c("kingdom", "class", "order") %in% names(cube))) {
+    cli_alert_info("Order cell recency (kingdom x class x order)")
+    ocr <- cube[!is.na(kingdom) & kingdom != "", .(
+      total_occ     = safe_sum(occ_num),
+      max_yearmonth = if (all(is.na(yearmonth))) NA_integer_ else max(yearmonth, na.rm = TRUE)
+    ), by = .(eeacellcode, kingdom, class, order)]
+
+    if (!is.na(latest_date_grid)) {
+      ocr[, staleness_months := {
+        cell_d <- as.Date(paste0(
+          substr(as.character(max_yearmonth), 1, 4), "-",
+          substr(as.character(max_yearmonth), 5, 6), "-01"
+        ))
+        round(as.numeric(difftime(latest_date_grid, cell_d, units = "days")) / 30.44, 1)
+      }]
+      ocr[is.na(max_yearmonth), staleness_months := NA_real_]
+    } else {
+      ocr[, staleness_months := NA_real_]
+    }
+    ocr[, max_yearmonth := NULL]
+
+    ocr <- bucket_unclassified(ocr)
+    fwrite(ocr, here(p_derived, glue("order_cell_recency_{grid_label}.csv")))
+    cli_alert_success("order_cell_recency_{grid_label}: {scales::comma(nrow(ocr))} rows")
+    rm(ocr)
+  }
+
   cli_alert_success("Done: {grid_label}")
   rm(cube); gc()
 }
@@ -698,7 +733,8 @@ for (summary_type in c("cell_summary", "time_summary", "cell_time_summary",
                        "order_cell_summary", "order_time_summary", "family_time_summary",
                        "species_time_summary",
                        "cell_recency", "basis_recent",
-                       "spatial_gaps", "cell_last_year", "tax_cell_recency")) {
+                       "spatial_gaps", "cell_last_year", "tax_cell_recency",
+                       "order_cell_recency")) {
   n <- sum(grepl(paste0("^", summary_type, "_"), output_files))
   if (n > 0) cli_alert_info("  {summary_type}: {n} files")
 }

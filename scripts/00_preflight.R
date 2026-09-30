@@ -247,8 +247,7 @@ pf_check("gbif_api", function() {
 }, network = TRUE)
 
 pf_check("col_checklist", function() {
-  col_key <- cfg_get("parameters.taxonomic.col_checklist_key",
-                     "7ddf754f-d193-4cc9-b351-99906754a03b")
+  col_key <- get_col_checklist_key()
   d <- .pf_json(file.path(GBIF_V1, "dataset", col_key))
   if (is.null(d) || is.null(d$title)) {
     return(fail(sprintf("pinned COL checklist %s not found on GBIF", col_key)))
@@ -262,8 +261,7 @@ pf_check("col_checklist", function() {
 pf_check("tier4_roundtrip", function() {
   # The exact call chain that 09a Tier 4 depends on, and the exact one that
   # returned HTTP 400 on every key after the July backbone migration.
-  col_key <- cfg_get("parameters.taxonomic.col_checklist_key",
-                     "7ddf754f-d193-4cc9-b351-99906754a03b")
+  col_key <- get_col_checklist_key()
   probe <- cfg_get("parameters.taxonomic.preflight_taxon_id", "6VFN8")
   s <- .pf_json(sprintf("%s/species?datasetKey=%s&sourceId=%s", GBIF_V1, col_key, probe))
   keys <- if (!is.null(s) && !is.null(s$results) && length(s$results)) s$results$key else NULL
@@ -280,8 +278,7 @@ pf_check("tier4_roundtrip", function() {
 
 pf_check("species_match_v2", function() {
   # v2 is a moving surface; Tier 5 silently rescues nothing if it changes shape.
-  col_key <- cfg_get("parameters.taxonomic.col_checklist_key",
-                     "7ddf754f-d193-4cc9-b351-99906754a03b")
+  col_key <- get_col_checklist_key()
   nm <- cfg_get("parameters.taxonomic.preflight_taxon_name", "Bellis perennis")
   m <- .pf_json(sprintf("%s/species/match?checklistKey=%s&scientificName=%s",
                         GBIF_V2, col_key, utils::URLencode(nm, reserved = TRUE)))

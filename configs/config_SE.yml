@@ -165,6 +165,24 @@ parameters:
     max_age_days: 90
     force_refresh: false
   crs: 3035
+  # --- Gap closure between time points (script 14) --------------------------
+  # The source split the "Gaps filled" tab is built on. Step 0 measured that
+  # mechanism is very nearly a proxy for source: Artportalen-only gained pairs
+  # were 71.9% fieldwork, everything else 21.0%. One averaged bar would describe
+  # neither stream, so every closure table is split by these groups.
+  # Membership is a national fact and belongs here rather than in code; anything
+  # not listed falls into "collections".
+  closure:
+    frozen_quantile: 0.10
+    # A class x order group losing at least this share of its baseline
+    # species x cell pairs is flagged as taxonomically volatile. Fungal orders
+    # run 1.8-12%; insects and birds run 0.15-0.2%.
+    churn_warn_pct: 1.0
+    source_groups:
+      observation_platforms:
+        - 38b4c89f-584c-41bb-bd8f-cd1def33e92f   # Artportalen (SLU Artdatabanken)
+        - 50c9509d-22c7-4a22-a47d-8c48425ef4a7   # iNaturalist research-grade
+        - 8a863029-f435-446a-821e-275f4f641165   # Observation.org
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]
   temporal:
@@ -189,6 +207,19 @@ parameters:
     # so the backbone is a version-controlled choice, not a dependency on GBIF's
     # mutable default. Drives (a) name matching in 09a and (b) provenance in 01b.
     col_checklist_key: "7ddf754f-d193-4cc9-b351-99906754a03b"
+    # Regression baseline for 09a1's validation report (col_crosswalk_validation.md).
+    # These are 09a1's OWN definitions, not the tier table's: "matched cube species"
+    # counts cube species with a crosswalked COL key, and "threatened not
+    # crosswalked" is threatened accepted Dyntaxa taxa (all ranks) with no
+    # crosswalked COL key in the cube. They are crosswalk health checks, so they
+    # differ from the official docs/metrics.md figures (78.8% / 99.79% / 122
+    # missing threatened), which are species-rank scoped and use every tier.
+    # Update deliberately after a verified rebuild. Measured 2026-09-09 (Dyntaxa
+    # 2026-08-28, COL 2026-07-17, cube 2026-07-29). Unset = report without comparing.
+    crosswalk_baseline:
+      match_pct: 75.3
+      occ_pct: 99.1
+      threatened_not_crosswalked: 152
     # Occurrence-based tabs (Overview/Spatial/Temporal/Record Types/Publisher)
     # report ALL of GBIF; only Taxonomic + Species-of-Concern are backbone-
     # relative. When true, this switch kingdom-scopes the 06a/08 cube ("all") to

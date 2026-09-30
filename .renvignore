@@ -1,0 +1,26 @@
+# renv scans the whole project tree for R code. This project is ~25,400 files of
+# which ~440 are R, so without this renv::status() and renv::snapshot() walk
+# 24,221 data files and then ERROR on the twelve by_order/by_family directories
+# that hold 1,000-2,500 CSVs each ("directory contains 2500 files").
+#
+# Each line below was checked before being added: none of these directories
+# contains a single .R, .Rmd or .qmd file. Paths are anchored with a leading "/"
+# so a nested directory of the same name (shiny_app/gap_finder/data/) is matched
+# on its own merits rather than by accident.
+
+/data/
+/_targets/
+/logs/
+/_patch_archive/
+/output/
+/provenance/
+
+# Rendered HTML from the reports. The .Rmd sources in analysis/ stay in scope —
+# they are real code and do carry real dependencies.
+/analysis/*.html
+
+# Documentation, not a dependency. ROADMAP.Rmd mentions b3gbi::process_cube()
+# in a sentence describing the b-cubed schema migration; that is prose about the
+# standard, not a call this project makes, and b3gbi is not installed. Without
+# this line renv::status() reports it as a missing dependency forever.
+/ROADMAP.Rmd

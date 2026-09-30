@@ -192,7 +192,7 @@ cli_h2("Validating GBIF Cube Outputs")
 md_hr()
 md_h2("2) GBIF Occurrence Cube Outputs")
 
-manifest_file <- here(p_data_proc, "cubes", "cube_manifest.csv")
+manifest_file <- here(p_cubes, "cube_manifest.csv")
 
 if (file_exists_safe(manifest_file)) {
   md_check("Cube manifest found", "ok")
@@ -203,7 +203,7 @@ if (file_exists_safe(manifest_file)) {
   md_add("- Manifest entries: `", nrow(manifest), "`\n")
 
   # Check parquet files exist
-  parquet_dir <- here(p_data_proc, "cubes")
+  parquet_dir <- p_cubes
   parquet_files <- list.files(parquet_dir, pattern = "\\.parquet$", full.names = TRUE)
 
   if (length(parquet_files) >= 2) {
@@ -393,8 +393,8 @@ check_cube_in_grid <- function(pq_file, grid_gpkg, label) {
   }
 }
 
-check_cube_in_grid(here(p_data_proc, "cubes", "cube_10km.parquet"), out_grid_10km_gpkg, "10km")
-check_cube_in_grid(here(p_data_proc, "cubes", "cube_50km.parquet"), out_grid_50km_gpkg, "50km")
+check_cube_in_grid(here(p_cubes, "cube_10km.parquet"), out_grid_10km_gpkg, "10km")
+check_cube_in_grid(here(p_cubes, "cube_50km.parquet"), out_grid_50km_gpkg, "50km")
 
 # ============================================================================
 # Section 3: Taxa Reference

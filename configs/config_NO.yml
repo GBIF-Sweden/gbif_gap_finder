@@ -172,6 +172,13 @@ parameters:
     # selector (render_cube_sql -> ${COL_CHECKLIST_KEY}). Used by 09a (name
     # matching) and 01b (provenance).
     col_checklist_key: "7ddf754f-d193-4cc9-b351-99906754a03b"
+    # Regression baseline for 09a1's validation report. Unset until this country
+    # has a verified run: the report then shows values without comparing. See
+    # config_SE.yml for the definitions and the shape:
+    # crosswalk_baseline:
+    #   match_pct: 75.3
+    #   occ_pct: 99.1
+    #   threatened_not_crosswalked: 152
     # Keep FALSE so the occurrence tabs report ALL of GBIF (matches config_SE
     # + the 2026-07-21 decision). Code defaults TRUE, so NO must set it explicitly
     # or its occurrence tabs silently kingdom-scope.

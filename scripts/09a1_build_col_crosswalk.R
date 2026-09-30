@@ -51,8 +51,7 @@ cli_h1("09a1 -- Build + validate Dyntaxa<->COL crosswalk (Section B spike)")
 # ----------------------------------------------------------------------------
 # Config (defaults are safe; no config file change required)
 # ----------------------------------------------------------------------------
-col_checklist_key <- cfg_get("parameters.taxonomic.col_checklist_key",
-                             "7ddf754f-d193-4cc9-b351-99906754a03b")
+col_checklist_key <- get_col_checklist_key()
 include_synonyms  <- isTRUE(cfg_get("parameters.taxonomic.crosswalk_include_synonyms", TRUE))
 min_fuzzy_conf    <- cfg_get("parameters.taxonomic.crosswalk_min_fuzzy_confidence", 90)
 use_bulk          <- isTRUE(cfg_get("parameters.taxonomic.crosswalk_use_bulk_rgbif", FALSE))  # default off: the parallel httr2 path below is fast + rgbif-version-independent
@@ -65,10 +64,16 @@ crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
 report_file    <- here(p_gaps, "col_crosswalk_validation.md")
 # THREATENED_CODES now comes from R/globals.R (config-driven, one definition).
 
-# Confirmed regression baseline (both repair patches, 2026-07-27 rerun).
-BASE_MATCH_PCT <- 76.4
-BASE_OCC_PCT   <- 99.72
-BASE_MISSING_THREATENED <- 225
+# Regression baseline: config, not code (parameters.taxonomic.crosswalk_baseline).
+# The old hardcoded 76.4 / 99.72 / 225 (2026-07-27) went stale with the Dyntaxa
+# refresh and flagged a false REGRESSED on every run since. NA = not configured:
+# the report then prints the values without comparing.
+.xw_base <- cfg_get("parameters.taxonomic.crosswalk_baseline", list())
+BASE_MATCH_PCT          <- as.numeric(.xw_base$match_pct          %||% NA_real_)
+BASE_OCC_PCT            <- as.numeric(.xw_base$occ_pct            %||% NA_real_)
+# `missing_threatened` is the pre-2026-09-30 key name, still accepted.
+BASE_MISSING_THREATENED <- as.numeric(
+  .xw_base$threatened_not_crosswalked %||% .xw_base$missing_threatened %||% NA_real_)
 
 # ============================================================================
 # Step 1: Load Dyntaxa reference + classify accepted/synonym
@@ -131,7 +136,7 @@ cli_alert_info(
 # ============================================================================
 cli_h2("Loading cube species universe (for validation)")
 sum_files <- list.files(
-  here(p_data_proc, "derived"),
+  p_derived,
   pattern = "species_summary.*10km\\.csv$", recursive = TRUE, full.names = TRUE
 )
 cube_sp <- NULL
@@ -404,6 +409,9 @@ if (length(cube_keys) > 0) {
 
   cmp <- function(label, val, base, unit = "", better = c("higher", "lower")) {
     better <- match.arg(better)
+    if (is.na(base)) {
+      return(sprintf("- %s: **%s%s** (no baseline configured)", label, val, unit))
+    }
     delta  <- round(val - base, 2)
     arrow  <- if (delta == 0) "=" else if (delta > 0) "+" else ""
     ok     <- if (better == "higher") val >= base else val <= base
@@ -418,15 +426,23 @@ if (length(cube_keys) > 0) {
     sprintf("- Matched cube species: %s / %s",
             scales::comma(length(cube_matched)), scales::comma(length(cube_keys))),
     "",
-    "## Missing threatened (must not regress)",
-    sprintf("- Threatened accepted Dyntaxa taxa: %s", scales::comma(n_threat)),
-    sprintf("- ...present in GBIF: %s", scales::comma(n_threat_ingbif)),
-    cmp("Missing threatened taxa", missing_threat, BASE_MISSING_THREATENED, "", "lower")
+    "## Threatened taxa reached by the crosswalk (must not regress)",
+    paste0("_A health check on the crosswalk, NOT the official \"missing threatened\" figure. ",
+           "That one (docs/metrics.md, Overview) is scoped to species rank and uses every ",
+           "matching tier, so it is lower._"),
+    sprintf("- Threatened accepted Dyntaxa taxa (unscoped): %s", scales::comma(n_threat)),
+    sprintf("- ...reached through the crosswalk alone: %s", scales::comma(n_threat_ingbif)),
+    cmp("Threatened taxa not reached by the crosswalk", missing_threat,
+        BASE_MISSING_THREATENED, "", "lower")
   )
 
-  cli_alert_success("Matched cube species: {pct_species}% (baseline {BASE_MATCH_PCT}%)")
-  cli_alert_success("Occurrence coverage: {pct_occ}% (baseline {BASE_OCC_PCT}%)")
-  cli_alert_success("Missing threatened: {missing_threat} (baseline {BASE_MISSING_THREATENED})")
+  cli_alert_info("Matched cube species: {pct_species}% (baseline {BASE_MATCH_PCT}%)")
+  cli_alert_info("Occurrence coverage: {pct_occ}% (baseline {BASE_OCC_PCT}%)")
+  cli_alert_info("Threatened not reached by crosswalk: {missing_threat} (baseline {BASE_MISSING_THREATENED})")
+  n_regressed <- sum(grepl("REGRESSED", report, fixed = TRUE))
+  if (n_regressed > 0) {
+    cli_alert_warning("{n_regressed} crosswalk metric{?s} below baseline -- see {.path {report_file}}")
+  }
 } else {
   report <- c(report, "", "## Coverage",
               "_Cube species_summary not found — rerun after 06b to validate coverage._")
