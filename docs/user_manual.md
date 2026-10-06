@@ -8,9 +8,8 @@ turns that into a prioritised, actionable picture. It is built for the people wh
 close those gaps: **data holders and collection managers** deciding what to digitise or
 publish, and the biodiversity‑informatics community coordinating national coverage.
 
-The deployed app lives at the GBIF Sweden site (currently
-`https://test.gbif.se/gap-finder/`). This manual explains what each part means and how to
-read it honestly.
+The deployed app lives at the GBIF Sweden site, <https://gbif.se/gap-finder/>. This manual
+explains what each part means and how to read it honestly.
 
 ---
 
