@@ -285,9 +285,10 @@ robust to naming differences.
 
 If you use the Gap Finder or its outputs, please cite:
 
-> Thöle, L. *gbif_gap_finder: a reproducible pipeline for biodiversity data gap analysis.*
+> Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. *GBIF Gap Finder: a reproducible
+> pipeline for biodiversity data gap analysis.*
 > Version 0.8.0 (2026-09-30). GBIF Sweden, Swedish Museum of Natural History (NRM).
-> https://github.com/GBIF-Sweden/gbif_gap_finder
+> https://gbif.se/gap-finder/ · source code: https://github.com/GBIF-Sweden/gbif_gap_finder
 
 Please also cite the underlying data sources by their DOIs (above / on the Data & Sources
 tab). Full machine‑readable citation metadata is in `CITATION.cff` at the repository root.
@@ -300,7 +301,7 @@ The most direct way to close a gap you can see here is to publish the relevant r
 GBIF. If you hold occurrence data for Swedish taxa — especially for under‑covered areas, or
 for threatened or invasive species shown as missing — GBIF Sweden can help you publish it
 (for example via an IPT / Darwin Core Archive). Contact GBIF Sweden at the Swedish Museum of
-Natural History, or open an issue on the
+Natural History ([gbif@nrm.se](mailto:gbif@nrm.se)), or open an issue on the
 [project repository](https://github.com/GBIF-Sweden/gbif_gap_finder).
 
 ---
@@ -309,7 +310,10 @@ Natural History, or open an issue on the
 
 Questions about a metric or a definition are answered in each tab's **About** expander and
 in the Overview **Methods, limitations & glossary** panel. For issues, corrections, or
-suggestions, use the project repository. This manual describes the dashboard's content and
-interpretation; the repository README covers installation and the analysis pipeline.
+suggestions, email [gbif@nrm.se](mailto:gbif@nrm.se) or use the project repository. To report
+an accessibility problem, see the GBIF Sweden
+[accessibility statement](https://www.gbif.se/accessibility/). This manual describes the
+dashboard's content and interpretation; the repository README covers installation and the
+analysis pipeline.
 
-*Last updated: 2026‑09‑30.*
+*Last updated: 2026‑10‑06.*

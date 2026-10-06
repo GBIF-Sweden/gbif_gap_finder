@@ -185,6 +185,20 @@ estab_group <- function(x, merge_naturalised = FALSE) {
 # hardcoded constant goes stale at the next release.
 # "dev" locally, which is the truth rather than a stale release number.
 GAP_FINDER_VERSION <- Sys.getenv("GAP_FINDER_VERSION", "dev")
+# Display form: a release reads "v1.2.3" whether or not the tag carried the "v";
+# anything else ("dev") is shown as is.
+GAP_FINDER_VERSION_LABEL <- if (grepl("^v?[0-9]", GAP_FINDER_VERSION)) {
+  paste0("v", sub("^v", "", GAP_FINDER_VERSION))
+} else {
+  GAP_FINDER_VERSION
+}
+
+# Public address, contact and policy links of this instance (GBIF Sweden), shown
+# in the Overview citation card and in the footer on every tab.
+APP_URL           <- "https://gbif.se/gap-finder/"
+REPO_URL          <- "https://github.com/GBIF-Sweden/gbif_gap_finder"
+CONTACT_EMAIL     <- "gbif@nrm.se"
+ACCESSIBILITY_URL <- "https://www.gbif.se/accessibility/"
 
 # The DATA snapshot date — when GBIF cut the cube — is a different fact from the
 # CODE version above, and from metadata$created_at, which is only when this
@@ -423,6 +437,14 @@ gloss <- function(term, definition) {
     term
   )
 }
+
+# Filter caption passed as the input's own label, so screen readers announce the
+# control by name; styled like the stand-alone .filter-label captions.
+filter_label <- function(text) tags$span(class = "filter-label", text)
+
+# Wraps an input whose purpose is already shown by visible text or a heading next
+# to it: the input keeps a label for screen readers, but it is not displayed.
+sr_label <- function(input) div(class = "sr-label", input)
 
 # Consistent "measurement -> interpretation -> action" guide shown at the top of
 # each analysis tab (plain-language framing for a broad, non-specialist audience).
@@ -701,6 +723,7 @@ taxon_ref <- function(name) {
 }
 
 ui <- fluidPage(
+  lang = "en",
 
   tags$head(
     tags$title(if (nchar(country_name) > 0) paste0("GBIF Gap Finder \u2014 ", country_name) else "GBIF Gap Finder"),
@@ -727,11 +750,11 @@ ui <- fluidPage(
             span("Datasets: ", span(class = "header-stat-value", metadata$n_datasets)))
         ),
         div(style = "display:flex; align-items:center; gap:0.4rem;",
-          span(style = "font-size:1rem; color:#6b6b6b;", "Record type:"),
-          selectInput("basis_filter", NULL,
+          span(style = "font-size:1rem; color:#6b6b6b;", `aria-hidden` = "true", "Record type:"),
+          sr_label(selectInput("basis_filter", "Record type",
             choices = basis_types,
             selected = "all",
-            width = "180px"))
+            width = "180px")))
       )
     )
   ),
@@ -860,20 +883,26 @@ ui <- fluidPage(
             tags$h2(class = "card-title", icon("book"), "How to cite, version & contact"),
             div(class = "info-note", style = "margin-top:0;",
               "If you use the Gap Finder or its figures, please cite: ",
-              tags$strong("Thöle, L."), " GBIF Gap Finder: a reproducible pipeline for biodiversity ",
-              "data gap analysis (v", GAP_FINDER_VERSION, "). GBIF Sweden, Swedish Museum of Natural History (NRM). ",
-              tags$a(href = "https://github.com/GBIF-Sweden/gbif_gap_finder", target = "_blank",
-                "github.com/GBIF-Sweden/gbif_gap_finder"),
+              tags$strong("Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V."),
+              paste0(" GBIF Gap Finder: a reproducible pipeline for biodiversity data gap ",
+                "analysis (", GAP_FINDER_VERSION_LABEL, "). ",
+                "GBIF Sweden, Swedish Museum of Natural History (NRM). "),
+              tags$a(href = APP_URL, target = "_blank", APP_URL),
+              ". Source code: ",
+              tags$a(href = REPO_URL, target = "_blank", "github.com/GBIF-Sweden/gbif_gap_finder"),
               ". Please also cite the underlying datasets by their DOIs — see the ",
               tags$strong("Data & sources"), " tab."),
             div(class = "info-note", style = "margin-top:0.5rem; color:#6b6b6b;",
-              "App version ", tags$strong(GAP_FINDER_VERSION),
+              "App version ", tags$strong(GAP_FINDER_VERSION_LABEL),
               " · Data as of ",
               tags$strong(if (!is.na(GAP_FINDER_SNAPSHOT)) format(GAP_FINDER_SNAPSHOT, "%Y-%m-%d") else "unknown"),
               " · bundle built ",
               if (!is.null(metadata$created_at)) format(metadata$created_at, "%Y-%m-%d") else "unknown",
-              " · Contact GBIF Sweden (Swedish Museum of Natural History) via the ",
-              tags$a(href = "https://github.com/GBIF-Sweden/gbif_gap_finder/issues", target = "_blank",
+              " · Contact GBIF Sweden (Swedish Museum of Natural History): ",
+              tags$a(href = paste0("mailto:", CONTACT_EMAIL), CONTACT_EMAIL),
+              " · ", tags$a(href = ACCESSIBILITY_URL, target = "_blank", "Accessibility statement"),
+              " · Report a problem in the ",
+              tags$a(href = paste0(REPO_URL, "/issues"), target = "_blank",
                 "project repository"), ".")
           ),
 
@@ -1237,19 +1266,19 @@ ui <- fluidPage(
                 tags$h2(class = "card-title", icon("sliders-h"), "Display"),
                 # Coverage-area (marine) toggle at the top of the Display panel
                 if (has_marine) tagList(
-                  div(class = "filter-label", "Coverage area"),
-                  radioGroupButtons("coverage_area", label = NULL,
+                  div(class = "filter-label", `aria-hidden` = "true", "Coverage area"),
+                  sr_label(radioGroupButtons("coverage_area", label = "Coverage area",
                     choices = c("Land + sea" = "land_sea", "Land only" = "land_only",
                                 "Sea only" = "sea_only"),
-                    selected = "land_sea", size = "sm"),
+                    selected = "land_sea", size = "sm")),
                   tags$hr(style = "margin: 0.6rem 0; border-color: #eee;")
                 ),
-                radioButtons("map_var", NULL,
+                sr_label(radioButtons("map_var", "Map measure",
                   choices = setNames(
                     c("occ", "stale", "richness", "last_year_obs"),
                     c("Occurrences", "Data recency", "Species richness",
                       paste0("Observed (", last_year_label, ")"))),
-                  selected = "occ"),
+                  selected = "occ")),
                 if (has_kingdom_recency) tagList(
                   tags$hr(style = "margin: 0.5rem 0; border-color: #eee;"),
                   div(class = "filter-label", "Taxonomic filter"),
@@ -1319,26 +1348,17 @@ ui <- fluidPage(
           div(class = "filter-section",
             fluidRow(
               column(2,
-                div(class = "filter-label", "Year Range"),
-                sliderInput("year_range", NULL, min = 1900, max = data_max_year,
+                sliderInput("year_range", filter_label("Year Range"),
+                  min = 1900, max = data_max_year,
                   value = c(1970, last_complete_year), step = 1, sep = "")),
               column(2,
-                div(class = "filter-label", "Kingdom"),
-                selectizeInput("temp_kingdom", NULL,
+                selectizeInput("temp_kingdom", filter_label("Kingdom"),
                   choices = c("All" = "", kingdom_choices), selected = "",
                   options = list(allowEmptyOption = TRUE))),
-              column(2,
-                div(class = "filter-label", "Phylum"),
-                uiOutput("temp_phylum_ui")),
-              column(2,
-                div(class = "filter-label", "Class"),
-                uiOutput("temp_class_ui")),
-              column(2,
-                div(class = "filter-label", "Order"),
-                uiOutput("temp_order_ui")),
-              column(2,
-                div(class = "filter-label", "Family"),
-                uiOutput("temp_family_ui"))
+              column(2, uiOutput("temp_phylum_ui")),
+              column(2, uiOutput("temp_class_ui")),
+              column(2, uiOutput("temp_order_ui")),
+              column(2, uiOutput("temp_family_ui"))
             )),
           fluidRow(
             column(8, div(class = "card",
@@ -1352,9 +1372,9 @@ ui <- fluidPage(
             column(12, div(class = "card",
               div(style = "display:flex; align-items:center; justify-content:space-between;",
                 tags$h2(class = "card-title", icon("th"), "Year \u00d7 Month Heatmap"),
-                radioButtons("heatmap_scale", NULL,
+                sr_label(radioButtons("heatmap_scale", "Heatmap colour scale",
                   choices = c("Log scale" = "log", "Linear" = "linear", "Binned" = "binned"),
-                  selected = "log", inline = TRUE)
+                  selected = "log", inline = TRUE))
               ),
               plotlyOutput("temporal_heatmap", height = "350px")))
           )
@@ -1556,34 +1576,26 @@ ui <- fluidPage(
           div(class = "filter-section",
             fluidRow(
               column(2,
-                div(class = "filter-label", "Kingdom"),
-                selectizeInput("tax_kingdom", NULL,
+                selectizeInput("tax_kingdom", filter_label("Kingdom"),
                   choices = c("All" = "", kingdom_choices),
                   selected = "", options = list(allowEmptyOption = TRUE))),
-              column(2,
-                div(class = "filter-label", "Phylum"),
-                uiOutput("tax_phylum_ui")),
-              column(2,
-                div(class = "filter-label", "Class"),
-                uiOutput("tax_class_ui")),
-              column(2,
-                div(class = "filter-label", "Order"),
-                uiOutput("tax_order_filter_ui")),
-              column(2,
-                div(class = "filter-label", "Family"),
-                uiOutput("tax_family_filter_ui"))
+              column(2, uiOutput("tax_phylum_ui")),
+              column(2, uiOutput("tax_class_ui")),
+              column(2, uiOutput("tax_order_filter_ui")),
+              column(2, uiOutput("tax_family_filter_ui"))
             ),
             # Separate row: last 12 months toggle
             tags$hr(style = "margin: 0.75rem 0; border-color: var(--border-light);"),
             div(style = "display: flex; align-items: center; gap: 1.5rem;",
               div(class = "filter-label", style = "margin-bottom: 0; white-space: nowrap;",
+                `aria-hidden` = "true",
                 icon("calendar-alt", style = "margin-right: 0.3rem;"), "HIGHLIGHT LAST 12 MONTHS"),
-              radioButtons("tax_last_year_mode", NULL,
+              sr_label(radioButtons("tax_last_year_mode", "Highlight last 12 months",
                 choices = setNames(
                   c("off", "observed"),
                   c("Off",
                     paste0("Observed (", last_year_label, ")"))),
-                selected = "off", inline = TRUE)
+                selected = "off", inline = TRUE))
             )
           ),
 
@@ -1597,7 +1609,8 @@ ui <- fluidPage(
             " | ",
             tags$a(href = "https://artfakta.se/",
               "Browse Dyntaxa", target = "_blank", style = "color: var(--sage);"),
-            ". The scope filter above controls which species are included (present, native, introduced, invasive)."
+            ". To see only present, native, introduced or invasive species, ",
+            "use the Scope filter on the Species of Concern tab."
           ),
 
           # Active filter breadcrumb
@@ -1618,14 +1631,12 @@ ui <- fluidPage(
             # Troudet-specific controls: landing view + exclusion multi-select
             fluidRow(
               column(5,
-                div(class = "filter-label", "Landing-view grouping"),
-                radioButtons("troudet_landing", NULL,
+                radioButtons("troudet_landing", filter_label("Landing-view grouping"),
                   choices = c("GBIF-style groups" = "gbif_groups",
                               "By kingdom" = "kingdom"),
                   selected = "gbif_groups", inline = TRUE)),
               column(7,
-                div(class = "filter-label", "Exclude groups from chart"),
-                selectizeInput("troudet_exclude", NULL,
+                selectizeInput("troudet_exclude", filter_label("Exclude groups from chart"),
                   choices = NULL, multiple = TRUE,
                   options = list(
                     placeholder = "Type a group to exclude",
@@ -2053,10 +2064,11 @@ ui <- fluidPage(
           # Optional log scale for the two volume charts (helps when one publisher
           # dominates the linear axis)
           div(style = "display:flex; justify-content:flex-end; align-items:center; gap:0.6rem; margin-bottom:0.75rem;",
-            tags$span(style = "font-weight:600; color:var(--text-secondary);", "Bar axis scale:"),
-            radioGroupButtons("pub_scale", label = NULL,
+            tags$span(style = "font-weight:600; color:var(--text-secondary);",
+              `aria-hidden` = "true", "Bar axis scale:"),
+            sr_label(radioGroupButtons("pub_scale", label = "Bar axis scale",
               choices = c("Linear" = "linear", "Log" = "log"),
-              selected = "linear", size = "sm")),
+              selected = "linear", size = "sm"))),
 
           fluidRow(
             column(6, div(class = "card",
@@ -2132,13 +2144,14 @@ ui <- fluidPage(
           div(class = "filter-section", style = "margin-bottom: 1rem;",
             div(style = "display: flex; align-items: center; gap: 1.5rem;",
               div(class = "filter-label", style = "margin-bottom: 0; white-space: nowrap;",
+                `aria-hidden` = "true",
                 icon("calendar-alt", style = "margin-right: 0.3rem;"), "HIGHLIGHT LAST 12 MONTHS"),
-              radioButtons("basis_last_year_mode", NULL,
+              sr_label(radioButtons("basis_last_year_mode", "Highlight last 12 months",
                 choices = setNames(
                   c("off", "observed"),
                   c("Off",
                     paste0("Observed (", last_year_label, ")"))),
-                selected = "off", inline = TRUE)
+                selected = "off", inline = TRUE))
             )
           ),
 
@@ -2166,8 +2179,8 @@ ui <- fluidPage(
               "Where records of the selected ", tags$strong("record type"),
               " come from \u2014 e.g. human observations vs preserved specimens. ",
               "Each square is a 10 km cell; darker means more records. Click a cell for details."),
-            selectInput("basis_map_select", NULL,
-              choices = basis_types_no_all, width = "250px"),
+            sr_label(selectInput("basis_map_select", "Record type shown on the map",
+              choices = basis_types_no_all, width = "250px")),
             leafletOutput("basis_map", height = "450px"), map_dl_btn("basis_map_dl"))
         )
       ),
@@ -2258,14 +2271,17 @@ ui <- fluidPage(
       )
     ),
 
-    # Footer
-    div(class = "metadata-footer",
-      HTML(paste0(
-        "Data prepared: ",
-        if (!is.null(metadata)) format(metadata$created_at, "%Y-%m-%d %H:%M") else "Unknown",
-        " \u00b7 Datasets: ", if (!is.null(metadata)) metadata$n_datasets else "?",
-        " \u00b7 gbif_gap_finder"
-      ))
+    # Footer on every tab, so contact and accessibility information is one step
+    # away wherever a visitor is.
+    tags$footer(class = "metadata-footer",
+      "Data prepared: ",
+      if (!is.null(metadata)) format(metadata$created_at, "%Y-%m-%d %H:%M") else "Unknown",
+      " \u00b7 Datasets: ", if (!is.null(metadata)) metadata$n_datasets else "?",
+      " \u00b7 GBIF Gap Finder ", GAP_FINDER_VERSION_LABEL,
+      " \u00b7 GBIF Sweden, Swedish Museum of Natural History \u00b7 ",
+      tags$a(href = paste0("mailto:", CONTACT_EMAIL), CONTACT_EMAIL),
+      " \u00b7 ", tags$a(href = ACCESSIBILITY_URL, target = "_blank", "Accessibility statement"),
+      " \u00b7 ", tags$a(href = REPO_URL, target = "_blank", "Source code")
     )
   )
 )
@@ -2432,7 +2448,8 @@ server <- function(input, output, session) {
         filter(kingdom == input$temp_kingdom) |> pull(phylum) |> unique() |> sort()
       ch <- c("All" = "", setNames(ph, ph))
     }
-    selectizeInput("temp_phylum", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
+    selectizeInput("temp_phylum", filter_label("Phylum"), choices = ch, selected = "",
+      options = list(allowEmptyOption = TRUE))
   })
 
   # Temporal taxonomy cascade — Class
@@ -2447,7 +2464,8 @@ server <- function(input, output, session) {
       cl <- sort(unique(df$class))
       ch <- c("All" = "", setNames(cl, cl))
     }
-    selectizeInput("temp_class", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
+    selectizeInput("temp_class", filter_label("Class"), choices = ch, selected = "",
+      options = list(allowEmptyOption = TRUE))
   })
 
   # Temporal taxonomy cascade — Order
@@ -2464,7 +2482,8 @@ server <- function(input, output, session) {
       ord <- sort(unique(df$order))
       if (length(ord) <= 200) ch <- c("All" = "", setNames(ord, ord))
     }
-    selectizeInput("temp_order", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
+    selectizeInput("temp_order", filter_label("Order"), choices = ch, selected = "",
+      options = list(allowEmptyOption = TRUE))
   })
 
   # Temporal taxonomy cascade — Family
@@ -2483,7 +2502,8 @@ server <- function(input, output, session) {
       fam <- sort(unique(df$family))
       if (length(fam) <= 200) ch <- c("All" = "", setNames(fam, fam))
     }
-    selectizeInput("temp_family", NULL, choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
+    selectizeInput("temp_family", filter_label("Family"), choices = ch, selected = "",
+      options = list(allowEmptyOption = TRUE))
   })
 
   # Helper: get filtered orders based on temporal taxonomy selections
@@ -2514,7 +2534,11 @@ server <- function(input, output, session) {
   temp_data <- reactive({
     sel_family <- temp_filtered_families()
     orders <- temp_filtered_orders()
-    has_tax_filter <- !is.null(input$temp_kingdom) && input$temp_kingdom != ""
+    # Any rank above family (kingdom, phylum, class or order) narrows the series
+    # through the order-level summary; family has its own branch above it.
+    has_tax_filter <- any(vapply(
+      list(input$temp_kingdom, input$temp_phylum, input$temp_class, input$temp_order),
+      function(x) !is.null(x) && nzchar(x), logical(1)))
 
     ts  <- time_summary
     ots <- order_time_summary
@@ -2523,14 +2547,14 @@ server <- function(input, output, session) {
     if (!is.null(sel_family) && !is.null(fts)) {
       # Family-level filtering
       fts |>
-        filter(basisofrecord == "all",
+        filter(basisofrecord == basis_selected(),
                family == sel_family,
                year >= input$year_range[1],
                year <= input$year_range[2])
     } else if (has_tax_filter && !is.null(ots) && !is.null(orders)) {
       # Order-level filtering
       ots |>
-        filter(basisofrecord == "all",
+        filter(basisofrecord == basis_selected(),
                order %in% orders,
                year >= input$year_range[1],
                year <= input$year_range[2])
@@ -2547,6 +2571,12 @@ server <- function(input, output, session) {
     df <- temp_data()
     yearly <- df |> group_by(year) |>
       summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+
+    if (nrow(yearly) == 0) {
+      return(plotly_empty() |> plotly_layout(
+        annotations = list(list(text = "No records for this selection",
+          showarrow = FALSE, xref = "paper", yref = "paper", x = 0.5, y = 0.5))))
+    }
 
     # When the partial (latest/snapshot) year is in view, grey it + label it so
     # an incomplete final year does not read as a genuine decline.
@@ -3749,7 +3779,8 @@ server <- function(input, output, session) {
       ph <- sort(unique(df$phylum[!is.na(df$phylum) & df$phylum != ""]))
       choices <- c("All" = "", setNames(ph, ph))
     }
-    selectizeInput("tax_phylum", NULL, choices = choices, selected = "", options = list(allowEmptyOption = TRUE))
+    selectizeInput("tax_phylum", filter_label("Phylum"), choices = choices, selected = "",
+      options = list(allowEmptyOption = TRUE))
   })
 
   # Reactive: filtered class choices based on selected kingdom + phylum
@@ -3766,7 +3797,8 @@ server <- function(input, output, session) {
       cl <- sort(unique(df$class[!is.na(df$class) & df$class != ""]))
       choices <- c("All" = "", setNames(cl, cl))
     }
-    selectizeInput("tax_class", NULL, choices = choices, selected = "", options = list(allowEmptyOption = TRUE))
+    selectizeInput("tax_class", filter_label("Class"), choices = choices, selected = "",
+      options = list(allowEmptyOption = TRUE))
   })
 
   # Reactive: filtered order choices (for additional narrowing)
@@ -3788,7 +3820,8 @@ server <- function(input, output, session) {
         choices <- c("All" = "", setNames(ord, ord))
       }
     }
-    selectizeInput("tax_order_filter", NULL, choices = choices, selected = "", options = list(allowEmptyOption = TRUE))
+    selectizeInput("tax_order_filter", filter_label("Order"), choices = choices, selected = "",
+      options = list(allowEmptyOption = TRUE))
   })
 
   # Reactive: filtered family choices
@@ -3809,7 +3842,8 @@ server <- function(input, output, session) {
         choices <- c("All" = "", setNames(fam, fam))
       }
     }
-    selectizeInput("tax_family_filter", NULL, choices = choices, selected = "", options = list(allowEmptyOption = TRUE))
+    selectizeInput("tax_family_filter", filter_label("Family"), choices = choices, selected = "",
+      options = list(allowEmptyOption = TRUE))
   })
 
 

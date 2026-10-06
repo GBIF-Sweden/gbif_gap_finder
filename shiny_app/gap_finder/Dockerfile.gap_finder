@@ -15,7 +15,7 @@
 # security advisory for GDAL/PROJ/GEOS/curl/openssl), then rebuild and check.
 # `--error-on=any` makes a failed snapshot fetch stop the build instead of
 # installing from stale or empty package lists.
-ARG APT_SNAPSHOT=20260930T000000Z
+ARG APT_SNAPSHOT=20261006T000000Z
 
 FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c AS builder
 ARG APT_SNAPSHOT
@@ -105,10 +105,10 @@ WORKDIR /opt/project
 # the bundle metadata; app.R does not read this file at runtime).
 COPY configs/config_${GBIF_GAP_COUNTRY}.yml ./configs/config_${GBIF_GAP_COUNTRY}.yml
 
-# App code + data bundle + styles
+# App code + data bundle + static assets (styles, self-hosted fonts)
 COPY shiny_app/gap_finder/app.R         ./shiny_app/gap_finder/app.R
 COPY shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds ./shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds
-COPY shiny_app/gap_finder/www/styles.css ./shiny_app/gap_finder/www/styles.css
+COPY shiny_app/gap_finder/www/ ./shiny_app/gap_finder/www/
 
 # Fail the build if Git LFS was not fetched and the bundle is still a pointer
 # file (~130 bytes) instead of the real ~90 MB RDS. Catches a broken image at

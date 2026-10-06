@@ -369,7 +369,7 @@ nothing is deployed automatically from this repository.
 |-----|---------|--------|
 | `GBIF_GAP_COUNTRY` | `SE` | Which config and data bundle are baked in |
 | `GAP_FINDER_VERSION` | `dev` | What the app reports as its version; CI passes the git tag |
-| `APT_SNAPSHOT` | `20260930T000000Z` | Ubuntu archive snapshot the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Bump the default in the Dockerfile at each release |
+| `APT_SNAPSHOT` | `20261006T000000Z` | Ubuntu archive snapshot the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Bump the default in the Dockerfile at each release |
 
 **Runtime environment:**
 
