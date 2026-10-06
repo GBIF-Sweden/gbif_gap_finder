@@ -59,7 +59,7 @@ cube_files <- list(
 expected_cols <- c("specieskey", "species", "kingdom", "phylum", "class",
   "order", "family", "basisofrecord", "publishingorgkey", "datasetkey",
   "eeacellcode", "year", "month", "occurrences",
-  # b-cubed standard measures (b3verse schema migration)
+  # b-cubed standard measures (b3verse schema)
   "mincoordinateuncertaintyinmeters", "mintemporaluncertainty", "distinctobservers")
 
 cli_h1("Convert GBIF Cubes to Parquet \u2014 {COUNTRY_CODE}")

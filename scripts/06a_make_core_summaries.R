@@ -5,7 +5,7 @@
 # Purpose:
 #   Create aggregate summary tables from GBIF parquet cubes.
 #   These are FULL-SCOPE summaries (all GBIF data). Taxonomy-scoped
-#   variants (_dyntaxa, threatened, invasive, sensitive) are produced
+#   variants (threatened, invasive, sensitive) are produced
 #   by script 09c after reconciliation is complete.
 #
 # GRID LOOKUPS:
@@ -58,9 +58,8 @@ MAKE_PUBLISHER_SUMMARY <- TRUE
 # Scope filter: restrict the cube to the backbone's taxonomic scope
 # ---------------------------------------------------------------------------
 # Drops occurrence rows whose KINGDOM is absent from the national backbone
-# (Bacteria, Archaea, Viruses, and any protist/chromist kingdom the backbone
-# doesn't cover) -- groups that can never match in reconciliation and only
-# inflate totals. KINGDOM is used (not class) because it is a small, stable
+# (whichever kingdoms it does not cover) -- groups that can never match in
+# reconciliation and only inflate totals. KINGDOM is used (not class) because it is a small, stable
 # vocabulary: reptiles stay (Animalia is in the backbone) even though their
 # class is blank, so they survive to be bucketed as "Unclassified" downstream.
 # NA/blank kingdom is KEPT. Allowed kingdoms are read once from the backbone and
@@ -377,8 +376,8 @@ if (MAKE_PUBLISHER_SUMMARY) {
 
     # Publisher x taxonomy cross-tab (publisher x kingdom/class/order, for the
     # app's taxonomic filtering). Blank ranks are bucketed as "Unclassified"
-    # rather than dropped, so order-less and higher-level-only records (incl. the
-    # groups rescued by the rank-bucketing fix, e.g. reptiles) stay filterable.
+    # rather than dropped, so order-less, class-less (e.g. reptiles) and
+    # higher-level-only records stay filterable.
     pub_tax <- dt[!is.na(publishingorgkey) & publishingorgkey != "", .(
       total_occurrences = safe_sum(occurrences),
       n_species = as.double(uniqueN(specieskey)),
@@ -452,8 +451,7 @@ if (MAKE_PUBLISHER_SUMMARY) {
             # the uuid then appears in names(publisher_cache) and is excluded
             # from new_uuids on every future run. One bad afternoon would pin
             # those publishers to "unknown" permanently. Left uncached, they are
-            # simply retried next time. (Same trap that collapsed Tier 4 in
-            # July 2026 — see claude/finding-specieskey-type-2026-07-27.md.)
+            # simply retried next time.
             n_failed <- n_failed + 1L
           }
         }, error = function(e) {

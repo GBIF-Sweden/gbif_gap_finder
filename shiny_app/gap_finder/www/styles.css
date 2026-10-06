@@ -67,8 +67,7 @@
 html {
   /* Base size for the whole UI. Everything below is sized in rem, so raising
      this scales fonts AND spacing together for readability while preserving the
-     visual hierarchy. 106.25% = 17px, midway between the original 16px and the
-     earlier 18px (which caused some content to overflow its boxes). */
+     visual hierarchy. 106.25% = 17px; at 18px some content overflows its boxes. */
   font-size: 106.25%;
 }
 
@@ -637,7 +636,7 @@ button:focus-visible,
    EAA ACCESSIBILITY — headings, glossary tooltips, methods panel
    --------------------------------------------------------------------------- */
 
-/* Card titles are now <h2> and persona headings <h3>; keep the tight card
+/* Card titles are <h2> and persona headings <h3>; keep the tight card
    spacing (browsers add a default heading top-margin). */
 h1.main-title { margin: 0; }
 h2.card-title { margin-top: 0; }

@@ -196,7 +196,7 @@ dashboard <- data.table(
   ),
   
   # --- Threatened species ---
-  # tax_coverage_threat has ONE row per threat status, so nrow() here returned
+  # tax_coverage_threat has ONE row per threat status, so nrow() would return
   # the number of categories (<=4), not the number of threatened reference taxa.
   # Sum n_ref_total instead (mirrors threatened_in_gbif on the next line).
   threatened_in_reference = calc_metric(
@@ -705,12 +705,12 @@ if (!is.null(temporal_decade_10)) {
 }
 
 # ===========================================================================
-# OVERVIEW-DERIVED TABLES  (T-R3)
+# OVERVIEW-DERIVED TABLES
 # ===========================================================================
 # Order-trend views, overview last-year stats, and Troudet-style sampling bias
-# were previously computed inside script 11. They live here now so that 11 is a
-# pure loader, and every temporal window is anchored on the data snapshot /
-# recent_cutoff rather than the wall clock (reproducible across reruns).
+# live here so that 11 is a pure loader. Every temporal window is anchored on
+# the data snapshot / recent_cutoff rather than the wall clock (reproducible
+# across reruns).
 
 cli_h2("Creating Overview-Derived Tables")
 
@@ -811,8 +811,7 @@ if (!is.null(ov_ts)) {
 }
 
 # --- Troudet-style sampling bias (class / order / family) ---
-# match_summary (09b coverage table) is a T-R3 moved-in dependency: the Troudet
-# block below was relocated here from script 11, which loaded it separately.
+# match_summary (09b coverage table) supplies the known-species counts.
 match_summary <- safe_read_gap("taxonomic_match_summary.csv")
 ov_fts <- safe_read_derived("family_time_summary_all_10km.csv")
 if (!is.null(match_summary) && !is.null(ov_order_temporal)) {

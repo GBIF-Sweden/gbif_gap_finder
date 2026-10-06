@@ -1,9 +1,9 @@
 name: Build Image (PR)
 
-# Why this exists: publish-shiny-images.yml only runs on `v*` tags, so a
-# Dependabot PR against the Dockerfile showed a green check that had verified
-# nothing at all. A base-image or renv.lock change that breaks renv::restore()
-# would surface at the next release tag, mid-release.
+# Why this exists: publish-shiny-images.yml only runs on `v*` tags, so without
+# this workflow a Dependabot PR against the Dockerfile would show a green check
+# that had verified nothing at all. A base-image or renv.lock change that breaks
+# renv::restore() would surface at the next release tag, mid-release.
 #
 # This builds the BUILDER STAGE ONLY (`target: builder`): the apt system
 # libraries plus renv::restore() under whatever R the base image carries. That

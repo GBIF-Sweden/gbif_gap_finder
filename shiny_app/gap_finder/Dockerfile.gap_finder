@@ -2,14 +2,13 @@
 # builds of "the same" image can differ. The apt packages are pinned too, by
 # an Ubuntu archive snapshot date (APT_SNAPSHOT below), so GDAL/GEOS/PROJ cannot
 # move underneath sf/terra between rebuilds with nothing in this repo changing.
-# The digest is the multi-arch index for rocker/r-ver:4.5.2, verified with
-# `docker buildx imagetools inspect rocker/r-ver:4.5.2` on 2026-09-08.
-# Dependabot proposes bumps; see
-# audit/external-dependencies-2026-09-07.md (D22 / F10).
+# The digest is the multi-arch index for rocker/r-ver:4.5.2, as reported by
+# `docker buildx imagetools inspect rocker/r-ver:4.5.2`. Dependabot proposes
+# bumps (.github/dependabot.yml).
 #
-# apt pinning (audit D23, 2026-09-30): every apt call reads the Ubuntu archive as
+# apt pinning: every apt call reads the Ubuntu archive as
 # it was at APT_SNAPSHOT (snapshot.ubuntu.com, apt >= 2.7 on noble), so the
-# system libraries are identical on every rebuild. Individual version pins were
+# system libraries are identical on every rebuild. Individual version pins are
 # not used: Ubuntu drops superseded versions from the live archive, which would
 # break the build at the next security update. Trade-off: security fixes arrive
 # only when this date moves. Bump it deliberately at each release (and after a

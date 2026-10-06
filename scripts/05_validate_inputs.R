@@ -251,8 +251,8 @@ if (file_exists_safe(manifest_file)) {
         md_check(glue("{length(present_new)}/2 publisher/dataset columns present \\
                       ({paste(present_new, collapse = ', ')})"), "ok")
 
-        # b-cubed standard measures (b3verse schema migration). Informational,
-        # not required: a pre-migration cube simply won't carry them.
+        # b-cubed standard measures (b3verse schema). Informational, not
+        # required: a cube whose query omits them is still valid.
         bcubed_cols    <- c("mincoordinateuncertaintyinmeters",
                             "mintemporaluncertainty", "distinctobservers")
         present_bcubed <- intersect(bcubed_cols, pq_cols)
@@ -260,9 +260,9 @@ if (file_exists_safe(manifest_file)) {
                       ({if (length(present_bcubed)) paste(present_bcubed, collapse = ', ') else 'none'})"),
                  if (length(present_bcubed) == 3) "ok" else "warn")
 
-        # Freshness guard: 04 is existence-gated, so a re-downloaded raw cube can
-        # be NEWER than this parquet — downstream would then read the PREVIOUS
-        # download (fresh raw + stale processed). Treat parquet-older-than-CSV as
+        # Freshness guard: a raw cube re-downloaded after 04 last ran is NEWER
+        # than this parquet — downstream would then read the PREVIOUS download
+        # (fresh raw + stale processed). Treat parquet-older-than-CSV as
         # CRITICAL so a stale processed layer can never reach the analyses.
         raw_csv <- here(raw_gbif_cube_dir, switch(
           basename(pq_file),
@@ -282,7 +282,7 @@ if (file_exists_safe(manifest_file)) {
         # specieskey format sanity. A COL key is alphanumeric (e.g. 6VFN8) OR
         # numeric — numeric COL ids are VALID (e.g. 67343 = Anemone nemorosa). A
         # LEGACY GBIF Backbone nub key is a long integer (>=7 digits). Flag only
-        # when such keys are a meaningful share (pre-COL / wrong-backbone download);
+        # when such keys are a meaningful share (legacy / wrong-backbone download);
         # short numeric COL ids are never flagged.
         sk <- tryCatch(
           as.character(dplyr::collect(dplyr::distinct(dplyr::select(ds, specieskey)))$specieskey),

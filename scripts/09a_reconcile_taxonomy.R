@@ -4,8 +4,8 @@
 # ============================================================================
 # Purpose:
 #   Build the best possible mapping between GBIF occurrence species and the
-#   national taxonomy backbone (national taxonomy backbone). Uses a 4-tier strategy
-#   to maximise the match rate before the gap analysis in 09b.
+#   national taxonomy backbone. Uses a 5-tier strategy to maximise the match
+#   rate before the gap analysis in 09b.
 #
 #   This script runs BEFORE 09b_taxonomic_gaps.R and produces a lookup
 #   table that 09b reads instead of doing its own name matching.
@@ -15,15 +15,17 @@
 #   Tier 2 -- Synonym name match (local, via backbone synonym rows)
 #   Tier 3 -- Infraspecific collapse (strip subsp/var, re-match locally)
 #   Tier 4 -- GBIF Species API (for remaining unmatched, cached)
+#   Tier 5 -- COL crosswalk (key match via 09a1's col_crosswalk.rds; additive)
 #
 # Inputs:
 #   - data/{CC}/proc/derived/by_order/species_summary/*_10km.csv  (GBIF species)
 #   - data/{CC}/proc/derived/by_family/species_summary/*_10km.csv
 #   - data/{CC}/proc/taxa_reference_current.rds                   (backbone)
+#   - data/{CC}/proc/col_crosswalk.rds                            (09a1; optional)
 #
 # Outputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds       Main lookup table
-#   - data/{CC}/proc/taxa_reference_classified.rds      Classified backbone (read by 09b, T-R5)
+#   - data/{CC}/proc/taxa_reference_classified.rds      Classified backbone (read by 09b)
 #   - data/{CC}/proc/col_synonym_cache.rds              Cached COL synonym lookups
 #   - data/{CC}/proc/gaps/taxonomic_match_table.csv      Reconciliation as CSV
 #   - data/{CC}/proc/gaps/taxonomic_reconciliation_summary.csv  Tier-level summary
@@ -61,14 +63,10 @@ api_max_batches <- cfg_get("parameters.taxonomic.api_max_batches", Inf)
 # GBIF API rate limit (requests per second, GBIF allows ~10)
 api_rate_limit <- 10
 
-# Cache file for COL synonym lookups (persists across reruns). NOTE: a FRESH
-# file, deliberately not the old gbif_name_cache.rds -- that cache holds ~20k
-# HTTP-400 negative entries from the retired integer-key endpoint, which would
-# otherwise be treated as "already queried" and permanently suppress matches.
-# The old gbif_name_cache.rds can be deleted.
+# Cache file for COL synonym lookups (persists across reruns).
 cache_file <- here(p_data_proc, "col_synonym_cache.rds")
 
-# GBIF now interprets occurrences against the Catalogue of Life (COL) backbone,
+# GBIF interprets occurrences against the Catalogue of Life (COL) backbone,
 # so the cube's `specieskey` is a COL taxonID (alphanumeric, e.g. "6VFN8"), not
 # an integer nub key. Tier 4 resolves synonyms within this COL checklist dataset;
 # override per-country in config if GBIF's COL checklist key ever changes.
@@ -111,9 +109,9 @@ gbif_raw <- rbindlist(lapply(sum_files, fread,
 # species_summary files and as character for others (e.g. a key beyond 32-bit
 # int range, or a blank), and rbindlist() then unifies the whole column to
 # character whenever ANY file tripped character inference -- a non-deterministic
-# type that breaks BOTH the reconciliation schema (previously "numeric") and the
-# integer-vs-character cube joins in 09b/09c. Pin it once here so the output type
-# is stable regardless of what fread/rbindlist inferred.
+# type that breaks BOTH the reconciliation schema and the integer-vs-character
+# cube joins in 09b/09c. Pin it once here so the output type is stable
+# regardless of what fread/rbindlist inferred.
 gbif_raw[, specieskey := as.character(specieskey)]
 
 # Aggregate: one row per specieskey with total occurrences.
@@ -158,7 +156,7 @@ taxa <- classify_accepted(taxa)
 
 # Persist the classified backbone so 09b consumes the SAME accepted/synonym
 # split instead of re-loading taxa_reference_current.rds and re-running
-# classify_accepted() -- removes the duplicate-load drift risk (T-R5).
+# classify_accepted() -- removes the duplicate-load drift risk.
 saveRDS(taxa, here(p_data_proc, "taxa_reference_classified.rds"))
 cli_alert_success("Saved classified backbone: taxa_reference_classified.rds")
 
@@ -185,8 +183,9 @@ cli_alert_info("Combined unique names: {scales::comma(length(all_backbone_names)
 # the backbone has no taxa in cannot produce a match). NA/blank class is KEPT
 # so legitimate taxa with a missing class still go through name matching.
 # Self-calibrating: the allowed set is read from the backbone itself, so it
-# tracks whatever the backbone actually covers. Downstream, "All GBIF" therefore
-# means "all GBIF within the backbone's scope". Toggle off via config if needed.
+# tracks whatever the backbone actually covers. This narrows the reconciliation
+# universe only. Toggle off via parameters.taxonomic.restrict_to_backbone_scope,
+# the same switch that governs the kingdom scoping in 06a/06b/08.
 if (isTRUE(cfg_get("parameters.taxonomic.restrict_to_backbone_scope", TRUE)) &&
     "class" %in% names(gbif_species)) {
 
@@ -315,7 +314,6 @@ recon[, `:=`(
 # TIER 1: Direct Accepted Name Match
 # ============================================================================
 # Does the GBIF species name appear as an accepted backbone name?
-# This is what the current script 09 does.
 
 cli_h2("Tier 1: Direct accepted name match")
 
@@ -462,7 +460,7 @@ cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 #   1. Resolve the cube's COL taxonID -> GBIF integer usage key (sourceId lookup)
 #   2. Query that usage's synonyms within the COL checklist dataset
 #   3. Check if any returned synonym matches a backbone name
-#   4. Cache all responses so reruns are instant
+#   4. Cache successful responses so reruns are instant
 #
 # The cube key is a COL taxonID (e.g. "6VFN8"), not an integer, so the classic
 # GET /v1/species/{key}/synonyms 400s on it. COL-aware path instead:
@@ -610,10 +608,10 @@ if (nrow(remaining) > 0 && api_available) {
         )
       },
       error = function(e) {
-        # Do NOT persist transport errors as negative cache entries. The old
-        # integer-key code cached HTTP failures, so one bad run permanently
-        # suppressed ~20k lookups (Tier 4 collapsed 3,179 -> 92). Left uncached,
-        # `already_cached` stays FALSE for them and they retry on the next run.
+        # Do NOT persist transport errors as negative cache entries: a cached
+        # failure is never retried, so one bad run would permanently suppress
+        # those lookups. Left uncached, `already_cached` stays FALSE for them
+        # and they retry on the next run.
         n_batch_errors <<- n_batch_errors + 1L
       })
 

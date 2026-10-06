@@ -12,7 +12,7 @@
 #       config DOI is cross-checked against GBIF's.
 #
 #   Everything downstream reads the single object this produces — the eight
-#   analysis reports, data/{CC}/data_sources.Rmd, and the Gap Finder app bundle
+#   analysis reports, docs/data_sources_{CC}.Rmd, and the Gap Finder app bundle
 #   (script 11) — so a DOI can never drift between config, docs and app.
 #
 #   It also VALIDATES that every key resolves. A dead or test-instance cube key
@@ -119,9 +119,8 @@ resolve_dataset <- function(dataset_key, config_doi, name, label) {
     config_doi         = config_doi,
     doi_matches_config = matches,
     title              = ds$title %||% name,
-    # The upstream release markers. GBIF already returns these on every dataset
-    # lookup; we were throwing them away, which is why a Catalogue of Life
-    # release could change underneath the pipeline with nothing to show for it.
+    # The upstream release markers. GBIF returns these on every dataset lookup;
+    # keeping them makes a new release behind an unchanged key visible.
     published          = ds$pubDate  %||% NA_character_,
     modified           = ds$modified %||% NA_character_,
     citation           = sprintf("%s. Dataset accessed via GBIF.org. %s",
@@ -186,8 +185,7 @@ resolve_publisher_count <- function(download_key) {
 #' behind that key moves: a new Catalogue of Life Extended Release changes names
 #' and taxon ids without changing its dataset key. Recording the resolved
 #' release next to the key means `git diff` after a run answers "did anything
-#' upstream move?" — the question that went unanswered for the whole July
-#' backbone migration.
+#' upstream move?".
 #'
 #' Two deliberate choices:
 #'   - NO run timestamp. If the file carried one, every run would diff and real
@@ -312,12 +310,12 @@ for (src in c("redlist", "invasives", "sensitive")) {
   }
 }
 
-# GBIF interprets occurrences against its default backbone, now the Catalogue of
+# GBIF interprets occurrences against its default backbone, the Catalogue of
 # Life Extended Release (COL XR): the cube's specieskey is a COL taxonID and
 # kingdom..family are COL's, so COL is a data source of record even though it is
-# not downloaded as a file. The cube SQL now pins this checklist EXPLICITLY in the
+# not downloaded as a file. The cube SQL pins this checklist EXPLICITLY in the
 # classificationdetails selector (render_cube_sql -> ${COL_CHECKLIST_KEY}), so the
-# backbone is a controlled, version-pinned choice; here we resolve the same key's
+# backbone is a controlled, pinned choice; here we resolve the same key's
 # checklist dataset for citation/provenance. Non-fatal: unlike a dead cube key, a
 # transient COL lookup failure is reported but must never stop the pipeline.
 col_key <- get_col_checklist_key()

@@ -14,8 +14,8 @@
 #   INSIDE each branch — session-level state that leaks between branches and
 #   breaks outright the first time `targets` runs two in parallel. Historical
 #   points are also computed once and frozen, so they gain nothing from
-#   incrementality. `targets` keeps running the live cube exactly as it does
-#   today; this script is only for the frozen points.
+#   incrementality. `targets` runs the live cube; this script is only for the
+#   frozen points.
 #
 # What it does NOT run, and why:
 #   01a/01b/02/03  downloads and reference data are time-INVARIANT and pinned.
@@ -68,8 +68,8 @@ if (!identical(p_timepoint, here(p_data_proc, "timepoints", tp))) {
   cli_abort(c(
     "p_timepoint did not pick up GAP_FINDER_TIMEPOINT.",
     "x" = "Got {.path {p_timepoint}}.",
-    "i" = "R/globals.R must read {.envvar GAP_FINDER_TIMEPOINT} — is this the \\
-           Stage 2 globals.R?"
+    "i" = "R/globals.R must read {.envvar GAP_FINDER_TIMEPOINT} — check that \\
+           it supports time points."
   ))
 }
 
@@ -164,7 +164,7 @@ for (i in seq_along(steps)) {
   nm <- names(steps)[i]
   cli_h2("[{i}/{length(steps)}] script {nm} — {tp}")
   t0 <- Sys.time()
-  # local = TRUE keeps each script's objects out of the global environment, so a
+  # A fresh env per script keeps its objects out of the global environment, so a
   # variable one script leaves behind cannot be silently read by the next.
   source(here("scripts", steps[[i]]), local = new.env(parent = globalenv()))
   cli_alert_success(

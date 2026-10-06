@@ -88,7 +88,7 @@ if (!exists("bucket_unclassified")) {
 
 MIN_OCCURRENCES <- cfg_get("parameters.taxonomic.min_occurrences", 10)
 MIN_CELLS       <- cfg_get("parameters.taxonomic.min_cells", 5)
-# THREATENED_CODES now comes from R/globals.R (config-driven, one definition).
+# THREATENED_CODES comes from R/globals.R (config-driven, one definition).
 
 # Grid cell code field (for spatial coverage)
 CELLCODE_FIELD <- cfg_get("parameters.grid.cellcode_field", "eeacellcode")
@@ -137,7 +137,7 @@ cli_h2("Loading Backbone Reference")
 
 # Prefer the classified backbone persisted by 09a, so 09b uses the identical
 # accepted/synonym split instead of re-loading the raw reference and re-running
-# classify_accepted() (T-R5 -- removes the duplicate load+classify drift risk).
+# classify_accepted().
 classified_path <- here(p_data_proc, "taxa_reference_classified.rds")
 taxa_path       <- here(p_data_proc, "taxa_reference_current.rds")
 if (file.exists(classified_path)) {
@@ -305,10 +305,8 @@ if (length(exclude_kingdoms) && "kingdom" %in% names(match_summary)) {
 #      Primates lives here so Homo sapiens is removed from the reference
 #      population ONCE, in the pipeline — feeding match_summary, the rank/threat
 #      coverage tables, and therefore every dashboard count, identically.
-#      Previously the app excluded Primates on its own (a hardcoded
-#      EXCLUDE_ORDERS), which made the Overview's taxonomic totals disagree with
-#      the Concern tab. Set `parameters.taxonomic.exclude_orders: [Primates]` in
-#      the country config to activate; with no config entry this is a no-op.
+#      Set `parameters.taxonomic.exclude_orders: [Primates]` in the country
+#      config to activate; with no config entry this is a no-op.
 exclude_orders <- unlist(cfg_get("parameters.taxonomic.exclude_orders", character(0)))
 if (length(exclude_orders) && "order" %in% names(match_summary)) {
   n_before <- nrow(match_summary)
@@ -583,10 +581,8 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
     }
   }
 
-  # Flag poorly sampled (project decision 2026-07-21): a matched taxon is poorly
-  # sampled if it is in the bottom quantile of occurrences OR occupies few cells.
-  # (Replaces the old absolute MIN_OCCURRENCES/MIN_CELLS test, which was
-  # degenerate under config 1/1 — nothing could be < 1.)
+  # Flag poorly sampled: a matched taxon is poorly sampled if it is in the
+  # bottom quantile of occurrences OR occupies few cells.
   PS_OCC_Q     <- cfg_get("parameters.taxonomic.poorly_sampled_occ_quantile", 0.10)
   PS_MIN_CELLS <- cfg_get("parameters.taxonomic.poorly_sampled_min_cells", 3)
   ps_occ_threshold <- as.numeric(stats::quantile(
@@ -595,8 +591,8 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
   if (!is.finite(ps_occ_threshold)) ps_occ_threshold <- 0
   spatial_coverage[, poorly_sampled := (total_occ_10km <= ps_occ_threshold) |
                                        (n_cells_10km < PS_MIN_CELLS)]
-  # Back-compat aliases: downstream code (priority list) still references the old
-  # flag names; both now mirror the single `poorly_sampled` definition.
+  # Aliases read downstream (the priority list below and script 10); both
+  # mirror the single `poorly_sampled` definition.
   spatial_coverage[, poorly_sampled_spatial   := poorly_sampled]
   spatial_coverage[, poorly_sampled_abundance := poorly_sampled]
   cli_alert_info(
@@ -716,7 +712,7 @@ write_gap_file <- function(dt, filename, label = NULL) {
   cli_alert_success("{label}: {scales::comma(nrow(dt))} rows")
 }
 
-# Match summary (backbone view -- replaces 09's match_table and match_summary)
+# Match summary (backbone view)
 write_gap_file(match_summary, "taxonomic_match_summary.csv")
 
 # Missing taxa

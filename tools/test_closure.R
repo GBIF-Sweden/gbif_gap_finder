@@ -14,8 +14,8 @@
 #
 #   Rscript tools/test_closure.R
 #
-# Exits non-zero on any failure, so it can go in CI. Needs data.table and cli
-# only - no arrow, no cubes, no pipeline run.
+# Exits non-zero on any failure, so it can go in CI. Needs data.table, cli and
+# here only - no arrow, no cubes, no pipeline run.
 # ============================================================================
 
 suppressPackageStartupMessages({ library(data.table); library(cli); library(here) })
@@ -80,8 +80,8 @@ gained <- data.table::fsetdiff(pt, pf)
 lost   <- data.table::fsetdiff(pf, pt)
 
 cli_h2("grain construction (the integer/Inf trap)")
-# This is the case that reached the real data and killed script 14: a
-# (species, cell, dataset) group where EVERY record lacks a year. min() returns
+# The case that would otherwise stop script 14: a (species, cell, dataset)
+# group where EVERY record lacks a year. min() returns
 # an integer for groups that have one and Inf - a double - for this one, and
 # data.table refuses the type mismatch. `year` arrives from parquet as an
 # INTEGER, which is exactly when it bites.
@@ -111,10 +111,10 @@ ok(inherits(try(closure_build_grain(cube[, .(specieskey)], PLATFORMS), silent = 
    "a cube missing columns is refused by name, not by a downstream crash")
 
 cli_h2("re-keying, and the full chain script 14 walks")
-# This section exists because BOTH bugs that reached the real data lived in the
-# untestable half of script 14: first the grain aggregation, then the re-key
-# that still expected the pre-move column name. Walking the same sequence here -
-# build grain, re-key, difference - is what closes that hole.
+# Script 14 chains these steps in code no unit test reaches, and a mismatch
+# between them (a column one step renames and the next still expects) passes
+# every per-function test. Walking the same sequence here - build grain,
+# re-key, difference - is what closes that hole.
 cube_from <- data.table::as.data.table(list(
   specieskey  = c("S1", "S2", "S3", "S9"),
   eeacellcode = c("C1", "C1", "C2", "C3"),
@@ -287,10 +287,9 @@ ok(inherits(try(closure_cells(closure_cell_view(gf), closure_cell_view(gt),
    "an empty cell universe is refused, not silently taken from the data")
 
 cli_h2("closure_taxon_lookup(): the lost taxa must still have names")
-# The bug this covers shipped to the real tables: annotating from the LATER
-# match table alone leaves every lost taxon with NA name/class/order, and the
-# group roll-up then collects all of them into one (NA, NA) row at 100% loss.
-# 155 species on 2021 -> 2024; 717 species and 26,962 pairs on 2024 -> live.
+# The failure this guards against: annotating from the LATER match table alone
+# leaves every lost taxon with NA name/class/order, and the group roll-up then
+# collects all of them into one (NA, NA) row at 100% loss.
 TAX_COLS <- c("class", "order", "backbone_scientificName", "taxonRank")
 mt <- function(ids, cls, ord, nm, cols = TRUE) {
   d <- data.table::as.data.table(list(

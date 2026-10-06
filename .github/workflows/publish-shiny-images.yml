@@ -1,11 +1,9 @@
 name: Publish Shiny Images
 
 # Action versions: all five actions below are pinned to their Node 24 majors.
-# GitHub removes Node 20 from the runners on 2026-09-23; the previous majors
-# (checkout@v4, setup-buildx@v3, login@v3, metadata@v5, build-push@v6) all
-# declare `using: node20` and stop working on that date. Every input this
-# workflow passes survives the bump unchanged. See
-# audit/external-dependencies-2026-09-07.md (D24 / F10).
+# GitHub removes retired Node runtimes from its runners, and an action whose
+# major declares one (`using: node20`) stops working; keep every action on a
+# current major.
 on:
   push:
     tags:

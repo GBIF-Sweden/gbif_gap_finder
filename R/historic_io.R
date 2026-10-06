@@ -4,14 +4,12 @@
 # ============================================================================
 # Purpose:
 #   One place that knows how a historical delivery is physically laid out, so
-#   scripts never have to. Rewritten for the SECOND delivery (2026-09-08), which
-#   differs from the first in every way that mattered.
+#   scripts never have to.
 #
-# What the second delivery actually is (verified 2026-09-08, see
-# claude/finding-historic-delivery-v2-verified-2026-09-08.md):
-#   - UTF-8, no BOM, no NUL bytes, LF line endings. The first delivery was
-#     UTF-16LE from a PowerShell redirect; decode_historic_delivery() below is
-#     kept as defensive code and passes a UTF-8 file straight through.
+# Delivery format:
+#   - UTF-8, no BOM, no NUL bytes, LF line endings. decode_historic_delivery()
+#     below also accepts UTF-16LE (BOM, CRLF) and passes a UTF-8 file straight
+#     through.
 #   - TWO files per snapshot, paired by date:
 #       <prefix>_occurrences_aggregated_YYYYMMDD.tsv.gz   10 columns
 #       <prefix>_taxonomy_YYYYMMDD.tsv.gz                  9 columns
@@ -21,16 +19,14 @@
 #     SUPERSET of the species in its occurrence file (no coordinate filter, no
 #     dataset exclusion). Superset is the safe direction for a lookup; the join
 #     therefore cannot fan out, and that is asserted below rather than assumed.
-#   - Coordinates are 2 dp. 3 dp was requested and refused on export size, so
+#   - Coordinates are 2 dp, and export size rules out 3 dp, so
 #     this is permanent: ~4% of records land in a neighbouring 10 km cell
 #     (~0.9% at 50 km). Carry it on every 10 km temporal figure.
 #
-# What this file deliberately does NOT do any more:
-#   The first delivery needed a GBIF Backbone lookup (script 01d) to turn
-#   taxon_id into a species key and a classification. The delivery now carries
-#   its own contemporaneous taxonomy, which is strictly better — no backbone
-#   version matching, no roll-up, no API fallback, no "wrong build" failure
-#   mode. 01d and historic_taxon_keys() are retired; do not reintroduce them.
+# What this file deliberately does NOT do:
+#   Look species up in the GBIF Backbone. The delivery carries its own
+#   contemporaneous taxonomy, which is strictly better — no backbone version
+#   matching, no roll-up, no API fallback, no "wrong build" failure mode.
 #
 # Dependencies: data.table, here, cli (all attached by R/packages.R).
 #   NOT R.utils — see the gz section below. Deliberately kept optional so the
@@ -56,12 +52,11 @@ historic_proc_dir <- function() {
 #' A time point is a DIRECTORY, not a column: everything time-varying in the
 #' pipeline hangs off one path root, so a whole run can be redirected under
 #' `proc/timepoints/{tp}/` without editing scripts 05-11 at all. 04b writes
-#' straight into this layout so Stage 2 has nothing to move.
+#' straight into this layout, so a time-point run finds its cubes in place.
 #'
-#' Stage 2 (`gap_finder_timepoints.patch`) will introduce `p_timepoint` in
-#' R/globals.R driven by the GAP_FINDER_TIMEPOINT environment variable. This
-#' helper stays as the canonical way to NAME a time-point directory; it does not
-#' compete with that variable.
+#' `p_timepoint` in R/globals.R, driven by the GAP_FINDER_TIMEPOINT environment
+#' variable, is that root for the run in progress. This helper is the canonical
+#' way to NAME a time-point directory; it does not compete with that variable.
 #'
 #' @param tp     Time-point label, e.g. "2021-01-01".
 #' @param create Create the directory if missing (default TRUE).
@@ -181,12 +176,11 @@ historic_snapshot_files <- function(dir = historic_raw_dir()) {
 
 #' Decode a UTF-16 historical delivery to a plain ASCII/UTF-8 TSV
 #'
-#' The SECOND delivery is UTF-8 and this function returns its path untouched.
-#' It is kept because the FIRST delivery was UTF-16LE with a BOM and CRLF line
-#' endings — a PowerShell `>` redirect artefact — which `fread()` mis-parses and
-#' which `iconv -f UTF-16` turns into an EMPTY stream. If GBIF ever regenerates
-#' an export the same way, this catches it at the door instead of producing a
-#' cube built from mangled rows.
+#' A UTF-8 delivery is returned untouched. The case this exists for is UTF-16LE
+#' with a BOM and CRLF line endings — a PowerShell `>` redirect artefact — which
+#' `fread()` mis-parses and which `iconv -f UTF-16` turns into an EMPTY stream.
+#' If an export ever arrives that way, this catches it at the door instead of
+#' producing a cube built from mangled rows.
 #'
 #' Streams the file in chunks, deleting NUL and CR bytes. That is a valid
 #' UTF-16LE -> ASCII decode ONLY while the payload is pure ASCII, so the
@@ -291,8 +285,7 @@ decode_historic_delivery <- function(path, out_path = NULL,
 # `data.table::fread()` cannot open a .gz at all unless the optional R.utils
 # package is installed — and even with it, fread's gz path DECOMPRESSES THE
 # WHOLE FILE to a temp file before returning anything. That is not a detail:
-# measured 2026-09-09, `fread(gz, nrows = 0L)` took 0.24 s on a 5 MB gz and
-# 4.39 s on a 103 MB one, i.e. it is O(file size), not O(1). On the 393 MB 2024
+# `fread(gz, nrows = 0L)` is O(file size), not O(1). On the 393 MB 2024
 # delivery a header peek is therefore ~17 s and several GB of temp writes — and
 # 04b peeks three times per snapshot (header check, snapshot check, real read).
 #

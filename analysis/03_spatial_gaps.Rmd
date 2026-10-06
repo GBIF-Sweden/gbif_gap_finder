@@ -33,9 +33,7 @@ library(knitr)
 library(kableExtra)
 
 source(here("R", "report_helpers.R"))
-# The bundle moved to a per-country path in July 2026; this hardcoded flat path
-# no longer existed, so every report failed at this line. Resolved the same way
-# run.R does.
+# Locate the per-country app bundle (see R/report_helpers.R).
 data_path <- gap_finder_bundle_path()
 app_data <- readRDS(data_path)
 safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL

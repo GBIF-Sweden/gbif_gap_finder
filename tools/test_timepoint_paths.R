@@ -3,10 +3,10 @@
 # ============================================================================
 # Regression test for the time-point path switch (R/globals.R)
 # ============================================================================
-# The whole safety argument for Stage 2 is one sentence: with
-# GAP_FINDER_TIMEPOINT UNSET, every path is byte-identical to what it was before
-# the time-point machinery existed. If that ever stops being true, the live
-# pipeline silently starts writing somewhere else and nothing errors.
+# The whole safety argument for the time-point switch is one sentence: with
+# GAP_FINDER_TIMEPOINT UNSET, every path is byte-identical to the live layout
+# below. If that ever stops being true, the live pipeline silently starts
+# writing somewhere else and nothing errors.
 #
 # It is worth a test rather than an assurance because the failure is invisible:
 # `p_output` in particular is a SIBLING of proc/ in the live layout, so the

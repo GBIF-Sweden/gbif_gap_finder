@@ -20,13 +20,13 @@
 #   Reducing the 42 M-row cube to a ~6.5 M-row grain once, and differencing
 #   grains, is what keeps this cheap.
 #
-# TWO KEY SPACES, deliberately (see brief-historical-comparable-current-cube.md):
+# TWO KEY SPACES, deliberately:
 #   dyntaxa - key = backbone_taxonID. THE HEADLINE. A national checklist does
 #             not move when GBIF changes its own backbone, so this is the only
 #             space in which a snapshot and a COL-interpreted cube can be
 #             differenced at all.
 #   gbif    - key = specieskey. Not comparable across the snapshot -> cube
-#             boundary, but it is what the Step 0 probe measured, so it is the
+#             boundary, but script 14's regression fixtures use it, so it is the
 #             reconciliation that proves this code correct. It is also the
 #             honest "all of GBIF" figure, since ~18% of species carry no
 #             Dyntaxa taxonID.
@@ -35,9 +35,8 @@
 # PAIRS THAT SPAN SOURCE GROUPS are counted in BOTH per-group figures and ONCE
 #   in the total, so per-group columns do not sum to the total. That is
 #   deliberate. The alternative - crediting each pair to a single "owner" group
-#   - needs a tie-break, and in Step 0 the tie-break alone moved Artportalen's
-#   share by 1.2 points (82.6% against a true 81.4%). Order-independent measures
-#   only.
+#   - needs a tie-break, and the tie-break alone shifts the group shares.
+#   Order-independent measures only.
 #
 # Dependencies: data.table, cli
 # ============================================================================
@@ -79,8 +78,7 @@ closure_source_group <- function(datasetkey, platforms) {
 #' and `Inf` - a DOUBLE - for a group where every record lacks one. data.table
 #' requires one type across all groups, so the moment the first year-less pair
 #' appears the aggregation dies with "Column 1 of result for group N is type
-#' 'double' but expecting type 'integer'". On the real 2021 cube that was group
-#' 289 of ~5.3 million.
+#' 'double' but expecting type 'integer'".
 #'
 #' Coercing `year` and `occurrences` to double BEFORE the aggregation fixes it
 #' and is also faster than coercing inside `j`: data.table's GForce optimisation
@@ -190,8 +188,7 @@ closure_key_view <- function(grain) {
 #' `all_cellcodes` is required and must come from the grid file, never from the
 #' data: taking the universe from the cells that happen to appear collapses the
 #' denominator onto the numerator and reports 100% coverage with zero empty
-#' cells. That exact bug is why `complete_to_grid()` in R/globals.R is written
-#' the way it is; the same rule applies here.
+#' cells. `complete_to_grid()` in R/globals.R follows the same rule.
 #'
 #' @param cells_from,cells_to Output of closure_cell_view().
 #' @param all_cellcodes Character vector of EVERY cell in the grid.
@@ -268,8 +265,7 @@ closure_species <- function(pairs_from, pairs_to) {
 #' note: a record dated >= the baseline year CANNOT have been in the baseline
 #' snapshot, while an earlier record had to both exist AND be unpublished at the
 #' cut. The boundary is therefore definitional, not empirical, and it creates a
-#' step in the year histogram that is not a surge in fieldwork. Step 0 measured
-#' it: 35,601 gained pairs at min-year 2020 against 197,806 at 2021.
+#' step in the year histogram that is not a surge in fieldwork.
 #'
 #' Mechanism is computed WITHIN each source group, not once per pair, because
 #' "was this fieldwork?" is a question about a stream. The `total` group uses the
@@ -419,7 +415,7 @@ closure_summary <- function(pairs_from, pairs_to, cells, species, mechanism,
               nrow(species[status == "new"]), nrow(species[status == "lost"]),
               nrow(cells), nrow(cells[occ_from > 0]), nrow(cells[occ_to > 0]),
               nrow(cells[status == "filled"]), nrow(cells[status == "regressed"]),
-              # never_filled is 0 -> 0: still open, and never was open. Distinct
+              # never_filled is 0 -> 0: open then, still open now. Distinct
               # from empty_now, which also catches cells that REGRESSED to zero.
               # Conflating them hides losses inside a "still to do" number.
               nrow(cells[occ_from == 0 & occ_to == 0]),
@@ -446,20 +442,16 @@ closure_summary <- function(pairs_from, pairs_to, cells, species, mechanism,
 #' `to` first, `from` only as a fallback for keys `to` does not have.
 #'
 #' A taxon present at BOTH ends is described by the LATER taxonomy. That is what
-#' makes the two key spaces comparable and it is unchanged here.
+#' makes the two key spaces comparable.
 #'
 #' But a taxon that is GONE by `to` has no row in `to` at all. Annotating from
 #' `to` alone therefore leaves every lost species with NA name, class and order,
 #' and then rolls all of them into a single (NA, NA) group whose loss_rate is
 #' 100% by construction, because every pair in it is a lost pair.
 #'
-#' Measured on the delivered tables: 155 species / 229 baseline pairs for
-#' 2021 -> 2024, and 717 species / 26,962 pairs - 8.5% of all loss - for
-#' 2024 -> live. All 717 are recoverable from the `from` side: Rosa mollis,
-#' Huperzia europaea, Galium palustre subsp. elongatum and 714 others. Unfixed,
-#' the taxonomic panel renders an unnamed bar at 100% loss, and the "still open"
-#' panel cannot name a single species we no longer have - which is the one thing
-#' that panel is for.
+#' Without the `from` fallback, the taxonomic panel renders an unnamed bar at
+#' 100% loss, and the "still open" panel cannot name a single species we no
+#' longer have - which is the one thing that panel is for.
 #'
 #' The lookup is forced unique on key at every step. A duplicated key would fan
 #' out the species join and inflate every group total with no error anywhere -
@@ -521,13 +513,12 @@ closure_taxon_lookup <- function(mt_to, mt_from, tax_cols, lk_key) {
 #' THE SPECIES TABLE IS THINNED, AND THAT IS THE ONE THING THAT CAN GO WRONG
 #' QUIETLY. Full, it is ~57,000 rows per pair x resolution x key space; across
 #' three pairs that is roughly half a million rows of mostly-untouched species,
-#' against a bundle that has sat at 78-80 MB since July and should not start
-#' growing now (finding-bundle-size-2026-07-23.md). Rows are cut to the three
+#' against an ~80 MB app bundle that should not grow. Rows are cut to the three
 #' populations the tab enumerates BY NAME and nothing else:
 #'
 #'   - every red-listed species              (the threatened-species panel)
 #'   - every species that lost or contracted (the "where to go next" list, and
-#'     the taxa closure_taxon_lookup() above just made nameable)
+#'     the taxa closure_taxon_lookup() above makes nameable)
 #'   - the top `keep_top` by cells gained and by cells lost
 #'
 #' `species_totals` is computed BEFORE the cut, from the full table. That is the

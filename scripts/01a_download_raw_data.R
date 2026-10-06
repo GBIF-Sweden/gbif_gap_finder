@@ -9,7 +9,7 @@
 #     3. National red list (DwC-A via GBIF, optional)
 #     3b. National invasive species registry (DwC-A, optional)
 #     3c. Sensitive species list (DwC-A, optional)
-#     4. GBIF occurrence cubes (SQL API — manual download, instructions printed)
+#     4. GBIF occurrence cubes (SQL API — automated, else manual; query printed)
 #     5. Administrative boundaries (GADM via geodata package)
 #
 # Inputs:
@@ -83,22 +83,16 @@ unzip_safely <- function(zipfile, exdir) {
 
 # Downloads a Darwin Core Archive from `export_url` (the publisher's endpoint,
 # normally resolved from the GBIF registry by globals::resolve_dwca_url).
-# GBIF itself is consulted here ONLY for the dataset title, for the log line —
-# the archive bytes come from the publisher, not from GBIF. The old name
-# (download_gbif_dataset) implied otherwise and caused exactly that confusion.
+# GBIF itself is consulted here ONLY for metadata (title, publication date) —
+# the archive bytes come from the publisher, not from GBIF.
 # ----------------------------------------------------------------------------
 # Upstream freshness
 # ----------------------------------------------------------------------------
-# A downloaded archive used to be skipped forever simply because the files were
-# on disk, so a republished upstream release was never picked up. Dyntaxa sat
-# 2.5 months stale that way (extract 2026-06-18, upstream republished
-# 2026-08-28) and only surfaced when provenance/upstream_versions_SE.yml started
-# recording the release dates on 2026-09-08.
-#
-# The fix is an exact comparison rather than a file-mtime heuristic: record the
-# upstream publication date we downloaded, in the extract directory, and compare
-# it against what GBIF reports now. mtimes lie — a copy, a restore or a checkout
-# resets them.
+# An archive on disk is not enough: a republished upstream release must be
+# picked up. Record the upstream publication date we downloaded, in the extract
+# directory, and compare it against what GBIF reports now. This is an exact
+# comparison rather than a file-mtime heuristic — mtimes lie: a copy, a restore
+# or a checkout resets them.
 .stamp_file <- function(dest_dir) file.path(dest_dir, ".upstream_published.json")
 
 read_download_stamp <- function(dest_dir) {
@@ -143,7 +137,7 @@ check_freshness <- function(dataset_key, dest_dir, label, existing) {
 
   local <- read_download_stamp(dest_dir)
   if (is.na(local)) {
-    # Downloaded before this check existed: fall back to the newest file mtime.
+    # No stamp on disk: fall back to the newest file mtime.
     mt <- suppressWarnings(max(file.mtime(file.path(dest_dir, existing)), na.rm = TRUE))
     local <- if (is.finite(mt)) as.Date(mt) else as.Date(NA)
   }
@@ -339,9 +333,8 @@ cube_targets <- list(
 
 existing_cubes <- list.files(raw_gbif_cube_dir, pattern = "\\.(csv|parquet)$")
 
-# SQL downloads need GBIF credentials (GBIF_USER / GBIF_PWD / GBIF_EMAIL) and,
-# historically, invited access to the SQL download API. Automate when we can;
-# otherwise fall back to printing the canonical query.
+# SQL downloads need GBIF credentials (GBIF_USER / GBIF_PWD / GBIF_EMAIL).
+# Automate when we can; otherwise fall back to printing the canonical query.
 gbif_creds_present <- all(nzchar(Sys.getenv(c("GBIF_USER", "GBIF_PWD", "GBIF_EMAIL"))))
 can_sql_download   <- gbif_creds_present &&
   "occ_download_sql" %in% getNamespaceExports("rgbif")
@@ -455,7 +448,7 @@ if (!admin_enabled) {
   # GADM release + generalisation, pinned in config rather than here. A GADM
   # bump renames and re-shapes administrative units, which moves per-region
   # counts without any error — so the version has to be a visible, per-country
-  # choice, like every other source. See audit/external-dependencies-2026-09-07.md (F6).
+  # choice, like every other source.
   gadm_version <- as.character(cfg_get("admin_boundaries.gadm_version", "4.1"))
   gadm_res     <- as.integer(cfg_get("admin_boundaries.gadm_resolution", 1))
   cli_alert_info("GADM v{gadm_version} (resolution {gadm_res})")
