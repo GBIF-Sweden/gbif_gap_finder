@@ -109,13 +109,6 @@ data/SE/raw/cubes/
 └── cube_50km.csv          # 26M rows, ~1.3 GB
 ```
 
-### Key differences from previous cube downloads
-
-- **Single file per resolution** instead of 9 files per basis of record
-- **Publisher and dataset** columns included (publishingorgkey, datasetkey)
-- **All basis of record types** in one file (basisofrecord as a column)
-- Downloaded via SQL API instead of pre-built cube DOIs
-
 ---
 
 ## 2. EEA Reference Grids (shared)

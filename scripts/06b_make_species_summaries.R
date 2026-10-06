@@ -8,7 +8,7 @@
 #
 #   Taxonomy flags (in_dyntaxa, is_invasive, is_sensitive) are NOT
 #   applied here. They are added by script 09c after reconciliation,
-#   which uses the superior 4-tier matching from 09a.
+#   which uses the 5-tier matching from 09a.
 #
 # Strategy:
 #   1. Read parquet cube for each grid resolution
@@ -63,9 +63,8 @@ MAKE_SPECIES_CELL_TIME <- cfg_get("parameters.processing.make_species_cell_time"
 # Scope filter: restrict the cube to the backbone's taxonomic scope
 # ---------------------------------------------------------------------------
 # Drops occurrence rows whose KINGDOM is absent from the national backbone
-# (Bacteria, Archaea, Viruses, and any protist/chromist kingdom the backbone
-# doesn't cover) -- groups that can never match in reconciliation and only
-# inflate totals. KINGDOM is used (not class) because it is a small, stable
+# (whichever kingdoms it does not cover) -- groups that can never match in
+# reconciliation and only inflate totals. KINGDOM is used (not class) because it is a small, stable
 # vocabulary: reptiles stay (Animalia is in the backbone) even though their
 # class is blank, so they survive to be bucketed as "Unclassified" downstream.
 # NA/blank kingdom is KEPT. Allowed kingdoms are read once from the backbone and
@@ -168,11 +167,11 @@ cli_h1("Species-Level Summaries (Script 06b)")
 
 # Full rebuild: clear the per-taxon output dirs first. Filenames are keyed by
 # order/family, so when the cube changes — COL renames a group, or a smaller
-# re-download drops one — the old file lingers as an ORPHAN. 09a/09b/09c/11 glob
+# re-download drops one — the old file lingers as an ORPHAN. 09a/09a1/09b glob
 # derived/ for species_summary*.csv, so orphans are read as PHANTOM species and
-# silently inflate the reconciliation universe (fresh cube 76,589 -> 80,940 seen
-# on 2026-07-30). These two dirs are written only by this script, so wiping them
-# guarantees the species universe on disk equals the current cube.
+# silently inflate the reconciliation universe. These two dirs are written only
+# by this script, so wiping them guarantees the species universe on disk equals
+# the current cube.
 for (stale_dir in c(here(p_derived, "by_order"), here(p_derived, "by_family"))) {
   if (dir.exists(stale_dir)) {
     unlink(stale_dir, recursive = TRUE, force = TRUE)
@@ -217,7 +216,7 @@ for (grid_name in names(grid_map)) {
   dt[, grid := grid_name]
 
   # Restrict to the backbone's taxonomic scope (drops occurrence rows whose
-  # kingdom is absent from the backbone; NA/blank kept, so reptiles survive).
+  # kingdom is absent from the backbone; NA/blank kingdom kept).
   # Keeps the species summaries -> 09a -> the whole pipeline on the same
   # in-scope universe as 06a/08.
   dt <- scope_filter_rows(dt)

@@ -5,7 +5,7 @@
 # Purpose:
 #   Precompute every number the "Gaps filled" tab shows, so the app differences
 #   nothing at runtime. Reads across time-point directories written by
-#   run_timepoint.R (Stage 2) and the cubes written by 04b (Stage 1).
+#   run_timepoint.R and the cubes written by 04b.
 #
 #   The arithmetic lives in R/closure.R and is unit-tested by
 #   tools/test_closure.R. This script is I/O, configuration and assertions.
@@ -18,10 +18,10 @@
 #   dyntaxa - backbone_taxonID. The headline: a national checklist does not move
 #             when GBIF changes its backbone, so it is the only space in which a
 #             legacy-Backbone snapshot and a COL cube can be differenced.
-#   gbif    - specieskey. Not cross-regime safe, but it is what the Step 0 probe
-#             measured, so it is the acceptance test that proves this code
-#             correct - and it is the honest "all of GBIF" figure, since ~18% of
-#             species carry no Dyntaxa taxonID.
+#   gbif    - specieskey. Not cross-regime safe, but it is what the regression
+#             fixture measured, so it is the acceptance test that proves this
+#             code correct - and it is the honest "all of GBIF" figure, since
+#             ~18% of species carry no Dyntaxa taxonID.
 #
 # WHAT IS DELIBERATELY NOT COMPUTED:
 #   A single continuous series across the snapshot -> cube boundary. That
@@ -93,9 +93,9 @@ RESOLUTIONS <- c(10L, 50L)
 KEY_SPACES  <- c("dyntaxa", "gbif")
 
 # Regression fixtures, measured independently in numpy/pyproj over the same
-# files (claude/finding-step0-probe-2026-09-09.md). A pair listed here MUST
-# reproduce these in GBIF key space at 10 km. A mismatch is a bug in this
-# script, not new data - the inputs are frozen snapshots.
+# files. A pair listed here MUST reproduce these in GBIF key space at 10 km.
+# A mismatch is a bug in this script, not new data - the inputs are frozen
+# snapshots.
 CLOSURE_EXPECTED <- list(
   `2021-01-01|2024-01-01` = list(
     pairs_from = 5293352, pairs_to = 6128667,
@@ -166,8 +166,7 @@ if (live_ok) {
     "Live cube included as time point {.val {LIVE_TP}} (read from the root, not copied)")
 } else {
   # NEVER stay silent here. A missing live point is the most likely reason
-  # GAP_CLOSURE_PAIR fails to match, and the previous version printed nothing
-  # at all when the date could not be resolved - three states, two branches.
+  # GAP_CLOSURE_PAIR fails to match, so name every cause that applies.
   cli_alert_warning(
     "Live cube NOT available as a time point - only the snapshot time points \\
      below can be compared.")
@@ -248,8 +247,7 @@ read_grain <- function(tp, res_km) {
   dt <- data.table::as.data.table(arrow::read_parquet(
     path, col_select = c("specieskey", "eeacellcode", "datasetkey",
                          "year", "occurrences")))
-  # The aggregation lives in R/closure.R so it can be unit-tested; doing it
-  # inline here is what let an integer/Inf type mismatch reach the real data.
+  # The aggregation lives in R/closure.R so it can be unit-tested.
   g <- closure_build_grain(dt, PLATFORMS)
   rm(dt); invisible(gc())
   cli_alert_info(
@@ -333,7 +331,7 @@ for (pr in pairs_to_do) {
     # overlap, so a set difference would report every baseline pair as lost and
     # every comparison pair as gained - roughly six million of each, all of it
     # fiction, and none of it erroring. Dyntaxa taxonID is the only key both
-    # sides reach, which is the entire argument of the harmonisation brief.
+    # sides reach.
     ks_for_pair <- "dyntaxa"
     cli_alert_warning(c(
       "This pair straddles the snapshot -> cube boundary."
@@ -399,8 +397,7 @@ for (pr in pairs_to_do) {
       if (tl$n_fallback) {
         # cli::qty() supplies the pluralisation quantity explicitly. Without it
         # the quantity comes from the preceding substitution - scales::comma(),
-        # a CHARACTER - and cli then reads it as singular forever:
-        # "26,962 key absent". Verified against cli 3.6.2.
+        # a CHARACTER - and cli then reads it as singular forever (cli 3.6.2).
         cli_alert_info(
           "{tag}: {scales::comma(tl$n_fallback)} key{cli::qty(tl$n_fallback)}{?s} \\
            absent from the {to} taxonomy, annotated from {from} (the lost taxa)")
@@ -416,11 +413,8 @@ for (pr in pairs_to_do) {
         data.table::fifelse(pairs_from > 0, 100 * pairs_gained / pairs_from, NA_real_), 3)]
       # Loss rate is the taxonomic-churn indicator, and it belongs beside fill
       # rate rather than in a caveat. Backbone reassignment inside a clade shows
-      # up as pairs vanishing from the baseline: Agaricales loses 4.3% and
-      # Boletales 12.2% of their baseline pairs between 2021 and 2024, against
-      # 0.19% for Coleoptera and 0.15% for Odonata. A reader ranking groups by
+      # up as pairs vanishing from the baseline. A reader ranking groups by
       # fill rate alone cannot tell a volatile clade from a stable one.
-      # See claude/finding-backbone-churn-within-regime-2026-09-10.md.
       grp[, loss_rate := round(
         data.table::fifelse(pairs_from > 0, 100 * pairs_lost / pairs_from, NA_real_), 3)]
       grp[, churn_flag := !is.na(loss_rate) & loss_rate >= CHURN_WARN_PCT]
@@ -442,12 +436,10 @@ for (pr in pairs_to_do) {
                    # filters (the cube has hasgeospatialissues/occurrencestatus).
                    "filters_differ",
                    # Species excluded by the re-key because they carry no
-                   # national-checklist taxonID. Until now these were reported
-                   # to the console and then thrown away, which left the app
-                   # unable to caveat its own species tile: 4,345 "newly
-                   # recorded" in Dyntaxa space against 9,637 in GBIF space is
-                   # only interpretable next to the 14,213 species that are off
-                   # the checklist entirely. In gbif space nothing is dropped
+                   # national-checklist taxonID. The app caveats its species
+                   # tile with them: "newly recorded" in Dyntaxa space is only
+                   # interpretable next to the species that are off the
+                   # checklist entirely. In gbif space nothing is dropped
                    # and both are 0 by construction.
                    "species_off_checklist_from", "species_off_checklist_to"),
         source_group = "total", key_space = ks,
@@ -487,16 +479,16 @@ for (pr in pairs_to_do) {
                                 logical(1))]
         if (length(bad)) {
           cli_abort(c(
-            "Closure {from} -> {to} does not reproduce the Step 0 probe.",
+            "Closure {from} -> {to} does not reproduce the regression fixture.",
             "x" = "{paste(sprintf('%s: expected %s, got %s', bad,
                                   format(unlist(e[bad]), big.mark = ','),
                                   format(got[bad], big.mark = ',')), collapse = '; ')}",
             "i" = "The inputs are frozen snapshots, so this is a bug here, not new \\
-                   data. See claude/finding-step0-probe-2026-09-09.md."
+                   data."
           ))
         }
         cli_alert_success(
-          "Regression fixture: reproduces all {length(e)} Step 0 probe numbers"
+          "Regression fixture: reproduces all {length(e)} expected numbers"
         )
       }
     }
@@ -513,4 +505,4 @@ for (pr in pairs_to_do) {
 
 cli_h2("Done")
 cli_alert_info("Closure tables: {.path {closure_dir}}")
-cli_alert_info("Next: Step 4 - add these to the bundle in 11 and build the tab.")
+cli_alert_info("Next: re-run scripts/11_prepare_gap_finder_data.R to add these to the bundle.")

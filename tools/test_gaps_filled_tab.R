@@ -261,7 +261,7 @@ for (sg in c("total", "observation_platforms", "collections")) {
 }
 cat("   ", paste(names(shares), shares, sep = ": ", collapse = "  |  "), "\n")
 ok(length(unique(shares)) == 3, "each stream reports its own fieldwork share")
-ok(grepl("^64%|^63%", trimws(shares[["total"]])), "both streams ~64% (matches the finding)")
+ok(grepl("^64%|^63%", trimws(shares[["total"]])), "both streams ~64%")
 ok(grepl("^73%|^72%", trimws(shares[["observation_platforms"]])), "platforms ~73%")
 ok(grepl("^10%", trimws(shares[["collections"]])), "collections ~10%")
 

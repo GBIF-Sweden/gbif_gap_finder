@@ -83,10 +83,8 @@ cfg_get <- function(name, default = NULL) {
 #' Catalogue of Life checklist key: one fallback, defined once
 #'
 #' Configs stay authoritative (`parameters.taxonomic.col_checklist_key`, set in
-#' every configs/config_{CC}.yml). This is only the fallback when a config omits
-#' it. It used to be repeated as a literal in seven places across globals.R,
-#' 00_preflight, 01b, 09a and 09a1, so a change of GBIF's CoL checklist key
-#' meant finding them all (audit/external-dependencies-2026-09-07.md, H-4).
+#' every configs/config_{CC}.yml). This is the fallback when a config omits it,
+#' and the only copy of the key in the code: no script repeats the literal.
 COL_CHECKLIST_KEY_DEFAULT <- "7ddf754f-d193-4cc9-b351-99906754a03b"
 
 #' @return The configured CoL checklist key, or the default, as a string
@@ -98,16 +96,13 @@ get_col_checklist_key <- function() {
 #' Load an API cache, honouring the project's cache policy
 #'
 #' Every cache in this pipeline stores answers from an external API. Two things
-#' have to be true for that to stay safe, and neither was:
+#' have to be true for that to stay safe:
 #'
 #'   1. A FAILED lookup must never be stored as an answer. A cached failure is
-#'      never retried, so one bad run becomes a permanent defect. This is exactly
-#'      how Tier 4 collapsed 3,179 -> 92 in July 2026: ~19,865 HTTP 400s were
-#'      written as "no synonyms" and stayed that way. Callers own this half —
-#'      simply do not write on failure.
+#'      never retried, so one bad run becomes a permanent defect. Callers own
+#'      this half — simply do not write on failure.
 #'
-#'   2. A cache must be discardable. Until now the only way to clear one was
-#'      deleting the file by hand, so a cache could quietly outlive the upstream
+#'   2. A cache must be discardable, or it can quietly outlive the upstream
 #'      truth it mirrors.
 #'
 #' This helper owns (2). `parameters.cache.force_refresh` discards every cache;
@@ -149,8 +144,7 @@ load_cache <- function(path, label, max_age_days = NULL) {
 
 #' The publication date GBIF currently reports for a dataset
 #'
-#' `pubDate`, not `modified`: a metadata-only edit bumps `modified` (the COL
-#' checklist showed published 2026-07-17 / modified 2026-07-23) and must not
+#' `pubDate`, not `modified`: a metadata-only edit bumps `modified` and must not
 #' trigger a re-download of an unchanged archive.
 #'
 #' @param dataset_key GBIF dataset UUID.
@@ -288,12 +282,13 @@ p_logs     <- here("logs")
 # ============================================================================
 # The gap pipeline is run once per point in time. Rather than thread a time
 # argument through scripts 05-11, everything a run RECOMPUTES hangs off one
-# root, and that root moves. Scripts keep writing where they always wrote.
+# root, and that root moves. Scripts write to the same relative paths whatever
+# the time point.
 #
 # GAP_FINDER_TIMEPOINT unset  ->  p_timepoint == p_data_proc, i.e. every path
-# below is byte-identical to what it has always been. That is the property that
-# makes this safe to ship on a branch that also has to stay releasable, and
-# there is a test for it: see tools/test_timepoint_paths.R.
+# below is the live layout, untouched by the time-point machinery. That is the
+# property that keeps the live pipeline writing where it should, and there is a
+# test for it: see tools/test_timepoint_paths.R.
 #
 # GAP_FINDER_TIMEPOINT=2021-01-01  ->  everything lands under
 # data/{CC}/proc/timepoints/2021-01-01/, side by side with the live results.
@@ -372,7 +367,7 @@ raw_admin_dir      <- cfg_get("paths.admin_dir",       here(p_data_raw, "admin")
 # The cube query lives in one versioned file (sql/gbif_occurrence_cube.sql):
 # the query IS the cube definition. 01a renders it per resolution and submits it
 # via rgbif::occ_download_sql(); 01b resolves each cube's DOI from its download
-# key. See ROADMAP "b3verse cube-stack rewrite".
+# key.
 
 # Canonical cube SQL spec (single source of truth for the cube definition).
 cube_sql_path  <- here("sql", "gbif_occurrence_cube.sql")
@@ -588,8 +583,7 @@ ensure_dirs <- function() {
 #' Centralising it here guarantees the two never drift, and — crucially — the
 #' full grid is REQUIRED: there is no silent fall-back to "cells that appear in
 #' the data", because that collapses the denominator onto the numerator and
-#' reports ~100 % coverage with zero empty cells (the bug that made the app's
-#' Spatial/Overview disagree with the Priorities zero-cell count).
+#' reports ~100 % coverage with zero empty cells.
 #'
 #' @param counts        data.table/data.frame of counts. Must contain `cell_col`,
 #'                      every column in `facet_cols`, and the `value_cols`.
@@ -686,7 +680,7 @@ validate_schema <- function(dt, schema, label = "dataset") {
   invisible(TRUE)
 }
 
-# --- Schema definitions (unchanged) ---
+# --- Schema definitions ---
 schema_reconciliation <- list(
   # character: specieskey is the cross-table join key and is standardised as
   # character across the pipeline (read_cube(), 09b/09c joins). 09a pins it to
@@ -784,7 +778,6 @@ validate_spatial_coverage <- function(dt)
 # Shared Cube Reader
 # ============================================================================
 # Consolidated cube-reading logic used by 06a, 06b, 08, 09c.
-# Each script used to define its own variant; now they all call this.
 
 #' Read a parquet cube into data.table
 #'
@@ -814,8 +807,7 @@ read_cube <- function(parquet_path, cols = NULL, grid_label = NULL,
 
   # specieskey is the join key against the (character) taxonomic reconciliation
   # and scope lookups; coerce to character so a cube whose CSV typed it as an
-  # integer (the automated occ_download_sql export does) still joins. Matches the
-  # type the pre-b3verse manual-export cubes carried.
+  # integer (the automated occ_download_sql export does) still joins.
   if ("specieskey" %in% names(dt)) dt[, specieskey := as.character(specieskey)]
 
   # Create yearmonth from year + month (NA-safe)
@@ -914,11 +906,10 @@ clean_for_filename <- function(x) {
 # ============================================================================
 # Red-list vocabulary
 # ============================================================================
-# The set of red-list categories counted as "threatened" was written out by hand
-# in five scripts (09a1, 09b, 09c, 10 twice). Identical today, but five places to
-# keep identical is a defect waiting to happen: change the national red list's
-# vocabulary, miss one, and the Taxonomic and Concern tabs disagree with no error
-# anywhere. One definition, read from config.
+# The set of red-list categories counted as "threatened": one definition, read
+# from config. Per-script copies would be a defect waiting to happen: change the
+# national red list's vocabulary, miss one, and the Taxonomic and Concern tabs
+# disagree with no error anywhere.
 #
 # scripts/12_reconcile.R deliberately keeps its own copy. It is the guardrail
 # that asserts these numbers agree across layers, and a guardrail that shares its
@@ -1027,8 +1018,8 @@ resolve_threat_status <- function(dt, cols = c("threatStatus_redlist",
 get_snapshot_date <- function(fallback = as.Date(NA)) {
   # A historical time point IS its own reference date. Without this, a 2021-01-01
   # snapshot would be scored for staleness against whenever the LIVE cube was
-  # downloaded (2026-07-29), so every cell in it would read as five years stale
-  # and the recency layer would be meaningless rather than merely wrong.
+  # downloaded, so every cell in it would read as years stale and the recency
+  # layer would be meaningless rather than merely wrong.
   if (nzchar(GAP_TIMEPOINT)) {
     d <- suppressWarnings(as.Date(GAP_TIMEPOINT))
     if (!is.na(d)) return(d)

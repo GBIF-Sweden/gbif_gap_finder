@@ -41,17 +41,17 @@ grid_configs <- list(
 
 target_crs <- cfg_get("parameters.crs", CRS_ETRS89_LAEA)
 
-# T-D5 marine cells: master switch + zone. When FALSE (default) script 02 builds
-# a land-only grid exactly as before; when TRUE, empty EEZ sea cells are added so
-# marine coverage + zero-coverage gaps are measured (see configs/config_{CC}.yml).
+# Marine (EEZ) cells: master switch + zone. When FALSE (default) script 02
+# builds a land-only grid; when TRUE, empty EEZ sea cells are added so marine
+# coverage + zero-coverage gaps are measured (see configs/config_{CC}.yml).
 marine_enabled <- isTRUE(cfg_get("marine.enabled", FALSE))
 marine_zone    <- cfg_get("marine.zone", "eez")
 
 # ============================================================================
 # Determine country cell codes from cube data
 # ============================================================================
-# The Europe-wide grid has ~100k+ cells. We clip to only the cells
-# that appear in this country's GBIF cube data.
+# The Europe-wide grid has ~100k+ cells. Cells that appear in this
+# country's GBIF cube carry data and always survive the clip below.
 
 cli_h2("Determining Country Cell Codes")
 
@@ -82,7 +82,7 @@ if (!is.null(country_cells_10km)) {
   cli_alert_warning("No cube data found — will keep all grid cells (no clipping)")
 }
 
-# Derive 50km cell codes from 10km codes (first 9 characters: "50kmE123N456" pattern)
+# Derive 50km cell codes from 10km codes ("50kmE123N456" pattern)
 # EEA 10km code format: 10kmE1234N5678 → 50km parent: extract E/N at 50km resolution
 country_cells_50km <- NULL
 if (!is.null(country_cells_10km)) {
@@ -146,7 +146,7 @@ standardize_grid <- function(grid, crs = target_crs) {
 }
 
 # ============================================================================
-# Marine Helpers (T-D5)
+# Marine Helpers
 # ============================================================================
 
 #' Fetch (or load from cache) a national marine zone polygon in the target CRS.
@@ -308,7 +308,7 @@ cli_h2("Processing EEA Grids for {COUNTRY_CODE}")
 
 grids_processed <- list()
 
-# T-D5: fetch (or load cached) the marine zone once, before the per-grid loop.
+# Fetch (or load cached) the marine zone once, before the per-grid loop.
 eez_zone <- NULL
 if (marine_enabled) {
   cli_h2("Loading marine zone for {COUNTRY_CODE}")
@@ -326,7 +326,7 @@ for (grid_name in names(grid_configs)) {
   # Standardise cell code column name
   grid <- standardise_cellcode(grid)
 
-  # T-D5: bring the country's empty marine (EEZ) cells into the grid universe
+  # Bring the country's empty marine (EEZ) cells into the grid universe
   # before the clip (config-gated; no-op unless marine.enabled).
   if (marine_enabled && !is.null(eez_zone)) {
     marine_cellsize <- if (grid_name == "grid10km") 10000L else 50000L
@@ -338,11 +338,10 @@ for (grid_name in names(grid_configs)) {
   if (grid_name == "grid10km" && !is.null(country_cells_10km)) {
     # Assign each cell to the country by CENTROID-in-boundary (not mere
     # intersection), and always keep any cell that actually carries this
-    # country's data. The previous logic kept every cell that *intersected* an
-    # outward-buffered boundary, which pulled in border cells sitting mostly in
-    # neighbouring countries (Norway/Finland) and then surfaced them as
-    # "zero-coverage" Swedish gaps (T-D7). Centroid-in-country drops the foreign
-    # spill; the `has_data` clause guarantees no real border records are lost.
+    # country's data. Intersection would pull in border cells sitting mostly in
+    # neighbouring countries and surface them as false "zero-coverage" gaps.
+    # Centroid-in-country drops that foreign spill; the `has_data` clause
+    # guarantees no real border records are lost.
     admin_path <- here(raw_admin_dir, "admin_level1.gpkg")
     if (file.exists(admin_path)) {
       cli_alert_info("Clipping to admin boundary (GADM level 1, centroid-in-country)")
@@ -360,13 +359,13 @@ for (grid_name in names(grid_configs)) {
       in_country <- st_intersects(st_centroid(st_geometry(grid)),
                                   country_hull, sparse = FALSE)[, 1]
     }
-    # T-D5: also keep cells whose centroid is in the marine zone (EEZ), so the
+    # Also keep cells whose centroid is in the marine zone (EEZ), so the
     # empty sea cells added above survive the clip. No-op unless marine.enabled.
     if (marine_enabled && !is.null(eez_zone)) {
       in_eez <- st_intersects(st_centroid(st_geometry(grid)), eez_zone,
                               sparse = FALSE)[, 1]
       in_country <- in_country | in_eez
-      # T-D5 marine flag: mark every cell whose centroid is in the EEZ as marine.
+      # Marine (EEZ) flag: mark every cell whose centroid is in the EEZ as marine.
       # add_marine_cells() only flags fishnet-added cells, but the EEA grid
       # already carries the sea cells (fishnet adds 0), so the flag would stay
       # all-FALSE without this. Set before the row-subset below so it survives the
@@ -385,11 +384,10 @@ for (grid_name in names(grid_configs)) {
   } else if (grid_name == "grid50km") {
     # Clip the 50km grid the SAME way as 10km: assign each cell to the country by
     # CENTROID-in-admin-boundary, and always keep any cell that carries data. Do
-    # NOT derive the 50km universe from data-bearing cells (the old
-    # `eeacellcode %in% country_cells_50km` filter) — that collapses the coverage
-    # denominator onto the data and reports ~100% coverage with zero empty 50km
-    # cells. Empty in-country cells must survive so the downstream zero-fill can
-    # flag them as gaps. (Fix 2026-07-21.)
+    # NOT derive the 50km universe from data-bearing cells — that collapses the
+    # coverage denominator onto the data and reports ~100% coverage with zero
+    # empty 50km cells. Empty in-country cells must survive so the downstream
+    # zero-fill can flag them as gaps.
     admin_path <- here(raw_admin_dir, "admin_level1.gpkg")
     if (file.exists(admin_path)) {
       cli_alert_info("Clipping 50km to admin boundary (GADM level 1, centroid-in-country)")
@@ -408,13 +406,13 @@ for (grid_name in names(grid_configs)) {
       )
       in_country <- rep(TRUE, nrow(grid))
     }
-    # T-D5: also keep cells whose centroid is in the marine zone (EEZ), so the
+    # Also keep cells whose centroid is in the marine zone (EEZ), so the
     # empty sea cells added above survive the clip. No-op unless marine.enabled.
     if (marine_enabled && !is.null(eez_zone)) {
       in_eez <- st_intersects(st_centroid(st_geometry(grid)), eez_zone,
                               sparse = FALSE)[, 1]
       in_country <- in_country | in_eez
-      # T-D5 marine flag: mark every cell whose centroid is in the EEZ as marine.
+      # Marine (EEZ) flag: mark every cell whose centroid is in the EEZ as marine.
       # add_marine_cells() only flags fishnet-added cells, but the EEA grid
       # already carries the sea cells (fishnet adds 0), so the flag would stay
       # all-FALSE without this. Set before the row-subset below so it survives the
@@ -425,7 +423,7 @@ for (grid_name in names(grid_configs)) {
       grid$eeacellcode %in% country_cells_50km
     } else rep(FALSE, nrow(grid))
 
-    # T-I2: parse_10km() synthesises 50km parent codes by string math, so a
+    # parse_10km() synthesises 50km parent codes by string math, so a
     # derived code can fail to match any real cell in the EEA 50km grid (regex
     # miss, rounding/edge artefact, or code-format drift). Such codes drop out of
     # the `%in%` above silently and under-count data-bearing 50km cells. Warn
@@ -456,7 +454,7 @@ for (grid_name in names(grid_configs)) {
   st_write(grid, gc$output, delete_dsn = TRUE, quiet = TRUE)
   cli_alert_success("{nrow(grid)} cells")
 
-  # T-A1: cache the clipped cell-code list as a sidecar .txt so 07 (and future
+  # Cache the clipped cell-code list as a sidecar .txt so 07 (and other
   # consumers) can read codes without re-opening the gpkg geometry.
   # grid10km -> cellcodes_10km.txt, grid50km -> cellcodes_50km.txt.
   codes_path <- file.path(p_data_proc, paste0("cellcodes_", sub("^grid", "", grid_name), ".txt"))

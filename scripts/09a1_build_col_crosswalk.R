@@ -1,17 +1,16 @@
 # scripts/09a1_build_col_crosswalk.R
 # ============================================================================
-# Build + validate the authoritative Dyntaxa <-> COL crosswalk (Section B spike)
+# Build + validate the authoritative Dyntaxa <-> COL crosswalk
 # ============================================================================
 # WHY
-#   GBIF permanently switched its default backbone to the Catalogue of Life
-#   Extended Release (COL XR). The occurrence cube's `specieskey` is a COL
-#   taxonID (alphanumeric, e.g. "DGND"). This builds the modern reconciliation
-#   authority: match every national-taxonomy (Dyntaxa) name to COL via GBIF's v2
-#   match API (checklistKey = COL) and record the COL key it resolves to.
+#   GBIF interprets names against the Catalogue of Life Extended Release
+#   (COL XR) backbone, so the occurrence cube's `specieskey` is a COL taxonID
+#   (alphanumeric, e.g. "DGND"). This builds the reconciliation authority:
+#   match every national-taxonomy (Dyntaxa) name to COL via GBIF's v2 match API
+#   (checklistKey = COL) and record the COL key it resolves to.
 #
-#   Verified against the live API (2026-07-27): the v2 match `usage.key` — or
-#   `acceptedUsage.key` when the Dyntaxa name is a COL synonym — IS the same
-#   alphanumeric id the cube stores in `specieskey`
+#   The v2 match `usage.key` — or `acceptedUsage.key` when the Dyntaxa name is
+#   a COL synonym — IS the same alphanumeric id the cube stores in `specieskey`
 #     Anas crecca      -> usage.key       "DGND"  (in cube)
 #     Sylvia communis  -> acceptedUsage.key "DDBNS" (Curruca communis; in cube)
 #   So a Dyntaxa taxon is "present in GBIF" iff its COL key is in the cube's
@@ -19,34 +18,33 @@
 #   (Sylvia->Curruca) is resolved in one step.
 #
 # WHAT THIS DOES  (it does NOT modify 09a — it builds the crosswalk that 09a reads
-#                  as the ADDITIVE Tier 5; augment, not replacement. Kept 2026-07-30
-#                  (Lena): rescues 162 species / 41,790 occ Tiers 1-4 miss, plus
-#                  key-format-agnostic insurance.)
+#                  as the ADDITIVE Tier 5; augment, not replacement: it catches
+#                  species Tiers 1-4 miss and works whatever the key format.)
 #   1. Loads Dyntaxa (03) + the cube species universe (06b species_summary).
-#   2. Matches each unique Dyntaxa name -> COL key (cached + resumable). Fast
-#      bulk path via rgbif::name_backbone_checklist(); serial httr2 fallback with
-#      the exact verified /v2/species/match shape.
+#   2. Matches each unique Dyntaxa name -> COL key (cached + resumable) with
+#      parallel httr2 requests to /v2/species/match; an optional bulk path via
+#      rgbif::name_backbone_checklist() can fill the cache first.
 #   3. Writes the crosswalk  data/{CC}/proc/col_crosswalk.rds
 #      (dyntaxa_taxonID, col_key, match_status, match_type, confidence, name_used).
-#   4. VALIDATES coverage vs the cube and the confirmed baseline
-#      (matched 76.4% / occ 99.72% / missing-threatened 225) and writes
-#      data/{CC}/proc/gaps/col_crosswalk_validation.md so the Tier-5 augment can
-#      be green-lit on real numbers first.
+#   4. VALIDATES coverage vs the cube and the configured baseline
+#      (parameters.taxonomic.crosswalk_baseline) and writes
+#      data/{CC}/proc/gaps/col_crosswalk_validation.md.
 #
 # RUN:  source("scripts/09a1_build_col_crosswalk.R")     (after 03 + 06b)
 # Config (all optional; safe defaults, NO config-file change required):
-#   parameters.taxonomic.col_checklist_key            (pinned by the provenance patch)
+#   parameters.taxonomic.col_checklist_key            (fallback in R/globals.R)
 #   parameters.taxonomic.crosswalk_include_synonyms   default TRUE
 #   parameters.taxonomic.crosswalk_min_fuzzy_confidence default 90
-#   parameters.taxonomic.crosswalk_use_bulk_rgbif     default TRUE (fast); FALSE = serial httr2
-#   parameters.taxonomic.api_max_requests / api_max_batches  (serial batch caps; as 09a)
-# Dependencies: data.table, stringr, here, cli; rgbif (bulk) and/or httr2 (serial).
+#   parameters.taxonomic.crosswalk_use_bulk_rgbif     default FALSE; TRUE = rgbif bulk first
+#   parameters.taxonomic.crosswalk_parallel_conc / crosswalk_parallel_chunk /
+#     crosswalk_max_names_per_run                     (httr2 caps; default 20 / 500 / Inf)
+# Dependencies: data.table, stringr, here, cli; httr2 (parallel) and/or rgbif (bulk).
 # ============================================================================
 
 source(here::here("scripts", "00_setup.R"))
 
 timer_start <- Sys.time()
-cli_h1("09a1 -- Build + validate Dyntaxa<->COL crosswalk (Section B spike)")
+cli_h1("09a1 -- Build + validate Dyntaxa<->COL crosswalk")
 
 # ----------------------------------------------------------------------------
 # Config (defaults are safe; no config file change required)
@@ -62,16 +60,16 @@ api_max_batches   <- cfg_get("parameters.taxonomic.api_max_batches", Inf)
 cache_file     <- here(p_data_proc, "col_crosswalk_cache.rds")
 crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
 report_file    <- here(p_gaps, "col_crosswalk_validation.md")
-# THREATENED_CODES now comes from R/globals.R (config-driven, one definition).
+# THREATENED_CODES comes from R/globals.R (config-driven, one definition).
 
 # Regression baseline: config, not code (parameters.taxonomic.crosswalk_baseline).
-# The old hardcoded 76.4 / 99.72 / 225 (2026-07-27) went stale with the Dyntaxa
-# refresh and flagged a false REGRESSED on every run since. NA = not configured:
-# the report then prints the values without comparing.
+# A hardcoded baseline goes stale with every Dyntaxa/COL/cube refresh and then
+# flags a false REGRESSED. NA = not configured: the report then prints the
+# values without comparing.
 .xw_base <- cfg_get("parameters.taxonomic.crosswalk_baseline", list())
 BASE_MATCH_PCT          <- as.numeric(.xw_base$match_pct          %||% NA_real_)
 BASE_OCC_PCT            <- as.numeric(.xw_base$occ_pct            %||% NA_real_)
-# `missing_threatened` is the pre-2026-09-30 key name, still accepted.
+# `missing_threatened` is accepted as an alias of `threatened_not_crosswalked`.
 BASE_MISSING_THREATENED <- as.numeric(
   .xw_base$threatened_not_crosswalked %||% .xw_base$missing_threatened %||% NA_real_)
 
@@ -183,9 +181,9 @@ extract_match <- function(usage, acc, diag) {
 }
 
 # --- Fast path: rgbif::name_backbone_checklist (parallel bulk) ---------------
-# Populates the cache for as many names as it can; the serial path mops up the
+# Populates the cache for as many names as it can; the httr2 path mops up the
 # rest. Column names vary by rgbif version, so extract defensively and only
-# trust a clean one-row-per-input result (else defer everything to serial).
+# trust a clean one-row-per-input result (else defer everything to httr2).
 bulk_fill_cache <- function(names_vec) {
   if (!requireNamespace("rgbif", quietly = TRUE)) {
     cli_alert_warning("rgbif not installed -- skipping bulk path")
@@ -243,9 +241,10 @@ if (use_bulk && length(to_query) > 0) {
 
 # --- Parallel matcher: httr2 /v2/species/match (verified response shape) -----
 # Concurrency-capped parallel requests. GBIF's own name_backbone_checklist uses
-# bucket_size 300, so a cap of ~20 is very conservative and ~10-20x the old
-# per-name serial loop. Resumes from cache; transport errors are NOT cached, so
-# they retry on the next run. Tunable: parameters.taxonomic.crosswalk_parallel_conc.
+# bucket_size 300, so a cap of ~20 is very conservative and still ~10-20x faster
+# than a per-name serial loop. Resumes from cache; transport errors are NOT
+# cached, so they retry on the next run. Tunable:
+# parameters.taxonomic.crosswalk_parallel_conc.
 if (length(to_query) > 0) {
   if (!requireNamespace("httr2", quietly = TRUE)) {
     cli_alert_warning(
@@ -454,4 +453,4 @@ cli_alert_success("Wrote validation report: {.path {report_file}}")
 
 elapsed <- round(difftime(Sys.time(), timer_start, units = "mins"), 1)
 cli_alert_info("Elapsed: {elapsed} minutes")
-cli_alert_info("Review {.path {report_file}}; the crosswalk feeds 09a as the additive Tier 5 (kept 2026-07-30).")
+cli_alert_info("Review {.path {report_file}}; the crosswalk feeds 09a as the additive Tier 5.")

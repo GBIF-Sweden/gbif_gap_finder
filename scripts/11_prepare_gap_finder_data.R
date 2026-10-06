@@ -12,7 +12,7 @@
 # The bundle contains:
 #   - Grid geometries (simplified for web rendering)
 #   - Dashboard summary metrics
-#   - Per-scope summaries (all, dyntaxa, threatened, invasive, sensitive)
+#   - Per-scope summaries (all, threatened, invasive, sensitive)
 #   - Taxonomic coverage tables (derived from 09b's match_summary)
 #   - Publisher data (from 06a)
 #   - Priority lists (from 10)
@@ -92,8 +92,7 @@ data_sources_meta <- if (file.exists(ds_meta_path)) {
 
 # safe_read() and %||% are defined in R/globals.R
 
-# year/month columns are provided by 09c on every *_time_summary output, so the
-# former add_yearmonth_cols() helper was removed here (T-R6).
+# year/month columns are provided by 09c on every *_time_summary output.
 
 
 # ==============================================================================
@@ -102,10 +101,10 @@ data_sources_meta <- if (file.exists(ds_meta_path)) {
 
 cli_h2("Loading Grid Geometries")
 
-# T-D5 marine flag: accumulate a cell->marine lookup (eeacellcode + marine)
+# Marine (EEZ) flag: accumulate a cell->marine lookup (eeacellcode + marine)
 # across both resolutions, captured BEFORE the select(eeacellcode) below drops
 # non-geometry columns. Absent / all-FALSE unless script 02 built EEZ sea cells
-# into the grid (marine.enabled). Powers the app Land only / Land + sea toggle.
+# into the grid (marine.enabled). Powers the app's Coverage area toggle.
 cell_marine_rows <- list()
 
 for (grid_label in c("10km", "50km")) {
@@ -140,7 +139,7 @@ for (grid_label in c("10km", "50km")) {
   rm(grid, grid_simple); invisible(gc())
 }
 
-# T-D5: assemble the cell->marine lookup from both resolutions (codes are
+# Assemble the cell->marine lookup from both resolutions (codes are
 # resolution-prefixed, so a single table is unambiguous). NA -> FALSE.
 if (length(cell_marine_rows) > 0) {
   cell_marine_lookup <- dplyr::bind_rows(cell_marine_rows)
@@ -191,13 +190,11 @@ if (!is.null(shiny_data$grid_10km) && !is.null(shiny_data$admin_level1)) {
   shiny_data$cell_admin_lookup <- cell_admin
   cli_alert_success("Cell-admin lookup: {nrow(cell_admin)} cells mapped")
 
-  # T-D5: land / sea / outside for the Coverage area toggle (10 km; the admin
-  # lookup is 10 km). Rewritten 2026-09-30 after two wrong rules:
-  #   - "in EEZ or off Swedish land" flagged the Norwegian/Finnish land cells the
-  #     grid keeps along the border (they carry data) as sea;
-  #   - "nearer the EEZ than Swedish land" still let the Torne valley and the
-  #     Norwegian coast by Strömstad through, because the EEZ runs up to them.
-  # The rule now asks whether a centroid is inside SWEDEN at all:
+  # Land / sea / outside for the Coverage area toggle (10 km; the admin
+  # lookup is 10 km). The grid keeps foreign land cells along the border
+  # (they carry data) and the EEZ runs up to the border, so neither "off
+  # Swedish land" nor "nearer the EEZ" separates sea from foreign land.
+  # The rule asks whether a centroid is inside SWEDEN at all:
   #   territory = Swedish land (admin) + Swedish EEZ, with interior holes filled
   #               (slivers where the GADM and Marine Regions coastlines disagree)
   #   land      = centroid on Swedish land, or in a filled hole > 5 km from the EEZ
@@ -208,7 +205,7 @@ if (!is.null(shiny_data$grid_10km) && !is.null(shiny_data$admin_level1)) {
   #               waters beyond the EEZ, kept in the grid only for their data.
   # Land only shows `land`, Sea only shows `sea`; `outside` only in Land + sea.
   # Needs the cached EEZ polygon from 02; without it: sea = in EEZ and off land,
-  # everything else land (the pre-2026-09-30 behaviour minus the widening).
+  # everything else land.
   if (!is.null(shiny_data$cell_marine_lookup)) {
     cml    <- shiny_data$cell_marine_lookup
     is_10  <- grepl("^10km", cml$eeacellcode)
@@ -265,9 +262,9 @@ if (!is.null(shiny_data$grid_10km) && !is.null(shiny_data$admin_level1)) {
 
 cli_h2("Loading Recent-Period Cutoff")
 
-# Snapshot year (cube download date) — the single wall-clock-free reference for
-# the temporal windows below, so the order-trend and fallback figures are
-# reproducible across reruns instead of drifting with the run date (T-R3).
+# Snapshot year (cube download date) — the wall-clock-free reference for the
+# fallback recent period below, so it is reproducible across reruns instead of
+# drifting with the run date.
 snapshot_year <- year(get_snapshot_date())
 
 recent_cutoff <- safe_read(here(p_timepoint, "recent_cutoff.rds"), type = "rds")
@@ -331,12 +328,12 @@ if (!is.null(dashboard_long)) shiny_data$dashboard_long <- as_tibble(dashboard_l
 # 4. Per-Scope Summaries (from 09c)
 # ==============================================================================
 # 09c produces scope-suffixed variants of all core summaries.
-# We load them under scope-prefixed names so the app can pick the right
-# slice based on the user's toggle (dyntaxa / all / threatened / invasive / sensitive).
+# We load them under scope-prefixed names so the app can read each slice
+# directly (all / threatened / invasive / sensitive).
 
 cli_h2("Loading Per-Scope Summaries (from 09c)")
 
-SCOPES <- c("all", "threatened", "invasive", "sensitive")  # dyntaxa scope removed
+SCOPES <- c("all", "threatened", "invasive", "sensitive")
 GRID <- "10km"
 
 load_scope_file <- function(summary_type, scope, grid = GRID) {
@@ -404,8 +401,7 @@ for (scope in SCOPES) {
   # Cell last year
   # 09c produces columns: occ_last_year, occ_prior, newly_covered,
   # has_last_year_data. The app reads `prior` and `last_year` (unprefixed)
-  # from the "all"-scope alias shiny_data$cell_last_year. Rename here so
-  # downstream code works without changes.
+  # from the "all"-scope alias shiny_data$cell_last_year, so alias them here.
   cly <- load_scope_file("cell_last_year", scope)
   if (!is.null(cly)) {
     cly_tb <- as_tibble(cly) |>
@@ -423,10 +419,8 @@ for (scope in SCOPES) {
   }
 }
 
-# Backward-compatible aliases: the app currently expects certain names
-# without scope prefix (e.g. time_summary_10km, spatial_gaps_10km). Point
-# those to the "all" scope so existing app code that doesn't know about
-# scope toggling still works.
+# Unprefixed aliases: the app reads certain names without scope prefix
+# (e.g. time_summary_10km, spatial_gaps_10km). Point those to the "all" scope.
 alias_map <- list(
   time_summary_10km     = "all_time_summary",
   cell_summary_10km     = "all_cell_summary",
@@ -453,7 +447,7 @@ if (!is.null(tcr)) {
   shiny_data$tax_cell_recency <- as_tibble(tcr)
   cli_alert_success("Tax cell recency: {scales::comma(nrow(tcr))} rows")
 
-  # Kingdom-only aggregate (for backward compat)
+  # Kingdom-only aggregate (Spatial tab kingdom filter)
   shiny_data$kingdom_cell_recency <- shiny_data$tax_cell_recency |>
     group_by(eeacellcode, kingdom) |>
     summarise(
@@ -469,8 +463,8 @@ if (!is.null(tcr)) {
   )
 }
 
-# Order x cell recency (Spatial tab order filter). Optional: an older 09c run
-# without it just leaves the order filter hidden in the app.
+# Order x cell recency (Spatial tab order filter). Optional: without it the app
+# hides the order filter.
 ocr <- safe_read(here(p_derived, paste0("order_cell_recency_", GRID, ".csv")))
 if (!is.null(ocr)) {
   shiny_data$order_cell_recency <- as_tibble(ocr)
@@ -640,9 +634,7 @@ for (key in names(spatial_files)) {
 }
 
 # Priority cells (zero / low / stale) from 10. Filenames are canonical and match
-# 10's write_integrated() outputs exactly — no alias fallback (the old alt names
-# were never written by any script, so the fallback could only ever load a stale
-# leftover file).
+# 10's write_integrated() outputs exactly.
 priority_files <- list(
   list(file = "priority_cells_zero_coverage.csv", key = "priority_zero_cells"),
   list(file = "priority_cells_low_coverage.csv",  key = "priority_low_cells"),
@@ -688,7 +680,7 @@ if (!is.null(order_temporal)) {
 }
 
 # Order-trend views (order_5yr / top_orders / order_change) are computed in
-# script 10 now (T-R3); load them here.
+# script 10; load them here.
 o5  <- safe_read(here(p_integrated, "order_5yr.csv"))
 if (!is.null(o5))  shiny_data$order_5yr    <- as_tibble(o5)
 oto <- safe_read(here(p_integrated, "order_top25.csv"))
@@ -714,7 +706,7 @@ if (is.null(shiny_data$priority_taxa_missing)) {
 
 
 # ==============================================================================
-# 12. Overview Last-Year Stats — computed in script 10 (T-R3); loaded here.
+# 12. Overview Last-Year Stats — computed in script 10; loaded here.
 # ==============================================================================
 
 cli_h2("Loading Overview Last-Year Stats")
@@ -730,7 +722,7 @@ if (!is.null(prl)) shiny_data$priority_resolved_last_year <- as_tibble(prl)
 
 
 # ==============================================================================
-# 13. Troudet-Style Bias Data — computed in script 10 (T-R3); loaded here.
+# 13. Troudet-Style Bias Data — computed in script 10; loaded here.
 # ==============================================================================
 
 cli_h2("Loading Troudet-Style Bias Data")
@@ -808,8 +800,7 @@ if (file.exists(pub_cell_tax_path)) {
 # Loading only. The binding, the species thinning and the totals-before-thinning
 # rule all live in closure_bundle() in R/closure.R, where they are unit-tested
 # against the real tables by tools/test_closure_bundle.R. That split is
-# deliberate: the last two bugs to reach real closure data both lived in an
-# untested I/O half, and this is another one.
+# deliberate: this script is untested I/O, so logic does not belong here.
 # ==============================================================================
 
 cli_h2("Loading Gap Closure Tables (from 14)")
@@ -857,8 +848,7 @@ shiny_data$metadata <- list(
   created_at = Sys.time(),
 
   # When GBIF cut the occurrence cube. This is the date a reader means by "how
-  # old is this?", and until now it was computed here (for snapshot_year) and
-  # then thrown away, leaving the app to display created_at instead.
+  # old is this?".
   snapshot_date = tryCatch(get_snapshot_date(), error = function(e) as.Date(NA)),
   created_by = "scripts/11_prepare_gap_finder_data.R",
   r_version = R.version.string,
@@ -869,7 +859,7 @@ shiny_data$metadata <- list(
   country_name = cfg_get("country.name", COUNTRY_CODE),
   country_code = cfg_get("country.code", COUNTRY_CODE),
 
-  # Taxonomy backbone info — DOI now resolved from dataset_key (01b), not config
+  # Taxonomy backbone info — DOI from dataset_key (01b), config as fallback
   taxonomy_name = cfg_get("taxonomy.name", "National Taxonomy"),
   taxonomy_doi  = data_sources_meta$checklists$taxonomy$doi %||% cfg_get("taxonomy.doi", NULL),
 
@@ -910,7 +900,7 @@ shiny_data$metadata <- list(
   # complete regardless; see closure_bundle().
   closure_species_top_n = CLOSURE_KEEP_TOP,
 
-  # T-D5 marine coverage toggle
+  # Marine (EEZ) coverage toggle
   has_marine = !is.null(shiny_data$cell_marine_lookup) &&
     any(shiny_data$cell_marine_lookup$marine, na.rm = TRUE),
   n_marine_cells = if (!is.null(shiny_data$cell_marine_lookup))

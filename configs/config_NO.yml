@@ -86,9 +86,9 @@ sensitive:
 # GBIF Occurrence Cubes (SQL API)
 # ============================================================================
 # NO cube provenance is recorded in the VERSION-CONTROLLED file
-# provenance/cube_downloads_NO.yml (auto-written by 01a; seeded from NO's
-# 2026-04-17 download). cube_download_key() reads it and 01b resolves DOI +
-# citation from the key — nothing to hand-maintain here, and it can't go stale.
+# provenance/cube_downloads_NO.yml (auto-written by 01a). cube_download_key()
+# reads it and 01b resolves DOI + citation from the key — nothing to
+# hand-maintain here, and it can't go stale.
 # To pin a specific download, add an override, e.g.:
 #   grid10km: { download_key: "0025058-260409193756587" }
 # Verify which is 10km vs 50km from your download — check the RESOLUTION
@@ -130,10 +130,10 @@ files:
 parameters:
   # --- Raw downloads -------------------------------------------------------
   # Archives are skipped when already on disk, so without auto_refresh a
-  # republished upstream release is never picked up: Dyntaxa sat 2.5 months
-  # stale that way. 01a now compares GBIF's pubDate against the date recorded
-  # when we downloaded, and re-fetches when upstream is newer. A registry
-  # lookup failure keeps what is on disk rather than re-downloading blindly.
+  # republished upstream release is never picked up. 01a compares GBIF's
+  # pubDate against the date recorded when we downloaded, and re-fetches when
+  # upstream is newer. A registry lookup failure keeps what is on disk rather
+  # than re-downloading blindly.
   download:
     auto_refresh: true
     force: false
@@ -165,7 +165,7 @@ parameters:
     # moves the threatened count with no error anywhere.
     expected_threat_categories: ["RE", "CR", "EN", "VU", "NT", "DD", "LC", "NE"]
     # --- GBIF taxonomic backbone: Catalogue of Life Extended Release (COL XR) ---
-    # GBIF's permanent default backbone (2025). The cube's `specieskey` is a COL
+    # GBIF's default backbone, so the cube's `specieskey` is a COL
     # taxonID — usually alphanumeric, but some valid COL ids are purely numeric
     # (e.g. Anemone nemorosa = 67343), so a numeric key is NOT a legacy Backbone
     # key. The cube SQL pins this checklist explicitly via the classificationdetails
@@ -179,13 +179,13 @@ parameters:
     #   match_pct: 75.3
     #   occ_pct: 99.1
     #   threatened_not_crosswalked: 152
-    # Keep FALSE so the occurrence tabs report ALL of GBIF (matches config_SE
-    # + the 2026-07-21 decision). Code defaults TRUE, so NO must set it explicitly
-    # or its occurrence tabs silently kingdom-scope.
+    # Keep FALSE so the occurrence tabs report ALL of GBIF (matches config_SE).
+    # Code defaults TRUE, so NO must set it explicitly or its occurrence tabs
+    # silently kingdom-scope.
     restrict_to_backbone_scope: false
     min_occurrences: 10
     min_cells: 5
-    gap_species_only: true                                 # gap denominator = species-rank backbone taxa only
+    gap_species_only: true                                 # gap denominator = species/subspecies/variety/form backbone taxa
     exclude_kingdoms: ["Bacteria", "Archaea", "Viruses"]   # drop non-multicellular kingdoms from the gap
     exclude_orders: ["Primates"]                           # drop Homo sapiens from the gap denominator (no native non-human primates in Norway)
     # "Poorly sampled" (Priorities): bottom-quantile occurrences OR < N cells.

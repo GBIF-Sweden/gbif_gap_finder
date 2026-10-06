@@ -29,18 +29,16 @@ if (!exists("%||%", mode = "function")) `%||%` <- function(a, b) if (is.null(a))
 # =============================================================================
 # Single source of truth for the basemap used by every leaflet map in this app.
 #
-# Why this exists: the app used providers$CartoDB.Positron on all maps until
-# CARTO began requiring an API key for its raster basemap endpoint
-# (basemaps.cartocdn.com) and started retiring it. Unkeyed tiles still render
-# but carry a repeating "API KEY REQUIRED" watermark -- which is what the
-# deployed Spatial tab showed. Nothing in this repo changed; the provider did.
+# Why not CARTO: its raster basemap endpoint (basemaps.cartocdn.com) requires an
+# API key and is being retired. Unkeyed tiles still render but carry a
+# repeating "API KEY REQUIRED" watermark.
 # Note that CartoDB.PositronNoLabels is the SAME raster endpoint and is watermarked
 # too -- switching label variants is not a fix.
 #
 # Default: Esri.WorldGrayCanvas. Keyless, pale grey, and quiet enough to keep the
 # colour-blind-safe cell palettes (see "Palette rule" below) legible on top of it. Known end-of-life:
 # Esri has scheduled the backing service (World_Light_Gray_Base) for retirement
-# in December 2029 -- tracked in audit/external-dependencies-2026-09-07.md.
+# in December 2029.
 #
 # Override without a code change or a rebuild by setting GAP_FINDER_BASEMAP to
 # any leaflet.providers name, e.g.
@@ -154,17 +152,16 @@ metadata        <- safe_get("metadata")
 
 # Red-list codes counted as "threatened". One definition, from the project config
 # (parameters.taxonomic.threatened_categories -> THREATENED_CODES), carried in the
-# bundle metadata by script 11. The fallback only covers bundles built before that.
+# bundle metadata by script 11. The fallback only covers bundles that lack it.
 # DD (Data Deficient) is NOT threatened; the Concern tables still list it next to
 # the threatened species, as CONCERN_CODES, so a reader sees both.
 THREATENED_CODES <- toupper(as.character(
   metadata$threatened_codes %||% c("CR", "EN", "VU", "NT")))
 CONCERN_CODES <- unique(c(THREATENED_CODES, "DD"))
 
-# Establishment means -> display group. Dyntaxa's vocabulary grows (the
-# 2026-09 release added "nativeReintroduced"), and an unmapped value used to
-# become NA and silently drop out of the Overview chart (plotly: "Ignoring 1
-# observations"). Reintroduced natives count as native; anything else new
+# Establishment means -> display group. Dyntaxa's vocabulary grows, and an
+# unmapped value must not become NA: an NA group silently drops out of the
+# Overview chart. Reintroduced natives count as native; anything else new
 # becomes "Other" so it stays visible until it is given a group.
 NATIVE_TERMS <- c("native", "nativeReintroduced")
 ESTAB_LEVELS <- c("Native", "Introduced", "Invasive", "Naturalised", "Uncertain",
@@ -185,7 +182,7 @@ estab_group <- function(x, merge_naturalised = FALSE) {
 # App/tool version. Baked into the image at build time by the Dockerfile
 # (ARG/ENV GAP_FINDER_VERSION), which CI fills from the pushed git tag. A
 # container has no git, so the environment is the only honest source here; a
-# hardcoded constant is what let this read "0.4.3" two releases after v0.5.1.
+# hardcoded constant goes stale at the next release.
 # "dev" locally, which is the truth rather than a stale release number.
 GAP_FINDER_VERSION <- Sys.getenv("GAP_FINDER_VERSION", "dev")
 
@@ -199,11 +196,12 @@ GAP_FINDER_SNAPSHOT <- local({
 })
 spatial_overview <- safe_get("spatial_overview")
 
-# ---- T-D5 marine coverage toggle ------------------------------------------
+# ---- Marine (EEZ) coverage toggle -----------------------------------------
 # cell_marine_lookup (eeacellcode + marine) is written by script 11 when the
 # grid carries EEZ sea cells (marine.enabled). Precompute the marine cell codes
-# once; the header toggle (server) filters the spatial coverage + recency views
-# to land only when asked. Absent lookup / no marine cells => toggle hidden.
+# once; the Coverage area toggle on the Spatial tab (server) filters the spatial
+# coverage + recency views to land or sea only when asked. Absent lookup / no
+# marine cells => toggle hidden.
 cell_marine_lookup <- safe_get("cell_marine_lookup")
 marine_codes <- if (!is.null(cell_marine_lookup) &&
                     all(c("eeacellcode", "marine") %in% names(cell_marine_lookup))) {
@@ -211,8 +209,8 @@ marine_codes <- if (!is.null(cell_marine_lookup) &&
 } else character(0)
 has_marine <- length(marine_codes) > 0
 # Cells outside Sweden (foreign land along the border, foreign waters beyond the
-# EEZ; kept in the grid for their data). Script 11 marks them from 2026-09-30;
-# older bundles have no `area` column, so nothing is outside.
+# EEZ; kept in the grid for their data). Script 11 marks them; a bundle without
+# an `area` column marks nothing as outside.
 outside_codes <- if (!is.null(cell_marine_lookup) && "area" %in% names(cell_marine_lookup)) {
   as.character(cell_marine_lookup$eeacellcode[cell_marine_lookup$area %in% "outside"])
 } else character(0)
@@ -222,7 +220,7 @@ admin_level1     <- safe_get("admin_level1")
 admin_level2     <- safe_get("admin_level2")
 has_admin        <- !is.null(admin_level1) || !is.null(admin_level2)
 
-# New: last year & Troudet data
+# Last year & Troudet data
 cell_last_year       <- safe_get("cell_last_year")
 overview_last_year   <- safe_get("overview_last_year")
 priority_resolved    <- safe_get("priority_resolved_last_year")
@@ -255,7 +253,7 @@ species_scope_lookup  <- safe_get("species_scope_lookup")
 tax_by_invasive       <- safe_get("tax_by_invasive")
 kingdom_cell_recency  <- safe_get("kingdom_cell_recency")
 tax_cell_recency      <- safe_get("tax_cell_recency")
-order_cell_recency    <- safe_get("order_cell_recency")   # from 09c via 11 (2026-09-30)
+order_cell_recency    <- safe_get("order_cell_recency")   # from 09c via 11
 
 # Species of Concern — scope-specific data (from 09c via 11)
 threatened_spatial_gaps <- safe_get("threatened_spatial_gaps")
@@ -281,10 +279,10 @@ publisher_cell_taxonomy <- safe_get("publisher_cell_taxonomy")
 #
 # Key space is fixed to dyntaxa. GBIF space exists for the within-regime pairs
 # as a regression fixture and is deliberately NOT offered as a control: mixing
-# 9,637 (gbif) "species newly recorded" into a tab whose every other number is
+# gbif-space "species newly recorded" into a tab whose every other number is
 # Dyntaxa-space would be incoherent, and across the regime boundary gbif space
 # does not exist at all — legacy nub integers against COL ids share no
-# vocabulary. See claude/finding-closure-results-2026-09-10.md §3.
+# vocabulary.
 closure_summary        <- safe_get("closure_summary")
 closure_cells          <- safe_get("closure_cells")
 closure_group          <- safe_get("closure_group")
@@ -296,7 +294,7 @@ closure_pair_index     <- safe_get("closure_pair_index")
 
 CLOSURE_KS <- "dyntaxa"
 
-# Release switch (2026-09-30): the tab is under review, so it stays hidden unless
+# Release switch: the tab is under review, so it stays hidden unless
 # the deployment sets GAP_FINDER_SHOW_GAPS_FILLED=true. Everything else in the
 # app ships without it; the closure data in the bundle is simply not shown.
 SHOW_GAPS_FILLED <- tolower(Sys.getenv("GAP_FINDER_SHOW_GAPS_FILLED", "false")) %in%
@@ -369,7 +367,7 @@ basis_types_no_all <- basis_types[basis_types != "all"]
 order_choices <- if (!is.null(top_orders)) top_orders$order else character(0)
 current_year  <- year(Sys.Date())
 
-# D3: the temporal tab defaults to the last *complete* year. The latest year in
+# The temporal tab defaults to the last *complete* year. The latest year in
 # the data is the snapshot (partial) year, so treat it as partial and default the
 # slider's upper bound to the year before it; the partial year stays selectable.
 data_max_year <- if (!is.null(time_summary) && "year" %in% names(time_summary) &&
@@ -597,7 +595,7 @@ aggregate_to_gbif_groups <- function(df) {
   }
   df <- df |> mutate(gbif_group = ifelse(is.na(gbif_group), "Other", gbif_group))
 
-  # Aggregate (sum numeric cols; take kingdom from first row for compatibility)
+  # Aggregate (sum numeric cols per group)
   num_cols <- intersect(
     c("n_known_species", "n_in_gbif",
       "occ_prior", "occ_last_year", "total_occ"),
@@ -637,7 +635,7 @@ pal <- list(
   text  = "#2d2d2d", muted = "#6b6b6b"
 )
 
-# Palette rule (2026-09-30) — one place for every chart and map colour decision:
+# Palette rule — one place for every chart and map colour decision:
 #   categorical -> Paul Tol, the `pal` list above (kept deliberately; colour-blind safe)
 #   sequential  -> viridis, end = 0.9, for counts and recency on the maps. The pale
 #                  end marks few records / old records, the dark end many / recent.
@@ -1237,7 +1235,7 @@ ui <- fluidPage(
             column(4,
               div(class = "card",
                 tags$h2(class = "card-title", icon("sliders-h"), "Display"),
-                # T-D5: coverage-area toggle at the top of the Display panel
+                # Coverage-area (marine) toggle at the top of the Display panel
                 if (has_marine) tagList(
                   div(class = "filter-label", "Coverage area"),
                   radioGroupButtons("coverage_area", label = NULL,
@@ -1660,7 +1658,7 @@ ui <- fluidPage(
       ),
 
       # =====================================================================
-      # SPECIES OF CONCERN TAB (replaces standalone Threatened tab)
+      # SPECIES OF CONCERN TAB
       # Threatened + Invasive + Sensitive as sub-tabs with shared filters.
       # =====================================================================
       tabPanel(
@@ -1951,7 +1949,7 @@ ui <- fluidPage(
       ),
 
       # =====================================================================
-      # PUBLISHER TAB (NEW)
+      # PUBLISHER TAB
       # =====================================================================
       tabPanel(
         title = tagList(icon("building"), "Publishers"),
@@ -2302,9 +2300,10 @@ server <- function(input, output, session) {
     if (is.null(b) || b == "") "all" else b
   })
 
-  # ---- T-D5 coverage-area (marine) filter -----------------------------------
+  # ---- Coverage-area (marine) filter ----------------------------------------
   # One reactive layer that, in "Land only" mode, drops EEZ sea cells
-  # (marine == TRUE, by eeacellcode) from the spatial coverage + recency views.
+  # (marine == TRUE, by eeacellcode) from the spatial coverage + recency views;
+  # "Sea only" keeps only those cells.
   # No-op when the bundle carries no marine cells or the toggle is Land + sea.
   coverage_area <- reactive({
     if (!has_marine || is.null(input$coverage_area)) "land_sea" else input$coverage_area
@@ -2314,7 +2313,7 @@ server <- function(input, output, session) {
 
   # Land only = Swedish land, Sea only = Swedish sea (EEZ + internal waters),
   # both decided in script 11. Cells outside Sweden (border / foreign waters)
-  # appear only in Land + sea (2026-09-30).
+  # appear only in Land + sea.
   drop_marine <- function(df) {
     if (is.null(df) || !has_marine) return(df)
     if (!"eeacellcode" %in% names(df)) return(df)
@@ -2412,7 +2411,7 @@ server <- function(input, output, session) {
   })
 
   # ===================================================================
-  # TEMPORAL — with taxonomy filters via order_temporal
+  # TEMPORAL — with taxonomy filters via order_time_summary / family_time_summary
   # ===================================================================
 
   # Build order→taxonomy mapping for temporal filtering
@@ -2510,7 +2509,7 @@ server <- function(input, output, session) {
   })
 
   # Temporal data: full GBIF time summaries (occurrence tab, no reference filter).
-  # Within each scope, use family_time_summary if family filter active,
+  # Use family_time_summary if family filter active,
   # order_time_summary if order/class/phylum/kingdom active, else time_summary.
   temp_data <- reactive({
     sel_family <- temp_filtered_families()
@@ -2549,7 +2548,7 @@ server <- function(input, output, session) {
     yearly <- df |> group_by(year) |>
       summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
 
-    # D3: when the partial (latest/snapshot) year is in view, grey it + label it so
+    # When the partial (latest/snapshot) year is in view, grey it + label it so
     # an incomplete final year does not read as a genuine decline.
     show_partial <- input$year_range[2] >= data_max_year &&
       data_max_year > last_complete_year
@@ -2721,8 +2720,8 @@ server <- function(input, output, session) {
     ty <- truth_years()
     span_txt <- paste0("Data spans ", ty$span, " years (", ty$min, "\u2013", ty$max, "). ")
     # Cell-staleness figures read the precomputed `dashboard` (computed in 10
-    # from the full cell_recency). With the scope toggle removed, that is the
-    # same full population the Spatial tab's recency map reads, so they agree.
+    # from the full cell_recency), the same full population the Spatial tab's
+    # recency map reads at Land + sea, so they agree.
     if (!is.null(dashboard))
       paste0(span_txt,
              "Median cell staleness: ", dashboard$median_staleness_months_10km[1], " months. ",
@@ -2744,8 +2743,8 @@ server <- function(input, output, session) {
   # Threatened panel
   # Derived from the SAME object the Species of Concern tab uses
   # (match_summary_full + matched_any), so the Overview gap panel, the
-  # "Species of Concern in GBIF" box, and the Concern tab always agree. (The
-  # old tax_by_threat source could drift: a different "in GBIF" definition.)
+  # "Species of Concern in GBIF" box, and the Concern tab always agree. (Not
+  # tax_by_threat: its "in GBIF" definition differs, so it would drift.)
   # Threatened set = CR/EN/VU/NT, matching the tab.
   ov_threat_stats <- {
     if (!is.null(match_summary_full) && "matched_any" %in% names(match_summary_full)) {
@@ -2858,9 +2857,6 @@ server <- function(input, output, session) {
     paste0(truth_basis()$n_types, " record types represented across the dataset.")
   })
 
-  # Overview coverage chart — REMOVED (Coverage Overview deleted)
-  # Overview temporal span — REMOVED (Temporal Span deleted)
-
   # Progress bar helper
   make_progress_bar <- function(pct, color, bg_color) {
     pct <- min(max(pct, 0), 100)
@@ -2879,7 +2875,7 @@ server <- function(input, output, session) {
 
   # Temporal progress bar (inverse: % not stale = freshness)
   # Staleness reads the precomputed `dashboard` (full cell_recency, via 10) —
-  # the same full population the recency map uses now the scope toggle is gone.
+  # the same full population the recency map uses at Land + sea.
   output$ov_temporal_bar <- renderUI({
     pct <- if (!is.null(dashboard)) 100 - as.numeric(dashboard$pct_stale_5y_10km[1]) else 0
     make_progress_bar(pct, pal$slate, "#e2e8ee")
@@ -3142,7 +3138,7 @@ server <- function(input, output, session) {
     selectizeInput("spatial_class_filter", "Class", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
-  # Spatial order filter — cascading from kingdom + class (2026-09-30)
+  # Spatial order filter — cascading from kingdom + class
   output$spatial_order_filter_ui <- renderUI({
     ch <- c("All orders" = "")
     if (has_order_cell_recency &&
@@ -3182,7 +3178,7 @@ server <- function(input, output, session) {
   observe({
     req(grid_10km, spatial_gaps, input$map_var)
 
-    # T-D5: in Land only mode, drop EEZ sea cells from the drawn grid + coverage
+    # Land only / Sea only: drop the excluded cells from the drawn grid + coverage
     # + recency so this map matches the toggle. No-op in Land + sea / no marine.
     grid_10km    <- grid_10km_r()
     spatial_gaps <- spatial_gaps_r()
@@ -3466,7 +3462,7 @@ server <- function(input, output, session) {
   )
   get_basis_color <- function(b) ifelse(b %in% names(basis_colors), basis_colors[b], "#999999")
 
-  # Stat boxes — use basis_recent data (correct per-basis totals from cube)
+  # Stat boxes — use all_basis_recent data (correct per-basis totals from cube)
   output$basis_stat_boxes <- renderUI({
     br <- if (!is.null(all_basis_recent)) all_basis_recent else NULL
 
@@ -3638,7 +3634,7 @@ server <- function(input, output, session) {
         yaxis = list(title = "Number of occurrences"))
   })
 
-  # Spatial coverage bar — uses scope-aware spatial_gaps (zero-filled grid)
+  # Spatial coverage bar — uses spatial_gaps (zero-filled grid)
   output$basis_spatial_bar <- renderPlotly({
     req(spatial_gaps)
     active_sg <- spatial_gaps
@@ -3668,7 +3664,7 @@ server <- function(input, output, session) {
         margin = list(l = 160, r = 60))
   })
 
-  # Species coverage bar — uses scope-aware spatial_gaps (zero-filled grid)
+  # Species coverage bar — uses spatial_gaps (zero-filled grid)
   output$basis_species_bar <- renderPlotly({
     req(spatial_gaps)
     active_sg <- spatial_gaps
@@ -3696,7 +3692,7 @@ server <- function(input, output, session) {
         margin = list(l = 160, r = 60))
   })
 
-  # Spatial map for selected basis — uses scope-aware spatial_gaps
+  # Spatial map for selected basis — uses spatial_gaps
   output$basis_map <- renderLeaflet({
     req(grid_10km, spatial_gaps, input$basis_map_select)
     sel <- input$basis_map_select
@@ -3739,7 +3735,7 @@ server <- function(input, output, session) {
   })
 
   # ===================================================================
-  # TAXONOMIC — Cascading Filters (#6)
+  # TAXONOMIC — Cascading Filters
   # ===================================================================
 
   # Reactive: filtered phylum choices based on selected kingdom
@@ -3878,7 +3874,7 @@ server <- function(input, output, session) {
   })
 
   # ===================================================================
-  # TAXONOMIC — Troudet Bias Figure (#7)
+  # TAXONOMIC — Troudet Bias Figure
   # ===================================================================
 
   # Populate troudet_exclude choices based on what's currently shown in the
@@ -3925,7 +3921,7 @@ server <- function(input, output, session) {
 
   output$troudet_bias_chart <- renderPlotly({
     # Clean hierarchical drill:
-    # No filter       → kingdoms
+    # No filter       → landing view (GBIF-style groups or kingdoms)
     # Kingdom selected → phyla in that kingdom
     # Phylum selected  → classes in that phylum
     # Class selected   → orders in that class
@@ -4011,7 +4007,6 @@ server <- function(input, output, session) {
         direction = ifelse(bias >= 0, "Over-represented", "Under-represented")
       )
 
-    # Dynamic height based on number of bars
     ly_mode <- if (!is.null(input$tax_last_year_mode)) input$tax_last_year_mode else "off"
     
     # Determine which last-year column to use
@@ -4262,7 +4257,7 @@ server <- function(input, output, session) {
     selectizeInput("concern_order", "Order", choices = ch, selected = "", options = list(allowEmptyOption = TRUE))
   })
 
-  # Family: filter only (decision 2026-09-30), same cascade and cap as the
+  # Family: filter only, same cascade and cap as the
   # Taxonomic tab. Choices come from tax_by_family (backbone classification,
   # the same one match_summary_full carries), so every choice can match rows.
   output$concern_family_ui <- renderUI({
@@ -4853,7 +4848,7 @@ server <- function(input, output, session) {
   publisher_cell_dep <- safe_get("publisher_cell_dependency")
 
   # Drop the "GBIF Sweden" placeholder publisher — a holding record for
-  # orphaned/legacy datasets, not a real data publisher (ROADMAP D10). Capture
+  # orphaned/legacy datasets, not a real data publisher. Capture
   # its org key(s) first so taxonomy-filtered views (which re-aggregate
   # publisher_taxonomy by orgkey) exclude it as well.
   gbif_sweden_keys <- character(0)
@@ -5093,7 +5088,7 @@ server <- function(input, output, session) {
   output$pub_dependency_map <- renderLeaflet({
     req(grid_10km)
 
-    # Publisher category filter (2026-09-30): count only publishers of that type.
+    # Publisher category filter: count only publishers of that type.
     type_sel <- input$pub_type_filter %||% ""
     type_keys <- NULL
     if (nzchar(type_sel) && !is.null(publisher_summary) &&
@@ -5254,7 +5249,7 @@ server <- function(input, output, session) {
       } else 0
       n_invasive_no_recent <- 0
       if (!is.null(cell_recency)) {
-        # Invasive species in cells with stale data
+        # Invasive species: total and missing from GBIF
         n_invasive_total <- nrow(invasive_stats)
         n_invasive_in_gbif <- sum(invasive_stats$matched_any, na.rm = TRUE)
         n_invasive_missing <- n_invasive_total - n_invasive_in_gbif
@@ -5386,7 +5381,7 @@ server <- function(input, output, session) {
     ly_resolved <- if (!is.null(priority_resolved)) nrow(priority_resolved) else 0
 
     # Target-setting parameters — planning goals, NOT measured data.
-    # Lifted to named, tunable constants so there are no buried magic numbers.
+    # Named, tunable constants so there are no buried magic numbers.
     target_mult            <- 1.5   # aspirational multiplier on last-12-months achievement
     min_resolved_floor     <- 5L    # floor so the resolved target is never trivially small
     cr_en_target_cap       <- 20L   # per-year cap on the CR/EN survey target

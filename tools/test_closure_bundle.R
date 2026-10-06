@@ -108,13 +108,13 @@ for (f in sp_files) {
 }
 cli_alert_info("Checked {checked} species table{?s}")
 
-cli_h2("the lost taxa have names (gap_finder_closure_lost_taxa.patch)")
-# Before that patch, script 14 annotated from the LATER match table only, so a
-# taxon gone by `to` had no row to be named from. It produced exactly 100%
-# unnamed lost taxa - never a subset. That is what makes the two cases
-# separable, and worth separating: tables written before the patch are STALE
-# DATA, not a code regression, and should send the reader to a re-run rather
-# than to a debugger.
+cli_h2("the lost taxa have names")
+# Script 14 names a taxon gone by `to` from the EARLIER match table. Tables
+# annotated from the LATER match table only leave every such taxon unnamed -
+# exactly 100% of lost taxa, never a subset. That is what makes the two cases
+# separable, and worth separating: all-unnamed tables are STALE DATA, not a
+# code regression, and should send the reader to a re-run rather than to a
+# debugger.
 lost <- cb$tables$species[status == "lost"]
 if (!nrow(lost)) {
   cli_alert_info("No lost species in these tables; nothing to check")
@@ -123,8 +123,7 @@ if (!nrow(lost)) {
     trimws(lost$backbone_scientificName) == ""
   if (all(unnamed)) {
     cli_alert_warning(
-      "All {nrow(lost)} lost taxa are unnamed - these tables predate \\
-       gap_finder_closure_lost_taxa.patch")
+      "All {nrow(lost)} lost taxa are unnamed - these closure tables are stale")
     cli_bullets(c("i" = "Re-run {.code Rscript -e 'source(\"scripts/14_gap_closure.R\")'} \\
                          and this section will pass.",
                   "i" = "Not counted as a failure: it is the data that is stale, not the code."))

@@ -27,9 +27,7 @@ library(here); library(dplyr); library(tidyr); library(ggplot2)
 library(scales); library(knitr); library(kableExtra)
 
 source(here("R", "report_helpers.R"))
-# The bundle moved to a per-country path in July 2026; this hardcoded flat path
-# no longer existed, so every report failed at this line. Resolved the same way
-# run.R does.
+# Locate the per-country app bundle (see R/report_helpers.R).
 data_path <- gap_finder_bundle_path()
 app_data <- readRDS(data_path)
 safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
@@ -96,7 +94,7 @@ theme_set(theme_gaps)
 
 # Overview
 
-This report analyses how well GBIF occurrence data covers the national taxonomy backbone (**`r metadata$taxonomy_name %||% "National checklist"`**). Every species in the backbone is checked against GBIF records through a 4-tier reconciliation: direct name match, synonym resolution, infraspecific collapse, and GBIF Species API lookup.
+This report analyses how well GBIF occurrence data covers the national taxonomy backbone (**`r metadata$taxonomy_name %||% "National checklist"`**). Every species in the backbone is checked against GBIF records through a 5-tier reconciliation: direct name match, synonym resolution, infraspecific collapse, GBIF Species API lookup, and a backbone–Catalogue of Life key crosswalk.
 
 ```{r recon-stats}
 if (!is.null(truth_taxonomic)) {

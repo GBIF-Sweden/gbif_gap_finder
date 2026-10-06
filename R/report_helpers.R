@@ -17,12 +17,9 @@
 
 #' Locate the prepared Gap Finder bundle
 #'
-#' The bundle moved to a per-country path (`data/{CC}/shiny_data.rds`) in July
-#' 2026 when GBIF_GAP_COUNTRY became the project-wide selector. The reports
-#' still pointed at the old flat path and had been failing at their setup chunk
-#' ever since. This resolves the same way run.R's gap_finder_data_path() does:
-#' honour GBIF_GAP_COUNTRY, else take the only bundle present, else fall back to
-#' the legacy flat location.
+#' The bundle lives at a per-country path (`data/{CC}/shiny_data.rds`). Honour
+#' GBIF_GAP_COUNTRY, else take the first bundle present, else fall back to the
+#' legacy flat location (run.R's gap_finder_data_path() does the last two).
 #'
 #' @return Path to shiny_data.rds. Errors with a readable message if none exists.
 gap_finder_bundle_path <- function() {
@@ -82,8 +79,8 @@ gap_finder_snapshot_date <- function(country = Sys.getenv("GBIF_GAP_COUNTRY", "S
 #'
 #' Keeps the DATA date and the CODE version distinct and shows both, so a reader
 #' can tell "these are July's numbers, rendered today by v0.5.1" from the header
-#' alone. The render date alone — what these reports used to show — silently
-#' implies the data is as fresh as the PDF.
+#' alone. The render date alone would silently imply the data is as fresh as the
+#' PDF.
 report_stamp <- function() {
   snap <- gap_finder_snapshot_date()
   ver  <- gap_finder_version()

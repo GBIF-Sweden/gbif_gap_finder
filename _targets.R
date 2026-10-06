@@ -94,16 +94,9 @@ list(
   # target means editing 03 does NOT invalidate it: tar_make() reports the target
   # as up to date and silently keeps the old result.
   #
-  # Until 2026-09-08 only 09a, 09a1, 09c and 11 were tracked. The other fourteen
-  # scripts could be edited with no effect on the next build — the same failure
-  # this project's whole dependency audit is about (something changes, nothing
-  # notices), living in the DAG itself. It bit us the day the red-list vocabulary
-  # guard (03) and the provenance writer (01b) were added: both needed a manual
-  # tar_invalidate() to run at all.
-  #
-  # Every script in scripts/ now has a target here, and its consumer source()s
-  # the TARGET rather than a literal path. Keep that invariant: a new script gets
-  # an entry here in the same commit.
+  # Every script in scripts/ therefore has a target here, and its consumer
+  # source()s the TARGET rather than a literal path. Keep that invariant: a new
+  # script gets an entry here in the same commit.
 
   tar_target(
     script_preflight,
@@ -145,8 +138,7 @@ list(
   # file's invariant says every script in scripts/ gets an entry in the same
   # commit — but it is deliberately NOT wired into the live DAG: historical time
   # points are computed once and frozen, and they are driven by run_timepoint.R
-  # (Stage 2) rather than by tar_make(). Tracking it now means the consumer
-  # target can be added later without having to remember this one too.
+  # rather than by tar_make().
   tar_target(
     script_04b,
     here("scripts", "04b_build_historical_cubes.R"),
@@ -242,9 +234,8 @@ list(
 
   # R/ is not "a script" but it IS pipeline logic: globals.R carries the schemas,
   # path constants, THREATENED_CODES and every shared helper; packages.R the
-  # library set. Neither was tracked, so the 2026-09-08 change that moved
-  # THREATENED_CODES out of five scripts and into globals.R would not have
-  # invalidated a single target — the subtlest version of this whole problem.
+  # library set. Untracked, an edit to either would not invalidate a single
+  # target — the subtlest version of this whole problem.
   #
   # raw_data and grids are the only roots below preflight and everything else
   # descends from them, so declaring this there reaches the entire DAG.
@@ -524,9 +515,9 @@ list(
   tar_target(
     gap_finder_data,
     {
-      # `grids` is declared so a grid rebuild (e.g. the T-D5 marine flag)
-      # invalidates this bundle: 11 reads the grid gpkg directly for the
-      # cell_marine_lookup, an edge that was previously undeclared.
+      # `grids` is declared so a grid rebuild (e.g. a marine-flag change)
+      # invalidates this bundle: 11 reads the grid gpkg directly, for the
+      # geometries and the cell_marine_lookup.
       gap_overview; scope_summaries; data_sources_meta; grids
       source(script_gap_finder, local = TRUE)
       shiny_path <- here("shiny_app", "gap_finder", "data", COUNTRY_CODE, "shiny_data.rds")

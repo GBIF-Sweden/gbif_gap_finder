@@ -1,9 +1,5 @@
 # Dependabot keeps the pinned external versions moving forward on a schedule
 # instead of rotting until something breaks.
-#
-# Why this exists: on 2026-09-08 every action in both workflows was still on
-# the Node 20 majors, 15 days before GitHub removed Node 20 from the runners.
-# Nothing was watching. See audit/external-dependencies-2026-09-07.md (F12).
 version: 2
 updates:
   # GitHub Actions used by publish-shiny-images.yml, citation-version.yml and
@@ -17,10 +13,7 @@ updates:
     labels: ["dependencies", "ci"]
 
   # Base image in shiny_app/gap_finder/Dockerfile.gap_finder (FROM rocker/r-ver).
-  # NOTE: the Dockerfile has a non-standard name. If no PRs appear here within a
-  # month, Dependabot is not matching it — pin the base image by digest by hand
-  # instead (D22), rather than assuming this is covered.
-  #   Resolved 2026-09-08: it does match. The first run proposed 4.5.2 -> 4.6.1.
+  # The Dockerfile has a non-standard name; Dependabot does match it.
   - package-ecosystem: "docker"
     directory: "/shiny_app/gap_finder"
     schedule:
@@ -32,13 +25,13 @@ updates:
       # An R minor/major bump is not a dependency update - it swaps the R version
       # inside the production image. Every renv.lock package recompiles against
       # the new R, the image's pinned CRAN snapshot date moves forward, and the
-      # Ubuntu base may move under the still-unpinned apt GDAL/GEOS/PROJ (D23).
+      # Ubuntu base may move, taking the apt GDAL/GEOS/PROJ with it.
       # That is a deliberate exercise, taken together with the local R and a
       # re-resolved renv.lock - not something to merge from a bot PR.
       #
       # Patch bumps (4.5.2 -> 4.5.3) still arrive. Digest-only updates (same tag,
-      # re-pushed image) are expected to keep arriving as well - verify that on
-      # the next monthly run rather than assuming it.
+      # re-pushed image) are expected to arrive as well - verify that rather than
+      # assuming it.
       - dependency-name: "rocker/r-ver"
         update-types:
           - "version-update:semver-major"

@@ -21,7 +21,7 @@
 #   plausible-looking codes that never join to anything. Snap first, then
 #   divide by 10,000 — always 10,000, never the resolution.
 #
-# Verified (2026-08-20) against the project's own grids:
+# Reproduces the project's own grids exactly:
 #   grids_10km.gpkg  6,308 / 6,308 cells exact
 #   grids_50km.gpkg    297 /   297 cells exact
 #   and floor(E10/5)*5 == E50 for all 460,791 distinct coordinates in the
@@ -75,7 +75,7 @@ eea_cell_code <- function(lat, lon, res_m) {
   # ... then express that corner in units of 10,000 m. round(), not floor():
   # sx/10000 is mathematically a whole number here, but floating-point can land
   # it at 354.9999999999999, and floor() would then silently shift the cell by
-  # one. This exact trap cost 185 of 297 cells on the first attempt.
+  # one.
   e <- as.integer(round(sx / 10000))
   n <- as.integer(round(sy / 10000))
 
@@ -143,9 +143,8 @@ geo_sanity_filter <- function(dt, lat_col = "latitude", lon_col = "longitude",
 #' stored corner coordinates carry float noise (3549999.9999999986), which is a
 #' property of the grid file, not of this function.
 #'
-#' This is the offline replacement for the live-SQL parity sample: the grid files
-#' ARE the ground truth the pipeline measures coverage against, so agreeing with
-#' them is what actually matters.
+#' This needs no network: the grid files ARE the ground truth the pipeline
+#' measures coverage against, so agreeing with them is what actually matters.
 #'
 #' @return Invisibly, a data.frame of results per resolution. Aborts on mismatch.
 eea_grid_selftest <- function() {

@@ -19,7 +19,7 @@
 #   4. aggregate to the cube grain
 #   5. join the snapshot's OWN taxonomy lookup on species_id (1:1)
 #   6. crosswalk to the live cube schema and write parquet + a manifest, into
-#      the Stage 2 time-point layout: proc/timepoints/{tp}/cubes/
+#      the time-point layout: proc/timepoints/{tp}/cubes/
 #
 # WHY THE AGGREGATE COMES BEFORE THE JOIN (step 4 before step 5):
 #   Every taxonomy column is functionally dependent on species_id, and the
@@ -29,19 +29,19 @@
 #   that a laptop does not have to find. Do not "simplify" this by joining
 #   first.
 #
-# WHAT CHANGED FROM THE FIRST DELIVERY (see
-# claude/finding-historic-delivery-v2-verified-2026-09-08.md):
-#   - Grouped by `species_id`, not `taxon_id`. No sub-specific roll-up exists
-#     and none is needed: the live cube is species-rank only.
+# DELIVERY FORMAT:
+#   - Grouped by `species_id`. No sub-specific roll-up exists and none is
+#     needed: the live cube is species-rank only.
 #   - The taxonomy arrives WITH the delivery, contemporaneous with the snapshot.
-#     That is strictly better than a backbone join, so script 01d is retired —
-#     no version matching, no roll-up, no API fallback, no "wrong build".
-#   - UTF-8, so no decode step runs (the decoder is kept as a guard).
+#     That is strictly better than a backbone join — no version matching, no
+#     roll-up, no API fallback.
+#   - UTF-8, so decode_historic_delivery() passes it straight through (it also
+#     accepts UTF-16LE).
 #
 # THE THREE MEASURES WE CANNOT BACK-CAST — and why NA is safe here:
 #   mincoordinateuncertaintyinmeters, mintemporaluncertainty, distinctobservers
-#   are absent from the historical index. Audited 2026-08-20: they appear in
-#   EXACTLY two places in this repo — 04's `expected_cols` (they are NOT in
+#   are absent from the historical index. Outside the cube SQL and this script
+#   they appear in EXACTLY two places — 04's `expected_cols` (they are NOT in
 #   `required_cols`) and an explicitly informational check in 05. No analysis
 #   script reads them. So filling them with NA costs nothing, and no analysis
 #   dimension has to be scoped out. They are typed NA_real_, not NA, so the
@@ -52,9 +52,9 @@
 #   cube applies hasgeospatialissues = FALSE and occurrencestatus = 'PRESENT',
 #   which cannot be replicated here, and it is COL-interpreted while these are
 #   legacy-Backbone. Within the snapshot regime differencing is clean; across
-#   the regime boundary see claude/brief-historical-comparable-current-cube.md.
+#   the regime boundary, compare in the Dyntaxa key space only (R/closure.R).
 #
-# PRECISION CAVEAT (permanent — 3 dp was requested and refused on export size):
+# PRECISION CAVEAT (permanent — 3 dp would make the export too large):
 #   Delivered coordinates are 2 dp. At 57 deg N that is 1.11 km N-S / 0.61 km
 #   E-W, so roughly 4% of records land in a neighbouring 10 km cell (about 0.9%
 #   at 50 km). Carry this on every 10 km temporal figure.
@@ -64,12 +64,11 @@
 #   filters `occurrencestatus = 'PRESENT'`. The two SLU National Forest
 #   Inventory presence-absence datasets are excluded by the delivery query and
 #   contribute ZERO rows to both current snapshots anyway (both were registered
-#   2024-10-25, after both cut dates — verified, not assumed). They hold ~14.1 M
-#   absence records today and WILL land in any snapshot dated after that, spread
-#   over a systematic national forest grid, i.e. over exactly the remote cells
-#   this analysis is about. Any later snapshot must keep the same exclusion, and
-#   must only be compared against snapshots filtered the same way.
-#   See claude/finding-absence-records-trap-2026-08-20.md.
+#   2024-10-25, after both cut dates). They hold ~14.1 M absence records today
+#   and WILL land in any snapshot dated after that, spread over a systematic
+#   national forest grid, i.e. over exactly the remote cells this analysis is
+#   about. Any later snapshot must keep the same exclusion, and must only be
+#   compared against snapshots filtered the same way.
 #
 # Inputs:
 #   - data/{CC}/raw/historic/*_occurrences_aggregated_YYYYMMDD.tsv.gz
@@ -130,10 +129,9 @@ CUBE_REQUIRED <- c("specieskey", "eeacellcode", "year", "month", "occurrences",
 RESOLUTIONS <- list(grid10km = 10000L, grid50km = 50000L)
 
 # Regression fixtures, measured independently (numpy + pyproj over the same
-# files, 2026-09-09; see claude/finding-step0-probe-2026-09-09.md). A snapshot
-# listed here MUST reproduce these exactly — if it does not, the R gridding or
-# taxonomy path has drifted, and that is worth failing the build over. A
-# snapshot not listed here is simply new and is reported, not judged.
+# files). A snapshot listed here MUST reproduce these exactly — if it does not,
+# the R gridding or taxonomy path has drifted, and that is worth failing the
+# build over. A snapshot not listed here is new and is reported, not judged.
 HISTORIC_EXPECTED <- list(
   `2021-01-01` = list(rows_in = 51065888, occ_in = 94768320,
                       n_species = 53141L, n_cells10 = 5518L, n_cells50 = 287L),
@@ -423,9 +421,8 @@ for (i in seq_len(nrow(snaps))) {
                               format(unlist(exp_i[bad]), big.mark = ','),
                               format(unlist(got[bad]),   big.mark = ',')),
                       collapse = '; ')}",
-        "i" = "These were measured independently over the same files — see \\
-               claude/finding-step0-probe-2026-09-09.md. A mismatch is a bug in \\
-               the R path, not new data."
+        "i" = "These were measured independently over the same files. \\
+               A mismatch is a bug in the R path, not new data."
       ))
     }
     cli_alert_success(
@@ -457,6 +454,6 @@ cli_alert_success("{.path {manifest_path}}")
 
 cli_alert_success("Historical cubes complete!")
 cli_alert_info(
-  "Next: Stage 2 — {.code Rscript run_timepoint.R <date>} runs 05-11 against \\
+  "Next: {.code Rscript run_timepoint.R <date>} runs 05-10 against \\
    one of these time points."
 )

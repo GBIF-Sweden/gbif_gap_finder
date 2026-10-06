@@ -64,7 +64,7 @@ get_all_cellcodes <- function(grid_path) {
     cli_abort("Grid file not found: {.path {grid_path}}")
   }
 
-  # T-A1: prefer the sidecar cellcodes_*.txt written by 02 (skips opening the
+  # Prefer the sidecar cellcodes_*.txt written by 02 (skips opening the
   # gpkg geometry just to pull the code column). Use it only when it is at least
   # as new as the grid; otherwise fall back to reading the gpkg.
   codes_path <- file.path(dirname(grid_path),
@@ -108,7 +108,7 @@ filter_coarse_grid_to_country <- function(
 
   # Country mask = the dissolved fine-grid extent. The st_union() over every
   # fine cell is the costliest step here, so cache it and reuse while the fine
-  # grid is unchanged (T-I3). Auto-invalidated whenever grids_10km.gpkg is
+  # grid is unchanged. Auto-invalidated whenever grids_10km.gpkg is
   # rewritten (script 02): recompute when the cache is older than the fine grid.
   cache_path <- here(p_data_proc, "country_boundary_10km.rds")
   if (file.exists(cache_path) && file.mtime(cache_path) >= file.mtime(fine_path)) {
@@ -194,8 +194,8 @@ compute_spatial_gaps <- function(cell_data,
 
   # Cell-level aggregates (across REAL basis types only).
   # Exclude the synthetic basisofrecord == "all" row: it already equals the sum
-  # over the real bases, so including it double-counted total_occurrences_cell
-  # (~2x) and added a phantom basis to n_basis_with_data / n_basis_zero.
+  # over the real bases, so including it would double-count total_occurrences_cell
+  # (~2x) and add a phantom basis to n_basis_with_data / n_basis_zero.
   cell_agg <- result[basisofrecord != "all", .(
     total_occurrences_cell = sum(occurrences),
     n_basis_with_data      = sum(has_data),

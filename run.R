@@ -123,9 +123,9 @@ run_preflight <- function(offline = FALSE) {
 
 #' Run the cross-layer reconciliation guardrail (script 12).
 #'
-#' Not part of `tar_make()`. Run after a full build to assert the headline
-#' numbers agree across Overview / Taxonomic / Concern; it calls `stop()` on any
-#' disagreement.
+#' Run after a full build to assert the headline numbers agree across
+#' Overview / Taxonomic / Concern; it calls `stop()` on any disagreement. Also
+#' runs as the `reconciliation` target in `tar_make()`.
 run_reconcile <- function() {
   source(here("scripts", "12_reconcile.R"))
 }

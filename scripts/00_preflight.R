@@ -3,17 +3,11 @@
 # Preflight — verify every external dependency before the pipeline runs
 # ============================================================================
 # Purpose:
-#   Catch the failure mode that has bitten this project twice: an external
-#   dependency changing under us, silently, discovered only when a number moved
-#   or a map broke.
-#     - 2026-07  GBIF switched its backbone to Catalogue of Life. Tier 4 collapsed
-#                3,179 -> 92 and missing-threatened inflated 227 -> 374. Green build.
-#     - 2026-09  CARTO began requiring an API key for its raster basemaps. Every
-#                map rendered an "API KEY REQUIRED" watermark. Nothing in the repo
-#                had changed.
-#   Neither was detectable from inside the build, because `targets` protects us
-#   from OUR code changing and `renv.lock` from PACKAGES changing, but nothing
-#   watched the services those packages talk to. This script does.
+#   Catch external dependencies that change silently. A backbone, an API or a
+#   tile provider can change behaviour without breaking the build; the damage
+#   only shows up later as a wrong number or a broken map. `targets` protects
+#   against OUR code changing and `renv.lock` against PACKAGES changing; this
+#   script checks the services those packages talk to.
 #
 # Design contract:
 #   FAIL  a dependency contract is broken — the pipeline would produce wrong
@@ -89,8 +83,7 @@ fail <- function(d) list(status = "FAIL", detail = d)
 # HEAD is not universally supported. Dyntaxa's Azure endpoint answers 404 to a
 # HEAD request while serving the archive perfectly well over GET — its API
 # operation is defined for GET only, so HEAD matches no route. Treating that as
-# "unreachable" made this check cry wolf on a healthy endpoint on its very first
-# real run.
+# "unreachable" would make this check cry wolf on a healthy endpoint.
 #
 # A ranged GET is not a safe fallback either: that same endpoint ignores
 # `Range: bytes=0-0` and answers 200 with the full body, so a naive fallback
@@ -205,8 +198,8 @@ pf_check("caches", function() {
     if (age > max_age) {
       notes <- c(notes, sprintf("%s is %.0fd old", basename(f), age))
     }
-    # Negative caching is how Tier 4 collapsed in July: failed lookups stored as
-    # "no result" and never retried. Report the share of empty entries.
+    # A failed lookup cached as "no result" is never retried, so one bad run
+    # becomes a permanent defect. Report the share of empty entries.
     if (grepl("publisher_name_cache", f)) {
       cc <- tryCatch(readRDS(f), error = function(e) NULL)
       if (length(cc)) {
@@ -259,8 +252,8 @@ pf_check("col_checklist", function() {
 }, network = TRUE)
 
 pf_check("tier4_roundtrip", function() {
-  # The exact call chain that 09a Tier 4 depends on, and the exact one that
-  # returned HTTP 400 on every key after the July backbone migration.
+  # The exact call chain that 09a Tier 4 depends on. A backbone or API change
+  # that breaks it collapses Tier 4 silently, with a green build.
   col_key <- get_col_checklist_key()
   probe <- cfg_get("parameters.taxonomic.preflight_taxon_id", "6VFN8")
   s <- .pf_json(sprintf("%s/species?datasetKey=%s&sourceId=%s", GBIF_V1, col_key, probe))
@@ -338,8 +331,8 @@ pf_check("checklist_archives", function() {
 }, network = TRUE)
 
 pf_check("basemap", function() {
-  # App-side, so never gating — but this is the check that would have caught the
-  # CARTO break before a user did.
+  # App-side, so never gating. A provider can start demanding a key or stop
+  # serving tiles with no change in the repo; this catches it before users do.
   prov <- Sys.getenv("GAP_FINDER_BASEMAP", "Esri.WorldGrayCanvas")
   if (grepl("^CartoDB\\.", prov)) {
     return(warn(sprintf("basemap '%s' uses CARTO raster tiles, which now require an API key and render an 'API KEY REQUIRED' watermark", prov)))
@@ -363,8 +356,8 @@ pf_check("basemap", function() {
 }, network = TRUE)
 
 pf_check("ci_actions", function() {
-  # F12: on 2026-09-08 every action in both workflows still ran on Node 20,
-  # 15 days before GitHub removed it from the runners. Nothing was watching.
+  # GitHub removes old Node runtimes from its runners, which breaks any action
+  # still declaring one with no change in this repo. Flag actions on Node 20.
   wf <- Sys.glob(here(".github", "workflows", "*.yml"))
   if (!length(wf)) return(ok("no workflows"))
   uses <- unique(unlist(lapply(wf, function(f) {

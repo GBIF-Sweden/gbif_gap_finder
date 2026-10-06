@@ -77,9 +77,8 @@ cli_alert_info("Staleness reference date (cube snapshot): {REFERENCE_DATE}")
 # Scope filter: restrict the cube to the backbone's taxonomic scope
 # ---------------------------------------------------------------------------
 # Drops occurrence rows whose KINGDOM is absent from the national backbone
-# (Bacteria, Archaea, Viruses, and any protist/chromist kingdom the backbone
-# doesn't cover) -- groups that can never match in reconciliation and only
-# inflate totals. KINGDOM is used (not class) because it is a small, stable
+# (whichever kingdoms it does not cover) -- groups that can never match in
+# reconciliation and only inflate totals. KINGDOM is used (not class) because it is a small, stable
 # vocabulary: reptiles stay (Animalia is in the backbone) even though their
 # class is blank, so they survive to be bucketed as "Unclassified" downstream.
 # NA/blank kingdom is KEPT. Allowed kingdoms are read once from the backbone and

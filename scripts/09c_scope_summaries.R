@@ -6,15 +6,14 @@
 #   One place for every computation that needs both (a) the parquet cube
 #   and (b) the taxonomic reconciliation / recent-period cutoff.
 #
-#   Produces taxonomy-scoped variants of all core summaries using the 4-tier
+#   Produces taxonomy-scoped variants of all core summaries using the 5-tier
 #   matching from 09a, derives the recent-period cutoff from the data, and
 #   writes all the spatial/temporal/recency slices the app needs.
 #
-#   Script 11 becomes a pure loader after this runs.
+#   This keeps script 11 a pure loader.
 #
 # Scopes produced (as suffixes):
-#   - _all         All GBIF species (for the "All GBIF" scope toggle)
-#   - _dyntaxa     Species matched to the national taxonomy backbone
+#   - _all         All GBIF species
 #   - _threatened  Species on the Red List (CR/EN/VU/NT)
 #   - _invasive    Species flagged as invasive
 #   - _sensitive   Species flagged as sensitive
@@ -28,7 +27,7 @@
 # Inputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds  (from 09a)
 #   - data/{CC}/proc/cubes/*.parquet               (from 04)
-#   - data/{CC}/proc/grids_*.gpkg                   (from 02, optional)
+#   - data/{CC}/proc/grids_*.gpkg                   (from 02)
 #
 # Outputs (in data/{CC}/proc/derived/):
 #
@@ -106,7 +105,7 @@ if (!exists("bucket_unclassified")) {
 # Directories created by ensure_dirs() in 00_setup.R
 
 exclude_orders <- cfg_get("parameters.taxonomic.exclude_orders", character(0))
-# THREATENED_CODES now comes from R/globals.R (config-driven, one definition).
+# THREATENED_CODES comes from R/globals.R (config-driven, one definition).
 
 SCOPE_FLAGS <- c(
   all        = "is_all",
@@ -114,13 +113,13 @@ SCOPE_FLAGS <- c(
   invasive   = "is_invasive",
   sensitive  = "is_sensitive"
 )
-# Note: the "dyntaxa" scope was removed. With the app's scope toggle gone, the
-# occurrence-based tabs (Spatial / Temporal / Record Types / Publisher) read the
-# full-GBIF outputs (07 / 06a / the "all" scope here), and only the Taxonomic and
-# Concern tabs are reference-relative — and those run off the backbone *match*
-# (09a reconciliation + 09b match_summary), not a scope-filtered cube summary.
-# The in_dyntaxa flag is still computed in the scope lookup below (it is cheap and
-# documents the backbone membership), it just no longer drives a scope output.
+# No backbone ("dyntaxa") scope: the occurrence-based tabs (Spatial / Temporal /
+# Record Types / Publisher) read the full-GBIF outputs (07 / 06a / the "all"
+# scope here), and only the Taxonomic and Concern tabs are reference-relative —
+# and those run off the backbone *match* (09a reconciliation + 09b
+# match_summary), not a scope-filtered cube summary. The in_dyntaxa flag is
+# computed in the scope lookup below (it is cheap and documents the backbone
+# membership) but drives no scope output.
 
 
 # ==============================================================================
@@ -350,13 +349,13 @@ load_cube_scoped <- function(parquet_path, grid_label) {
     dt[is.na(get(flag)), (flag) := FALSE]
   }
 
-  # The "all" scope is genuinely ALL of GBIF (project decision 2026-07-21): every
-  # occurrence, including taxa outside the backbone/reconciliation set. Only the
-  # backbone-relative scopes (threatened/invasive/sensitive) stay match-driven.
-  # Without this override, "all" was keyed to `recon` via scope_lookup and
-  # silently dropped cube species that never entered reconciliation (e.g.
-  # microbial kingdoms), so the app's Overview/Spatial/Record-Types totals did
-  # not match the full-GBIF dashboard figures.
+  # The "all" scope is genuinely ALL of GBIF: every occurrence, including taxa
+  # outside the backbone/reconciliation set. Only the backbone-relative scopes
+  # (threatened/invasive/sensitive) stay match-driven.
+  # Without this override, "all" would be keyed to `recon` via scope_lookup and
+  # silently drop cube species that never entered reconciliation (e.g.
+  # microbial kingdoms), so the app's Overview/Spatial/Record-Types totals
+  # would not match the full-GBIF dashboard figures.
   dt[, is_all := TRUE]
 
   dt
@@ -645,7 +644,7 @@ for (grid_label in names(grid_map)) {
 
   # --------------------------------------------------------------------------
   # Order cell recency (kingdom x class x order x cell) -- not scope-filtered.
-  # Drives the Spatial tab's order filter (2026-09-30). Same definitions as
+  # Drives the Spatial tab's order filter. Same definitions as
   # tax_cell_recency one rank down; ~3.7x its rows (~620k at 10 km for SE), so
   # only the columns the map needs are written.
   # --------------------------------------------------------------------------

@@ -133,11 +133,9 @@ files:
 # ============================================================================
 # Gap Analysis Outputs
 # ============================================================================
-# H7 trim (2026-07-30): the former derived / gaps.outputs / overview.outputs
-# name->filename manifest was inert - every output path is hard-coded in the
-# scripts (p_derived / p_gaps / p_tables in R/globals.R) and the lists had
-# drifted. Only the key below is read (cfg_get in 09a). Add a key back here
-# only if a script starts reading it via cfg_get("gaps.outputs.<key>").
+# Output paths are hard-coded in the scripts (p_derived / p_gaps / p_tables in
+# R/globals.R). Only the key below is read (cfg_get in 09a); add one here only
+# if a script reads it via cfg_get("gaps.outputs.<key>").
 gaps:
   outputs:
     taxonomic_match_table: "taxonomic_match_table.csv"
@@ -148,10 +146,10 @@ gaps:
 parameters:
   # --- Raw downloads -------------------------------------------------------
   # Archives are skipped when already on disk, so without auto_refresh a
-  # republished upstream release is never picked up: Dyntaxa sat 2.5 months
-  # stale that way. 01a now compares GBIF's pubDate against the date recorded
-  # when we downloaded, and re-fetches when upstream is newer. A registry
-  # lookup failure keeps what is on disk rather than re-downloading blindly.
+  # republished upstream release is never picked up. 01a compares GBIF's
+  # pubDate against the date recorded when we downloaded, and re-fetches when
+  # upstream is newer. A registry lookup failure keeps what is on disk rather
+  # than re-downloading blindly.
   download:
     auto_refresh: true
     force: false
@@ -166,10 +164,10 @@ parameters:
     force_refresh: false
   crs: 3035
   # --- Gap closure between time points (script 14) --------------------------
-  # The source split the "Gaps filled" tab is built on. Step 0 measured that
-  # mechanism is very nearly a proxy for source: Artportalen-only gained pairs
-  # were 71.9% fieldwork, everything else 21.0%. One averaged bar would describe
-  # neither stream, so every closure table is split by these groups.
+  # The source split the "Gaps filled" tab is built on. Mechanism is very nearly
+  # a proxy for source: gains from observation platforms are mostly fieldwork,
+  # gains from everything else mostly are not. One averaged bar would describe
+  # neither stream, so mechanism is computed within each of these groups.
   # Membership is a national fact and belongs here rather than in code; anything
   # not listed falls into "collections".
   closure:
@@ -198,8 +196,8 @@ parameters:
     # moves the threatened count with no error anywhere.
     expected_threat_categories: ["RE", "CR", "EN", "VU", "NT", "DD", "LC", "NE"]
     # --- GBIF taxonomic backbone: Catalogue of Life Extended Release (COL XR) ---
-    # GBIF permanently switched its default backbone to the COL Extended Release
-    # (2025). The occurrence cube's `specieskey` is a COL taxonID — usually
+    # GBIF's default backbone is the COL Extended Release, so the occurrence
+    # cube's `specieskey` is a COL taxonID — usually
     # alphanumeric (e.g. "6VFN8"), but some valid COL ids are purely NUMERIC
     # (e.g. Anemone nemorosa = 67343), so a numeric key is NOT a legacy Backbone
     # key. The cube SQL pins this checklist EXPLICITLY via the classificationdetails
@@ -212,10 +210,10 @@ parameters:
     # counts cube species with a crosswalked COL key, and "threatened not
     # crosswalked" is threatened accepted Dyntaxa taxa (all ranks) with no
     # crosswalked COL key in the cube. They are crosswalk health checks, so they
-    # differ from the official docs/metrics.md figures (78.8% / 99.79% / 122
-    # missing threatened), which are species-rank scoped and use every tier.
-    # Update deliberately after a verified rebuild. Measured 2026-09-09 (Dyntaxa
-    # 2026-08-28, COL 2026-07-17, cube 2026-07-29). Unset = report without comparing.
+    # differ from the official docs/metrics.md figures, which are species-rank
+    # scoped and use every tier.
+    # Update deliberately after a verified rebuild; provenance/ records the
+    # upstream releases that rebuild ran against. Unset = report without comparing.
     crosswalk_baseline:
       match_pct: 75.3
       occ_pct: 99.1
@@ -224,17 +222,17 @@ parameters:
     # report ALL of GBIF; only Taxonomic + Species-of-Concern are backbone-
     # relative. When true, this switch kingdom-scopes the 06a/08 cube ("all") to
     # backbone kingdoms. Set FALSE so "all" is genuinely all of GBIF and the
-    # dashboard totals reconcile with the app. (Project decision 2026-07-21.)
+    # dashboard totals reconcile with the app.
     restrict_to_backbone_scope: false
     min_occurrences: 1
     min_cells: 1
     # Taxonomic-gap denominator keeps backbone taxa at species/subspecies/variety/
-    # form rank (all four — see 09b:241). Microbial kingdoms + Primates excluded.
+    # form rank (all four — 09b species_ranks). Microbial kingdoms + Primates excluded.
     gap_species_only: true
     exclude_kingdoms: ["Bacteria", "Archaea", "Viruses"]   # drop non-multicellular kingdoms from the gap
     exclude_orders: ["Primates"]
     # "Poorly sampled" (Priorities): a matched taxon in the bottom quantile of
-    # occurrences OR occupying fewer than N cells. (Project decision 2026-07-21.)
+    # occurrences OR occupying fewer than N cells.
     poorly_sampled_occ_quantile: 0.10
     poorly_sampled_min_cells: 3
   processing:
@@ -243,7 +241,7 @@ parameters:
     make_species_cell_time: true
 
 # ============================================================================
-# Marine / EEZ coverage (T-D5)
+# Marine / EEZ coverage
 # ============================================================================
 # Bring Sweden's empty Baltic/Skagerrak/Kattegat sea cells into the grid so
 # marine coverage + zero-coverage gaps are measured. Fetches the Swedish EEZ

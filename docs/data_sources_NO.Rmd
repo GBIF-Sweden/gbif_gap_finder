@@ -109,18 +109,10 @@ data/NO/raw/cubes/
 └── cube_50km.csv
 ```
 
-> **Note:** the Norway cubes were downloaded with an earlier cube SQL that also
-> carried two publication-date columns (`year_published`, `month_published`).
-> Those columns are now retired — the current 14-column SQL above omits them, and
-> the pipeline ignores any extra columns, so these downloads still load unchanged.
-> Re-download with the query above whenever you next refresh the cubes.
-
-### Key differences from previous cube downloads
-
-- **Single file per resolution** instead of 9 files per basis of record
-- **Publisher and dataset** columns included (publishingorgkey, datasetkey)
-- **All basis of record types** in one file (basisofrecord as a column)
-- Downloaded via SQL API instead of pre-built cube DOIs
+> **Note:** the Norway cubes on file carry two publication-date columns
+> (`year_published`, `month_published`) that the current cube SQL does not produce.
+> The pipeline ignores extra columns, so they load unchanged; the next refresh replaces
+> them with cubes from the current query.
 
 ---
 

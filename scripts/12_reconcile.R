@@ -6,7 +6,7 @@
 #   Fail the build if headline numbers disagree across pipeline layers. Run
 #   after scripts 10 and 11:   source("scripts/12_reconcile.R")
 #
-#   Encodes the project's source-of-truth decisions (2026-07-21):
+#   Encodes the project's source-of-truth decisions:
 #     * "all" scope = all of GBIF; Taxonomic / Concern = backbone match
 #     * threatened = CR/EN/VU/NT; the reference is a SPECIES count, not categories
 #     * spatial coverage is measured against the FULL grid (zero-filled)
@@ -48,7 +48,7 @@ if (!is.null(dash)) {
   tir <- dval("threatened_in_reference"); tig <- dval("threatened_in_gbif")
   note(is.na(tir) || is.na(tig) || tir >= tig, sprintf(
     paste0("threatened_in_reference (%s) < threatened_in_gbif (%s): counting ",
-           "categories, not species (B1)."),
+           "categories, not species."),
     tir, tig))
 
   bt <- rd(first_existing(here(p_tables, "overview_taxonomic_by_threat.csv"),

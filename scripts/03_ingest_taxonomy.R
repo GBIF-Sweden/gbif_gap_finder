@@ -708,8 +708,8 @@ if (invasives_available) {
   # authorship, so both sides are reduced to a genus+species binomial to strip it.
   # But only flag genuine species-rank, NON-HYBRID backbone taxa: Dyntaxa lists
   # hybrids ("A × B") and infraspecific taxa at/near species rank whose first two
-  # words collapse to a listed species, which double-counts the invasive species
-  # (490 flagged vs 337 real species). Restrict the flag to real species.
+  # words collapse to a listed species, which double-counts the invasive species.
+  # Restrict the flag to real species.
   taxa_reference <- taxa_reference |>
     mutate(canon = canonical_binomial(scientificName)) |>
     left_join(invasive_lookup, by = "canon") |>

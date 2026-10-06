@@ -1,5 +1,117 @@
 # gbif_gap_finder — Changelog
 
+## 2026-09-30: v0.8.0 — Time points, Gaps filled (hidden), Sea-only coverage
+
+### Added
+
+- **Historical time points** — GBIF snapshot deliveries (2021-01-01, 2024-01-01) become
+  cube-schema parquet (`scripts/04b_build_historical_cubes.R`, `R/historic_io.R`,
+  `R/eea_grid.R`); a time point is a directory (`GAP_FINDER_TIMEPOINT`), run with
+  `run_timepoint.R`.
+- **Gap closure** between time points (`scripts/14_gap_closure.R`, `R/closure.R`, tests in
+  `tools/`), with the taxonomic loss rate as a churn indicator and lost taxa named. The
+  closure tables ship in the app bundle; the **Gaps filled** tab stays hidden unless
+  `GAP_FINDER_SHOW_GAPS_FILLED=true`.
+- **Spatial tab:** "Sea only" in the Coverage area toggle (land / sea / outside, from national
+  land + EEZ) and an order filter.
+- **Concern tab:** family filter (class → order → family).
+
+### Changed
+
+- **Palette rule** — categorical charts keep Paul Tol; map counts and recency use sequential
+  viridis; RdYlBu only for diverging values.
+- **Threatened categories** defined once in config (`threatened_categories`); the crosswalk
+  regression baseline lives in config (`crosswalk_baseline`).
+- **Publisher dependency map** follows the publisher-category filter.
+- Dyntaxa refreshed (release 2026-09-29).
+- **Docker:** apt packages installed from a dated Ubuntu archive snapshot (`APT_SNAPSHOT`);
+  Dependabot keeps the base image on R 4.5.x; pull requests build the image.
+
+### Fixed
+
+- **Establishment means** — reintroduced natives count as native; any unmapped value shows
+  as "Other" instead of dropping out of the Overview chart.
+
+## 2026-09-08: v0.7.0 — Upstream freshness
+
+- **01a re-downloads a checklist** when GBIF reports a newer publication than the local copy
+  (`parameters.download.auto_refresh`).
+- Dyntaxa refreshed (release 2026-08-28); all outputs rebuilt.
+- `CITATION.cff` uses cff-version 1.2.0.
+
+## 2026-09-08: v0.6.0 — External-dependency guards
+
+- **Preflight** (`scripts/00_preflight.R`) checks every external dependency and gates
+  `tar_make()`.
+- **Upstream provenance** — `provenance/upstream_versions_{CC}.yml` records the resolved
+  release of every source, so upstream drift shows up in `git diff`.
+- **One version source** — the git tag; `tools/stamp_version.R` derives every other surface.
+  The analysis reports locate the per-country bundle (`R/report_helpers.R`).
+- **Cache policy** — failed lookups are never cached; caches have an age limit and
+  `force_refresh`.
+- **Red list** — the category vocabulary is checked on ingest; one definition of the
+  threatened set.
+- Checklist archive URLs resolved from the GBIF registry; Dyntaxa key read from the
+  environment; GADM version and resolution in config.
+- **CI:** Dependabot; actions on current majors; Docker base image pinned by digest.
+- `targets` tracks every script as a file dependency.
+
+## 2026-09-07: v0.5.1 — Basemap
+
+- All maps go through `add_basemap()`. Default `Esri.WorldGrayCanvas` (CARTO raster tiles
+  require an API key); override with `GAP_FINDER_BASEMAP`.
+
+## 2026-07-30: v0.5.0 — b-cubed cubes, Catalogue of Life backbone, marine cells
+
+### Added
+
+- **Cube stack** — one canonical SQL spec (`sql/gbif_occurrence_cube.sql`), downloads
+  automated via `rgbif::occ_download_sql()`, b-cubed superset schema (17 columns); download
+  keys auto-written to `provenance/cube_downloads_{CC}.yml`.
+- **Catalogue of Life backbone** — character `specieskey`, COL-aware Tier 4, COL pinned in
+  the cube SQL (`classificationdetails`), COL in the data-source provenance; the
+  Dyntaxa↔COL crosswalk (`09a1`) adds Tier 5; `05` warns on legacy integer keys.
+- **Marine (EEZ) cells** in the grid (config-gated, on for SE) with a Land only / Land + sea
+  toggle.
+- **App:** Overview key-findings strip; Swedish vernacular names; citation, version and
+  contact block; publisher calls to action; per-basis last-12-month figures; Wikipedia
+  links on Concern tables; CSV downloads for tables and maps; EAA accessibility (glossary
+  tooltips, heading structure, methods panel, colour-blind-safe palettes);
+  `docs/user_manual.md`.
+- `docs/metrics.md` current figures refresh from the outputs (`scripts/13_metrics_snapshot.R`);
+  `CITATION.cff` version and date sync from the pushed tag.
+
+### Changed
+
+- **Per-country app bundle** (`data/{CC}/shiny_data.rds`), selected by `GBIF_GAP_COUNTRY`.
+- Script 11 is a pure loader (computation moved to 10); 09b reads 09a's classified backbone;
+  02 caches cell-code lists; 07 caches the country boundary.
+- The temporal tab defaults to the last complete year.
+
+### Fixed
+
+- **Headline numbers** — threatened reference counts species, not categories; "cells active
+  last year" counts distinct cells; per-cell totals exclude the synthetic "all" basis; "All
+  GBIF" covers every kingdom; staleness is measured from the cube snapshot date; the 50 km
+  grid is clipped centroid-in-country; "poorly sampled" = bottom 10 % of occurrences or
+  < 3 cells.
+- **Checklist matching** — exact red-list / sensitive matching; invasive flags restricted to
+  species-rank, non-hybrid taxa.
+- `scripts/12_reconcile.R` runs in `tar_make()` as the `reconciliation` target.
+- 06b clears its per-taxon output folders, so no orphaned species files are read.
+- Hardening: the 09a → 06b dependency is declared, 04 fails loudly without parquet output,
+  and the cube SQL is a tracked dependency.
+
+## 2026-06-22 – 2026-06-24: v0.4.0 – v0.4.3 — UX, accessibility, provenance
+
+- Overview: always-visible plain-language intro and persona routing; tabs reordered.
+- Readable map legends and popups; colour-blind-safe chart palette; AA contrast; larger type.
+- Cube SQL trimmed to 14 columns (`year_published` dropped).
+- GRIIS invasives at species level (`isInvasive` filter).
+- DOIs resolved from GBIF keys (`01b`); redesigned Data & Sources tab; `CITATION.cff`.
+- CI fetches the LFS bundle and fails fast on a pointer stub (v0.4.1, v0.4.2).
+- Framing and data-alignment fixes (v0.4.3).
+
 ## 2026-06-18: Rename — gbifgaps → gbif_gap_finder, Explorer App Removed
 
 ### Renamed

@@ -4,9 +4,8 @@
 # Stamp the release version into every surface that carries one
 # ============================================================================
 # Why this exists:
-#   Six places carried a hand-typed version string. By 2026-09 four of them said
-#   0.4.3 while the released tag was v0.5.1 — two releases of drift, because
-#   every one had to be remembered separately.
+#   A version string typed by hand into several files drifts, because every
+#   copy has to be remembered separately.
 #
 # The rule: ONE source of truth (the git tag), everything else derived.
 #
@@ -21,8 +20,8 @@
 #
 #   The DATA snapshot date is deliberately NOT handled here. Code version and
 #   data date are different facts: see globals::get_snapshot_date() and
-#   R/report_helpers.R. Conflating them is how "Data last updated" ended up
-#   showing when the RDS was packaged.
+#   R/report_helpers.R. Conflating them makes "Data last updated" show when the
+#   RDS was packaged.
 #
 # Usage:
 #   Rscript tools/stamp_version.R            # write the derived version everywhere

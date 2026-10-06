@@ -57,7 +57,7 @@ reconciliation table from 09a. See the CHANGELOG for details.
 - **Bias correction columns**: Species-level tables from 06b include `familycount`, `ordercount`, `classcount` and their corresponding `relative_*` ratios.
 - **Split by order**: Species-level tables are split by taxonomic order for manageable file sizes.
 - **Multiple granularities**: From simple cell counts to full species × cell × time detail.
-- **Taxonomy flags applied downstream**: `in_dyntaxa`, `is_invasive`, `is_sensitive`, and scope-filtered aggregations are all produced by 09c, which uses the 4-tier matching from 09a (not the simple name join that 06a/06b previously relied on).
+- **Taxonomy flags applied downstream**: `in_dyntaxa`, `is_invasive`, `is_sensitive`, and scope-filtered aggregations are all produced by 09c, which uses the 5-tier matching from 09a rather than a simple name join.
 
 ---
 
