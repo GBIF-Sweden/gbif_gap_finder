@@ -17,7 +17,7 @@
 # installing from stale or empty package lists.
 ARG APT_SNAPSHOT=20261006T000000Z
 
-FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c AS builder
+FROM rocker/r-ver:4.5.3@sha256:c3f39b365d1077fe24f8e9ab2742e352b6d3950897f51af1624a5bb5550c21c0 AS builder
 ARG APT_SNAPSHOT
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -60,7 +60,7 @@ COPY renv.lock ./renv.lock
 
 RUN R -q -e "renv::consent(provided = TRUE); renv::restore(lockfile = 'renv.lock', library = '/usr/local/lib/R/site-library', prompt = FALSE)"
 
-FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c
+FROM rocker/r-ver:4.5.3@sha256:c3f39b365d1077fe24f8e9ab2742e352b6d3950897f51af1624a5bb5550c21c0
 ARG APT_SNAPSHOT
 
 ENV DEBIAN_FRONTEND=noninteractive
