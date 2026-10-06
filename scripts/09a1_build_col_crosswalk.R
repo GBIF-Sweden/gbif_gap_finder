@@ -285,7 +285,7 @@ if (length(to_query) > 0) {
         request("https://api.gbif.org/v2/species/match") |>
           req_url_query(checklistKey = col_checklist_key, scientificName = nm) |>
           req_retry(max_tries = 3, backoff = ~ 2) |>
-          req_error(is_error = function(resp) FALSE)   # keep 4xx as a response
+          req_error(is_error = function(resp) FALSE)   # HTTP errors come back as responses
       })
       resps <- tryCatch(perform_parallel(reqs), error = function(e) {
         cli_alert_warning("Parallel chunk failed ({conditionMessage(e)}) -- retrying serially")
@@ -293,11 +293,13 @@ if (length(to_query) > 0) {
       })
       for (k in seq_along(nms)) {
         r <- resps[[k]]
-        if (inherits(r, "httr2_response")) {
-          j <- tryCatch(resp_body_json(r), error = function(e) NULL)
-          if (!is.null(j)) {
-            api_cache[[nms[k]]] <- extract_match(j$usage, j$acceptedUsage, j$diagnostics)
-          } else total_err <- total_err + 1L
+        # Only a successful reply is an answer. An HTTP error (4xx/5xx, e.g. a
+        # rate limit or an outage) can carry a JSON body that would parse as
+        # "no match"; it is not cached, so the name is retried on the next run.
+        ok <- inherits(r, "httr2_response") && resp_status(r) < 400
+        j  <- if (ok) tryCatch(resp_body_json(r), error = function(e) NULL) else NULL
+        if (!is.null(j)) {
+          api_cache[[nms[k]]] <- extract_match(j$usage, j$acceptedUsage, j$diagnostics)
         } else {
           total_err <- total_err + 1L   # NOT cached -> retried next run
         }

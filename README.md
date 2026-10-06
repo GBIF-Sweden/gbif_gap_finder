@@ -2,6 +2,8 @@
 
 Systematic analysis of spatial, temporal, and taxonomic gaps in national biodiversity occurrence data from GBIF. Designed as a reusable pipeline for any GBIF node — currently configured for **Sweden**.
 
+> **Live dashboard (Sweden):** <https://gbif.se/gap-finder/>
+>
 > See [ROADMAP.Rmd](ROADMAP.Rmd) for the full development plan.
 >
 > **Using the dashboard?** See the [User Manual](docs/user_manual.md) for how to read each tab and interpret the gaps.
@@ -367,7 +369,7 @@ nothing is deployed automatically from this repository.
 |-----|---------|--------|
 | `GBIF_GAP_COUNTRY` | `SE` | Which config and data bundle are baked in |
 | `GAP_FINDER_VERSION` | `dev` | What the app reports as its version; CI passes the git tag |
-| `APT_SNAPSHOT` | `20260930T000000Z` | Ubuntu archive snapshot the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Bump the default in the Dockerfile at each release |
+| `APT_SNAPSHOT` | `20261006T000000Z` | Ubuntu archive snapshot the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Bump the default in the Dockerfile at each release |
 
 **Runtime environment:**
 
@@ -386,7 +388,7 @@ docker run --rm -p 3838:3838 ghcr.io/gbif-sweden/gap-finder:latest
 ```
 
 **The last hop is manual and lives outside this repo.** The public instance at
-<https://test.gbif.se/gap-finder/> is updated by a GBIF Sweden colleague pulling the
+<https://gbif.se/gap-finder/> is updated by a GBIF Sweden colleague pulling the
 published image onto the NRM server. A green build therefore does NOT mean the change
 is live — confirm the deploy separately, and say which tag should be pulled.
 
@@ -407,6 +409,25 @@ is live — confirm the deploy separately, and say which tag should be pulled.
     macOS `brew install redland`; Ubuntu/Debian `librdf0-dev` (build) and `librdf0t64` (runtime,
     `librdf0` before 24.04). The Docker image installs both.
 - Full dependency list managed via `renv`
+
+## How to cite
+
+Please cite the Gap Finder as:
+
+> Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. GBIF Gap Finder: a reproducible
+> pipeline for biodiversity data gap analysis. GBIF Sweden, Swedish Museum of Natural History
+> (NRM). <https://gbif.se/gap-finder/>
+
+Authors:
+
+- Lena M. Thöle — <https://orcid.org/0000-0002-5405-3613>
+- Kevin C. Holston — <https://orcid.org/0000-0002-0786-4069>
+- Manash Shah — <https://orcid.org/0000-0002-9607-9512>
+- Veronika Johansson — <https://orcid.org/0000-0002-3028-9947>
+
+Version and release date are in [CITATION.cff](CITATION.cff); GitHub's **Cite this repository**
+button turns it into APA or BibTeX. Please also cite the GBIF downloads and checklists behind
+the figures — their DOIs are listed on the app's **Data & sources** tab.
 
 ## License
 
