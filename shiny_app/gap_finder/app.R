@@ -446,6 +446,16 @@ filter_label <- function(text) tags$span(class = "filter-label", text)
 # to it: the input keeps a label for screen readers, but it is not displayed.
 sr_label <- function(input) div(class = "sr-label", input)
 
+# Icons in this app are decorative: each one sits next to text that says the same
+# thing. fontawesome gives them role="presentation" plus an aria-label, a
+# combination ARIA does not allow (screen readers then announce "gauge icon");
+# they are hidden from assistive technology instead.
+icon <- function(...) {
+  i <- shiny::icon(...)
+  i$attribs[names(i$attribs) %in% c("role", "aria-label")] <- NULL
+  htmltools::tagAppendAttributes(i, `aria-hidden` = "true")
+}
+
 # Consistent "measurement -> interpretation -> action" guide shown at the top of
 # each analysis tab (plain-language framing for a broad, non-specialist audience).
 read_guide <- function(measures, interpret, action) {
@@ -473,7 +483,7 @@ dl_csv <- function(data_fun, prefix) {
 # Small right-aligned CSV button placed beneath a map (exports the map's cells).
 map_dl_btn <- function(id, label = "Download cell data (CSV)") {
   div(style = "margin-top:0.6rem; text-align:right;",
-    downloadButton(id, label, class = "btn-download",
+    downloadButton(id, label, class = "btn-download", icon = icon("download"),
       style = "font-size:0.8rem; padding:3px 12px;"))
 }
 
@@ -657,6 +667,19 @@ pal <- list(
   text  = "#2d2d2d", muted = "#6b6b6b"
 )
 
+# Text shades of the palette that reach 4.5:1 contrast (WCAG AA) on the app's
+# backgrounds; the colours above stay for chart marks, borders and icons. The
+# same values are the --*-ink variables in www/styles.css.
+pal_ink <- list(sage = "#1d6048", slate = "#2f567f", sand = "#6f6210",
+                coral = "#b32e44", plum = "#8a2a61", orange = "#9a4a1c")
+
+# Text colour for a palette colour; a light variant (sage2, ...) maps to the
+# same shade, and a colour outside the palette is returned unchanged.
+ink <- function(col) {
+  key <- sub("2$", "", names(pal)[match(toupper(col), toupper(unlist(pal)))])
+  if (length(key) == 1 && !is.na(key) && key %in% names(pal_ink)) pal_ink[[key]] else col
+}
+
 # Palette rule — one place for every chart and map colour decision:
 #   categorical -> Paul Tol, the `pal` list above (kept deliberately; colour-blind safe)
 #   sequential  -> viridis, end = 0.9, for counts and recency on the maps. The pale
@@ -707,7 +730,7 @@ checklist_cite <- function(key, prefix = "Source") {
     tags$strong(paste0(prefix, ": ")), title,
     if (!is.null(href)) tagList(" — ",
       tags$a(href = href, link_txt, target = "_blank",
-        style = "color: var(--sage); text-decoration: underline;")))
+        style = "color: var(--sage-ink); text-decoration: underline;")))
 }
 
 # External reference link for a taxon (Wikipedia article by scientific name).
@@ -727,7 +750,13 @@ ui <- fluidPage(
 
   tags$head(
     tags$title(if (nchar(country_name) > 0) paste0("GBIF Gap Finder \u2014 ", country_name) else "GBIF Gap Finder"),
-    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css")
+    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css"),
+    # A DataTables scroll area holds no focusable element, so keyboard users
+    # could not scroll it; make it focusable.
+    tags$script(HTML(paste(
+      "$(document).on('init.dt', function (e, settings) {",
+      "  $(settings.nTableWrapper).find('.dataTables_scrollBody').attr('tabindex', '0');",
+      "});")))
   ),
 
   # Header
@@ -960,7 +989,7 @@ ui <- fluidPage(
               div(class = "card",
                 tags$h2(class = "card-title", icon("leaf"), "Taxonomic Gaps"),
                 div(style = "display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;",
-                  div(class = "gap-metric", style = paste0("color:", pal$sand, ";"),
+                  div(class = "gap-metric", style = paste0("color:", ink(pal$sand), ";"),
                     textOutput("ov_tax_pct", inline = TRUE)),
                   div(style = "flex:1;", uiOutput("ov_tax_bar"))
                 ),
@@ -1175,7 +1204,7 @@ ui <- fluidPage(
                   "Download all priority items as a single CSV.")),
               div(style = "padding-left:1rem;",
                 downloadButton("download_action_plan", "Download CSV",
-                  class = "btn-download", style = "white-space:nowrap;"))
+                  class = "btn-download", icon = icon("download"), style = "white-space:nowrap;"))
             )),
 
           # Maps: zero coverage + stale cells
@@ -1605,10 +1634,10 @@ ui <- fluidPage(
             "Taxonomy backbone: ", tags$strong(metadata$taxonomy_name %||% "Dyntaxa"),
             " — ",
             tags$a(href = "https://www.gbif.org/dataset/de8934f4-a136-481c-a87a-b0b202b80a31",
-              "View on GBIF", target = "_blank", style = "color: var(--sage);"),
+              "View on GBIF", target = "_blank", style = "color: var(--sage-ink);"),
             " | ",
             tags$a(href = "https://artfakta.se/",
-              "Browse Dyntaxa", target = "_blank", style = "color: var(--sage);"),
+              "Browse Dyntaxa", target = "_blank", style = "color: var(--sage-ink);"),
             ". To see only present, native, introduced or invasive species, ",
             "use the Scope filter on the Species of Concern tab."
           ),
@@ -1775,7 +1804,8 @@ ui <- fluidPage(
                     div(class = "stat-value sand", textOutput("concern_en", inline = TRUE)),
                     div(class = "stat-label", "EN Missing")),
                   div(class = "stat-box",
-                    div(class = "stat-value", style = "color:#EE8866;", textOutput("concern_vu", inline = TRUE)),
+                    div(class = "stat-value", style = paste0("color:", pal_ink$orange, ";"),
+                      textOutput("concern_vu", inline = TRUE)),
                     div(class = "stat-label", "VU Missing")),
                   div(class = "stat-box",
                     div(class = "stat-value sage", textOutput("concern_nt", inline = TRUE)),
@@ -2264,7 +2294,7 @@ ui <- fluidPage(
                     "Dashboard Summary"    = "dashboard_long"))),
               column(6, div(style = "padding-top: 25px;",
                 downloadButton("explorer_download", "Download CSV",
-                  class = "btn-download")))
+                  class = "btn-download", icon = icon("download"))))
             ),
             DTOutput("explorer_table"))
         )
@@ -3070,7 +3100,7 @@ server <- function(input, output, session) {
           icon("exclamation-triangle"), " Most severe gap"),
         div(style = "display:flex; align-items:baseline; gap:0.9rem; flex-wrap:wrap;",
           div(style = paste0("font-family:'IBM Plex Mono',monospace; font-weight:700; line-height:1; color:",
-              f$color, "; font-size:", if (isTRUE(f$num_is_text)) "2.1rem" else "2.9rem", ";"), f$num),
+              ink(f$color), "; font-size:", if (isTRUE(f$num_is_text)) "2.1rem" else "2.9rem", ";"), f$num),
           if (!is.null(f$sub))
             div(style = "font-size:1rem; color:var(--text-muted);", f$sub)),
         p(style = "margin:0.6rem 0 0.75rem; line-height:1.6; font-size:1.08rem; color:var(--text-secondary);",
@@ -3081,7 +3111,7 @@ server <- function(input, output, session) {
     kf_card <- function(f) {
       div(class = "card", style = paste0("margin:0; height:100%; border-top:4px solid ", f$color, ";"),
         div(style = paste0("font-family:'IBM Plex Mono',monospace; font-weight:700; line-height:1.05; color:",
-            f$color, "; font-size:", if (isTRUE(f$num_is_text)) "1.35rem" else "1.9rem", ";"), f$num),
+            ink(f$color), "; font-size:", if (isTRUE(f$num_is_text)) "1.35rem" else "1.9rem", ";"), f$num),
         if (!is.null(f$sub))
           div(class = "stat-label", style = "margin:0.15rem 0 0.5rem;", f$sub),
         p(style = "margin:0 0 0.65rem; line-height:1.5; font-size:0.95rem; color:var(--text-secondary);",
@@ -5305,7 +5335,7 @@ server <- function(input, output, session) {
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Spatial: Fill zero-coverage cells"),
           div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
-            span(style = paste0(num_style, " color:", pal$coral, ";"), comma(n_zero)),
+            span(style = paste0(num_style, " color:", ink(pal$coral), ";"), comma(n_zero)),
             " grid cells have never been surveyed. Target these for new field campaigns or citizen science events.")),
       ),
       # Temporal
@@ -5314,7 +5344,7 @@ server <- function(input, output, session) {
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Temporal: Resurvey stale cells"),
           div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
-            span(style = paste0(num_style, " color:", pal$sand, ";"), comma(n_stale)),
+            span(style = paste0(num_style, " color:", ink(pal$sand), ";"), comma(n_stale)),
             " cells have no GBIF records newer than 5 years. After checking for data outside GBIF, prioritise cells with historically high diversity for resurvey.")),
       ),
       # Taxonomic
@@ -5323,7 +5353,7 @@ server <- function(input, output, session) {
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Taxonomic: Close species coverage gaps"),
           div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
-            span(style = paste0(num_style, " color:", pal$plum, ";"), comma(n_taxa_missing)),
+            span(style = paste0(num_style, " color:", ink(pal$plum), ";"), comma(n_taxa_missing)),
             " species in the national backbone have no GBIF records. Focus on under-sampled orders and families shown below.")),
       ),
       # Threatened
@@ -5332,7 +5362,7 @@ server <- function(input, output, session) {
         div(style = "flex:1;",
           div(style = "font-size:1.05rem; font-weight:500;", "Threatened: Monitor CR and EN species"),
           div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
-            span(style = paste0(num_style, " color:", pal$coral, ";"), comma(n_cr_en)),
+            span(style = paste0(num_style, " color:", ink(pal$coral), ";"), comma(n_cr_en)),
             " critically endangered or endangered species lack any GBIF occurrence data. These are the highest priority for targeted surveys.")),
       )
     )
@@ -5346,7 +5376,7 @@ server <- function(input, output, session) {
             div(style = "font-size:1.05rem; font-weight:500;", "Native species: Improve baseline coverage"),
             div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
               "Native species coverage is ",
-              span(style = paste0(num_style, " color:", pal$sage, ";"), paste0(native_cov, "%")),
+              span(style = paste0(num_style, " color:", ink(pal$sage), ";"), paste0(native_cov, "%")),
               " (", comma(n_native_missing), " native species missing). ",
               if (n_invasive_missing > 0) paste0(comma(n_invasive_missing),
                 " of ", comma(n_invasive_total), " known invasive species also lack GBIF data — monitor for spread detection.")
@@ -5371,7 +5401,7 @@ server <- function(input, output, session) {
           div(style = "flex:1;",
             div(style = "font-size:1.05rem; font-weight:500;", "Sensitive species: Assess data availability"),
             div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
-              span(style = paste0(num_style, " color:", pal$plum, ";"), comma(n_sensitive)),
+              span(style = paste0(num_style, " color:", ink(pal$plum), ";"), comma(n_sensitive)),
               " species have restricted coordinates in GBIF (generalised to 5\u201350 km). ",
               comma(n_sensitive_in_gbif), " have occurrence records. ",
               "Spatial gap analysis is less reliable for these species \u2014 see the Species of Concern tab for details."
@@ -5394,7 +5424,7 @@ server <- function(input, output, session) {
           div(style = "flex:1;",
             div(style = "font-size:1.05rem; font-weight:500;", "Infrastructure: Diversify data sources"),
             div(style = "font-size:1rem; color:var(--text-secondary); margin-top:0.25rem;",
-              span(style = paste0(num_style, " color:", pal$slate, ";"), comma(n_single_pub)),
+              span(style = paste0(num_style, " color:", ink(pal$slate), ";"), comma(n_single_pub)),
               " of ", comma(n_total_cells), " grid cells depend on a single publisher. ",
               "Engage additional data holders (museums, universities, citizen science platforms) to improve resilience. ",
               "See the Publishers tab to identify which taxonomic groups are under-served."
@@ -5444,42 +5474,42 @@ server <- function(input, output, session) {
     tagList(
       div(style = header_style,
         div(style = paste0(label_style, " font-weight:600;"), "Metric"),
-        div(style = paste0(achieved_style, " font-weight:600; color:", pal$slate, ";"), paste0("Achieved (", last_year_label, ")")),
-        div(style = paste0(target_style, " font-weight:600; color:", pal$sage, ";"), "Next 12 Months Target")
+        div(style = paste0(achieved_style, " font-weight:600; color:", ink(pal$slate), ";"), paste0("Achieved (", last_year_label, ")")),
+        div(style = paste0(target_style, " font-weight:600; color:", ink(pal$sage), ";"), "Next 12 Months Target")
       ),
       div(style = row_style,
         div(style = label_style, "New occurrence records"),
         div(style = achieved_style, comma(ly_occ)),
-        div(style = paste0(target_style, " color:", pal$sage, ";"),
+        div(style = paste0(target_style, " color:", ink(pal$sage), ";"),
             paste0(comma(ceiling(ly_occ * target_mult)), "+"))
       ),
       div(style = row_style,
         div(style = label_style, "Cells with active recording"),
         div(style = achieved_style, comma(ly_cells)),
-        div(style = paste0(target_style, " color:", pal$sage, ";"),
+        div(style = paste0(target_style, " color:", ink(pal$sage), ";"),
             paste0(comma(ceiling(ly_cells * target_mult)), "+"))
       ),
       div(style = row_style,
         div(style = label_style, "Newly covered cells (previously zero)"),
         div(style = achieved_style, comma(ly_new_cells)),
-        div(style = paste0(target_style, " color:", pal$sage, ";"),
+        div(style = paste0(target_style, " color:", ink(pal$sage), ";"),
           paste0(comma(target_new_cells), " / ", comma(n_zero), " remaining"))
       ),
       div(style = row_style,
         div(style = label_style, "Priority zero-cells resolved"),
         div(style = achieved_style, comma(ly_resolved)),
-        div(style = paste0(target_style, " color:", pal$sage, ";"), comma(target_resolved))
+        div(style = paste0(target_style, " color:", ink(pal$sage), ";"), comma(target_resolved))
       ),
       div(style = paste0(row_style),
         div(style = label_style, "CR/EN species with new records"),
         div(style = achieved_style, "\u2014"),
-        div(style = paste0(target_style, " color:", pal$coral, ";"),
+        div(style = paste0(target_style, " color:", ink(pal$coral), ";"),
           paste0("Target: ", comma(min(n_cr_en, cr_en_target_cap)), " of ", comma(n_cr_en), " missing"))
       ),
       div(style = paste0(row_style, " border-bottom:none;"),
         div(style = label_style, "Single-publisher cells diversified"),
         div(style = achieved_style, "\u2014"),
-        div(style = paste0(target_style, " color:", pal$slate, ";"), {
+        div(style = paste0(target_style, " color:", ink(pal$slate), ";"), {
           n_sp <- if (!is.null(publisher_cell_dep)) sum(publisher_cell_dep$n_publishers == 1) else 0
           if (n_sp > 0) paste0(
             "Target: ", comma(min(ceiling(n_sp * single_pub_target_frac), single_pub_target_cap)),
