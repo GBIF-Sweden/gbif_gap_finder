@@ -19,8 +19,7 @@
 # they are real code and do carry real dependencies.
 /analysis/*.html
 
-# Documentation, not a dependency. ROADMAP.Rmd mentions b3gbi::process_cube()
-# in a sentence describing the b-cubed schema migration; that is prose about the
-# standard, not a call this project makes, and b3gbi is not installed. Without
-# this line renv::status() reports it as a missing dependency forever.
+# Documentation, not code. Package calls named in its prose (e.g. pkg::fun())
+# are not dependencies of this project, and without this line renv::status()
+# would report them as missing.
 /ROADMAP.Rmd

@@ -17,7 +17,7 @@ This project analyses GBIF occurrence data for a given country to identify:
 - **Invasive species** — integration of national invasive species registries with occurrence data
 - **Sensitive species** — restricted access species flagged with generalization categories (5/25/50 km)
 - **Establishment means** — native, introduced, and invasive species scope filtering and monitoring
-- **National taxonomic backbone/All GBIF scope** — toggle between gap analysis (against national backbone) and full GBIF overview
+- **Backbone-relative and all-GBIF views** — the Taxonomic and Species of Concern tabs measure against the national backbone; the occurrence-based tabs report all of GBIF
 - **Publisher analysis** — which organisations contribute data, single-publisher dependency
 - **Recent activity** — rolling 12-month window of observations by event date
 
@@ -33,14 +33,20 @@ gbif_gap_finder/
 │   └── config_template.yml     # Template for new countries
 ├── R/
 │   ├── globals.R               # Config, paths, constants, shared utilities
-│   └── packages.R              # Package management (required / optional / app)
+│   ├── packages.R              # Package management (required / optional / app)
+│   ├── report_helpers.R        # Bundle path + header stamp for the reports
+│   ├── eea_grid.R              # EEA grid cell codes from coordinates (time points)
+│   ├── historic_io.R           # Reading historical snapshot deliveries (time points)
+│   └── closure.R               # Gap-closure arithmetic (Gaps filled tab)
 ├── scripts/
+│   ├── 00_preflight.R                     # Check every external dependency (gates tar_make)
 │   ├── 00_setup.R                         # Environment setup
 │   ├── 01a_download_raw_data.R            # Download raw data from GBIF/EEA/GADM
 │   ├── 01b_resolve_data_sources.R         # Resolve dataset + cube DOIs from GBIF keys
 │   ├── 02_ingest_grids.R                  # Process + clip EEA grids
 │   ├── 03_ingest_taxonomy.R               # National taxonomy + red list + invasives
 │   ├── 04_convert_cubes_parquet.R         # CSV → parquet conversion
+│   ├── 04b_build_historical_cubes.R       # Historical snapshots → time-point cubes
 │   ├── 05_validate_inputs.R               # QA checks → Markdown report
 │   ├── 06a_make_core_summaries.R          # Cell/time/order/publisher summaries
 │   ├── 06b_make_species_summaries.R       # Species-level + bias correction
@@ -52,7 +58,9 @@ gbif_gap_finder/
 │   ├── 09c_scope_summaries.R              # Per-scope summaries + recent-period layer
 │   ├── 10_make_gap_overview.R             # Integrated summary tables
 │   ├── 11_prepare_gap_finder_data.R       # Bundle data for the Gap Finder app
-│   └── 12_reconcile.R                     # Cross-layer reconciliation guardrail (manual)
+│   ├── 12_reconcile.R                     # Cross-layer reconciliation guardrail
+│   ├── 13_metrics_snapshot.R              # Refresh the figures in docs/metrics.md
+│   └── 14_gap_closure.R                   # Gap closure between time points
 ├── analysis/
 │   ├── 01_overview.Rmd                    # Dashboard overview report
 │   ├── 02_priorities.Rmd                  # Priority actions report
@@ -67,24 +75,30 @@ gbif_gap_finder/
 │   │   └── grids/               # EEA grids (Europe-wide, shared)
 │   ├── SE/
 │   │   ├── raw/                 # Raw downloads (cubes, taxonomy, redlist, invasives, admin)
-│   │   ├── proc/                # Processed data (parquet, derived, gaps)
+│   │   ├── proc/                # Processed data (parquet, derived, gaps, time points)
 │   │   └── output/              # Summary tables
 │   └── NO/                      # Norway (placeholder)
 ├── docs/
+│   ├── user_manual.md           # How to read each tab
+│   ├── metrics.md               # Gap metric definitions + current figures
+│   ├── CHANGELOG.md             # Release history
 │   ├── data_sources_SE.Rmd      # Sweden data provenance documentation
 │   └── data_sources_NO.Rmd      # Norway data provenance documentation
+├── provenance/                  # Cube download keys + upstream release versions (auto-written)
 ├── shiny_app/
-│   ├── gap_finder/              # Gap Finder dashboard
+│   └── gap_finder/              # Gap Finder dashboard (app.R, Dockerfile, per-country data/)
 ├── sql/
 │   └── gbif_occurrence_cube.sql # Canonical GBIF SQL cube spec (b3verse; the query IS the cube)
+├── tools/                       # Version stamping + tests
 ├── _targets.R                   # Pipeline definition
 ├── run.R                        # Convenience functions
+├── run_timepoint.R              # Run scripts 05–10 for one historical time point
 └── ROADMAP.Rmd                  # Development plan
 ```
 
 ## Quick Start
 
-> **Clone with Git LFS.** The prebuilt Shiny data bundle (`shiny_app/gap_finder/data/shiny_data.rds`, ~90 MB) is tracked with [Git LFS](https://git-lfs.com). Install it *before* cloning, or the bundle arrives as a small pointer file instead of the real data:
+> **Clone with Git LFS.** The prebuilt Shiny data bundle (`shiny_app/gap_finder/data/{CC}/shiny_data.rds`, ~80 MB) is tracked with [Git LFS](https://git-lfs.com). Install it *before* cloning, or the bundle arrives as a small pointer file instead of the real data:
 >
 > ```
 > git lfs install
@@ -195,7 +209,7 @@ credentials it prints the identical query to run by hand at the
 [SQL API](https://www.gbif.org/occurrence/download/sql). Resolved download keys are recorded to the
 version-controlled `provenance/cube_downloads_{CC}.yml` (see below).
 
-The schema is a **b-cubed–compatible superset** (b3verse, 2026-07): the original GBIF dimensions
+The schema is a **b-cubed–compatible superset** (b3verse): the original GBIF dimensions
 plus three aggregate measures, so the cube can also feed `b3gbi::process_cube()`:
 
 ```sql
@@ -217,14 +231,14 @@ GROUP BY ...
 
 `specieskey` is pinned to GBIF's **Catalogue of Life Extended Release** backbone via the
 `classificationdetails['${COL_CHECKLIST_KEY}']` selector, so the cube is COL regardless of GBIF's
-mutable default (GBIF completed the COL migration in 2025). COL taxonIDs are usually alphanumeric
+mutable default. COL taxonIDs are usually alphanumeric
 (e.g. `6VFN8`) but some are purely numeric (e.g. `67343` = *Anemone nemorosa*) — a numeric key is
 **not** a legacy Backbone nub key. The download is automated, so provenance is too: `01a` records the
 real download key of each pull to the version-controlled `provenance/cube_downloads_{CC}.yml`, and
 `01b` resolves DOI + citation from it (add `cubes.<grid>.download_key` to the config only to pin a
-specific historical download). Because
-`04` is existence-gated, it re-converts a cube to parquet only when the raw CSV is newer, and `05`
-fails the run if a parquet is older than its CSV — so a re-download always propagates downstream.
+specific historical download). `04` re-converts a cube to parquet whenever the raw CSV is newer,
+and `05` fails the run if a parquet is older than its CSV — so a re-download always propagates
+downstream.
 
 The cube has **17 columns**: the 14 core fields (`specieskey`, `species`, `kingdom`, `phylum`,
 `class`, `order`, `family`, `basisofrecord`, `publishingorgkey`, `datasetkey`, `eeacellcode`,

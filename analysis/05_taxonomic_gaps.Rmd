@@ -94,7 +94,7 @@ theme_set(theme_gaps)
 
 # Overview
 
-This report analyses how well GBIF occurrence data covers the national taxonomy backbone (**`r metadata$taxonomy_name %||% "National checklist"`**). Every species in the backbone is checked against GBIF records through a 4-tier reconciliation: direct name match, synonym resolution, infraspecific collapse, and GBIF Species API lookup.
+This report analyses how well GBIF occurrence data covers the national taxonomy backbone (**`r metadata$taxonomy_name %||% "National checklist"`**). Every species in the backbone is checked against GBIF records through a 5-tier reconciliation: direct name match, synonym resolution, infraspecific collapse, GBIF Species API lookup, and a backbone–Catalogue of Life key crosswalk.
 
 ```{r recon-stats}
 if (!is.null(truth_taxonomic)) {
