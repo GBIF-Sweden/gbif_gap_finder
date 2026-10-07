@@ -33,38 +33,61 @@ ck_dataset <- function(key) {
 **Purpose:** Species-level, gridded occurrence summaries for Sweden.
 
 **Source:** GBIF SQL Download API
-**Downloaded:** 2026-03-25
-**Format:** SQL_TSV_ZIP → CSV → Parquet (converted by pipeline)
+**Downloaded:** automatically by `scripts/01a_download_raw_data.R` (download dates in the table below)
+**Format:** SQL_TSV_ZIP → CSV → Parquet (converted by script 04)
 
-### SQL Query
+### How a cube is made
 
-Both cubes use the same query, differing only in grid resolution (10000 vs 50000 meters):
+- **One query file.** The cube is defined by `sql/gbif_occurrence_cube.sql`. Both cubes use it
+  and differ only in grid resolution (10,000 vs 50,000 m). `render_cube_sql()` (R/globals.R)
+  fills in the country code, the resolution and the Catalogue of Life checklist key.
+- **Automated download.** When GBIF credentials are set, 01a submits the query with
+  `rgbif::occ_download_sql()`, waits for GBIF and imports the result into `data/SE/raw/cubes/`.
+  Without credentials it prints the same query to run by hand at the
+  [SQL API](https://www.gbif.org/occurrence/download/sql). 01a only downloads when fewer than
+  two cube files are on disk.
+- **Provenance records (version-controlled, written by the pipeline, never by hand):**
+  - `provenance/cube_downloads_SE.yml`: the GBIF download key of each cube, written by 01a
+    after every automated download.
+  - `provenance/upstream_versions_SE.yml`: download key, DOI and creation date of each cube,
+    and the release of every checklist, written by `scripts/01b_resolve_data_sources.R` on
+    every run. `git diff provenance/` after a run shows whether anything upstream changed.
+- **Citation.** 01b resolves each key on the GBIF API (DOI, record count, licence) and fails
+  loudly if a key does not exist on gbif.org. This document, the app and the reports read the
+  result, so DOIs are never typed by hand.
+- **Pinning an older cube.** To cite a specific historical download instead of the latest,
+  add `cubes.<grid>.download_key` to `configs/config_SE.yml`; it takes precedence over the
+  provenance file.
 
-```sql
-SELECT
-  specieskey, species, kingdom, phylum, class, "order", family,
-  basisofrecord, publishingorgkey, datasetkey,
-  GBIF_EEARGCode(10000, decimallatitude, decimallongitude, 0) AS eeacellcode,
-  "year", "month",
-  COUNT(*) AS occurrences
-FROM occurrence
-WHERE countrycode = 'SE'
-  AND hascoordinate = TRUE
-  AND hasgeospatialissues = FALSE
-  AND occurrencestatus = 'PRESENT'
-  AND specieskey IS NOT NULL
-GROUP BY specieskey, species, kingdom, phylum, class, "order", family,
-  basisofrecord, publishingorgkey, datasetkey,
-  GBIF_EEARGCode(10000, decimallatitude, decimallongitude, 0),
-  "year", "month"
+### SQL query
+
+The query as run (comments removed; `${...}` are filled in by `render_cube_sql()`):
+
+```{r ds-sql, echo=FALSE, results='asis'}
+sql_path <- here::here("sql", "gbif_occurrence_cube.sql")
+if (file.exists(sql_path)) {
+  sql <- readLines(sql_path, encoding = "UTF-8")
+  sql <- sql[!grepl("^\\s*--", sql) & nzchar(trimws(sql))]
+  cat("```sql", sql, "```", sep = "\n")
+} else {
+  cat("> *`sql/gbif_occurrence_cube.sql` not found.*\n")
+}
 ```
 
-### Columns (14)
+- `specieskey` is pinned to the Catalogue of Life through `classificationdetails`, so it is a
+  COL taxonID, not a GBIF Backbone key. Most are alphanumeric (e.g. `6VFN8`); some are
+  numeric (e.g. `67343` = *Anemone nemorosa*).
+- Grid radius 0: cell assignment is deterministic.
+
+### Columns (17)
+
+The 14 grouping and count columns, plus three measures that make the cube compatible with
+b-cubed tools (`b3gbi::process_cube()`).
 
 | # | Column | Description |
 |--:|--------|-------------|
-| 1 | specieskey | GBIF species identifier (backbone key) |
-| 2 | species | Scientific name (GBIF backbone) |
+| 1 | specieskey | Catalogue of Life taxonID of the species (pinned via `classificationdetails`) |
+| 2 | species | Scientific name |
 | 3 | kingdom | Kingdom name |
 | 4 | phylum | Phylum name |
 | 5 | class | Class name |
@@ -76,7 +99,12 @@ GROUP BY specieskey, species, kingdom, phylum, class, "order", family,
 | 11 | eeacellcode | EEA reference-grid cell code (10 km or 50 km) |
 | 12 | year | Observation/collection year |
 | 13 | month | Observation/collection month |
-| 14 | occurrences | Record count for the species × cell × year × month |
+| 14 | occurrences | Record count for the group (species × cell × year × month × record type × publisher × dataset) |
+| 15 | mincoordinateuncertaintyinmeters | Smallest coordinate uncertainty in the group, in metres; a missing value counts as 1,000 m |
+| 16 | mintemporaluncertainty | Smallest temporal uncertainty of the event date in the group, in seconds (`GBIF_TemporalUncertainty`) |
+| 17 | distinctobservers | Number of distinct `recordedBy` values in the group |
+
+Older 14-column cubes still convert; scripts 04 and 05 report the three measures as absent.
 
 ### Downloads
 
@@ -85,28 +113,30 @@ if (is.null(ds)) {
   cat("> *Run `scripts/01b_resolve_data_sources.R` to populate resolved DOIs,",
       "record counts and validation status.*\n")
 } else {
-  cat("| Resolution | Records | Download Key | DOI | Resolves |\n")
-  cat("|-----------|--------:|--------------|-----|:--------:|\n")
+  cat("| Resolution | Created | Records | Download Key | DOI | Resolves |\n")
+  cat("|-----------|---------|--------:|--------------|-----|:--------:|\n")
   for (nm in names(ds$cubes)) {
     cb  <- ds$cubes[[nm]]
     res <- sub("grid", "", nm); res <- sub("km", " km", res)
+    created <- if (isTRUE(cb$resolves) && !is.null(cb$created) && !is.na(cb$created)) format(as.Date(cb$created)) else "—"
     recs <- if (isTRUE(cb$resolves) && !is.na(cb$records)) format(cb$records, big.mark = ",") else "—"
     doi  <- if (isTRUE(cb$resolves)) sprintf("[%s](%s)", sub("https://doi.org/", "", cb$doi), cb$doi) else "—"
     ok   <- if (isTRUE(cb$resolves)) "✅" else "❌"
-    cat(sprintf("| %s | %s | `%s` | %s | %s |\n", res, recs, cb$download_key, doi, ok))
+    cat(sprintf("| %s | %s | %s | `%s` | %s | %s |\n", res, created, recs, cb$download_key, doi, ok))
   }
   cat(sprintf("\n*Resolved from download keys via the GBIF API on %s.*\n",
               format(as.Date(ds$resolved_at))))
 }
 ```
 
-
 ### Files
 
 ```
 data/SE/raw/cubes/
-├── cube_10km.csv          # 49M rows, ~2.5 GB
-└── cube_50km.csv          # 26M rows, ~1.3 GB
+├── <download key>.zip     # as delivered by GBIF (one per resolution)
+├── cube_10km.csv          # extracted 10 km cube
+└── cube_50km.csv          # extracted 50 km cube
+data/SE/proc/cubes/        # Parquet versions (script 04)
 ```
 
 ---
@@ -257,12 +287,12 @@ Downloaded automatically via the `geodata` R package.
 4. Re-run pipeline from script 03 (DOIs in this document resolve automatically via `01b`)
 
 **New occurrence cubes:**
-1. Submit SQL query at https://www.gbif.org/occurrence/download/sql
-2. Unzip downloaded file, rename to `cube_10km.csv` / `cube_50km.csv`
-3. Place in `data/SE/raw/cubes/`
-4. Delete old parquets in `data/SE/proc/cubes/`
-5. Update the two `download_key` values in `configs/config_SE.yml` (the DOIs in this document resolve automatically from those keys via `01b`)
-6. Re-run pipeline from script 04
+1. Move the files in `data/SE/raw/cubes/` aside (01a downloads only when fewer than two cube files are there)
+2. Run `targets::tar_invalidate(raw_data)`, then `targets::tar_make()`. 01a submits and imports both cubes,
+   writes their keys to `provenance/cube_downloads_SE.yml`, and 01b records DOIs and dates in
+   `provenance/upstream_versions_SE.yml`; script 04 rebuilds the parquets because the CSVs are newer
+3. Compare the new cube with the previous one before it replaces it (ROADMAP: "Data refresh after the launch")
+4. Commit the two provenance files with the new app bundle
 
 **Taxonomy update:**
 1. Delete files in `data/SE/raw/taxonomy/`
@@ -271,5 +301,5 @@ Downloaded automatically via the `geodata` R package.
 
 ---
 
-**Last updated:** 2026-06-21
+**Last updated:** 2026-10-07
 **Maintainer:** Lena Thöle

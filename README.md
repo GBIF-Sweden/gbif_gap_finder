@@ -296,13 +296,14 @@ Each species receives three key flags:
 - `is_invasive` — whether the species appears on the national invasive species registry
 - `is_sensitive` — whether the species is on the restricted access list (coordinates generalized in GBIF)
 
-Script **09c** uses these flags to produce five scope-filtered variants of every cube-based summary (cell, time, order, family, published, recency, spatial gaps, cell-last-year):
+Script **09c** uses these flags to produce four scope-filtered variants of every cube-based summary (cell, time, cell × time, order × cell, order × time, family × time, recency, record-type recent period, spatial gaps, cell-last-year), per grid:
 
-- `_all` — all GBIF species (overview)
-- `_dyntaxa` — species matched to the national backbone (for gap analysis)
-- `_threatened` — Red List species (CR/EN/VU/NT)
+- `_all` — all GBIF species
+- `_threatened` — Red List species in `threatened_categories` (config; CR/EN/VU/NT for Sweden)
 - `_invasive` — invasive species registry
 - `_sensitive` — restricted access list
+
+There is no backbone scope. The occurrence-based tabs (Spatial, Temporal, Record Types, Publisher) use all GBIF species; the Taxonomic and Concern tabs measure against the backbone through the 09a/09b match, not through a scope-filtered summary. `in_dyntaxa` is still computed but produces no scope files.
 
 The Gap Finder app reads these per-scope files directly, so scope switching in the UI is a lookup, not a computation. The recent-period cutoff is also derived once by 09c (from the data's max yearmonth) and saved as a pipeline constant.
 
@@ -392,8 +393,9 @@ docker run --rm -p 3838:3838 ghcr.io/gbif-sweden/gap-finder:latest
 published image onto the NRM server. A green build therefore does NOT mean the change
 is live — confirm the deploy separately, and say which tag should be pulled.
 
-> The server-side pull command / service definition will be added here by the server
-> maintainer.
+> **To be added once the server maintainer sends it:** the run command or service
+> definition used on the NRM server (image tag pulled, port, environment variables, number
+> of instances). Until then, ask GBIF Sweden how the public instance is run.
 
 ## Requirements
 
