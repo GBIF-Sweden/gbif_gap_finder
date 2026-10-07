@@ -921,6 +921,15 @@ ui <- fluidPage(
               tags$a(href = REPO_URL, target = "_blank", "github.com/GBIF-Sweden/gbif_gap_finder"),
               ". Please also cite the underlying datasets by their DOIs — see the ",
               tags$strong("Data & sources"), " tab."),
+            # The summary report is rendered from the same bundle into www/
+            # (analysis/gap_finder_report.Rmd); the link shows only when it is there.
+            if (file.exists(file.path("www", "gap_finder_report.html")))
+              div(class = "info-note", style = "margin-top:0.5rem;",
+                icon("file-alt"), " ",
+                tags$strong("Summary report: "),
+                "the main figures of every tab on one page, to print or share — ",
+                tags$a(href = "gap_finder_report.html", target = "_blank",
+                  "open the summary report (HTML)"), "."),
             div(class = "info-note", style = "margin-top:0.5rem; color:#6b6b6b;",
               "App version ", tags$strong(GAP_FINDER_VERSION_LABEL),
               " · Data as of ",

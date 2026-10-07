@@ -1,0 +1,693 @@
+---
+title: "GBIF Gap Finder — summary report"
+lang: en
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    theme: flatly
+    self_contained: true
+    fig_caption: false
+---
+
+<!--
+The summary report follows the tabs of the app: Overview, Priorities, Spatial,
+Temporal, Taxonomic, Species of concern, Publishers, Record types, Data & sources.
+Each section shows the tab's main figure(s) at the app's default settings and
+computes every number the way app.R does, from the same bundle.
+
+Render (from the repo root):
+  rmarkdown::render("analysis/gap_finder_report.Rmd",
+                    output_dir = "shiny_app/gap_finder/www")
+or tar_invalidate(report); tar_make(names = report) — the target has no
+upstream targets.
+The app links to www/gap_finder_report.html.
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.width = 9, fig.height = 5.5, dpi = 110, out.width = "100%"
+)
+
+library(here)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(sf)
+library(knitr)
+library(kableExtra)
+
+if (!exists("%||%")) `%||%` <- function(x, y) if (is.null(x)) y else x  # base R >= 4.4 has it
+
+source(here("R", "report_helpers.R"))
+app_data <- readRDS(gap_finder_bundle_path())
+safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
+
+metadata            <- safe_get("metadata")
+grid_10km           <- safe_get("grid_10km")
+admin_level1        <- safe_get("admin_level1")
+spatial_gaps        <- safe_get("spatial_gaps_10km")
+cell_recency        <- safe_get("cell_recency_10km")
+time_summary        <- safe_get("time_summary_10km")
+comparison_grids    <- safe_get("comparison_grids")
+dashboard           <- safe_get("dashboard")
+match_summary       <- safe_get("taxonomic_match_summary")
+tax_by_establishment <- safe_get("tax_by_establishment")
+tax_by_family       <- safe_get("tax_by_family")
+troudet_bias        <- safe_get("troudet_bias")
+troudet_bias_order  <- safe_get("troudet_bias_order")
+priority_stale      <- safe_get("priority_stale_cells")
+overview_ly         <- safe_get("overview_last_year")
+all_basis_recent    <- safe_get("all_basis_recent")
+publisher_summary   <- safe_get("publisher_summary")
+publisher_cell_dep  <- safe_get("publisher_cell_dependency")
+last_year_label     <- safe_get("recent_label") %||% "last 12 months"
+
+country_name <- metadata$country_name %||% "the configured country"
+APP_URL      <- "https://gbif.se/gap-finder/"
+REPO_URL     <- "https://github.com/GBIF-Sweden/gbif_gap_finder"
+
+# Red List codes counted as threatened: one definition, carried in the bundle
+# metadata (as in app.R). DD is shown next to them, never counted with them.
+THREATENED_CODES <- toupper(as.character(metadata$threatened_codes %||% c("CR", "EN", "VU", "NT")))
+CONCERN_CODES    <- unique(c(THREATENED_CODES, "DD"))
+NATIVE_TERMS     <- c("native", "nativeReintroduced")
+
+# ---- Palette rule, as in app.R -------------------------------------------------
+#   categorical -> Paul Tol (`pal`); sequential -> viridis (end = 0.9), pale = few /
+#   old, dark = many / recent; diverging -> blue = covered / over, red = gap / under;
+#   no data -> grey.
+pal <- list(
+  sage  = "#2A7F62", sage2 = "#44BB99",
+  slate = "#4477AA", slate2 = "#77AADD",
+  sand  = "#CCBB44", sand2  = "#EEDD88",
+  coral = "#EE6677", coral2 = "#FFAABB",
+  plum  = "#AA3377", muted = "#6b6b6b"
+)
+PAL_NODATA <- "#dddddd"
+pal_seq <- function(n, recent_first = FALSE) {
+  cols <- substr(viridisLite::viridis(n, begin = 0, end = 0.9, direction = -1), 1, 7)
+  if (recent_first) rev(cols) else cols
+}
+
+theme_set(
+  theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(face = "bold", size = 13),
+          plot.subtitle = element_text(colour = "#555555", size = 10.5),
+          plot.caption = element_text(colour = "#555555", size = 9, hjust = 0),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom")
+)
+
+# Base map: 10 km grid with county outlines, in the grid's own projection.
+admin_outline <- if (!is.null(admin_level1) && !is.null(grid_10km)) {
+  st_transform(admin_level1, st_crs(grid_10km))
+} else NULL
+map_theme <- theme_void(base_size = 11) +
+  theme(plot.title = element_text(face = "bold", size = 12),
+        plot.subtitle = element_text(colour = "#555555", size = 10),
+        legend.position = "right")
+add_outline <- function(p) {
+  if (is.null(admin_outline)) return(p)
+  p + geom_sf(data = admin_outline, fill = NA, colour = "#666666", linewidth = 0.25)
+}
+
+tbl <- function(df, align = NULL, ...) {
+  kable(df, align = align, format.args = list(big.mark = ","), ...) |>
+    kable_styling(bootstrap_options = c("condensed", "hover"), full_width = FALSE,
+                  position = "left")
+}
+pct1 <- function(x) paste0(format(round(x, 1), nsmall = 1), "%")
+
+# ---- Single sources of truth (computed as app.R's truth_* reactives) ----------
+sg_all <- spatial_gaps |> filter(basisofrecord == "all")
+truth_spatial <- list(
+  total_cells  = nrow(sg_all),
+  cells_data   = sum(sg_all$has_data, na.rm = TRUE),
+  cells_zero   = nrow(sg_all) - sum(sg_all$has_data, na.rm = TRUE),
+  pct_coverage = round(100 * mean(sg_all$has_data, na.rm = TRUE), 1),
+  total_occ    = sum(as.numeric(sg_all$occurrences), na.rm = TRUE)
+)
+
+ms <- as_tibble(match_summary)
+threat_col <- intersect(c("threatStatus", "threatStatus_redlist", "threatStatus_backbone"), names(ms))[1]
+ms <- ms |> mutate(threat = if (!is.na(threat_col)) .data[[threat_col]] else NA_character_)
+
+truth_taxonomic <- list(
+  n_reference  = nrow(ms),
+  n_in_gbif    = sum(ms$matched_any, na.rm = TRUE),
+  n_missing    = nrow(ms) - sum(ms$matched_any, na.rm = TRUE),
+  pct_coverage = round(100 * sum(ms$matched_any, na.rm = TRUE) / nrow(ms), 1)
+)
+
+yrs <- time_summary$year[!is.na(time_summary$year)]
+truth_years <- list(min = min(yrs), max = max(yrs), span = max(yrs) - min(yrs) + 1)
+data_max_year      <- as.integer(max(yrs))
+last_complete_year <- max(data_max_year - 1L, 1971L)
+
+is_thr <- ms$threat %in% THREATENED_CODES
+inv    <- if ("is_invasive"  %in% names(ms)) ms$is_invasive  %in% TRUE else rep(FALSE, nrow(ms))
+sen    <- if ("is_sensitive" %in% names(ms)) ms$is_sensitive %in% TRUE else rep(FALSE, nrow(ms))
+concern <- list(
+  thr_total = sum(is_thr), thr_gbif = sum(is_thr & ms$matched_any, na.rm = TRUE),
+  inv_total = sum(inv),    inv_gbif = sum(inv & ms$matched_any, na.rm = TRUE),
+  sen_total = sum(sen),    sen_gbif = sum(sen & ms$matched_any, na.rm = TRUE),
+  unmon_cr  = sum(ms$threat == "CR" & !ms$matched_any, na.rm = TRUE),
+  unmon_en  = sum(ms$threat == "EN" & !ms$matched_any, na.rm = TRUE),
+  unmon_inv = sum(inv & !ms$matched_any, na.rm = TRUE)
+)
+
+br <- all_basis_recent |> filter(basisofrecord != "all")
+basis_total <- sum(as.numeric(br$occ_total), na.rm = TRUE)
+basis_pct <- function(b) round(100 * sum(as.numeric(br$occ_total[br$basisofrecord == b])) / basis_total, 1)
+
+# Zero-coverage cells: derived from spatial_gaps, as the app's Priorities tab does.
+priority_zero <- sg_all |> filter(!has_data) |> select(eeacellcode)
+
+# Publisher categories: the same rule as classify_publisher() in app.R; change
+# both together.
+classify_publisher <- function(name) {
+  name_lc <- tolower(name)
+  case_when(
+    grepl("artdatabanken|artportalen|inaturalist|naturalist|ebird|bird\\.se|observation\\.org|svalan|fågel|naturgucker|naturglucker", name_lc) ~ "Citizen science",
+    grepl("\\bab\\b|aktiebolag|consult|calluna|ecocom|ecogain|naturcentrum|medins|pelagia|enetjärn|greensway|\\bwsp\\b|sweco|niras|\\bafry\\b|\\bltd\\b|\\bllc\\b|\\binc\\b|gmbh|corporation", name_lc) ~ "Private sector",
+    TRUE ~ "Research data"
+  )
+}
+pub_cat_colors <- c("Citizen science" = "#2A7F62", "Private sector" = "#CCBB44",
+                    "Research data" = "#4477AA")
+
+# GBIF-style groups for the Troudet landing view: the same mapping as
+# gbif_style_groups in app.R; change both together.
+gbif_style_groups <- list(
+  "Birds"               = list("class",   "Aves"),
+  "Mammals"             = list("class",   "Mammalia"),
+  "Reptiles"            = list("class",   c("Reptilia", "Squamata", "Testudines")),
+  "Amphibians"          = list("class",   "Amphibia"),
+  "Fish"                = list("class",   c("Actinopterygii", "Chondrichthyes", "Cephalaspidomorphi", "Myxini", "Sarcopterygii")),
+  "Insects"             = list("class",   "Insecta"),
+  "Arachnids"           = list("class",   "Arachnida"),
+  "Molluscs"            = list("phylum",  "Mollusca"),
+  "Crustaceans"         = list("class",   c("Malacostraca", "Maxillopoda", "Branchiopoda", "Ostracoda", "Hexanauplia")),
+  "Other invertebrates" = list("phylum",  c("Annelida", "Platyhelminthes", "Nematoda", "Cnidaria", "Echinodermata", "Porifera", "Bryozoa", "Rotifera", "Tardigrada")),
+  "Vascular plants"     = list("phylum",  "Tracheophyta"),
+  "Mosses & liverworts" = list("phylum",  c("Bryophyta", "Marchantiophyta", "Anthocerotophyta")),
+  "Algae"               = list("phylum",  c("Chlorophyta", "Rhodophyta", "Ochrophyta", "Charophyta", "Bacillariophyta", "Haptophyta", "Cryptophyta")),
+  "Fungi"               = list("kingdom", "Fungi"),
+  "Bacteria & Archaea"  = list("kingdom", c("Bacteria", "Archaea")),
+  "Protists"            = list("kingdom", c("Protozoa", "Chromista"))
+)
+aggregate_to_gbif_groups <- function(df) {
+  df$gbif_group <- NA_character_
+  for (g in names(gbif_style_groups)) {
+    col <- gbif_style_groups[[g]][[1]]; vals <- gbif_style_groups[[g]][[2]]
+    hit <- is.na(df$gbif_group) & df[[col]] %in% vals
+    df$gbif_group[hit] <- g
+  }
+  df$gbif_group[is.na(df$gbif_group)] <- "Other"
+  df |>
+    group_by(label = gbif_group) |>
+    summarise(across(c(n_known_species, n_in_gbif, total_occ), ~ sum(.x, na.rm = TRUE)),
+              .groups = "drop") |>
+    mutate(ideal_occ = n_known_species / sum(n_known_species) * sum(total_occ),
+           bias = total_occ - ideal_occ)
+}
+```
+
+<div class="report-stamp">`r report_stamp(metadata$snapshot_date)`</div>
+
+This report is a printable snapshot of the **GBIF Gap Finder** for **`r country_name`**
+(<`r APP_URL`>). It follows the tabs of the app and shows each tab's main figure at the app's
+default settings: all record types, land and sea, all taxa. The app adds filters (taxon,
+record type, years, publisher type, region) and interactive maps; use it to explore any
+section further.
+
+Occurrence figures (Spatial, Temporal, Publishers, Record types) count **all GBIF records**
+for `r country_name`. Taxonomic and Species of concern figures are measured against the
+national backbone (`r metadata$taxonomy_name %||% "the national checklist"`). Records are
+counted by the date the organism was observed, not the date the data were published.
+
+# Overview
+
+```{r overview-key}
+tibble(
+  Dimension = c("Spatial", "Temporal", "Taxonomic", "Threatened species",
+                "Publishers", "Record types"),
+  Headline  = c(
+    paste0(truth_spatial$pct_coverage, "% of 10 km cells have data"),
+    paste0(dashboard$pct_stale_5y_10km[1], "% of cells stale (> 5 years)"),
+    paste0(truth_taxonomic$pct_coverage, "% of backbone species in GBIF"),
+    paste0(comma(concern$thr_total - concern$thr_gbif), " missing from GBIF"),
+    paste0(comma(nrow(publisher_summary)), " publishers"),
+    paste0(basis_pct("HUMAN_OBSERVATION"), "% human observations")),
+  Detail = c(
+    paste0(comma(truth_spatial$cells_data), " of ", comma(truth_spatial$total_cells),
+           " cells; ", comma(truth_spatial$cells_zero), " cells have no records. ",
+           comma(truth_spatial$total_occ), " occurrences in total."),
+    paste0("Data span ", truth_years$span, " years (", truth_years$min, "–", truth_years$max,
+           "). Median cell staleness ", dashboard$median_staleness_months_10km[1], " months."),
+    paste0(comma(truth_taxonomic$n_in_gbif), " of ", comma(truth_taxonomic$n_reference),
+           " species found; ", comma(truth_taxonomic$n_missing), " have no records."),
+    paste0(comma(concern$thr_gbif), " of ", comma(concern$thr_total),
+           " threatened species (", paste(THREATENED_CODES, collapse = "/"), ") found (",
+           pct1(100 * concern$thr_gbif / concern$thr_total), ")."),
+    paste0(comma(sum(publisher_cell_dep$n_publishers == 1)),
+           " cells depend on a single publisher."),
+    paste0(basis_pct("PRESERVED_SPECIMEN"), "% preserved specimens; ",
+           sum(br$occ_total > 0, na.rm = TRUE), " record types in use."))
+) |> tbl(align = c("l", "l", "l"))
+```
+
+**Species of concern.** In GBIF: `r comma(concern$thr_gbif)` of `r comma(concern$thr_total)`
+threatened, `r comma(concern$inv_gbif)` of `r comma(concern$inv_total)` invasive and
+`r comma(concern$sen_gbif)` of `r comma(concern$sen_total)` sensitive species. With no GBIF
+records at all: `r comma(concern$unmon_cr)` Critically Endangered, `r comma(concern$unmon_en)`
+Endangered and `r comma(concern$unmon_inv)` invasive species.
+
+```{r overview-establishment, fig.height=3.8, fig.alt="Bar chart of the share of backbone species with GBIF records, by establishment means."}
+estab_levels <- c("Native", "Introduced", "Invasive", "Naturalised", "Uncertain", "Other", "Unclassified")
+estab_group <- function(x) {
+  x <- as.character(x)
+  factor(case_when(
+    is.na(x) | x == ""   ~ "Unclassified",
+    x %in% NATIVE_TERMS  ~ "Native",
+    x == "introduced"    ~ "Introduced",
+    x == "naturalised"   ~ "Naturalised",
+    x == "invasive"      ~ "Invasive",
+    x == "uncertain"     ~ "Uncertain",
+    TRUE                 ~ "Other"), levels = estab_levels)
+}
+estab_colors <- c(Native = pal$sage, Introduced = pal$sand, Invasive = pal$coral,
+                  Naturalised = pal$slate, Uncertain = pal$plum, Other = pal$muted,
+                  Unclassified = "#cccccc")
+if (!is.null(tax_by_establishment)) {
+  df <- tax_by_establishment |>
+    mutate(label = estab_group(establishmentMeans)) |>
+    group_by(label) |>
+    summarise(n_ref = sum(n_ref_total, na.rm = TRUE), n_gbif = sum(n_in_gbif, na.rm = TRUE),
+              .groups = "drop") |>
+    mutate(pct = 100 * n_gbif / n_ref)
+  ggplot(df, aes(label, pct, fill = label)) +
+    geom_col(width = 0.7, show.legend = FALSE) +
+    geom_text(aes(label = paste0(round(pct, 1), "%  (", comma(n_gbif), " / ", comma(n_ref), ")")),
+              vjust = -0.4, size = 3.3) +
+    scale_fill_manual(values = estab_colors) +
+    scale_y_continuous(limits = c(0, 110), breaks = seq(0, 100, 25)) +
+    labs(title = "Species by establishment means",
+         subtitle = "Share of backbone species with at least one GBIF record",
+         x = NULL, y = "GBIF coverage (%)")
+}
+```
+
+```{r overview-last-year}
+if (!is.null(overview_ly)) {
+  tibble(
+    Metric = c("Observations dated in the period", "Cells with observations",
+               "Newly covered cells (no earlier records)"),
+    Value  = c(overview_ly$occ_last_year, overview_ly$cells_active_last_year,
+               overview_ly$cells_newly_covered)
+  ) |> tbl(align = c("l", "r"), caption = paste0("The last 12 months: ", last_year_label))
+}
+```
+
+# Priorities
+
+Where new data would close the largest gaps. The numbers are the same as on the app's
+Priorities tab.
+
+```{r priorities-actions}
+n_cr_en <- sum(ms$threat %in% c("CR", "EN") & !ms$matched_any, na.rm = TRUE)
+native  <- ms |> filter(establishmentMeans %in% NATIVE_TERMS)
+n_single_pub <- sum(publisher_cell_dep$n_publishers == 1)
+
+tibble(
+  Action = c("Spatial: fill zero-coverage cells",
+             "Temporal: resurvey stale cells",
+             "Taxonomic: close species coverage gaps",
+             "Threatened: monitor CR and EN species",
+             "Native species: improve baseline coverage",
+             "Sensitive species: assess data availability",
+             "Infrastructure: diversify data sources"),
+  Why = c(
+    paste0(comma(nrow(priority_zero)), " grid cells have no GBIF records."),
+    paste0(comma(nrow(priority_stale)), " cells have no GBIF records newer than 5 years. ",
+           "Check for data outside GBIF first."),
+    paste0(comma(truth_taxonomic$n_missing), " backbone species have no GBIF records."),
+    paste0(comma(n_cr_en), " Critically Endangered or Endangered species lack any GBIF record."),
+    paste0("Native species coverage is ", pct1(100 * mean(native$matched_any, na.rm = TRUE)),
+           " (", comma(sum(!native$matched_any, na.rm = TRUE)), " missing); ",
+           comma(concern$unmon_inv), " of ", comma(concern$inv_total),
+           " invasive species also lack GBIF data."),
+    paste0(comma(concern$sen_total), " species have generalised coordinates (5–50 km); ",
+           comma(concern$sen_gbif), " have records."),
+    paste0(comma(n_single_pub), " of ", comma(nrow(grid_10km)),
+           " grid cells depend on a single publisher."))
+) |> tbl(align = c("l", "l")) |> column_spec(1, bold = TRUE)
+```
+
+```{r priorities-map, fig.height=7.5, fig.alt="Map of the 10 km grid showing cells with no GBIF records and cells whose newest record is more than five years old."}
+stale_sf <- grid_10km |>
+  inner_join(priority_stale |> transmute(eeacellcode, years = staleness_months / 12),
+             by = "eeacellcode") |>
+  mutate(cls = cut(years, c(5, 10, Inf), labels = c("Stale: 5–10 years", "Stale: > 10 years"),
+                   include.lowest = TRUE))
+zero_sf <- grid_10km |> filter(eeacellcode %in% priority_zero$eeacellcode) |>
+  mutate(cls = "No GBIF records")
+prio_sf <- bind_rows(zero_sf, stale_sf |> select(eeacellcode, cls)) |>
+  mutate(cls = factor(cls, c("No GBIF records", "Stale: 5–10 years", "Stale: > 10 years")))
+
+p <- ggplot() +
+  geom_sf(data = grid_10km, fill = "#f2f2f2", colour = NA) +
+  geom_sf(data = prio_sf, aes(fill = cls), colour = NA) +
+  scale_fill_manual(values = c("No GBIF records" = pal$coral,
+                               "Stale: 5–10 years" = pal_seq(5, recent_first = TRUE)[4],
+                               "Stale: > 10 years" = pal_seq(5, recent_first = TRUE)[5]),
+                    name = NULL, drop = FALSE) +
+  labs(title = "Priority cells",
+       subtitle = paste0(comma(nrow(zero_sf)), " cells with no records · ",
+                         comma(nrow(stale_sf)), " stale cells (newest record > 5 years old)")) +
+  map_theme
+add_outline(p)
+```
+
+```{r priorities-orders, fig.height=5, fig.alt="Bar chart of the fifteen most under-sampled orders and how many of their species have no GBIF records."}
+df <- troudet_bias_order |>
+  filter(bias < 0) |> arrange(bias) |> slice_head(n = 15) |>
+  mutate(gap = n_known_species - n_in_gbif)
+ggplot(df, aes(gap, reorder(order, gap))) +
+  geom_col(fill = pal$coral, width = 0.7) +
+  geom_text(aes(label = comma(gap)), hjust = -0.2, size = 3.3) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.12))) +
+  labs(title = "Most under-sampled orders",
+       subtitle = "The 15 orders furthest below proportional sampling; bar = species missing from GBIF",
+       x = "Species missing from GBIF", y = NULL)
+```
+
+*In the app:* zoom into the zero-coverage and stale-cell maps, download the action plan and the
+cell lists, and see the under-sampled families.
+
+# Spatial
+
+```{r spatial-map, fig.height=8, fig.alt="Map of the number of GBIF occurrences per 10 km grid cell, in five classes from 1–100 to more than 100,000."}
+occ_levels <- c("1–100", "101–1,000", "1,001–10,000", "10,001–100,000", "> 100,000", "No data")
+map_sf <- grid_10km |>
+  left_join(sg_all |> select(eeacellcode, occurrences), by = "eeacellcode") |>
+  mutate(occ_cat = factor(case_when(
+    is.na(occurrences) | occurrences == 0 ~ "No data",
+    occurrences <= 100    ~ "1–100",
+    occurrences <= 1000   ~ "101–1,000",
+    occurrences <= 10000  ~ "1,001–10,000",
+    occurrences <= 100000 ~ "10,001–100,000",
+    TRUE                  ~ "> 100,000"), levels = occ_levels))
+p <- ggplot(map_sf) +
+  geom_sf(aes(fill = occ_cat), colour = NA) +
+  scale_fill_manual(values = setNames(c(pal_seq(5), PAL_NODATA), occ_levels),
+                    name = "Occurrences", drop = FALSE) +
+  labs(title = "Occurrences per 10 km cell",
+       subtitle = paste0(truth_spatial$pct_coverage, "% of cells have data · all record types")) +
+  map_theme
+add_outline(p)
+```
+
+```{r spatial-grids}
+if (!is.null(comparison_grids)) {
+  comparison_grids |>
+    transmute(Grid = sub("^grid", "", grid),
+              Cells = n_cells_total, `With data` = n_cells_with_data,
+              `No data` = n_cells_zero, `Coverage` = pct1(pct_coverage),
+              `Median occurrences per cell` = round(median_per_cell)) |>
+    tbl(align = c("l", "r", "r", "r", "r", "r"),
+        caption = "Grid comparison: coverage depends on the cell size")
+}
+```
+
+*In the app:* switch the map to data recency, species richness or the last 12 months; filter
+by taxon; show county and municipality borders; choose land or sea only.
+
+# Temporal
+
+```{r temporal-trend, fig.height=4.2, fig.alt="Area chart of GBIF occurrences per year from 1970, with the latest, partial year shaded."}
+yearly <- time_summary |>
+  filter(basisofrecord == "all", year >= 1970, year <= data_max_year) |>
+  group_by(year) |>
+  summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+ggplot(yearly, aes(year, occ)) +
+  annotate("rect", xmin = last_complete_year + 0.5, xmax = data_max_year + 0.5,
+           ymin = -Inf, ymax = Inf, fill = "#9aa0a6", alpha = 0.25) +
+  annotate("text", x = data_max_year, y = Inf, label = paste(data_max_year, "partial"),
+           hjust = 1, vjust = 1.5, size = 3, colour = "#5f6368") +
+  geom_area(fill = pal$sage, alpha = 0.25) +
+  geom_line(colour = pal$sage, linewidth = 0.8) +
+  scale_y_continuous(labels = label_comma()) +
+  labs(title = "Historical trend",
+       subtitle = paste0("Occurrences per year, 1970–", data_max_year, ", by observation date"),
+       x = NULL, y = "Occurrences")
+```
+
+```{r temporal-heatmap, fig.height=6.5, fig.alt="Heatmap of occurrences by year and month from 1970, on a logarithmic colour scale."}
+hm <- time_summary |>
+  filter(basisofrecord == "all", year >= 1970, year <= last_complete_year, !is.na(month)) |>
+  group_by(year, month) |>
+  summarise(occ = sum(as.numeric(occurrences), na.rm = TRUE), .groups = "drop")
+ggplot(hm, aes(factor(month, 1:12, month.abb), year, fill = occ)) +
+  geom_tile() +
+  scale_fill_gradientn(colours = pal_seq(5), trans = "log10", labels = label_comma(),
+                       name = "Occurrences") +
+  scale_y_continuous(breaks = seq(1970, 2030, 10), expand = c(0, 0)) +
+  labs(title = "Year × month",
+       subtitle = paste0("1970–", last_complete_year, " · log colour scale · white = no records"),
+       x = NULL, y = NULL) +
+  theme(panel.grid = element_blank(), legend.position = "right",
+        legend.key.height = unit(1.2, "cm"))
+```
+
+*In the app:* change the year range, filter by taxon or record type, and see the seasonal
+pattern.
+
+# Taxonomic
+
+```{r taxonomic-troudet, fig.height=5.5, fig.alt="Diverging bar chart of how many more or fewer occurrences each taxonomic group has than its share of known species predicts."}
+df <- aggregate_to_gbif_groups(troudet_bias) |>
+  mutate(dir = ifelse(bias >= 0, "Over-represented", "Under-represented"))
+ggplot(df, aes(bias, reorder(label, bias), fill = dir)) +
+  geom_col(width = 0.7) +
+  geom_vline(xintercept = 0, colour = "#666666", linewidth = 0.4) +
+  scale_fill_manual(values = c("Over-represented" = pal$sage,
+                               "Under-represented" = pal$coral), name = NULL) +
+  scale_x_continuous(labels = label_number(scale_cut = cut_short_scale()),
+                     expand = expansion(mult = 0.08)) +
+  labs(title = "Taxonomic bias in occurrence data",
+       subtitle = "Occurrences above or below a share proportional to the number of known species (Troudet et al. 2017)",
+       x = "Deviation from proportional sampling (occurrences)", y = NULL)
+```
+
+```{r taxonomic-families}
+tax_by_family |>
+  filter(n_missing > 0) |>
+  arrange(desc(n_missing)) |>
+  slice_head(n = 10) |>
+  transmute(Family = family, Order = order, Class = class,
+            `Backbone species` = n_taxa, `In GBIF` = n_in_gbif, Missing = n_missing,
+            Coverage = pct1(pct_coverage)) |>
+  tbl(align = c("l", "l", "l", "r", "r", "r", "r"),
+      caption = "Families with the most species missing from GBIF")
+```
+
+*In the app:* drill down from kingdom to family, compare coverage by order and family, and
+compare recent with historical sampling.
+
+# Species of concern
+
+```{r concern-threat, fig.height=4.5, fig.alt="Stacked bar chart of the number of Red List species per category, split by establishment means."}
+cd <- ms |>
+  filter(threat %in% CONCERN_CODES) |>
+  mutate(threat = factor(threat, CONCERN_CODES),
+         estab = case_when(
+           is.na(establishmentMeans) | establishmentMeans == "" ~ "Unclassified",
+           establishmentMeans %in% NATIVE_TERMS ~ "Native",
+           establishmentMeans %in% c("introduced", "naturalised") ~ "Introduced",
+           establishmentMeans == "invasive" ~ "Invasive",
+           establishmentMeans == "uncertain" ~ "Uncertain",
+           TRUE ~ "Other"))
+cov_lab <- cd |> group_by(threat) |>
+  summarise(n = n(), pct = 100 * mean(matched_any, na.rm = TRUE), .groups = "drop")
+ggplot(cd, aes(threat, fill = estab)) +
+  geom_bar(width = 0.7) +
+  geom_text(data = cov_lab, aes(threat, n, label = paste0(round(pct, 1), "% in GBIF")),
+            inherit.aes = FALSE, vjust = -0.4, size = 3.3) +
+  scale_fill_manual(values = c(Native = pal$slate, Introduced = pal$sand, Invasive = pal$coral,
+                               Uncertain = pal$plum, Other = pal$muted, Unclassified = "#cccccc"),
+                    name = NULL) +
+  scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.1))) +
+  labs(title = "Red List species and their coverage in GBIF",
+       subtitle = paste0("Threatened = ", paste(THREATENED_CODES, collapse = "/"),
+                         "; DD (Data Deficient) is shown but not counted as threatened"),
+       x = "Red List category", y = "Species")
+```
+
+```{r concern-summary}
+tibble(
+  Group = c(paste0("Threatened (", paste(THREATENED_CODES, collapse = "/"), ")"),
+            "Invasive", "Sensitive"),
+  `In backbone` = c(concern$thr_total, concern$inv_total, concern$sen_total),
+  `In GBIF`     = c(concern$thr_gbif,  concern$inv_gbif,  concern$sen_gbif),
+  `No records`  = c(concern$thr_total - concern$thr_gbif, concern$inv_total - concern$inv_gbif,
+                    concern$sen_total - concern$sen_gbif)
+) |> tbl(align = c("l", "r", "r", "r"))
+```
+
+```{r concern-missing}
+missing_thr <- ms |>
+  filter(threat %in% c("CR", "EN"), !matched_any) |>
+  mutate(threat = factor(threat, c("CR", "EN"))) |>
+  arrange(threat, class, order, scientificName)
+missing_thr |>
+  slice_head(n = 25) |>
+  transmute(Species = scientificName, Status = as.character(threat),
+            Class = class, Order = order, Family = family) |>
+  tbl(align = "l",
+      caption = paste0("Critically Endangered and Endangered species with no GBIF records (",
+                       if (nrow(missing_thr) > 25) paste0("first 25 of ", nrow(missing_thr))
+                       else nrow(missing_thr), ")")) |>
+  column_spec(1, italic = TRUE)
+```
+
+*In the app:* the full lists of missing threatened, invasive and sensitive species, their maps,
+and how each group is recorded.
+
+# Publishers
+
+```{r publishers-top, fig.height=6, fig.alt="Horizontal bar chart of the twenty publishers with the most occurrences, coloured by publisher type."}
+pubs <- publisher_summary |>
+  mutate(name = ifelse(!is.na(publisher_name), publisher_name, publishingorgkey),
+         category = classify_publisher(ifelse(!is.na(publisher_name), publisher_name, ""))) |>
+  arrange(desc(total_occurrences))
+top_share <- 100 * pubs$total_occurrences[1] / sum(pubs$total_occurrences)
+ggplot(pubs |> slice_head(n = 20),
+       aes(total_occurrences, reorder(ifelse(nchar(name) > 50, paste0(strtrim(name, 49), "…"), name), total_occurrences), fill = category)) +
+  geom_col(width = 0.75) +
+  scale_fill_manual(values = pub_cat_colors, name = NULL) +
+  scale_x_log10(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(title = "Top 20 publishers by occurrences",
+       subtitle = paste0(comma(nrow(pubs)), " publishers · the largest holds ",
+                         pct1(top_share), " of all records · log scale"),
+       x = "Occurrences (log scale)", y = NULL)
+```
+
+```{r publishers-map, fig.height=8, fig.alt="Map of the number of publishers with data in each 10 km grid cell; cells with a single publisher are highlighted."}
+dep_levels <- c("No data", "1 (fragile)", "2–3", "4–5", "6+")
+dep_sf <- grid_10km |>
+  left_join(publisher_cell_dep |> select(eeacellcode, n_publishers), by = "eeacellcode") |>
+  mutate(n_publishers = replace_na(n_publishers, 0L),
+         dep = factor(case_when(
+           n_publishers == 0 ~ "No data",
+           n_publishers == 1 ~ "1 (fragile)",
+           n_publishers <= 3 ~ "2–3",
+           n_publishers <= 5 ~ "4–5",
+           TRUE ~ "6+"), levels = dep_levels))
+p <- ggplot(dep_sf) +
+  geom_sf(aes(fill = dep), colour = NA) +
+  scale_fill_manual(values = setNames(c("#e8e8e8", "#D55E00", "#E69F00", "#56B4E9", "#0072B2"),
+                                      dep_levels),
+                    name = "Publishers per cell", drop = FALSE) +
+  labs(title = "Publisher dependency per cell",
+       subtitle = paste0(comma(n_single_pub), " cells rely on a single publisher")) +
+  map_theme
+add_outline(p)
+```
+
+*In the app:* filter by publisher type and taxon, switch to species coverage, and search the full
+publisher table.
+
+# Record types
+
+```{r basis-occ, fig.height=4.2, fig.alt="Horizontal bar chart of occurrences per basis of record, with each type's share of all records."}
+basis_colors <- c(HUMAN_OBSERVATION = "#2A7F62", PRESERVED_SPECIMEN = "#4477AA",
+                  MACHINE_OBSERVATION = "#CCBB44", OBSERVATION = "#AA3377",
+                  MATERIAL_SAMPLE = "#EE6677", OCCURRENCE = "#7daa90",
+                  LITERATURE = "#a89060", LIVING_SPECIMEN = "#8fa4b8",
+                  FOSSIL_SPECIMEN = "#b8967a")
+bdf <- br |>
+  filter(occ_total > 0) |>
+  mutate(pct = 100 * occ_total / sum(occ_total),
+         label = tools::toTitleCase(tolower(gsub("_", " ", basisofrecord))))
+ggplot(bdf, aes(occ_total, reorder(label, occ_total), fill = basisofrecord)) +
+  geom_col(width = 0.7, show.legend = FALSE) +
+  geom_text(aes(label = ifelse(pct < 0.1, "< 0.1%", pct1(pct))), hjust = -0.15, size = 3.3) +
+  scale_fill_manual(values = basis_colors, na.value = "#999999") +
+  scale_x_log10(labels = label_number(scale_cut = cut_short_scale()), expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Occurrences by basis of record",
+       subtitle = "Share of all records; log scale", x = "Occurrences (log scale)", y = NULL)
+```
+
+```{r basis-spatial, fig.height=4.2, fig.alt="Horizontal bar chart of the share of 10 km grid cells that have at least one record of each basis of record."}
+sdf <- spatial_gaps |>
+  filter(basisofrecord != "all") |>
+  group_by(basisofrecord) |>
+  summarise(cells = sum(occurrences > 0, na.rm = TRUE), .groups = "drop") |>
+  filter(cells > 0) |>
+  mutate(pct = 100 * cells / nrow(grid_10km),
+         label = tools::toTitleCase(tolower(gsub("_", " ", basisofrecord))))
+ggplot(sdf, aes(pct, reorder(label, pct), fill = basisofrecord)) +
+  geom_col(width = 0.7, show.legend = FALSE) +
+  geom_text(aes(label = pct1(pct)), hjust = -0.15, size = 3.3) +
+  scale_fill_manual(values = basis_colors, na.value = "#999999") +
+  scale_x_continuous(limits = c(0, 115), breaks = seq(0, 100, 25)) +
+  labs(title = "Spatial coverage by basis of record",
+       subtitle = "Share of 10 km grid cells with at least one record of that type",
+       x = "% of grid cells", y = NULL)
+```
+
+*In the app:* the trend of each record type over time, species per record type, and a map per
+record type.
+
+# Data & sources
+
+```{r sources-cubes, results="asis"}
+ds <- metadata$data_sources
+if (!is.null(ds$cubes)) {
+  cat("The analysis is built on these GBIF occurrence downloads. If you use these results, please",
+      "cite them — it is how the data publishers receive credit.\n\n")
+  for (cb in ds$cubes) {
+    cat("- **", cb$label %||% "GBIF cube", "** — ",
+        if (!is.null(cb$records)) paste0(format(cb$records, big.mark = ","), " records. ") else "",
+        if (!is.null(cb$citation)) cb$citation else cb$doi, "\n", sep = "")
+  }
+  if (!is.null(ds$n_contributing_datasets))
+    cat("\n", format(ds$n_contributing_datasets, big.mark = ","), " datasets from ",
+        format(ds$n_publishers, big.mark = ","), " publishers contributed records; the app's ",
+        "**Data & sources** tab lists them with their DOIs.\n\n", sep = "")
+}
+if (!is.null(ds$checklists)) {
+  cat("National reference lists:\n\n")
+  for (cl in ds$checklists) {
+    cat("- **", tools::toTitleCase(cl$label %||% cl$name %||% "Reference list"), "**: ",
+        cl$title %||% cl$name %||% "",
+        if (!is.null(cl$doi) && !is.na(cl$doi)) paste0(" — <", cl$doi, ">") else "",
+        "\n", sep = "")
+  }
+}
+```
+
+## How to cite
+
+Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. GBIF Gap Finder: a reproducible
+pipeline for biodiversity data gap analysis (`r { v <- gap_finder_version(); if (grepl("^[0-9]", v)) paste0("v", v) else v }`).
+GBIF Sweden, Swedish Museum of Natural History (NRM). <`r APP_URL`>. Source code:
+<`r REPO_URL`>.
+
+Contact: GBIF Sweden, [gbif@nrm.se](mailto:gbif@nrm.se).
+
+<style>
+body { font-size: 15px; }
+.report-stamp { color: #555; font-size: 14px; margin: -4px 0 18px; }
+h1 { color: #1d6048; margin-top: 36px; font-size: 26px; font-weight: 600; }
+h1.title { color: #2d2d2d; margin-top: 16px; font-size: 30px; }
+a { color: #2f567f; text-decoration: underline; }
+caption { color: #444; font-weight: 600; caption-side: top; }
+.table { margin-bottom: 1.5rem; }
+p em:only-child { color: #555; }
+</style>

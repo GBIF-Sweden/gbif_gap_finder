@@ -18,6 +18,12 @@ later release, after they have been compared with July dataset by dataset (see R
 - **Citation** — four authors with ORCIDs (`CITATION.cff`, README "How to cite", the
   Overview citation card, the user manual); the app is cited at gbif.se/gap-finder, the
   repository as source code.
+- **Summary report** — `analysis/gap_finder_report.Rmd` renders one page that follows the app's
+  tabs, with each tab's main figure at the default settings and the same numbers as the app.
+  It is served at `gap_finder_report.html` and linked from the Overview citation card. It
+  replaces the eight per-topic reports (`analysis/01_overview.Rmd` … `08_record_types.Rmd`),
+  which had drifted from the app; the `_targets.R` target is now `report`. The report header
+  takes the data date from the bundle, like the app.
 - **Self-hosted fonts** (`www/fonts/`, SIL Open Font License) replace Google Fonts, so the app
   loads nothing from third-party font servers. The Docker image copies all of `www/`.
 

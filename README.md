@@ -7,6 +7,9 @@ Systematic analysis of spatial, temporal, and taxonomic gaps in national biodive
 > See [ROADMAP.Rmd](ROADMAP.Rmd) for the full development plan.
 >
 > **Using the dashboard?** See the [User Manual](docs/user_manual.md) for how to read each tab and interpret the gaps.
+>
+> **Summary report:** the main figures of every tab on one page, to print or share —
+> <https://gbif.se/gap-finder/gap_finder_report.html> (see [Summary report](#summary-report)).
 
 ## Overview
 
@@ -36,7 +39,7 @@ gbif_gap_finder/
 ├── R/
 │   ├── globals.R               # Config, paths, constants, shared utilities
 │   ├── packages.R              # Package management (required / optional / app)
-│   ├── report_helpers.R        # Bundle path + header stamp for the reports
+│   ├── report_helpers.R        # Bundle path + header stamp for the summary report
 │   ├── eea_grid.R              # EEA grid cell codes from coordinates (time points)
 │   ├── historic_io.R           # Reading historical snapshot deliveries (time points)
 │   └── closure.R               # Gap-closure arithmetic (Gaps filled tab)
@@ -64,14 +67,7 @@ gbif_gap_finder/
 │   ├── 13_metrics_snapshot.R              # Refresh the figures in docs/metrics.md
 │   └── 14_gap_closure.R                   # Gap closure between time points
 ├── analysis/
-│   ├── 01_overview.Rmd                    # Dashboard overview report
-│   ├── 02_priorities.Rmd                  # Priority actions report
-│   ├── 03_spatial_gaps.Rmd                # Spatial coverage analysis
-│   ├── 04_temporal_gaps.Rmd               # Temporal trends analysis
-│   ├── 05_taxonomic_gaps.Rmd              # Taxonomic coverage analysis
-│   ├── 06_species_of_concern.Rmd          # Threatened/invasive/sensitive
-│   ├── 07_publishers.Rmd                  # Publisher dependency analysis
-│   └── 08_record_types.Rmd                # Basis of record analysis
+│   └── gap_finder_report.Rmd              # Summary report, one section per app tab
 ├── data/
 │   ├── shared/
 │   │   └── grids/               # EEA grids (Europe-wide, shared)
@@ -88,7 +84,8 @@ gbif_gap_finder/
 │   └── data_sources_NO.Rmd      # Norway data provenance documentation
 ├── provenance/                  # Cube download keys + upstream release versions (auto-written)
 ├── shiny_app/
-│   └── gap_finder/              # Gap Finder dashboard (app.R, Dockerfile, per-country data/)
+│   └── gap_finder/              # Gap Finder dashboard (app.R, Dockerfile, per-country data/,
+│                                #   www/ incl. the rendered summary report)
 ├── sql/
 │   └── gbif_occurrence_cube.sql # Canonical GBIF SQL cube spec (b3verse; the query IS the cube)
 ├── tools/                       # Version stamping + tests
@@ -347,6 +344,27 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 | Scope + Recent | 09c | Per-scope summaries + recent-period layer | ~20 min |
 | Integration | 10 | Overview tables | ~5 min |
 | App Prep | 11 | Shiny data bundle | ~10 min |
+| Report | `analysis/gap_finder_report.Rmd` | Summary report into the app's `www/` (manual, see below) | ~1 min |
+
+## Summary report
+
+`analysis/gap_finder_report.Rmd` renders one HTML page that follows the app's tabs — Overview,
+Priorities, Spatial, Temporal, Taxonomic, Species of concern, Publishers, Record types, Data &
+sources — with each tab's main figure at the app's default settings. It reads the same bundle
+as the app and computes every number the same way, so the two agree. The header shows the data
+date (from the bundle), the render date and the Gap Finder version.
+
+The page is written to `shiny_app/gap_finder/www/gap_finder_report.html` and committed, so the
+image ships it and the app links to it from the Overview citation card
+(<https://gbif.se/gap-finder/gap_finder_report.html>). Re-render it whenever the bundle
+changes, before tagging a release:
+
+```r
+Sys.setenv(GAP_FINDER_VERSION = "1.0.0")   # the release it ships with; omit for "dev"
+rmarkdown::render("analysis/gap_finder_report.Rmd",
+                  output_dir = "shiny_app/gap_finder/www")
+# or: tar_invalidate(report); tar_make(names = report)
+```
 
 ## Deployment
 

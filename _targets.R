@@ -560,32 +560,17 @@ list(
   ),
 
   # ==========================================================================
-  # Phase 7: Reports (manual trigger)
+  # Phase 7: Summary report (manual trigger)
   # ==========================================================================
+  # One report that follows the app's tabs. It reads the app bundle directly, so
+  # it has no upstream targets; it renders into the app's www/ folder, where the
+  # app links to it. cue "never" keeps a pipeline run from rewriting it; rebuild
+  # it on purpose after the bundle changes:
+  #   tar_invalidate(report); tar_make(names = report)
 
-  tar_render(report_overview,
-    path = here("analysis", "01_overview.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_priorities,
-    path = here("analysis", "02_priorities.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_spatial_gaps,
-    path = here("analysis", "03_spatial_gaps.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_temporal_gaps,
-    path = here("analysis", "04_temporal_gaps.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_taxonomic_gaps,
-    path = here("analysis", "05_taxonomic_gaps.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_species_of_concern,
-    path = here("analysis", "06_species_of_concern.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_publishers,
-    path = here("analysis", "07_publishers.Rmd"), output_dir = here("analysis"),
-    cue = tar_cue(mode = "never")),
-  tar_render(report_record_types,
-    path = here("analysis", "08_record_types.Rmd"), output_dir = here("analysis"),
+  tar_render(report,
+    path = here("analysis", "gap_finder_report.Rmd"),
+    output_dir = here("shiny_app", "gap_finder", "www"),
     cue = tar_cue(mode = "never")),
 
   # ==========================================================================
