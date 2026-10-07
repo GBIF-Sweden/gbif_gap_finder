@@ -6,24 +6,48 @@ Documentation of all external datasets used in the Sweden gap finder pipeline.
 > All processing outputs go to `data/SE/proc/`.
 
 ```{r ds-setup, include=FALSE}
-# Citations are resolved + validated once by scripts/01b_resolve_data_sources.R
-# and cached here. This document, the app, and the reports all read this same
-# object, so DOIs never drift. If it's missing, run 01b first.
+# Two sources, so nothing in this document is typed by hand:
+# - provenance/upstream_versions_SE.yml (version-controlled, written by 01b):
+#   dataset keys, DOIs, release dates, cube download keys. It always matches
+#   the commit being rendered, so the release figures follow git.
+# - data/SE/proc/data_sources_meta.rds (local cache, written by 01b): adds the
+#   cube record counts. It is only used for a cube whose download key matches
+#   the provenance file, so a cache left by another run cannot leak in.
+# Taxon counts are counted from the raw checklist files the pipeline read.
+up_path <- here::here("provenance", "upstream_versions_SE.yml")
+up <- if (file.exists(up_path)) yaml::read_yaml(up_path, fileEncoding = "UTF-8") else NULL
 ds_meta_path <- here::here("data", "SE", "proc", "data_sources_meta.rds")
 ds <- if (file.exists(ds_meta_path)) readRDS(ds_meta_path) else NULL
+raw_dir <- here::here("data", "SE", "raw")
+dash <- "—"
 
-# Inline helpers so checklist citations are read from the resolved metadata
-# (config download/dataset key -> GBIF API) instead of being hand-typed in prose.
+up_get <- function(src, field) {
+  v <- up[[src]][[field]]
+  if (is.null(v) || length(v) == 0 || is.na(v) || !nzchar(v)) dash else as.character(v)
+}
 ck_doi <- function(key) {
-  x <- if (!is.null(ds)) ds$checklists[[key]] else NULL
-  if (is.null(x) || is.null(x$doi) || is.na(x$doi)) return("\u2014")
-  sprintf("[%s](%s)", sub("https://doi.org/", "", x$doi), x$doi)
+  doi <- up_get(key, "doi")
+  if (doi == dash) return(dash)
+  sprintf("[%s](%s)", sub("https://doi.org/", "", doi), doi)
 }
 ck_dataset <- function(key) {
-  x <- if (!is.null(ds)) ds$checklists[[key]] else NULL
-  if (is.null(x) || is.null(x$dataset_key) || is.na(x$dataset_key)) return("\u2014")
-  sprintf("[%s](https://www.gbif.org/dataset/%s)", x$dataset_key, x$dataset_key)
+  k <- up_get(key, "dataset_key")
+  if (k == dash) return(dash)
+  sprintf("[%s](https://www.gbif.org/dataset/%s)", k, k)
 }
+fmt_n <- function(n) {
+  if (is.null(n) || all(is.na(n))) return(dash)
+  formatC(n, format = "d", big.mark = ",")   # per value, no padding
+}
+
+# Rows of a raw checklist file, optionally filtered; NA when the file is absent.
+read_raw <- function(...) {
+  f <- file.path(raw_dir, ...)
+  if (!file.exists(f)) return(NULL)
+  data.table::fread(f, quote = if (grepl("\\.csv$", f)) "\"" else "",
+                    encoding = "UTF-8", showProgress = FALSE)
+}
+n_rows <- function(...) { x <- read_raw(...); if (is.null(x)) NA_integer_ else nrow(x) }
 ```
 
 ---
@@ -109,23 +133,32 @@ Older 14-column cubes still convert; scripts 04 and 05 report the three measures
 ### Downloads
 
 ```{r ds-cubes, echo=FALSE, results='asis'}
-if (is.null(ds)) {
-  cat("> *Run `scripts/01b_resolve_data_sources.R` to populate resolved DOIs,",
-      "record counts and validation status.*\n")
+if (is.null(up$cubes)) {
+  cat("> *`provenance/upstream_versions_SE.yml` has no cube entries:",
+      "run `scripts/01b_resolve_data_sources.R`.*\n")
 } else {
-  cat("| Resolution | Created | Records | Download Key | DOI | Resolves |\n")
-  cat("|-----------|---------|--------:|--------------|-----|:--------:|\n")
-  for (nm in names(ds$cubes)) {
-    cb  <- ds$cubes[[nm]]
-    res <- sub("grid", "", nm); res <- sub("km", " km", res)
-    created <- if (isTRUE(cb$resolves) && !is.null(cb$created) && !is.na(cb$created)) format(as.Date(cb$created)) else "—"
-    recs <- if (isTRUE(cb$resolves) && !is.na(cb$records)) format(cb$records, big.mark = ",") else "—"
-    doi  <- if (isTRUE(cb$resolves)) sprintf("[%s](%s)", sub("https://doi.org/", "", cb$doi), cb$doi) else "—"
-    ok   <- if (isTRUE(cb$resolves)) "✅" else "❌"
-    cat(sprintf("| %s | %s | %s | `%s` | %s | %s |\n", res, created, recs, cb$download_key, doi, ok))
+  cat("| Resolution | Created | Records | Download Key | DOI |\n")
+  cat("|-----------|---------|--------:|--------------|-----|\n")
+  stale <- character(0)
+  for (nm in names(up$cubes)) {
+    cb  <- up$cubes[[nm]]
+    res <- sub("km", " km", sub("grid", "", nm))
+    # Record counts only from a cache entry for the same download.
+    cached <- if (!is.null(ds)) ds$cubes[[nm]] else NULL
+    same   <- !is.null(cached) && identical(as.character(cached$download_key),
+                                            as.character(cb$download_key))
+    if (!is.null(cached) && !same) stale <- c(stale, nm)
+    recs <- if (same && isTRUE(cached$resolves)) fmt_n(cached$records) else dash
+    doi  <- if (!is.null(cb$doi)) sprintf("[%s](%s)", sub("https://doi.org/", "", cb$doi), cb$doi) else dash
+    cat(sprintf("| %s | %s | %s | `%s` | %s |\n", res, if (is.null(cb$created)) dash else cb$created, recs,
+                cb$download_key, doi))
   }
-  cat(sprintf("\n*Resolved from download keys via the GBIF API on %s.*\n",
-              format(as.Date(ds$resolved_at))))
+  cat("\n*From `provenance/upstream_versions_SE.yml`.*")
+  if (length(stale) > 0) {
+    cat(" *Record counts are missing because the local `data_sources_meta.rds` is",
+        "from a different download; run `scripts/01b_resolve_data_sources.R` to refresh it.*")
+  }
+  cat("\n")
 }
 ```
 
@@ -151,7 +184,7 @@ Both grids are Europe-wide and shared across all European countries. They live i
 **Version:** 2011
 **CRS:** ETRS89-LAEA Europe (EPSG:3035)
 **Coverage:** All of Europe
-**Sweden cells:** 7,693 (after clipping)
+**Sweden cells:** the country grid (land, EEZ, and outside cells that carry data) is described in the README, "Marine coverage (EEZ)"
 
 ```
 data/shared/grids/
@@ -177,8 +210,8 @@ data/shared/grids/
 **Purpose:** National taxonomy backbone for Swedish taxa.
 **DOI:** `r ck_doi("taxonomy")`
 **GBIF Dataset:** `r ck_dataset("taxonomy")`
-**Downloaded:** 2026-02-05
-**Taxa:** ~110,000
+**Release:** `r up_get("taxonomy", "published")` (downloaded automatically by 01a when GBIF reports a newer release)
+**Accepted taxa:** `r tx <- read_raw("taxonomy", "Taxon.csv"); fmt_n(if (is.null(tx)) NA else sum(tx$taxonomicStatus == "accepted"))`
 
 ```
 data/SE/raw/taxonomy/
@@ -190,26 +223,37 @@ data/SE/raw/taxonomy/
 └── eml.xml
 ```
 
-Key columns in SpeciesDistribution.csv:
+Key columns in SpeciesDistribution.csv (counted from the file on disk):
 
-| Field | Values | Count |
-|-------|--------|-------|
-| establishmentMeans | native (62,394), introduced (4,755), invasive (450), naturalised (176), uncertain (2,819), blank (39,416) |
-| occurrenceStatus | present (64,553), absent (9,892), doubtful (2,122), irregular (5,091), blank (28,352) |
+```{r ds-dyntaxa-distr, echo=FALSE, results='asis'}
+dd <- read_raw("taxonomy", "SpeciesDistribution.csv")
+if (is.null(dd)) {
+  cat("> *`data/SE/raw/taxonomy/SpeciesDistribution.csv` not found: run 01a.*\n")
+} else {
+  vals <- function(x) {
+    x[is.na(x) | !nzchar(x)] <- "blank"
+    tb <- sort(table(x), decreasing = TRUE)
+    paste(sprintf("%s (%s)", names(tb), fmt_n(as.integer(tb))), collapse = ", ")
+  }
+  cat("| Field | Values (count) |\n|-------|----------------|\n")
+  cat(sprintf("| establishmentMeans | %s |\n", vals(dd$establishmentMeans)))
+  cat(sprintf("| occurrenceStatus | %s |\n", vals(dd$occurrenceStatus)))
+}
+```
 
 ### 3.2 Swedish Red List (SLU Artdatabanken)
 
 **Purpose:** Threat status enrichment for the taxonomy backbone.
 **DOI:** `r ck_doi("redlist")`
 **GBIF Dataset:** `r ck_dataset("redlist")`
-**Version:** 1.9
-**Downloaded:** 2026-03-25
-**Taxa:** ~11,000
+**Release:** `r up_get("redlist", "published")`
+**Taxa:** `r fmt_n(n_rows("redlist", "taxon.txt"))`
 
 ```
 data/SE/raw/redlist/
 ├── taxon.txt
 ├── distribution.txt
+├── vernacularname.txt
 ├── meta.xml
 └── eml.xml
 ```
@@ -221,17 +265,19 @@ data/SE/raw/redlist/
 **Purpose:** Flag invasive alien species in the taxonomy backbone.
 **DOI:** `r ck_doi("invasives")`
 **GBIF Dataset:** `r ck_dataset("invasives")`
-**Taxa:** ~450 invasive species
+**Release:** `r up_get("invasives", "published")`
+**Taxa:** `r sp <- read_raw("invasives", "speciesprofile.txt"); fmt_n(if (is.null(sp)) NA else sum(tolower(sp$isInvasive) == "invasive"))` invasive of `r fmt_n(n_rows("invasives", "taxon.txt"))` alien taxa (`isInvasive` in speciesprofile.txt)
 
 ```
 data/SE/raw/invasives/
 ├── taxon.txt
 ├── distribution.txt
+├── speciesprofile.txt   # isInvasive flag per taxon
 ├── meta.xml
 └── eml.xml
 ```
 
-Joined to the taxonomy backbone in script 03 as `is_invasive` (TRUE/FALSE) by `scientificName`.
+Script 03 keeps only taxa with `isInvasive` = Invasive (GRIIS lists all alien taxa), reduces names to the binomial (GRIIS names carry authorship), and joins them to the backbone as `is_invasive` (TRUE/FALSE). Only species-rank, non-hybrid backbone taxa are flagged.
 
 ---
 
@@ -241,13 +287,13 @@ Joined to the taxonomy backbone in script 03 as `is_invasive` (TRUE/FALSE) by `s
 **DOI:** `r ck_doi("sensitive")`
 **GBIF Dataset:** `r ck_dataset("sensitive")`
 **Published by:** SLU Artdatabanken
-**Version:** 1.9 (March 2026)
-**Taxa:** 203 restricted access species
+**Release:** `r up_get("sensitive", "published")`
+**Taxa:** `r fmt_n(n_rows("sensitive", "taxon.txt"))` restricted access species
 **Last revised:** 2023
 
 ```
 data/SE/raw/sensitive/
-├── taxon.txt          # 203 species with sensitivity category in taxonRemarks
+├── taxon.txt          # one row per species; sensitivity category in taxonRemarks
 ├── meta.xml
 └── eml.xml
 ```
@@ -265,8 +311,8 @@ vascular plants, lichens and fungi.
 ## 6. Administrative Boundaries (GADM)
 
 **Purpose:** Region and municipality overlays for maps and regional filtering.
-**Source:** [GADM v4.1](https://gadm.org/)
-**Downloaded:** 2026-03-17
+**Source:** [GADM](https://gadm.org/)
+**Version:** `r up_get("gadm", "version")`, resolution `r up_get("gadm", "resolution")` (both set in config)
 
 ```
 data/SE/raw/admin/
