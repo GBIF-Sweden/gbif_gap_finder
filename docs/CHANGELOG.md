@@ -1,6 +1,6 @@
 # gbif_gap_finder — Changelog
 
-## 2026-10-07: v1.0.0 — Launch at gbif.se/gap-finder
+## 2026-10-08: v1.0.0 — Launch at gbif.se/gap-finder
 
 First official release. The app moves from <https://test.gbif.se/gap-finder/> to
 <https://gbif.se/gap-finder/>.
