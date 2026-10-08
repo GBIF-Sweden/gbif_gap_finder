@@ -88,6 +88,7 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 - **Version:** v0.8.0. Headline numbers reconcile across Overview / Taxonomic / Concern;
   `scripts/12_reconcile.R` checks this on every `tar_make()` (the `reconciliation` target)
   and on demand via `run_reconcile()`.
+- **Launch:** v1.0.0 at gbif.se/gap-finder is in preparation (Part 2, A).
 - **Gaps filled:** built and under review; hidden in the app until
   `GAP_FINDER_SHOW_GAPS_FILLED=true`.
 - **Norway:** scaffolded (`config_NO.yml`, feature flags); not yet re-run against the
@@ -97,7 +98,8 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 ## Design choices
 
 - **Audience:** the broadest one — policy makers, researchers, funders, agencies and
-  publishers, not only GBIF staff. Plain-language framing and EAA accessibility are part of
+  publishers, not only GBIF staff. Plain-language framing and accessibility (WCAG 2.1 AA,
+  which Swedish law requires of public-sector digital services, lag 2018:1937) are part of
   the tool, not extras.
 - **Partial year:** temporal charts default to the last *complete* year; the partial current
   year stays selectable, so a series does not end in a misleading drop.
@@ -124,6 +126,40 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 Ordered from next up down to exploratory ideas.
 
 ## A. Next up
+
+- [ ] 🚧 **Official launch (v1.0.0)** at gbif.se/gap-finder, before COP17 (19 October 2026).
+  - [x] **Address and citation:** README, `CITATION.cff` and the user manual point to
+    gbif.se/gap-finder; the citation lists all four authors with ORCID iDs and affiliation.
+  - [x] **Accessibility (WCAG 2.1 AA):** page language set; every filter has a label that
+    screen readers announce; darker link colour and text shades of the palette for contrast;
+    links in running text underlined; decorative icons hidden from screen readers; table
+    scroll areas reachable by keyboard. An automated check of every tab (axe-core) reports
+    no issues; the maps are not covered by it.
+  - [x] **Contact:** gbif@nrm.se and a link to the accessibility statement in the footer of
+    every tab and in the citation card.
+  - [x] **Fixes:** Temporal — class and order filters work without a kingdom, and the
+    record-type filter also applies to taxon-filtered charts. Taxonomic — the note points to
+    the Scope filter on Species of Concern. Citation card — the version is shown once.
+  - [x] **Fonts served by the app** (`www/fonts`): a page view makes no third-party request
+    apart from the map tiles.
+  - [x] **Docker:** system libraries from the Ubuntu archive of 2026-10-06.
+  - [x] **Name matching (09a1):** only successful GBIF replies are cached; failed lookups are
+    retried on the next run.
+  - [x] **Data:** the GBIF cubes of 29 July 2026, as in v0.8.0 (`docs/metrics.md`,
+    `provenance/`).
+  - [ ] **Server:** the app at gbif.se/gap-finder, test.gbif.se/gap-finder redirecting there,
+    capacity for launch traffic (about 1.5 GB RAM per R process).
+  - [ ] **Accessibility statement:** gbif.se/accessibility covers the Gap Finder; a manual
+    keyboard and screen-reader check.
+  - [ ] **Release:** CHANGELOG entry, tag v1.0.0, image deployed, click-through of the live
+    site.
+  - [ ] Repository and container image public; copyright holder in `LICENSE` confirmed with
+    NRM.
+
+- [ ] **Data refresh after the launch:** newer GBIF cubes, compared dataset by dataset with
+  the July cubes before they replace them, so that a dataset that drops out of the cube or
+  shrinks sharply (for example one republished without coordinates) is caught before
+  release.
 
 - [ ] 🚧 **Gaps filled — review and release.** Built (time points 2021-01-01, 2024-01-01
   and the live cube; closure tables from script 14) and hidden in the app meanwhile. Next:

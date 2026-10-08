@@ -1,5 +1,54 @@
 # gbif_gap_finder — Changelog
 
+## 2026-10-08: v1.0.0 — Launch at gbif.se/gap-finder
+
+First official release. The app moves from <https://test.gbif.se/gap-finder/> to
+<https://gbif.se/gap-finder/>.
+
+**Data: unchanged since v0.8.0.** The app bundle is built from the GBIF occurrence cubes of
+29 July 2026 (downloads `0017309-260721160103020` and `0017385-260721160103020`, recorded in
+`provenance/cube_downloads_SE.yml`), so every figure matches v0.8.0. Newer cubes come in a
+later release, after they have been compared with July dataset by dataset (see ROADMAP).
+
+### Added
+
+- **Contact and accessibility links** — a footer on every tab gives the app version, the
+  GBIF Sweden contact address (gbif@nrm.se), the GBIF Sweden accessibility statement and the
+  source code.
+- **Citation** — four authors with ORCIDs (`CITATION.cff`, README "How to cite", the
+  Overview citation card, the user manual); the app is cited at gbif.se/gap-finder, the
+  repository as source code.
+- **Summary report** — `analysis/gap_finder_report.Rmd` renders one page that follows the app's
+  tabs, with each tab's main figure at the default settings and the same numbers as the app.
+  It is served at `gap_finder_report.html` and linked from the Overview citation card. It
+  replaces the eight per-topic reports (`analysis/01_overview.Rmd` … `08_record_types.Rmd`),
+  which had drifted from the app; the `_targets.R` target is now `report`. The report header
+  takes the data date from the bundle, like the app.
+- **Self-hosted fonts** (`www/fonts/`, SIL Open Font License) replace Google Fonts, so the app
+  loads nothing from third-party font servers. The Docker image copies all of `www/`.
+
+### Changed
+
+- **Accessibility (WCAG 2.1 AA)** — the page declares its language; every filter and toggle
+  has a name that screen readers announce; decorative icons are hidden from assistive
+  technology; text colours reach 4.5:1 contrast (`--*-ink` shades); links in text are
+  underlined; table scroll areas can be scrolled with the keyboard. An automated axe-core
+  check of every tab reports no issues (the maps were not part of the check).
+- **Docker:** Ubuntu archive snapshot `APT_SNAPSHOT` 20261006T000000Z.
+- **Docs:** production URL in README, `CITATION.cff` and the user manual;
+  `docs/data_sources_SE.Rmd` describes the 17-column cube and its automated download and
+  provenance; README "Taxonomy Architecture" lists the four scopes 09c produces.
+
+### Fixed
+
+- **Temporal tab** — the phylum, class and order filters now narrow the series (before, only
+  kingdom and family did); the series follows the Record type selector; a selection with no
+  records says so.
+- **Taxonomic tab** — the species-scope note points to the Scope filter on the Species of
+  Concern tab.
+- **09a1** — an HTTP error from the GBIF name matcher (rate limit, outage) is no longer cached
+  as "no match"; the name is retried on the next run.
+
 ## 2026-09-30: v0.8.0 — Time points, Gaps filled (hidden), Sea-only coverage
 
 ### Added
