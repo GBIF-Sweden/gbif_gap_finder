@@ -85,7 +85,7 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
 
 ## Current state
 
-- **Version:** v0.8.0. Headline numbers reconcile across Overview / Taxonomic / Concern;
+- **Version:** v1.0.0. Headline numbers reconcile across Overview / Taxonomic / Concern;
   `scripts/12_reconcile.R` checks this on every `tar_make()` (the `reconciliation` target)
   and on demand via `run_reconcile()`.
 - **Launch:** v1.0.0 at gbif.se/gap-finder is in preparation (Part 2, A).
