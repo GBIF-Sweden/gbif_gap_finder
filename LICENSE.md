@@ -1,6 +1,6 @@
 # MIT License
 
-Copyright (c) 2026 Lena Thöle
+Copyright (c) 2026 GBIF Sweden, Swedish Museum of Natural History (NRM)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

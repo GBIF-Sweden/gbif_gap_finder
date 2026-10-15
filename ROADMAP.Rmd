@@ -153,8 +153,8 @@ Ordered from next up down to exploratory ideas.
     keyboard and screen-reader check.
   - [ ] **Release:** CHANGELOG entry, tag v1.0.0, image deployed, click-through of the live
     site.
-  - [ ] Repository and container image public; copyright holder in `LICENSE` confirmed with
-    NRM.
+  - [x] Repository and container image public; `LICENSE` names GBIF Sweden, Swedish Museum
+    of Natural History (NRM) as the copyright holder.
 
 - [ ] **Data refresh after the launch:** newer GBIF cubes, compared dataset by dataset with
   the July cubes before they replace them, so that a dataset that drops out of the cube or

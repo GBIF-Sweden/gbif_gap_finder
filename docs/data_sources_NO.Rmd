@@ -271,4 +271,4 @@ Downloaded automatically via the `geodata` R package.
 ---
 
 **Last updated:** 2026-06-21
-**Maintainer:** Lena Thöle
+**Maintained by:** GBIF Sweden, Swedish Museum of Natural History (NRM), [gbif@nrm.se](mailto:gbif@nrm.se)

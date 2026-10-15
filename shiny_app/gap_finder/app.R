@@ -912,7 +912,7 @@ ui <- fluidPage(
             tags$h2(class = "card-title", icon("book"), "How to cite, version & contact"),
             div(class = "info-note", style = "margin-top:0;",
               "If you use the Gap Finder or its figures, please cite: ",
-              tags$strong("Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V."),
+              tags$strong("Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. A."),
               paste0(" GBIF Gap Finder: a reproducible pipeline for biodiversity data gap ",
                 "analysis (", GAP_FINDER_VERSION_LABEL, "). ",
                 "GBIF Sweden, Swedish Museum of Natural History (NRM). "),

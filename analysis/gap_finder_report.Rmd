@@ -674,7 +674,7 @@ if (!is.null(ds$checklists)) {
 
 ## How to cite
 
-Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. GBIF Gap Finder: a reproducible
+Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. A. GBIF Gap Finder: a reproducible
 pipeline for biodiversity data gap analysis (`r { v <- gap_finder_version(); if (grepl("^[0-9]", v)) paste0("v", v) else v }`).
 GBIF Sweden, Swedish Museum of Natural History (NRM). <`r APP_URL`>. Source code:
 <`r REPO_URL`>.

@@ -1,6 +1,6 @@
 # GBIF Gap Finder
 
-Systematic analysis of spatial, temporal, and taxonomic gaps in national biodiversity occurrence data from GBIF. Designed as a reusable pipeline for any GBIF node — currently configured for **Sweden**.
+Systematic analysis of spatial, temporal, and taxonomic gaps in national biodiversity occurrence data from GBIF. Designed as a reusable pipeline for any GBIF node — currently configured for **Sweden**. A collaborative project of GBIF Sweden at the Swedish Museum of Natural History (NRM); see [How to cite](#how-to-cite).
 
 > **Live dashboard (Sweden):** <https://gbif.se/gap-finder/>
 >
@@ -314,6 +314,8 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 6. Run the pipeline from script 01
 7. After the first verified run, set `parameters.taxonomic.crosswalk_baseline` from
    `col_crosswalk_validation.md` so later runs are checked against it
+8. Keep the attribution: the copyright notice in `LICENSE.md`, a link to this repository and
+   the full citation (see [How to cite](#how-to-cite))
 
 ## App colours and filters
 
@@ -432,18 +434,25 @@ is live — confirm the deploy separately, and say which tag should be pulled.
 
 ## How to cite
 
-Please cite the Gap Finder as:
+The Gap Finder is a collaborative project of GBIF Sweden at the Swedish Museum of Natural
+History (NRM). Please cite it as:
 
-> Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. GBIF Gap Finder: a reproducible
+> Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. A. GBIF Gap Finder: a reproducible
 > pipeline for biodiversity data gap analysis. GBIF Sweden, Swedish Museum of Natural History
-> (NRM). <https://gbif.se/gap-finder/>
+> (NRM). <https://gbif.se/gap-finder/>. Source code:
+> <https://github.com/GBIF-Sweden/gbif_gap_finder>
 
 Authors:
 
 - Lena M. Thöle — <https://orcid.org/0000-0002-5405-3613>
 - Kevin C. Holston — <https://orcid.org/0000-0002-0786-4069>
 - Manash Shah — <https://orcid.org/0000-0002-9607-9512>
-- Veronika Johansson — <https://orcid.org/0000-0002-3028-9947>
+- Veronika A. Johansson — <https://orcid.org/0000-0002-3028-9947>
+
+When you mention, reuse or adapt the Gap Finder, credit GBIF Sweden and link this repository.
+Wherever individual authors are named, use the full citation above, with all authors.
+Copies of the code, including adaptations for another country, keep the copyright notice in
+[LICENSE.md](LICENSE.md).
 
 Version and release date are in [CITATION.cff](CITATION.cff); GitHub's **Cite this repository**
 button turns it into APA or BibTeX. Please also cite the GBIF downloads and checklists behind

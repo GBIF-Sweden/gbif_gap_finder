@@ -1,5 +1,23 @@
 # gbif_gap_finder — Changelog
 
+## 2026-10-15: v1.0.2 — Citation and attribution
+
+### Changed
+
+- **Attribution** — the Gap Finder is credited as a collaborative GBIF Sweden project.
+  `LICENSE.md` names GBIF Sweden, Swedish Museum of Natural History (NRM) as the copyright
+  holder, and the data-source documents name GBIF Sweden as maintainer. The README says so in
+  its introduction, adds the repository to the full citation, and asks anyone who mentions,
+  reuses or adapts the Gap Finder to credit GBIF Sweden, link the repository, keep the
+  copyright notice and name all authors.
+- **Citation** — Veronika A. Johansson's middle initial in `CITATION.cff`, the README, the
+  Overview citation card, the user manual and the summary report.
+
+## 2026-10-15: v1.0.1 — Version number only
+
+No changes beyond the version number and the summary report re-rendered with it. The
+citation and attribution changes meant for this release are in v1.0.2.
+
 ## 2026-10-08: v1.0.0 — Launch at gbif.se/gap-finder
 
 First official release. The app moves from <https://test.gbif.se/gap-finder/> to

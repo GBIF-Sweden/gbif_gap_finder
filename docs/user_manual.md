@@ -285,7 +285,7 @@ robust to naming differences.
 
 If you use the Gap Finder or its outputs, please cite:
 
-> Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. *GBIF Gap Finder: a reproducible
+> Thöle, L. M., Holston, K. C., Shah, M., & Johansson, V. A. *GBIF Gap Finder: a reproducible
 > pipeline for biodiversity data gap analysis.*
 > Version 1.0.1 (2026-10-15). GBIF Sweden, Swedish Museum of Natural History (NRM).
 > https://gbif.se/gap-finder/ · source code: https://github.com/GBIF-Sweden/gbif_gap_finder
