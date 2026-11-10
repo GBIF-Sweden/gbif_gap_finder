@@ -381,7 +381,10 @@ for (grid_label in names(grid_map)) {
 
   for (scope_name in active_scopes) {
     flag <- SCOPE_FLAGS[[scope_name]]
-    dt_s <- cube[get(flag) == TRUE]
+    # "all" is TRUE on every row (is_all, set in load_cube_scoped), so subsetting
+    # would only copy the whole cube; use the cube itself. Nothing below modifies
+    # dt_s by reference, so the alias is safe and the outputs are unchanged.
+    dt_s <- if (identical(flag, "is_all")) cube else cube[get(flag) == TRUE]
     n_s <- nrow(dt_s)
     if (n_s == 0) next
 
@@ -533,7 +536,7 @@ for (grid_label in names(grid_map)) {
 
   for (scope_name in active_scopes) {
     flag <- SCOPE_FLAGS[[scope_name]]
-    dt_s <- cube[get(flag) == TRUE]
+    dt_s <- if (identical(flag, "is_all")) cube else cube[get(flag) == TRUE]  # see above
     if (nrow(dt_s) == 0) next
 
     # Cell recency
