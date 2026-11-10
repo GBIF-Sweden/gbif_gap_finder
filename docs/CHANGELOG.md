@@ -28,6 +28,9 @@ platform underneath them.
   are now a named stage, `runtime`, that ends before the app and its LFS bundle, and
   **Build Image (PR)** builds up to it, so a pull request checks the runtime libraries as
   well as `renv::restore()`.
+- **apt retries:** the image build retries each apt download up to 8 times, up to 60 s
+  apart, and runs a failed `apt-get update` again (up to 3 tries), so a short outage of
+  the Ubuntu snapshot server (snapshot.ubuntu.com) no longer fails the build.
 
 ## 2026-10-15: v1.0.2 — Citation and attribution
 

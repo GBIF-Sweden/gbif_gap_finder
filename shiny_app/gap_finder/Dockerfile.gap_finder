@@ -15,6 +15,10 @@
 # security advisory for GDAL/PROJ/GEOS/curl/openssl), then rebuild and check.
 # `--error-on=any` makes a failed snapshot fetch stop the build instead of
 # installing from stale or empty package lists.
+# The snapshot server answers with intermittent 5xx errors at times (seen
+# November 2026). So apt retries each download up to 8 times, up to 60 s
+# apart (80retries), and a failed `apt-get update` is run again, up to 3 tries
+# 60 s apart, before the build gives up.
 ARG APT_SNAPSHOT=20261109T000000Z
 
 FROM rocker/r-ver:4.6.2@sha256:8739c76d2d9316698a7145b032601f1e82249fdee34670d7b4a0a40d6bacd95a AS builder
@@ -31,7 +35,10 @@ ENV RENV_CONFIG_PAK_ENABLED=FALSE
 # are on 24.04, noble).
 # libuv1-dev: fs >= 2.0 builds against the system libuv instead of its own copy.
 RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
-    && apt-get update --error-on=any && apt-get install -y --no-install-recommends \
+    && echo 'Acquire::Retries "8"; Acquire::Retries::Delay::Maximum "60";' > /etc/apt/apt.conf.d/80retries \
+    && for try in 1 2 3; do apt-get update --error-on=any && break; \
+         [ "$try" -lt 3 ] || exit 100; echo "apt-get update failed (try $try of 3), retrying in 60 s"; sleep 60; done \
+    && apt-get install -y --no-install-recommends \
     cmake \
     g++ \
     gdal-bin \
@@ -74,7 +81,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Ubuntu 26.04 names: the 64-bit time_t libraries end in t64, and libxml2 2.14+
 # ships as libxml2-16 (there is no plain libxml2 package). libuv1t64 is for fs.
 RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
-    && apt-get update --error-on=any && apt-get install -y --no-install-recommends \
+    && echo 'Acquire::Retries "8"; Acquire::Retries::Delay::Maximum "60";' > /etc/apt/apt.conf.d/80retries \
+    && for try in 1 2 3; do apt-get update --error-on=any && break; \
+         [ "$try" -lt 3 ] || exit 100; echo "apt-get update failed (try $try of 3), retrying in 60 s"; sleep 60; done \
+    && apt-get install -y --no-install-recommends \
     libcurl4t64 \
     libfontconfig1 \
     libfribidi0 \
