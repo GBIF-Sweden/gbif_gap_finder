@@ -390,7 +390,7 @@ nothing is deployed automatically from this repository.
 |-----|---------|--------|
 | `GBIF_GAP_COUNTRY` | `SE` | Which config and data bundle are baked in |
 | `GAP_FINDER_VERSION` | `dev` | What the app reports as its version; CI passes the git tag |
-| `APT_SNAPSHOT` | `20261006T000000Z` | Ubuntu archive snapshot the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Bump the default in the Dockerfile at each release |
+| `APT_SNAPSHOT` | `20261109T000000Z` | Ubuntu archive snapshot the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Bump the default in the Dockerfile at each release |
 
 **Runtime environment:**
 
@@ -419,7 +419,7 @@ is live — confirm the deploy separately, and say which tag should be pulled.
 
 ## Requirements
 
-- R >= 4.1.0
+- R 4.6.x: `renv.lock` records 4.6.2, and the Docker image runs the same version
 - [Git LFS](https://git-lfs.com) — the app data bundle (`shiny_data.rds`) is LFS-tracked
 - ~16 GB RAM recommended
 - ~20 GB disk space for full pipeline

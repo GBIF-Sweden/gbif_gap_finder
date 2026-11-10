@@ -1,5 +1,37 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — R 4.6.2 and a package refresh
+
+No change to the analysis or the app's behaviour is intended; this release moves the
+platform underneath them.
+
+### Changed
+
+- **R 4.6.2** replaces R 4.5.2, locally (`renv.lock`) and in the Docker image. The 4.5 series
+  is frozen; 4.6.2 is the current release.
+- **Base image `rocker/r-ver:4.6.2`**, pinned by digest. It moves the image from Ubuntu 24.04
+  (noble) to **26.04 (resolute)**, so the system libraries under `sf` and `terra` move too:
+  GDAL 3.8.4 → 3.12.2, GEOS 3.12.1 → 3.14.1, PROJ 9.4.0 → 9.7.1. The runtime package names
+  follow 26.04 (`libxml2-16` and the `t64` libraries). `APT_SNAPSHOT` 20261109T000000Z.
+- **`renv.lock` re-resolved** for R 4.6.2: 70 of the 144 packages change version, to the
+  current CRAN release or, for R's recommended packages, to the version R 4.6.2 ships with.
+  Among them: arrow 26.0.1, curl 8.1.0, leaflet.providers 3.0.0, sf 1.1-3, terra 1.9-50,
+  dplyr 1.2.1, shiny 1.14.0 and png 0.1-9. `rdtools` is new (roxygen2 needs it) and `MASS`
+  drops out (nothing needs it any more).
+- **fs 2.x** builds against the system libuv: `libuv1-dev` in the builder stage, `libuv1t64`
+  at runtime.
+
+### Added
+
+- **Runtime library check:** the image build fails if a compiled package cannot find a
+  shared library in the runtime stage (`ldd` over the site library). The runtime libraries
+  are now a named stage, `runtime`, that ends before the app and its LFS bundle, and
+  **Build Image (PR)** builds up to it, so a pull request checks the runtime libraries as
+  well as `renv::restore()`.
+- **apt retries:** the image build retries each apt download up to 8 times, up to 60 s
+  apart, and runs a failed `apt-get update` again (up to 3 tries), so a short outage of
+  the Ubuntu snapshot server (snapshot.ubuntu.com) no longer fails the build.
+
 ## 2026-10-15: v1.0.2 — Citation and attribution
 
 ### Changed

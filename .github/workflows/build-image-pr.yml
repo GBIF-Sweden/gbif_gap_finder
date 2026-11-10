@@ -5,11 +5,12 @@ name: Build Image (PR)
 # that had verified nothing at all. A base-image or renv.lock change that breaks
 # renv::restore() would surface at the next release tag, mid-release.
 #
-# This builds the BUILDER STAGE ONLY (`target: builder`): the apt system
-# libraries plus renv::restore() under whatever R the base image carries. That
-# is precisely what an R version bump can break, and it needs neither the ~90 MB
-# Git LFS bundle nor the country config - so no LFS bandwidth is spent per PR
-# and nothing is pushed to GHCR.
+# This builds up to the RUNTIME STAGE (`target: runtime`): the apt system
+# libraries plus renv::restore() under whatever R the base image carries, then
+# the runtime libraries and a check that every compiled package finds the
+# shared libraries it needs there. That is precisely what an R or Ubuntu bump
+# can break, and it needs neither the ~90 MB Git LFS bundle nor the country
+# config - so no LFS bandwidth is spent per PR and nothing is pushed to GHCR.
 on:
   pull_request:
     paths:
@@ -26,7 +27,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build builder stage
+    name: Build builder and runtime stages
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -34,19 +35,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
-          # The builder stage copies only renv.lock, so the LFS data bundle is
-          # not needed here. Explicit, because the release workflow does need it.
+          # The builder and runtime stages copy only renv.lock, so the LFS data
+          # bundle is not needed here. Explicit, because the release workflow
+          # does need it.
           lfs: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build builder stage (no push)
+      - name: Build up to the runtime stage (no push)
         uses: docker/build-push-action@v7
         with:
           context: .
           file: shiny_app/gap_finder/Dockerfile.gap_finder
-          target: builder
+          target: runtime
           push: false
           platforms: linux/amd64
           cache-from: type=gha,scope=gap-finder
