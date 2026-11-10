@@ -2,12 +2,12 @@
 # builds of "the same" image can differ. The apt packages are pinned too, by
 # an Ubuntu archive snapshot date (APT_SNAPSHOT below), so GDAL/GEOS/PROJ cannot
 # move underneath sf/terra between rebuilds with nothing in this repo changing.
-# The digest is the multi-arch index for rocker/r-ver:4.5.2, as reported by
-# `docker buildx imagetools inspect rocker/r-ver:4.5.2`. Dependabot proposes
+# The digest is the multi-arch index for rocker/r-ver:4.6.2, as reported by
+# `docker buildx imagetools inspect rocker/r-ver:4.6.2`. Dependabot proposes
 # bumps (.github/dependabot.yml).
 #
 # apt pinning: every apt call reads the Ubuntu archive as
-# it was at APT_SNAPSHOT (snapshot.ubuntu.com, apt >= 2.7 on noble), so the
+# it was at APT_SNAPSHOT (snapshot.ubuntu.com, apt >= 2.7), so the
 # system libraries are identical on every rebuild. Individual version pins are
 # not used: Ubuntu drops superseded versions from the live archive, which would
 # break the build at the next security update. Trade-off: security fixes arrive
@@ -15,9 +15,9 @@
 # security advisory for GDAL/PROJ/GEOS/curl/openssl), then rebuild and check.
 # `--error-on=any` makes a failed snapshot fetch stop the build instead of
 # installing from stale or empty package lists.
-ARG APT_SNAPSHOT=20261006T000000Z
+ARG APT_SNAPSHOT=20261109T000000Z
 
-FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c AS builder
+FROM rocker/r-ver:4.6.2@sha256:8739c76d2d9316698a7145b032601f1e82249fdee34670d7b4a0a40d6bacd95a AS builder
 ARG APT_SNAPSHOT
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -27,7 +27,9 @@ ENV RENV_CONFIG_PAK_ENABLED=FALSE
 # fetcher) compiles against the Redland C libraries (librdf/raptor/rasqal).
 # renv::restore() installs every package in renv.lock, not only what app.R
 # loads, so without it the image build fails at `redland`. Package names are
-# for Ubuntu 24.04 (noble), the base of rocker/r-ver:4.5.x.
+# for Ubuntu 26.04 (resolute), the base of rocker/r-ver:4.6.2 (4.6.1 and older
+# are on 24.04, noble).
+# libuv1-dev: fs >= 2.0 builds against the system libuv instead of its own copy.
 RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
     && apt-get update --error-on=any && apt-get install -y --no-install-recommends \
     cmake \
@@ -36,7 +38,7 @@ RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
     libcurl4-openssl-dev \
     libfontconfig1-dev \
     libfribidi-dev \
-    libfreetype6-dev \
+    libfreetype-dev \
     libgdal-dev \
     libgeos-dev \
     libglpk-dev \
@@ -48,6 +50,7 @@ RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
     libssl-dev \
     libtiff5-dev \
     libudunits2-dev \
+    libuv1-dev \
     libxml2-dev \
     make \
     && rm -rf /var/lib/apt/lists/*
@@ -60,10 +63,46 @@ COPY renv.lock ./renv.lock
 
 RUN R -q -e "renv::consent(provided = TRUE); renv::restore(lockfile = 'renv.lock', library = '/usr/local/lib/R/site-library', prompt = FALSE)"
 
-FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c
+# Runtime stage: the shared libraries the compiled packages load, and nothing
+# to build with. It ends before the app and its LFS data bundle, so the PR
+# workflow (build-image-pr.yml) can build and check it without fetching LFS.
+FROM rocker/r-ver:4.6.2@sha256:8739c76d2d9316698a7145b032601f1e82249fdee34670d7b4a0a40d6bacd95a AS runtime
 ARG APT_SNAPSHOT
 
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Ubuntu 26.04 names: the 64-bit time_t libraries end in t64, and libxml2 2.14+
+# ships as libxml2-16 (there is no plain libxml2 package). libuv1t64 is for fs.
+RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
+    && apt-get update --error-on=any && apt-get install -y --no-install-recommends \
+    libcurl4t64 \
+    libfontconfig1 \
+    libfribidi0 \
+    libfreetype6 \
+    libgdal-dev \
+    libgeos-dev \
+    libglpk40 \
+    libharfbuzz0b \
+    libjpeg-dev \
+    libpng16-16t64 \
+    libproj-dev \
+    librdf0t64 \
+    libssl3t64 \
+    libtiff6 \
+    libudunits2-0 \
+    libuv1t64 \
+    libxml2-16 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/R/site-library /usr/local/lib/R/site-library
+
+# Fail the build if a compiled package needs a shared library this stage does
+# not install: a library renamed by an Ubuntu move, or a new system dependency
+# of an updated package. ldd runs from inside R so that R's own lib directory
+# is on the search path.
+RUN R -q -e "so <- list.files('/usr/local/lib/R/site-library', pattern = '[.]so\$', recursive = TRUE, full.names = TRUE); miss <- unique(unlist(lapply(so, function(f) grep('not found', suppressWarnings(system2('ldd', f, stdout = TRUE)), value = TRUE)))); if (length(miss)) { writeLines(sort(miss)); stop('shared libraries missing in the runtime stage') }; cat('OK:', length(so), 'shared objects find their libraries\n')"
+
+FROM runtime
 
 # Country selector — override at build time with --build-arg GBIF_GAP_COUNTRY=NO.
 # Drives which config + data bundle are copied and the app's runtime lookup.
@@ -76,28 +115,6 @@ ENV GBIF_GAP_COUNTRY=${GBIF_GAP_COUNTRY}
 # --build-arg produces an image that honestly reports itself as "dev".
 ARG GAP_FINDER_VERSION=dev
 ENV GAP_FINDER_VERSION=${GAP_FINDER_VERSION}
-
-RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
-    && apt-get update --error-on=any && apt-get install -y --no-install-recommends \
-    libcurl4 \
-    libfontconfig1 \
-    libfribidi0 \
-    libfreetype6 \
-    libgdal-dev \
-    libgeos-dev \
-    libglpk40 \
-    libharfbuzz0b \
-    libjpeg-dev \
-    libpng16-16 \
-    libproj-dev \
-    librdf0t64 \
-    libssl3 \
-    libtiff6 \
-    libudunits2-0 \
-    libxml2 \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /usr/local/lib/R/site-library /usr/local/lib/R/site-library
 
 WORKDIR /opt/project
 

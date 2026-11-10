@@ -29,9 +29,11 @@ updates:
       # That is a deliberate exercise, taken together with the local R and a
       # re-resolved renv.lock - not something to merge from a bot PR.
       #
-      # Patch bumps (4.5.2 -> 4.5.3) still arrive. Digest-only updates (same tag,
-      # re-pushed image) are expected to arrive as well - verify that rather than
-      # assuming it.
+      # Patch bumps (4.6.2 -> 4.6.3) still arrive, and so do digest-only updates:
+      # rocker re-pushes the tag of its newest R release (rocker/r-ver:4.6.2 was
+      # rebuilt on 2026-10-29 and 2026-11-08). A patch bump can move the Ubuntu
+      # base as well (4.6.1 is on 24.04 noble, 4.6.2 on 26.04 resolute), so read
+      # the Build Image (PR) run before merging one.
       - dependency-name: "rocker/r-ver"
         update-types:
           - "version-update:semver-major"
