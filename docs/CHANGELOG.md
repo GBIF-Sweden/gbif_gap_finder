@@ -1,9 +1,12 @@
 # gbif_gap_finder — Changelog
 
-## Unreleased — R 4.6.2 and a package refresh
+## 2026-11-11: v1.1.0 — R 4.6.2 and a package refresh
 
 No change to the analysis or the app's behaviour is intended; this release moves the
 platform underneath them.
+
+**Data: unchanged.** The app bundle is the one released with v1.0.2 (GBIF cubes of 29 July
+2026, Dyntaxa 2026-09-29), so every figure stays the same.
 
 ### Changed
 
@@ -31,6 +34,12 @@ platform underneath them.
 - **apt retries:** the image build retries each apt download up to 8 times, up to 60 s
   apart, and runs a failed `apt-get update` again (up to 3 tries), so a short outage of
   the Ubuntu snapshot server (snapshot.ubuntu.com) no longer fails the build.
+
+### Fixed
+
+- **09c** — the "all" scope uses the cube itself instead of a full copy. Same outputs, less
+  memory: copying the full 10 km cube (about 50 million rows) crashed the targets worker
+  during the R 4.6.2 validation run.
 
 ## 2026-10-15: v1.0.2 — Citation and attribution
 
