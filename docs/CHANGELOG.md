@@ -1,5 +1,15 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Image build when snapshot.ubuntu.com is down
+
+### Fixed
+
+- **Docker image build:** when the Ubuntu snapshot server (snapshot.ubuntu.com) still fails
+  after one retry, the build installs the system libraries from the live Ubuntu archive
+  instead of stopping, and prints a warning. `/etc/gap-finder-apt-source` in the image
+  records the source: `snapshot <date>` or `live archive <time>`. On 26.04 the live archive
+  differs from the snapshot only by stable and security updates.
+
 ## 2026-11-11: v1.1.0 — R 4.6.2 and a package refresh
 
 No change to the analysis or the app's behaviour is intended; this release moves the
