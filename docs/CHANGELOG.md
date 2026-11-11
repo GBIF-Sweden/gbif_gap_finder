@@ -1,6 +1,12 @@
 # gbif_gap_finder — Changelog
 
-## Unreleased — Image build when snapshot.ubuntu.com is down
+## 2026-11-11: v1.1.1 — Image build when snapshot.ubuntu.com is down
+
+v1.1.0 was tagged, but its image could not be built while snapshot.ubuntu.com was down.
+v1.1.1 is v1.1.0 plus the fix below.
+
+**Data: unchanged.** The app bundle is the one released with v1.0.2 (GBIF cubes of 29 July
+2026, Dyntaxa 2026-09-29).
 
 ### Fixed
 
