@@ -61,26 +61,49 @@ cube_10km_path <- here(raw_gbif_cube_dir, cube_10km_file)
 # Also check for parquet
 cube_10km_parquet <- here(raw_gbif_cube_dir, sub("\\.(csv|tsv)$", ".parquet", cube_10km_file))
 
-country_cells_10km <- NULL
-if (file.exists(cube_10km_parquet) && requireNamespace("arrow", quietly = TRUE)) {
-  cli_alert_info("Reading cell codes from parquet: {basename(cube_10km_parquet)}")
-  country_cells_10km <- arrow::open_dataset(cube_10km_parquet) |>
-    dplyr::distinct(eeacellcode) |>
-    dplyr::collect() |>
-    dplyr::pull(eeacellcode)
-} else if (file.exists(cube_10km_path)) {
-  cli_alert_info("Reading cell codes from CSV: {basename(cube_10km_path)}")
-  country_cells_10km <- unique(fread(cube_10km_path, select = "eeacellcode")$eeacellcode)
+# Where the cell codes can come from, freshest first: the download in raw/cubes/
+# (parquet, then CSV), then the converted cube in proc/cubes/ (04). raw/cubes/ is
+# often empty between refreshes, and without the proc/cubes/ fallback the grid
+# stayed unclipped (all 571,200 EEA cells, 2026-11-10). A cube without cell codes
+# (0 rows) counts as no cube.
+cube_10km_proc <- here(p_data_proc, "cubes", "cube_10km.parquet")
+read_cell_codes <- function(path) {
+  codes <- if (grepl("[.]parquet$", path)) {
+    if (!requireNamespace("arrow", quietly = TRUE)) return(character(0))
+    arrow::open_dataset(path) |>
+      dplyr::distinct(eeacellcode) |>
+      dplyr::collect() |>
+      dplyr::pull(eeacellcode)
+  } else {
+    unique(fread(path, select = "eeacellcode")$eeacellcode)
+  }
+  codes <- as.character(codes)
+  codes[!is.na(codes) & codes != ""]
 }
 
-if (!is.null(country_cells_10km)) {
-  country_cells_10km <- country_cells_10km[country_cells_10km != "" & !is.na(country_cells_10km)]
-  cli_alert_success(
-    "Found {scales::comma(length(country_cells_10km))} unique cells for {COUNTRY_CODE}"
-  )
-} else {
-  cli_alert_warning("No cube data found — will keep all grid cells (no clipping)")
+country_cells_10km <- NULL
+for (src in c(cube_10km_parquet, cube_10km_path, cube_10km_proc)) {
+  if (!file.exists(src)) next
+  codes <- read_cell_codes(src)
+  if (length(codes) == 0L) {
+    cli_alert_warning("{.path {src}} holds no cell codes - skipping it")
+    next
+  }
+  cli_alert_info("Reading cell codes from {.path {src}}")
+  country_cells_10km <- codes
+  break
 }
+
+if (is.null(country_cells_10km)) {
+  cli_abort(c(
+    "No cube with cell codes found for {COUNTRY_CODE}.",
+    "x" = "Without them the grid cannot be clipped to the country: it would keep every EEA cell.",
+    "i" = "Expected a cube in {.path {raw_gbif_cube_dir}} or {.path {cube_10km_proc}}."
+  ))
+}
+cli_alert_success(
+  "Found {scales::comma(length(country_cells_10km))} unique cells for {COUNTRY_CODE}"
+)
 
 # Derive 50km cell codes from 10km codes ("50kmE123N456" pattern)
 # EEA 10km code format: 10kmE1234N5678 → 50km parent: extract E/N at 50km resolution

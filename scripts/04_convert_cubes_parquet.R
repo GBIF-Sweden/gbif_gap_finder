@@ -113,6 +113,16 @@ for (grid_name in names(cube_files)) {
   dt <- fread(cf$csv, showProgress = TRUE, encoding = "UTF-8")
   cli_alert_success("Read {scales::comma(nrow(dt))} rows, {ncol(dt)} columns")
 
+  # An empty cube is never valid (see 01a). Stop before write_parquet(), so the
+  # parquet of the last good cube stays in place.
+  if (nrow(dt) == 0L) {
+    cli_abort(c(
+      "Cube {grid_name}: {.path {basename(cf$csv)}} has 0 rows.",
+      "x" = "Refusing to replace {.path {basename(cf$parquet)}} with an empty cube.",
+      "i" = "Move the empty CSV out of {.path {cube_raw_dir}} and check the GBIF download (01a)."
+    ))
+  }
+
   # Validate columns. Analytically-required columns are a HARD STOP: a shifted or
   # absent basisofrecord/kingdom silently zeroes the by-basis and taxonomic
   # analyses downstream, so fail here rather than write a corrupt parquet.

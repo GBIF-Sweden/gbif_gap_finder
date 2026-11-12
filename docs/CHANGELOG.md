@@ -1,5 +1,21 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Guards against an empty GBIF cube
+
+On 2026-11-10 both GBIF SQL cube downloads came back with 0 rows, and nothing stopped them.
+
+### Fixed
+
+- **01a** — a cube download with 0 rows stops the run: `raw_data` errors, so every target
+  downstream of it is skipped. Neither the empty CSV nor its download key is written. The
+  download keys are now merged into `provenance/cube_downloads_{CC}.yml`, so a retry after a
+  partial failure keeps the key of the cube still in use.
+- **04** — a cube CSV with 0 rows stops the conversion; the parquet of the last good cube
+  stays.
+- **02** — the grid is clipped with the cell codes of the cube in `raw/cubes/` or, when
+  there is none, of the converted cube in `proc/cubes/`. With neither, 02 stops instead of
+  keeping every EEA cell (571,200).
+
 ## 2026-11-11: v1.1.1 — Image build when snapshot.ubuntu.com is down
 
 v1.1.0 was tagged, but its image could not be built while snapshot.ubuntu.com was down.
