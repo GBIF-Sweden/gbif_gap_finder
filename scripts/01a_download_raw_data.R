@@ -367,6 +367,7 @@ if (length(existing_cubes) >= 2) {
   cli_alert_info("Submitting SQL cube downloads via {.fn rgbif::occ_download_sql} …")
   downloaded_keys <- list()
   ok_all <- TRUE
+  empty_download <- NULL  # key of a download that came back with 0 rows
   for (grid in names(cube_targets)) {
     tg <- cube_targets[[grid]]
     if (file.exists(tg$csv)) {
@@ -381,6 +382,13 @@ if (length(existing_cubes) >= 2) {
       rgbif::occ_download_wait(dl)
       z <- rgbif::occ_download_get(dk, path = raw_gbif_cube_dir, overwrite = TRUE)
       d <- rgbif::occ_download_import(z)
+      # An EMPTY cube is never valid: the SQL no longer matches GBIF's data (on
+      # 2026-11-10 both cubes came back with 0 rows). Writing it would replace the
+      # cube downstream (04) and record its key as provenance, so stop here.
+      if (nrow(d) == 0L) {
+        empty_download <- dk
+        stop("GBIF returned 0 rows")
+      }
       data.table::fwrite(d, tg$csv)
       log_download(sprintf("Cube %s: %s rows via download %s",
                            grid, scales::comma(nrow(d)), dk))
@@ -399,17 +407,37 @@ if (length(existing_cubes) >= 2) {
   # resolves DOI/citation/records from these keys and cube_download_key() reads
   # this file, so an automated run is self-provenancing — no manual paste. Commit
   # the file to record which download produced the analysis.
+  # The keys are MERGED into the file: a grid not downloaded in this run keeps the
+  # key of the cube it still uses, so a retry after a partial failure can neither
+  # drop a key nor leave one that no longer matches the cube on disk.
   if (length(downloaded_keys) && requireNamespace("yaml", quietly = TRUE)) {
     dir.create(dirname(cube_keys_path), showWarnings = FALSE, recursive = TRUE)
+    old_keys <- if (file.exists(cube_keys_path)) {
+      tryCatch(as.list(yaml::read_yaml(cube_keys_path)), error = function(e) list())
+    } else {
+      list()
+    }
+    all_keys <- utils::modifyList(old_keys, downloaded_keys)
     header <- c(
       "# Auto-written by scripts/01a on each automated cube download.",
       "# VERSION-CONTROLLED provenance — commit this file. Do not hand-edit.",
       paste0("# Written: ", Sys.Date()), "")
     writeLines(header, cube_keys_path)
-    cat(yaml::as.yaml(downloaded_keys), file = cube_keys_path, append = TRUE)
+    cat(yaml::as.yaml(all_keys), file = cube_keys_path, append = TRUE)
     cli_alert_success("Wrote cube download provenance → {.path {cube_keys_path}} (commit it)")
     for (grid in names(downloaded_keys))
       cli_alert_info("  {grid}: {downloaded_keys[[grid]]}")
+  }
+  # Stop the target on an empty cube. raw_data then errors, and with
+  # error = "continue" every target downstream of it is skipped.
+  if (!is.null(empty_download)) {
+    empty_url <- paste0("https://www.gbif.org/occurrence/download/", empty_download)
+    cli_abort(c(
+      "GBIF returned an EMPTY cube (download {empty_download}).",
+      "x" = "Not written: no cube CSV and no provenance key for it. The cubes on disk stay.",
+      "i" = "The cube SQL probably no longer matches GBIF's data. Compare {.url {empty_url}} \\
+             with {.path sql/gbif_occurrence_cube.sql}."
+    ))
   }
   if (!ok_all) {
     cli_alert_warning("Automated download incomplete — falling back to manual instructions.")

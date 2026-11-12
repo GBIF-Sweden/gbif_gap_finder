@@ -295,6 +295,7 @@ list(
     {
       preflight     # gate: the reference grids are a checked dependency too
       project_setup # shared logic (globals/packages/setup) is a real dependency
+      cube_parquet  # after 01a and 04: 02 clips the grid to the current cube's cells
       source(script_02, local = TRUE)
       grid_files <- c(
         here(p_data_proc, "grids_10km.gpkg"),

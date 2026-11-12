@@ -223,7 +223,7 @@ SELECT occurrence.classificationdetails['${COL_CHECKLIST_KEY}']['specieskey'] AS
   COUNT(DISTINCT recordedby)                          AS distinctobservers
 FROM occurrence
 WHERE countrycode = '${COUNTRY_CODE}' AND hascoordinate = TRUE
-  AND hasgeospatialissues = FALSE AND occurrencestatus = 'PRESENT'
+  AND hasgeospatialissues = FALSE AND occurrencestatus IN ('DETECTED', 'PRESENT')
   AND specieskey IS NOT NULL
 GROUP BY ...
 ```

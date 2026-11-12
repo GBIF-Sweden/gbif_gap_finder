@@ -49,7 +49,7 @@
 #
 # COMPARABILITY WARNING:
 #   Do NOT compare these cubes against the full-filtered live cube. The live
-#   cube applies hasgeospatialissues = FALSE and occurrencestatus = 'PRESENT',
+#   cube applies hasgeospatialissues = FALSE and the occurrencestatus filter,
 #   which cannot be replicated here, and it is COL-interpreted while these are
 #   legacy-Backbone. Within the snapshot regime differencing is clean; across
 #   the regime boundary, compare in the Dyntaxa key space only (R/closure.R).
@@ -61,7 +61,7 @@
 #
 # ABSENCE RECORDS — dormant, not unnecessary:
 #   GBIF's export SQL carries no `occurrence_status` filter, while the live cube
-#   filters `occurrencestatus = 'PRESENT'`. The two SLU National Forest
+#   filters on `occurrencestatus` (presence only). The two SLU National Forest
 #   Inventory presence-absence datasets are excluded by the delivery query and
 #   contribute ZERO rows to both current snapshots anyway (both were registered
 #   2024-10-25, after both cut dates). They hold ~14.1 M absence records today
