@@ -1,5 +1,26 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Image build: releases no longer need the Ubuntu package servers
+
+In November 2026 snapshot.ubuntu.com and archive.ubuntu.com were unreliable for two days.
+v1.1.0 got no image, and v1.1.1 was published a day late with its system libraries from the
+live archive instead of the pinned snapshot (the library versions were the same).
+
+### Changed
+
+- **Dependency image** — the system libraries and R packages are built by the new
+  workflow *Build deps image* when the Dockerfile or `renv.lock` changes on `main`, and
+  pushed as `ghcr.io/gbif-sweden/gap-finder:deps-<hash>`. The release workflow builds only
+  the app stage on top of it (build argument `RUNTIME`) and stops with a clear message if
+  that image is missing. A release needs GitHub only.
+- **apt** — the snapshot URL is written into apt's sources, so the pinned build contacts
+  snapshot.ubuntu.com only. With `APT::Snapshot` it also needed archive.ubuntu.com and
+  security.ubuntu.com. The fallback to the live archive (v1.1.1) is removed: the system
+  libraries always come from the snapshot, or the build fails and is run again later.
+  `--build-arg APT_SNAPSHOT=` installs from the live archive by hand.
+- **Workflows** — the GitHub layer-cache settings are removed from the release and PR
+  builds; no build could read those caches.
+
 ## Unreleased — Empty GBIF cube: status filter and guards
 
 On 2026-11-10 both GBIF SQL cube downloads came back with 0 rows, and nothing stopped them.

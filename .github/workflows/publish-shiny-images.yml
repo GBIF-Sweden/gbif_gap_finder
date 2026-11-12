@@ -66,6 +66,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The system libraries and R packages come from the prebuilt deps image
+      # (build-deps-image.yml), so this job needs no Ubuntu, Docker Hub or Posit
+      # server. The image is named after the Dockerfile and renv.lock of this
+      # commit.
+      - name: Find the deps image
+        id: deps
+        run: |
+          image=$(bash .github/scripts/deps_image.sh)
+          if ! docker buildx imagetools inspect "$image" > /dev/null 2>&1; then
+            echo "::error::$image is not on GHCR. Wait for the 'Build deps image' run on main to finish (or start it: Actions > Build deps image > Run workflow), then re-run this job."
+            exit 1
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -81,6 +95,7 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.base.name=${{ steps.deps.outputs.image }}
 
       - name: Build and push image
         uses: docker/build-push-action@v7
@@ -88,11 +103,10 @@ jobs:
           context: .
           file: shiny_app/gap_finder/Dockerfile.gap_finder
           build-args: |
+            RUNTIME=${{ steps.deps.outputs.image }}
             GBIF_GAP_COUNTRY=${{ env.GBIF_GAP_COUNTRY }}
             GAP_FINDER_VERSION=${{ github.ref_name }}
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=gap-finder
-          cache-to: type=gha,mode=max,scope=gap-finder

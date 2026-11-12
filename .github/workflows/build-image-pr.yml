@@ -11,6 +11,8 @@ name: Build Image (PR)
 # shared libraries it needs there. That is precisely what an R or Ubuntu bump
 # can break, and it needs neither the ~90 MB Git LFS bundle nor the country
 # config - so no LFS bandwidth is spent per PR and nothing is pushed to GHCR.
+# No layer cache: GitHub's cache is scoped to the branch, so a PR build could
+# never read one written elsewhere, and a full build is what this check is for.
 on:
   pull_request:
     paths:
@@ -51,5 +53,3 @@ jobs:
           target: runtime
           push: false
           platforms: linux/amd64
-          cache-from: type=gha,scope=gap-finder
-          cache-to: type=gha,mode=max,scope=gap-finder-pr
