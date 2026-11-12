@@ -51,7 +51,7 @@ FROM occurrence
 WHERE countrycode = 'NO'
   AND hascoordinate = TRUE
   AND hasgeospatialissues = FALSE
-  AND occurrencestatus = 'PRESENT'
+  AND occurrencestatus IN ('DETECTED', 'PRESENT')
   AND specieskey IS NOT NULL
 GROUP BY specieskey, species, kingdom, phylum, class, "order", family,
   basisofrecord, publishingorgkey, datasetkey,

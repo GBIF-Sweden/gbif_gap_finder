@@ -39,6 +39,10 @@
 -- The same key is resolved for citation/provenance by
 -- scripts/01b_resolve_data_sources.R (data_sources_meta$checklists$col_backbone).
 -- classificationdetails syntax per GBIF SQL guidance.
+--
+-- Presence filter: GBIF's occurrenceStatus value for a presence record is
+-- DETECTED (absence: NOT_DETECTED). Data processed under GBIF's older
+-- vocabulary say PRESENT, so the filter accepts both.
 SELECT
   occurrence.classificationdetails['${COL_CHECKLIST_KEY}']['specieskey'] AS specieskey,
   species, kingdom, phylum, class, "order", family,
@@ -53,7 +57,7 @@ FROM occurrence
 WHERE countrycode = '${COUNTRY_CODE}'
   AND hascoordinate = TRUE
   AND hasgeospatialissues = FALSE
-  AND occurrencestatus = 'PRESENT'
+  AND occurrencestatus IN ('DETECTED', 'PRESENT')
   AND specieskey IS NOT NULL
 GROUP BY
   occurrence.classificationdetails['${COL_CHECKLIST_KEY}']['specieskey'],

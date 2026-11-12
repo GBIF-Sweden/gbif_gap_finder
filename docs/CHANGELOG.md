@@ -1,11 +1,17 @@
 # gbif_gap_finder — Changelog
 
-## Unreleased — Guards against an empty GBIF cube
+## Unreleased — Empty GBIF cube: status filter and guards
 
 On 2026-11-10 both GBIF SQL cube downloads came back with 0 rows, and nothing stopped them.
+GBIF had renamed the occurrence status of presence records from PRESENT to DETECTED, so the
+cube's filter `occurrencestatus = 'PRESENT'` matched nothing.
 
 ### Fixed
 
+- **Cube SQL** — the presence filter is `occurrencestatus IN ('DETECTED', 'PRESENT')`.
+  DETECTED is GBIF's current value; PRESENT is the value in data processed before the
+  change. The copies of the query in the README and `docs/data_sources_NO.Rmd`, the
+  Gaps filled note in the app, the 14 message and the 04b comments say the same.
 - **01a** — a cube download with 0 rows stops the run: `raw_data` errors, so every target
   downstream of it is skipped. Neither the empty CSV nor its download key is written. The
   download keys are now merged into `provenance/cube_downloads_{CC}.yml`, so a retry after a

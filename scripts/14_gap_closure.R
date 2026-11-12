@@ -344,8 +344,8 @@ for (pr in pairs_to_do) {
     )
     cli_alert_info(
       "Filters differ too: the cube applies hasgeospatialissues = FALSE and \\
-       occurrencestatus = 'PRESENT'; the snapshots cannot. Residuals are small \\
-       but they are not zero."
+       occurrencestatus IN ('DETECTED', 'PRESENT'); the snapshots cannot. \\
+       Residuals are small but they are not zero."
     )
   }
   baseline_year <- as.integer(format(as.Date(from), "%Y"))

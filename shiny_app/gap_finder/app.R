@@ -5922,7 +5922,7 @@ server <- function(input, output, session) {
       p(style = "margin-bottom:0.5rem;",
         "The earlier point comes from a GBIF snapshot export; the later one from the occurrence cube. ",
         "The cube filters ", tags$code("hasgeospatialissues = FALSE"), " and ",
-        tags$code("occurrencestatus = 'PRESENT'"), " and the snapshot cannot, and cube cells are built from ",
+        tags$code("occurrencestatus IN ('DETECTED', 'PRESENT')"), " and the snapshot cannot, and cube cells are built from ",
         "full-precision coordinates against the snapshot's two decimal places. ",
         tags$strong("Part of what this pair reports is the pipeline changing, not Sweden's data.")),
       tags$ul(style = "margin-bottom:0.5rem;",
