@@ -377,20 +377,35 @@ nothing is deployed automatically from this repository.
 
 1. `validate-release` checks the app, Dockerfile and data bundle are present, and that
    `shiny_data.rds` is the real ~90 MB file rather than an un-fetched Git LFS pointer.
-2. `publish` builds `shiny_app/gap_finder/Dockerfile.gap_finder` for `linux/amd64` and
-   pushes to GHCR as `ghcr.io/gbif-sweden/gap-finder`, tagged with the git tag,
-   `latest`, and `sha-<commit>`.
+2. `publish` builds the app stage of `shiny_app/gap_finder/Dockerfile.gap_finder` for
+   `linux/amd64` on top of the dependency image (below) and pushes to GHCR as
+   `ghcr.io/gbif-sweden/gap-finder`, tagged with the git tag, `latest`, and `sha-<commit>`.
 3. `.github/workflows/citation-version.yml` writes the version and date into
    `CITATION.cff` on the default branch as a follow-up commit — so `git pull` after a
    release, or the next push is rejected as non-fast-forward.
 
-**Build arguments** (CI supplies both; a local build gets the defaults):
+**Dependency image** (`.github/workflows/build-deps-image.yml`): the system libraries and
+the R packages of `renv.lock` are built separately and pushed as
+`ghcr.io/gbif-sweden/gap-finder:deps-<hash>`. `<hash>` comes from the Dockerfile and
+`renv.lock` (`bash .github/scripts/deps_image.sh` prints the name). The workflow runs when
+either file changes on `main`. A release therefore needs only GitHub: no Ubuntu package
+server, Docker Hub or Posit Package Manager.
+
+- **Before tagging**, after a merge that changed the Dockerfile or `renv.lock`: wait for
+  the *Build deps image* run on `main` to be green.
+- If that run fails because a package server is down, re-run it later. There is no fallback
+  to other servers.
+- If `publish` stops with "… is not on GHCR", the deps image for that commit is missing:
+  run *Build deps image* (Actions → Run workflow), then re-run the failed job.
+
+**Build arguments** (CI supplies the first three; a local build gets the defaults):
 
 | Arg | Default | Effect |
 |-----|---------|--------|
 | `GBIF_GAP_COUNTRY` | `SE` | Which config and data bundle are baked in |
 | `GAP_FINDER_VERSION` | `dev` | What the app reports as its version; CI passes the git tag |
-| `APT_SNAPSHOT` | `20261109T000000Z` | Ubuntu archive snapshot the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. If snapshot.ubuntu.com is down, the build installs from the live archive instead; `/etc/gap-finder-apt-source` in the image says which. Bump the default in the Dockerfile at each release |
+| `RUNTIME` | `runtime` | Image the app stage starts from. The default builds everything in the Dockerfile; CI passes the dependency image |
+| `APT_SNAPSHOT` | `20261109T000000Z` | Ubuntu archive snapshot (snapshot.ubuntu.com) the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Empty (`--build-arg APT_SNAPSHOT=`) installs from the live Ubuntu archive instead; `/etc/gap-finder-apt-source` in the image says which. Bump the default in the Dockerfile at each release |
 
 **Runtime environment:**
 

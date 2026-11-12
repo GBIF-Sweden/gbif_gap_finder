@@ -1,0 +1,115 @@
+name: Build deps image
+
+# Why this exists: a release (publish-shiny-images.yml) should not depend on
+# Ubuntu's package servers, Docker Hub or Posit Package Manager. In November
+# 2026 an outage of snapshot.ubuntu.com and archive.ubuntu.com held up a
+# release for about a day.
+#
+# This workflow builds the Dockerfile up to its `runtime` stage (the system
+# libraries and the R packages of renv.lock) and pushes the result to GHCR as
+# ghcr.io/gbif-sweden/gap-finder:deps-<hash>. The release then starts from that
+# image and only copies the app and its data bundle on top.
+#
+# It runs when the Dockerfile or renv.lock changes on main, which is when
+# <hash> changes (.github/scripts/deps_image.sh). If a package server is down,
+# this run fails: run it again later (Actions > Build deps image > Re-run, or
+# Run workflow). No release is waiting on it.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "shiny_app/gap_finder/Dockerfile.gap_finder"
+      - "renv.lock"
+      - ".github/scripts/deps_image.sh"
+      - ".github/workflows/build-deps-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  GBIF_GAP_COUNTRY: SE
+
+concurrency:
+  group: build-deps-image
+  cancel-in-progress: false
+
+jobs:
+  deps:
+    name: Build and push the deps image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # The last step builds the app stage, which needs the data bundle.
+          lfs: true
+
+      - name: Name the deps image
+        id: deps
+        run: echo "image=$(bash .github/scripts/deps_image.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # An image that exists under this name was built from the same Dockerfile
+      # and renv.lock, so it is kept as it is.
+      - name: Look for the image on GHCR
+        id: exists
+        env:
+          IMAGE: ${{ steps.deps.outputs.image }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=deps image::$IMAGE exists already; not rebuilt"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the runtime stage and push it
+        if: steps.exists.outputs.found == 'false'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: shiny_app/gap_finder/Dockerfile.gap_finder
+          target: runtime
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.deps.outputs.image }}
+          labels: |
+            org.opencontainers.image.title=gap-finder dependencies
+            org.opencontainers.image.description=System libraries and R packages for the GBIF Gap Finder image
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # The release path, without publishing anything: build the app stage on
+      # top of the deps image, as publish-shiny-images.yml does. The build must
+      # not run apt or renv; if it does, the Dockerfile's earlier stages were
+      # not skipped and a release would need the package servers again.
+      - name: Check the release path (app stage on the deps image, no push)
+        env:
+          IMAGE: ${{ steps.deps.outputs.image }}
+        run: |
+          set -o pipefail
+          docker buildx build --progress=plain --pull \
+            -f shiny_app/gap_finder/Dockerfile.gap_finder \
+            --build-arg "RUNTIME=$IMAGE" \
+            --build-arg "GBIF_GAP_COUNTRY=$GBIF_GAP_COUNTRY" \
+            --platform linux/amd64 \
+            --output type=cacheonly . 2>&1 | tee "$RUNNER_TEMP/release-path.log"
+          if grep -E 'RUN .*(apt-get|renv::restore)' "$RUNNER_TEMP/release-path.log"; then
+            echo "::error::The app stage build ran apt or renv; the earlier stages were not skipped"
+            exit 1
+          fi
+          echo "::notice title=deps image::$IMAGE; the app stage builds on it without apt or renv"
