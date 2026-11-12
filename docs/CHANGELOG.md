@@ -21,6 +21,9 @@ cube's filter `occurrencestatus = 'PRESENT'` matched nothing.
 - **02** — the grid is clipped with the cell codes of the cube in `raw/cubes/` or, when
   there is none, of the converted cube in `proc/cubes/`. With neither, 02 stops instead of
   keeping every EEA cell (571,200).
+- **`_targets.R`** — `grids` (02) depends on `cube_parquet`, so 02 runs after 01a and 04,
+  and again after every cube refresh. Until now it could run before the downloads and keep
+  a grid clipped to an older cube.
 
 ## 2026-11-11: v1.1.1 — Image build when snapshot.ubuntu.com is down
 
