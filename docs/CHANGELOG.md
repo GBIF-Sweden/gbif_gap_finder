@@ -24,6 +24,12 @@ cube's filter `occurrencestatus = 'PRESENT'` matched nothing.
 - **`_targets.R`** — `grids` (02) depends on `cube_parquet`, so 02 runs after 01a and 04,
   and again after every cube refresh. Until now it could run before the downloads and keep
   a grid clipped to an older cube.
+- **Docker image build** — when snapshot.ubuntu.com and the live Ubuntu archive both fail,
+  as on 2026-11-11 when none of Canonical's servers answered, the build installs from
+  Ubuntu mirrors run by others (kernel.org, then Princeton). apt still checks Ubuntu's
+  signatures. `/etc/gap-finder-apt-source` then reads `mirror <url> <time>`. Both stages
+  install through `shiny_app/gap_finder/docker/apt_install.sh`, and Build Image (PR)
+  checks the mirror step with Canonical's hosts blocked.
 
 ## 2026-11-11: v1.1.1 — Image build when snapshot.ubuntu.com is down
 

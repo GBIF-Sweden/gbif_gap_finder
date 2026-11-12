@@ -15,6 +15,7 @@ on:
   pull_request:
     paths:
       - "shiny_app/gap_finder/Dockerfile.gap_finder"
+      - "shiny_app/gap_finder/docker/**"
       - "renv.lock"
       - ".github/workflows/build-image-pr.yml"
 
@@ -39,6 +40,36 @@ jobs:
           # bundle is not needed here. Explicit, because the release workflow
           # does need it.
           lfs: false
+
+      # The apt fallback chain (docker/apt_install.sh) ends with Ubuntu mirrors
+      # run by others. That step only runs when all of Canonical is down, so it
+      # is checked here: Canonical's hosts are blocked and each mirror installs
+      # one package. A failing mirror gets a warning; the step fails only when
+      # no mirror works.
+      - name: Check the apt mirror fallback (Canonical blocked)
+        run: |
+          df=shiny_app/gap_finder/Dockerfile.gap_finder
+          base=$(sed -n 's/^FROM \(rocker\/r-ver[^ ]*\) AS builder$/\1/p' "$df")
+          snapshot=$(sed -n 's/^ARG APT_SNAPSHOT=//p' "$df")
+          mirrors=$(sed -n 's/^APT_MIRRORS_DEFAULT="\(.*\)"$/\1/p' shiny_app/gap_finder/docker/apt_install.sh)
+          test -n "$base"
+          test -n "$snapshot"
+          test -n "$mirrors"
+          ok=0
+          for m in $mirrors; do
+            if docker run --rm --platform linux/amd64 \
+                 --add-host snapshot.ubuntu.com:127.0.0.1 \
+                 --add-host archive.ubuntu.com:127.0.0.1 \
+                 --add-host security.ubuntu.com:127.0.0.1 \
+                 -e APT_SNAPSHOT="$snapshot" -e APT_RETRIES=1 -e APT_MIRRORS="$m" \
+                 -v "$PWD/shiny_app/gap_finder/docker:/x:ro" "$base" \
+                 sh /x/apt_install.sh libgeos-dev; then
+              ok=$((ok + 1))
+            else
+              echo "::warning::apt mirror $m failed with Canonical's hosts blocked"
+            fi
+          done
+          test "$ok" -gt 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

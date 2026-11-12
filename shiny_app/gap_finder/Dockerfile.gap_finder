@@ -13,16 +13,18 @@
 # break the build at the next security update. Trade-off: security fixes arrive
 # only when this date moves. Bump it deliberately at each release (and after a
 # security advisory for GDAL/PROJ/GEOS/curl/openssl), then rebuild and check.
-# `--error-on=any` makes a failed snapshot fetch fail the update instead of
-# installing from stale or empty package lists.
-# The snapshot server answers with 5xx errors at times, briefly or for hours.
-# So apt retries each download up to 8 times, up to 60 s apart (80retries),
-# and a failed `apt-get update` runs once more after 60 s. If the snapshot
-# still fails, the build installs from the live Ubuntu archive instead and
-# prints a warning. Either way /etc/gap-finder-apt-source records where the
-# packages came from ("snapshot <date>" or "live archive <time>"). On an LTS
-# release the live archive differs from the snapshot only by stable and
-# security updates, so GDAL/GEOS/PROJ keep their versions up to the patch level.
+# Both stages install through docker/apt_install.sh. The snapshot server
+# answers with 5xx errors at times, briefly or for hours, so apt retries each
+# download up to 8 times and a failed `apt-get update` runs once more after
+# 60 s. If the snapshot still fails, the script installs from the live Ubuntu
+# archive, and if all of Canonical is down (as on 2026-11-11), from Ubuntu
+# mirrors run by others; each step prints a warning. apt checks every source
+# against Ubuntu's archive key. /etc/gap-finder-apt-source records where the
+# packages came from ("snapshot <date>", "live archive <time>" or
+# "mirror <url> <time>"). On an LTS release the live archive and the mirrors
+# differ from the snapshot only by stable and security updates, so
+# GDAL/GEOS/PROJ keep their versions up to the patch level.
+# build-image-pr.yml checks the mirror step with Canonical's hosts blocked.
 ARG APT_SNAPSHOT=20261109T000000Z
 
 FROM rocker/r-ver:4.6.2@sha256:8739c76d2d9316698a7145b032601f1e82249fdee34670d7b4a0a40d6bacd95a AS builder
@@ -38,15 +40,8 @@ ENV RENV_CONFIG_PAK_ENABLED=FALSE
 # for Ubuntu 26.04 (resolute), the base of rocker/r-ver:4.6.2 (4.6.1 and older
 # are on 24.04, noble).
 # libuv1-dev: fs >= 2.0 builds against the system libuv instead of its own copy.
-RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
-    && echo 'Acquire::Retries "8"; Acquire::Retries::Delay::Maximum "60";' > /etc/apt/apt.conf.d/80retries \
-    && src="snapshot ${APT_SNAPSHOT}" \
-    && for try in 1 2; do apt-get update --error-on=any && break; \
-         if [ "$try" -eq 1 ]; then echo "apt-get update failed, retrying in 60 s"; sleep 60; continue; fi; \
-         echo "WARNING: snapshot.ubuntu.com is unavailable; installing from the live Ubuntu archive" >&2; \
-         rm /etc/apt/apt.conf.d/50snapshot; src="live archive $(date -u +%Y-%m-%dT%H:%MZ)"; \
-         apt-get update --error-on=any || exit 100; done \
-    && apt-get install -y --no-install-recommends \
+COPY shiny_app/gap_finder/docker/apt_install.sh /usr/local/bin/gap_finder_apt_install.sh
+RUN sh /usr/local/bin/gap_finder_apt_install.sh \
     cmake \
     g++ \
     gdal-bin \
@@ -67,9 +62,7 @@ RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
     libudunits2-dev \
     libuv1-dev \
     libxml2-dev \
-    make \
-    && echo "$src" > /etc/gap-finder-apt-source \
-    && rm -rf /var/lib/apt/lists/*
+    make
 
 RUN R -q -e "install.packages('renv', repos = 'https://packagemanager.posit.co/cran/latest')"
 
@@ -89,15 +82,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Ubuntu 26.04 names: the 64-bit time_t libraries end in t64, and libxml2 2.14+
 # ships as libxml2-16 (there is no plain libxml2 package). libuv1t64 is for fs.
-RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
-    && echo 'Acquire::Retries "8"; Acquire::Retries::Delay::Maximum "60";' > /etc/apt/apt.conf.d/80retries \
-    && src="snapshot ${APT_SNAPSHOT}" \
-    && for try in 1 2; do apt-get update --error-on=any && break; \
-         if [ "$try" -eq 1 ]; then echo "apt-get update failed, retrying in 60 s"; sleep 60; continue; fi; \
-         echo "WARNING: snapshot.ubuntu.com is unavailable; installing from the live Ubuntu archive" >&2; \
-         rm /etc/apt/apt.conf.d/50snapshot; src="live archive $(date -u +%Y-%m-%dT%H:%MZ)"; \
-         apt-get update --error-on=any || exit 100; done \
-    && apt-get install -y --no-install-recommends \
+COPY shiny_app/gap_finder/docker/apt_install.sh /usr/local/bin/gap_finder_apt_install.sh
+RUN sh /usr/local/bin/gap_finder_apt_install.sh \
     libcurl4t64 \
     libfontconfig1 \
     libfribidi0 \
@@ -114,9 +100,7 @@ RUN echo "APT::Snapshot \"${APT_SNAPSHOT}\";" > /etc/apt/apt.conf.d/50snapshot \
     libtiff6 \
     libudunits2-0 \
     libuv1t64 \
-    libxml2-16 \
-    && echo "$src" > /etc/gap-finder-apt-source \
-    && rm -rf /var/lib/apt/lists/*
+    libxml2-16
 
 COPY --from=builder /usr/local/lib/R/site-library /usr/local/lib/R/site-library
 
