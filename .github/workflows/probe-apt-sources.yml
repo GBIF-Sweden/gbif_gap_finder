@@ -1,0 +1,80 @@
+name: Probe apt sources (throwaway)
+
+# Throwaway diagnostics for the image-build investigation (Nov 2026). This file
+# lives only on the branch probe/apt-sources and is never merged. It pushes
+# nothing, needs no secrets and changes nothing outside the runners. Results
+# are written as notice annotations on each job (readable without signing in)
+# and to the job summary.
+on:
+  push:
+    branches:
+      - probe/apt-sources
+
+permissions:
+  contents: read
+
+jobs:
+  sources:
+    name: Sources (${{ matrix.runner }} ${{ matrix.rep }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04]
+        rep: [1, 2]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          lfs: false
+
+      - name: Probe package sources and snapshot mode
+        env:
+          LABEL: ${{ matrix.runner }}
+        run: bash .github/probe/apt_probe.sh
+
+      - name: Annotate (1/2)
+        if: always()
+        run: bash .github/probe/annotate.sh 1 9
+
+      - name: Annotate (2/2)
+        if: always()
+        run: bash .github/probe/annotate.sh 10 18
+
+  cache:
+    name: Layer cache (fresh builder, Canonical and Posit blocked)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          lfs: false
+
+      - name: Free disk space
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Probe the layer cache
+        run: bash .github/probe/cache_probe.sh
+
+      - name: Annotate
+        if: always()
+        run: bash .github/probe/annotate.sh 1 9
+
+  image:
+    name: Published images (apt source, library versions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          lfs: false
+
+      - name: Probe the published images
+        run: bash .github/probe/image_probe.sh
+
+      - name: Annotate
+        if: always()
+        run: bash .github/probe/annotate.sh 1 9
