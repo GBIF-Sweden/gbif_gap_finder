@@ -13,6 +13,11 @@ the wrong species.
   missing in v1.0.2). 09b writes them to `taxonomic_infraspecific_taxa.csv`, with the same
   kingdom and order exclusions, and `docs/metrics.md` states how many are set aside.
   `parameters.taxonomic.gap_include_infraspecific: true` puts them back in the denominator.
+- **App: taxa set aside** — the Taxonomic and Species of Concern tabs state how many
+  subspecies, varieties and forms are set aside (on Species of Concern: how many of them are
+  red-listed or sensitive) and offer the list as CSV; Data & Sources lists the table too.
+  With a bundle that has no such table, the app shows no note and keeps the About wording
+  that fits that bundle.
 
 ### Fixed
 

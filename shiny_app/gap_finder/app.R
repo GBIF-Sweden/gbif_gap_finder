@@ -255,6 +255,20 @@ tax_by_establishment <- safe_get("tax_by_establishment")
 has_establishment    <- !is.null(match_summary_full) &&
                         "establishmentMeans" %in% names(match_summary_full)
 
+# Subspecies, varieties and forms that the pipeline (script 09b) sets aside from
+# the taxonomic figures: the cube counts their records under the species, so
+# they cannot be assessed separately. NULL in a bundle without this table: such
+# a bundle counts them in the figures, so the notes on the taxa set aside are
+# left out and the About texts use the wording that fits it.
+infra_taxa <- safe_get("taxonomic_infraspecific")
+has_infra  <- !is.null(infra_taxa) && NROW(infra_taxa) > 0
+n_infra_threatened <- if (has_infra && "threatStatus" %in% names(infra_taxa)) {
+  sum(infra_taxa$threatStatus %in% THREATENED_CODES)
+} else 0L
+n_infra_sensitive <- if (has_infra && "is_sensitive" %in% names(infra_taxa)) {
+  sum(infra_taxa$is_sensitive %in% TRUE)
+} else 0L
+
 # Order exclusions (e.g. Primates = Homo sapiens) are applied once at the source,
 # in the pipeline, via parameters.taxonomic.exclude_orders in the country config
 # (script 09b). Every taxonomic table the app loads — match summary, by-order /
@@ -463,6 +477,19 @@ read_guide <- function(measures, interpret, action) {
     div(tags$span(class = "rg-label", "What it measures"), measures),
     div(tags$span(class = "rg-label", "How to read it"), interpret),
     div(tags$span(class = "rg-label", "What to do"), action))
+}
+
+# Note on the subspecies, varieties and forms set aside from the taxonomic
+# figures, with the list as CSV. `lead` is the tab's own sentence with its
+# counts. NULL when the bundle has no such table, or when `show` is FALSE.
+infra_note <- function(lead, dl_id, show = TRUE) {
+  if (!has_infra || !show) return(NULL)
+  div(class = "info-note", style = "margin-bottom: 1rem;",
+    icon("layer-group", style = "margin-right: 0.3rem;"),
+    lead,
+    " GBIF's occurrence cube counts their records under the species, so they cannot be ",
+    "assessed separately. ",
+    downloadLink(dl_id, "Download the list (CSV)", style = "color: var(--sage-ink);"))
 }
 
 # Download handler that writes a data frame (geometry dropped) to CSV.
@@ -1605,7 +1632,10 @@ ui <- fluidPage(
                 p(tags$strong("Reference population: "),
                   "completeness percentages use the species-rank taxa in the national checklist (Dyntaxa) ",
                   "as the denominator \u2014 excluding microbial kingdoms (Bacteria, Archaea, Viruses) and ",
-                  "Homo sapiens. A species counts as \u201Cin GBIF\u201D when at least one occurrence resolves to it.")
+                  "Homo sapiens. A species counts as \u201Cin GBIF\u201D when at least one occurrence resolves to it.",
+                  if (has_infra) paste(
+                    "Subspecies, varieties and forms are set aside: GBIF's occurrence cube counts their",
+                    "records under the species, so they cannot be assessed separately."))
               )
             )
           ),
@@ -1650,6 +1680,13 @@ ui <- fluidPage(
             ". To see only present, native, introduced or invasive species, ",
             "use the Scope filter on the Species of Concern tab."
           ),
+
+          # Subspecies, varieties and forms are not part of this tab's figures.
+          infra_note(
+            tagList("Not in these figures: ",
+                    tags$strong(comma(NROW(infra_taxa))),
+                    " subspecies, varieties and forms in the national checklist."),
+            "infra_dl_taxonomic"),
 
           # Active filter breadcrumb
           uiOutput("tax_filter_breadcrumb"),
@@ -1762,8 +1799,14 @@ ui <- fluidPage(
                   "or invasive species (where establishment-means data is available). ",
                   "Threat status comes from SLU Artdatabanken's Red List, the invasive flag from ",
                   "GRIIS Sweden, and the sensitive flag from the SLU Restricted Access Species list. ",
-                  "The Red List and sensitive flags are matched at the rank each list publishes — a ",
-                  "listed subspecies stays a subspecies — whereas the invasive flag is rolled up to ",
+                  if (has_infra) paste(
+                    "The Red List and sensitive flags are matched at the rank each list publishes.",
+                    "A listed subspecies, variety or form is set aside from the figures on this tab,",
+                    "because the cube counts its records under the species; the note below the filters",
+                    "says how many there are. The invasive flag is rolled up to"
+                  ) else paste(
+                    "The Red List and sensitive flags are matched at the rank each list publishes — a",
+                    "listed subspecies stays a subspecies — whereas the invasive flag is rolled up to"),
                   "species level, as described above. A few non-species entries (hybrids, colour morphs, ",
                   "slash-aggregates) have no species-level occurrence equivalent and are not flagged."),
                 p("Prioritisation tip: start with the Threatened sub-tab to identify missing CR/EN species, ",
@@ -1795,6 +1838,17 @@ ui <- fluidPage(
                   choices = scope_choices, selected = "all")
               )
             )),
+
+          # Red-listed and sensitive subspecies, varieties and forms are not part of
+          # this tab's figures.
+          infra_note(
+            tagList("Not in these figures: ",
+                    tags$strong(comma(n_infra_threatened)),
+                    paste0(" red-listed (", paste(THREATENED_CODES, collapse = "/"), ") and "),
+                    tags$strong(comma(n_infra_sensitive)),
+                    " sensitive subspecies, varieties and forms."),
+            "infra_dl_concern",
+            show = n_infra_threatened + n_infra_sensitive > 0),
 
           # Sub-tabs
           tabsetPanel(
@@ -2286,6 +2340,7 @@ ui <- fluidPage(
                     "Troudet Bias (Family)" = "troudet_bias_family",
                     # Species of Concern
                     "Taxonomic Match Summary" = "taxonomic_match_summary",
+                    "Infraspecific Taxa (set aside)" = "taxonomic_infraspecific",
                     "Species Scope Lookup"    = "species_scope_lookup",
                     "Threatened Species (scope)" = "threatened_basis_recent",
                     "Invasive Species (scope)"   = "invasive_basis_recent",
@@ -5845,6 +5900,11 @@ server <- function(input, output, session) {
       readr::write_csv(df, file)
     }
   )
+
+  # The subspecies, varieties and forms set aside from the taxonomic figures:
+  # the same list behind the note on the Taxonomic and the Species of Concern tab.
+  output$infra_dl_taxonomic <- dl_csv(function() infra_taxa, "infraspecific_taxa_set_aside")
+  output$infra_dl_concern   <- dl_csv(function() infra_taxa, "infraspecific_taxa_set_aside")
 
   # ===================================================================
   # CSV downloads for maps (cell-level underlying data)
