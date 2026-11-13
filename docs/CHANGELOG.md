@@ -45,6 +45,10 @@ the wrong species.
 - **Epithet endings** — Tier 3 matches names that differ only in the ending of the epithet:
   -i/-ii (*Juncus gerardi*, *J. gerardii*), -us/-a/-um (*Rhagio scolopacea*, *R. scolopaceus*)
   and -is/-e (`match_type` `ending_variant`), where the stem leads to one backbone taxon.
+- **Species through their subspecies** — a species-rank taxon without a match of its own is
+  present when one of its own subspecies, varieties or forms is, and takes their records
+  (`best_match_tier` `infraspecific`). *Papaver radicatum* (NT) was counted missing while
+  its records sat under subsp. *radicatum*.
 
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 

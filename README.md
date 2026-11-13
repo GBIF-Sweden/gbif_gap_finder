@@ -293,7 +293,7 @@ Each species receives three key flags:
 - `is_invasive` — whether the species appears on the national invasive species registry
 - `is_sensitive` — whether the species is on the restricted access list (coordinates generalized in GBIF)
 
-The gap denominator is the backbone's species-rank taxa. Subspecies, varieties and forms cannot be assessed against a cube keyed at species rank: a record identified to a subspecies is counted under its species. Script **09b** lists them in `taxonomic_infraspecific_taxa.csv` instead of counting them as missing (`gap_include_infraspecific: true` puts them back).
+The gap denominator is the backbone's species-rank taxa. Subspecies, varieties and forms cannot be assessed against a cube keyed at species rank: a record identified to a subspecies is counted under its species. Script **09b** lists them in `taxonomic_infraspecific_taxa.csv` instead of counting them as missing (`gap_include_infraspecific: true` puts them back). Their records are records of the species, so a species without a match of its own counts as present when one of its subspecies, varieties or forms is.
 
 Script **09c** uses these flags to produce four scope-filtered variants of every cube-based summary (cell, time, cell × time, order × cell, order × time, family × time, recency, record-type recent period, spatial gaps, cell-last-year), per grid:
 

@@ -301,6 +301,74 @@ if (file.exists(crosswalk_file)) {
 }
 
 # ---------------------------------------------------------------------------
+# Species present through their own subspecies, varieties or forms
+# ---------------------------------------------------------------------------
+# A record of a subspecies is a record of its species. A species-rank taxon
+# without a match of its own is present when an infraspecific taxon below it
+# is, and takes that taxon's cube keys and records. ADDITIVE: only flips
+# matched_any FALSE -> TRUE. The keys are matched to the infraspecific taxon as
+# well, so `shared_key` is TRUE for these rows. `infra_sk_map` (cube key ->
+# species) feeds the spatial-coverage join below.
+infra_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
+if (all(c("taxonRank", "parentNameUsageID") %in% names(tax_accepted))) {
+  tax_tree  <- tax_accepted[!duplicated(taxonID),
+                            .(taxonID,
+                              parent = as.character(parentNameUsageID),
+                              rank   = tolower(taxonRank))]
+  parent_of <- setNames(tax_tree$parent, tax_tree$taxonID)
+  rank_of   <- setNames(tax_tree$rank,   tax_tree$taxonID)
+
+  # The species above an infraspecific taxon: its parent, or further up for a
+  # form below a variety below a subspecies.
+  species_above <- function(id) {
+    up <- unname(parent_of[id])
+    for (step in seq_len(3L)) {
+      below <- !is.na(up) & unname(rank_of[up]) %in% INFRA_RANKS
+      if (!any(below)) break
+      up[below] <- unname(parent_of[up[below]])
+    }
+    up[!(unname(rank_of[up]) %in% "species")] <- NA_character_
+    up
+  }
+
+  present_infra <- match_summary[tolower(taxonRank) %in% INFRA_RANKS & matched_any == TRUE,
+                                 .(infra_taxonID = taxonID)]
+  present_infra[, species_taxonID := species_above(infra_taxonID)]
+  present_infra <- present_infra[!is.na(species_taxonID)]
+
+  # Cube keys of a present taxon: matched to it in 09a, or linked by the crosswalk.
+  key_of_taxon <- unique(rbind(
+    recon[match_tier != "unmatched", .(specieskey, backbone_taxonID)],
+    cw_sk_map
+  ))
+  infra_keys <- merge(present_infra, key_of_taxon,
+                      by.x = "infra_taxonID", by.y = "backbone_taxonID")
+  infra_keys <- unique(infra_keys[, .(species_taxonID, specieskey)])
+  infra_keys <- merge(infra_keys, recon[, .(specieskey, total_occ)], by = "specieskey")
+
+  via_infra  <- match_summary[matched_any == FALSE & taxonID %in% infra_keys$species_taxonID,
+                              taxonID]
+  infra_keys <- infra_keys[species_taxonID %in% via_infra]
+  if (length(via_infra) > 0) {
+    infra_agg <- infra_keys[, .(n_keys = .N,
+                                occ    = sum(as.numeric(total_occ), na.rm = TRUE),
+                                keys   = paste(specieskey, collapse = ";")),
+                            by = species_taxonID]
+    match_summary[infra_agg, on = c(taxonID = "species_taxonID"),
+                  `:=`(matched_any      = TRUE,
+                       best_match_tier  = "infraspecific",
+                       n_gbif_species   = i.n_keys,
+                       gbif_total_occ   = i.occ,
+                       gbif_specieskeys = i.keys,
+                       shared_key       = TRUE)]
+    infra_sk_map <- infra_keys[, .(specieskey, backbone_taxonID = species_taxonID)]
+  }
+  cli_alert_success(
+    "Species present through their own infraspecific taxa: +{scales::comma(length(via_infra))}"
+  )
+}
+
+# ---------------------------------------------------------------------------
 # Scope the gap denominator to the organisms we actually compare against GBIF.
 #  (1) Species rank only. A genus/family/order name cannot match a GBIF species
 #      binomial, so higher ranks would otherwise be counted as "missing" and
@@ -592,10 +660,12 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
   sp_cells[, specieskey := as.character(specieskey)]
   # Include the COL crosswalk presence map (cw_sk_map, built in the presence
   # overlay above) so concept-split taxa recovered only by the crosswalk carry
-  # their cube key's cells/occurrences here too.
+  # their cube key's cells/occurrences here too. The same for the species that
+  # are present through their infraspecific taxa (infra_sk_map).
   sk_to_taxon <- unique(rbind(
     recon[match_tier != "unmatched", .(specieskey, backbone_taxonID)],
-    cw_sk_map
+    cw_sk_map,
+    infra_sk_map
   ), by = c("specieskey", "backbone_taxonID"))
 
   sp_cells_with_taxon <- merge(sp_cells, sk_to_taxon, by = "specieskey", all.x = TRUE)
