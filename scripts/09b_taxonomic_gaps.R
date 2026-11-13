@@ -22,6 +22,9 @@
 #   Missing taxa:
 #     - taxonomic_missing_taxa.csv           All backbone taxa not in GBIF
 #     - taxonomic_missing_threatened.csv     Threatened backbone taxa not in GBIF
+#   Set aside:
+#     - taxonomic_infraspecific_taxa.csv     Subspecies, varieties and forms: not
+#                                            assessable from a species-level cube
 #   Coverage:
 #     - taxonomic_coverage_by_rank.csv       Coverage % by taxonomic rank
 #     - taxonomic_coverage_by_threat.csv     Coverage % by threat status
@@ -191,12 +194,15 @@ keep_cols <- intersect(
 )
 tax_clean <- tax_accepted[, ..keep_cols]
 
+# Ranks below species. The cube groups records by species key, so these taxa
+# cannot be assessed against it; the gap scoping below sets them aside.
+INFRA_RANKS <- c("subspecies", "variety", "form")
+
 # Report rank distribution
 if ("taxonRank" %in% names(tax_clean)) {
-  species_ranks <- c("species", "Species", "SPECIES", "subspecies",
-                     "Subspecies", "variety", "form")
-  n_species_rank <- sum(tax_clean$taxonRank %in% species_ranks, na.rm = TRUE)
-  cli_alert_info("Species-rank taxa: {scales::comma(n_species_rank)}")
+  rank_lc <- tolower(tax_clean$taxonRank)
+  cli_alert_info("Species-rank taxa: {scales::comma(sum(rank_lc == 'species', na.rm = TRUE))}")
+  cli_alert_info("Infraspecific taxa: {scales::comma(sum(rank_lc %in% INFRA_RANKS, na.rm = TRUE))}")
 }
 
 
@@ -273,28 +279,43 @@ if (file.exists(crosswalk_file)) {
 
 # ---------------------------------------------------------------------------
 # Scope the gap denominator to the organisms we actually compare against GBIF.
-#  (1) Species-rank only: a genus/family/order name cannot match a GBIF species
+#  (1) Species rank only. A genus/family/order name cannot match a GBIF species
 #      binomial, so higher ranks would otherwise be counted as "missing" and
 #      massively inflate the gap. The national checklist carries ~30k such
 #      higher-rank accepted taxa.
+#      Subspecies, varieties and forms cannot be assessed either: a record
+#      identified to a subspecies is counted under its species in the cube, so
+#      no cube key carries an infraspecific name. They go to their own table
+#      (infra_taxa) instead of counting as missing.
+#      `gap_include_infraspecific: true` keeps them in the denominator.
 #  (2) Drop non-multicellular kingdoms the backbone happens to list (Dyntaxa
 #      does carry Bacteria/Archaea/Viruses). Protozoa/Chromista are KEPT.
-# Both are config-gated so portability/other countries can opt out.
+# All are config-gated so portability/other countries can opt out. The kingdom
+# and order exclusions apply to infra_taxa as well.
 # ---------------------------------------------------------------------------
+gap_ranks <- if (isTRUE(cfg_get("parameters.taxonomic.gap_include_infraspecific", FALSE))) {
+  c("species", INFRA_RANKS)
+} else {
+  "species"
+}
+infra_taxa <- match_summary[0L]
 if (isTRUE(cfg_get("parameters.taxonomic.gap_species_only", TRUE)) &&
     "taxonRank" %in% names(match_summary)) {
-  species_ranks <- c("species", "subspecies", "variety", "form")
   n_before <- nrow(match_summary)
-  match_summary <- match_summary[tolower(taxonRank) %in% species_ranks]
+  rank_lc  <- tolower(match_summary$taxonRank)
+  infra_taxa    <- match_summary[rank_lc %in% setdiff(INFRA_RANKS, gap_ranks)]
+  match_summary <- match_summary[rank_lc %in% gap_ranks]
   cli_alert_info(
-    "Gap scoped to species rank: {scales::comma(n_before)} -> \\
-    {scales::comma(nrow(match_summary))} taxa"
+    "Gap scoped to {paste(gap_ranks, collapse = '/')} rank: {scales::comma(n_before)} -> \\
+    {scales::comma(nrow(match_summary))} taxa \\
+    ({scales::comma(nrow(infra_taxa))} infraspecific taxa set aside)"
   )
 }
 exclude_kingdoms <- unlist(cfg_get("parameters.taxonomic.exclude_kingdoms", character(0)))
 if (length(exclude_kingdoms) && "kingdom" %in% names(match_summary)) {
   n_before <- nrow(match_summary)
   match_summary <- match_summary[is.na(kingdom) | !(kingdom %in% exclude_kingdoms)]
+  infra_taxa    <- infra_taxa[is.na(kingdom) | !(kingdom %in% exclude_kingdoms)]
   cli_alert_info(
     "Excluded kingdoms ({paste(exclude_kingdoms, collapse = ', ')}): \\
     {scales::comma(n_before)} -> {scales::comma(nrow(match_summary))} taxa"
@@ -311,6 +332,7 @@ exclude_orders <- unlist(cfg_get("parameters.taxonomic.exclude_orders", characte
 if (length(exclude_orders) && "order" %in% names(match_summary)) {
   n_before <- nrow(match_summary)
   match_summary <- match_summary[is.na(order) | !(order %in% exclude_orders)]
+  infra_taxa    <- infra_taxa[is.na(order) | !(order %in% exclude_orders)]
   cli_alert_info(
     "Excluded orders ({paste(exclude_orders, collapse = ', ')}): \\
     {scales::comma(n_before)} -> {scales::comma(nrow(match_summary))} taxa"
@@ -323,6 +345,7 @@ if (length(exclude_orders) && "order" %in% names(match_summary)) {
 # taxonomic_match_summary.csv that 11 and the app read) inherits the bucket, so
 # no taxon is dropped just because a parent rank is missing in the backbone.
 match_summary <- bucket_unclassified(match_summary)
+infra_taxa    <- bucket_unclassified(infra_taxa)
 
 n_backbone_matched <- sum(match_summary$matched_any)
 cli_alert_success(
@@ -715,6 +738,10 @@ write_gap_file <- function(dt, filename, label = NULL) {
 # Match summary (backbone view)
 write_gap_file(match_summary, "taxonomic_match_summary.csv")
 
+# Infraspecific taxa set aside from the gap denominator. Written on every run,
+# empty when none are set aside, so the table never outlives the run it describes.
+write_gap_file(infra_taxa, "taxonomic_infraspecific_taxa.csv")
+
 # Missing taxa
 write_gap_file(missing_taxa, "taxonomic_missing_taxa.csv")
 write_gap_file(missing_threatened, "taxonomic_missing_threatened.csv")
@@ -769,7 +796,8 @@ summary_dt <- data.table(
     "Threatened in reference",
     "Threatened in GBIF",
     "Threatened missing from GBIF",
-    "Priority taxa for sampling"
+    "Priority taxa for sampling",
+    "Infraspecific taxa set aside"
   ),
   Value = c(
     scales::comma(nrow(tax_clean)),
@@ -779,7 +807,8 @@ summary_dt <- data.table(
     scales::comma(sum(match_summary$matched_any &
                         match_summary$threatStatus %in% THREATENED_CODES, na.rm = TRUE)),
     scales::comma(nrow(missing_threatened)),
-    scales::comma(nrow(priority_all))
+    scales::comma(nrow(priority_all)),
+    scales::comma(nrow(infra_taxa))
   )
 )
 

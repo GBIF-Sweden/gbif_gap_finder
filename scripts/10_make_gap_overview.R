@@ -124,6 +124,7 @@ tax_threatened_spatial <- safe_read_gap("taxonomic_threatened_spatial_coverage.c
 tax_priority <- safe_read_gap("taxonomic_priority_taxa.csv")
 tax_missing <- safe_read_gap("taxonomic_missing_taxa.csv")
 tax_missing_threatened <- safe_read_gap("taxonomic_missing_threatened.csv")
+tax_infraspecific <- safe_read_gap("taxonomic_infraspecific_taxa.csv")
 
 cli_alert_success("Gap files loaded")
 
@@ -206,6 +207,15 @@ dashboard <- data.table(
     sum(tax_coverage_threat[threatStatus %in% THREATENED_CODES]$n_in_gbif, na.rm = TRUE)
   ),
   threatened_missing = calc_metric(nrow(tax_missing_threatened)),
+
+  # --- Infraspecific taxa set aside by 09b (not assessable from a species-level cube) ---
+  infraspecific_set_aside = calc_metric(
+    if (is.null(tax_infraspecific)) NA_integer_ else nrow(tax_infraspecific)
+  ),
+  infraspecific_threatened = calc_metric(
+    if (is.null(tax_infraspecific)) NA_integer_
+    else sum(tax_infraspecific$threatStatus %in% THREATENED_CODES)
+  ),
   
   # --- Priority counts ---
   n_priority_taxa = calc_metric(nrow(tax_priority)),

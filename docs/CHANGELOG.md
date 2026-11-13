@@ -1,5 +1,19 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Taxon matching: infraspecific taxa and Tier 4
+
+Two matching problems made some gaps look bigger than they are and put some records under
+the wrong species.
+
+### Changed
+
+- **Gap denominator: species rank** — subspecies, varieties and forms no longer count in the
+  taxonomic gap. The cube groups records by species key, so no cube key carries an
+  infraspecific name and most of these taxa could never match (2,707 of 3,698 counted as
+  missing in v1.0.2). 09b writes them to `taxonomic_infraspecific_taxa.csv`, with the same
+  kingdom and order exclusions, and `docs/metrics.md` states how many are set aside.
+  `parameters.taxonomic.gap_include_infraspecific: true` puts them back in the denominator.
+
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 
 In November 2026 snapshot.ubuntu.com and archive.ubuntu.com were unreliable for two days.

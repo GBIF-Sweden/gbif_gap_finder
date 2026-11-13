@@ -420,9 +420,14 @@ A reference taxon is missing from GBIF if:
 taxon in Swedish reference AND no match found in cube taxa set
 ```
 
+The reference is the backbone's species-rank taxa. Subspecies, varieties and forms cannot
+be assessed against a cube keyed at species rank, so they do not count as missing; they are
+listed separately.
+
 **Outputs:**
 - `taxonomic_missing_taxa.csv` (5,304 missing taxa)
 - `taxonomic_missing_threatened.csv` (subset: threatened taxa missing)
+- `taxonomic_infraspecific_taxa.csv` (subspecies, varieties and forms set aside)
 
 ### 5.5 Coverage Analysis
 
