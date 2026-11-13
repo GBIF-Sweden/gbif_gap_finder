@@ -280,7 +280,7 @@ listed live on the **Data & Sources** tab):
 Spatial reference: EEA 10 km + 50 km grids; administrative boundaries from GADM.
 
 Under the hood, every GBIF species is matched to the backbone through a 5‑tier
-reconciliation (accepted name → synonym → infraspecific collapse → GBIF API synonym →
+reconciliation (accepted name → synonym → local name variants → GBIF API synonym →
 Catalogue of Life crosswalk), reaching ~99.8% of occurrences — so the taxonomic figures are
 robust to naming differences.
 

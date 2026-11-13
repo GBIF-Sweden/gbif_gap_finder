@@ -14,7 +14,8 @@
 #   Tier 1 -- Direct accepted name match (local)
 #   Tier 2 -- Synonym name match (local, via backbone synonym rows)
 #   Tier 3 -- Local name variants: infraspecific collapse (strip subsp/var),
-#             a hybrid name written without the hybrid sign
+#             a hybrid name written without the hybrid sign, another ending
+#             of the epithet
 #   Tier 4 -- COL synonyms of the cube key at species rank (GBIF Species API,
 #             cached); several backbone taxa for one key -> tier4_ambiguous
 #   Tier 5 -- COL crosswalk (key match via 09a1's col_crosswalk.rds). Fills the
@@ -405,6 +406,7 @@ if (n_t2 > 0) {
 #                           subsp./var./f.), the binomial (first two words) is
 #                           a backbone name
 #   hybrid_sign             the backbone writes the name with a hybrid sign
+#   ending_variant          the backbone writes the epithet with another ending
 
 cli_h2("Tier 3: Local name variants")
 
@@ -494,11 +496,67 @@ if (nrow(t3_hybrid) > 0) {
   n_t3_hybrid <- nrow(t3_hybrid)
 }
 
+# --- Epithet ending ---
+# The cube and the backbone can write one epithet with different endings:
+#   -i / -ii                  Juncus gerardi, Juncus gerardii
+#   -us / -a / -um (and -er)  Rhagio scolopacea, Rhagio scolopaceus; niger, nigra
+#   -is / -e                  Temnostoma apiformis, Temnostoma apiforme
+# Within a genus these are spellings of one name. The stem is the genus, the
+# epithet without its ending, and which of the three endings it has. A cube
+# binomial matches where its stem leads to one backbone taxon.
+ending_stem <- function(name_std) {
+  genus   <- sub(" .*$", "", name_std)
+  epithet <- sub("^[^ ]+ ", "", name_std)
+  stem <- rep(NA_character_, length(name_std))
+  kind <- rep(NA_character_, length(name_std))
+
+  i <- grepl("i$", epithet)
+  stem[i] <- sub("i+$", "", epithet[i])
+  kind[i] <- "i"
+
+  us <- !i & grepl("(us|um|a|er)$", epithet)
+  stem[us] <- sub("er$", "r", sub("(us|um|a)$", "", epithet[us]))
+  kind[us] <- "us"
+
+  is <- !i & !us & grepl("(is|e)$", epithet) & !grepl("ae$", epithet)
+  stem[is] <- sub("(is|e)$", "", epithet[is])
+  kind[is] <- "is"
+
+  ifelse(is.na(stem) | nchar(stem) < 3L, NA_character_, paste(genus, stem, kind))
+}
+
+n_t3_ending <- 0L
+is_binomial <- function(x) grepl("^[a-z-]+ [a-z-]+$", x)
+bb_stems <- bb_names[is_binomial(name_std)]
+bb_stems[, stem := ending_stem(name_std)]
+bb_stems <- bb_stems[!is.na(stem)]
+bb_stems[, n_taxa := uniqueN(taxonID), by = stem]
+bb_stems <- bb_stems[n_taxa == 1L][, .SD[1L], by = stem]
+setnames(bb_stems, "name_std", "bb_name")
+
+t3_ending <- recon[is.na(match_tier) & is_binomial(name_std), .(specieskey, name_std)]
+t3_ending[, stem := ending_stem(name_std)]
+t3_ending <- merge(
+  t3_ending[!is.na(stem)],
+  bb_stems[, .(stem, bb_name, taxonID, scientificName)],
+  by = "stem"
+)
+if (nrow(t3_ending) > 0) {
+  recon[t3_ending, on = "specieskey",
+        `:=`(backbone_taxonID        = i.taxonID,
+             backbone_scientificName = i.scientificName,
+             match_tier             = "tier3",
+             match_type             = "ending_variant",
+             match_name_used        = i.bb_name)]
+  n_t3_ending <- nrow(t3_ending)
+}
+
 n_t3_all <- sum(recon$match_tier == "tier3", na.rm = TRUE)
 occ_t3   <- if (n_t3_all > 0) recon[match_tier == "tier3", sum(as.numeric(total_occ))] else 0
 cli_alert_success("Tier 3: {scales::comma(n_t3_all)} species ({scales::comma(occ_t3)} occ)")
 cli_alert_info("  Infraspecific collapse: {scales::comma(n_t3)} of {nrow(t3_candidates)} candidates")
 cli_alert_info("  Hybrid sign: {scales::comma(n_t3_hybrid)}")
+cli_alert_info("  Epithet ending: {scales::comma(n_t3_ending)}")
 cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
 

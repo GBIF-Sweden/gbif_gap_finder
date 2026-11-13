@@ -42,6 +42,9 @@ the wrong species.
 - **Hybrids without the sign** — Tier 3 matches a cube name such as *Symphytum uplandicum* to
   the backbone hybrid *Symphytum × uplandicum* (`match_type` `hybrid_sign`), where the name
   without the sign leads to one backbone taxon.
+- **Epithet endings** — Tier 3 matches names that differ only in the ending of the epithet:
+  -i/-ii (*Juncus gerardi*, *J. gerardii*), -us/-a/-um (*Rhagio scolopacea*, *R. scolopaceus*)
+  and -is/-e (`match_type` `ending_variant`), where the stem leads to one backbone taxon.
 
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 

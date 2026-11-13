@@ -283,7 +283,7 @@ The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as t
 
 - **Tier 1** — Direct accepted name match
 - **Tier 2** — Synonym resolution via backbone
-- **Tier 3** — Local name variants: infraspecific collapse (subspecies → species); a hybrid name written without the hybrid sign
+- **Tier 3** — Local name variants: infraspecific collapse (subspecies → species); a hybrid name written without the hybrid sign; another ending of the epithet (*gerardi*/*gerardii*, *scolopacea*/*scolopaceus*)
 - **Tier 4** — CoL synonyms of the cube key at species rank (GBIF Species API, cached); `tier4_ambiguous` when they lead to more than one backbone taxon
 - **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`, matched on the cube's CoL `specieskey`). It fills what Tiers 1–4 left unmatched, and it replaces a Tier 4 match where the key is linked only to other backbone taxa (`taxonomic_tier4_overrides.csv` lists these)
 
