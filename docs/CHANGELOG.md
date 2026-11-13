@@ -26,6 +26,10 @@ the wrong species.
   match is marked `tier4_ambiguous` instead of silently taking the first.
 - **Preflight** — the Tier 4 check also asserts that GBIF's synonyms carry `rank` and
   `canonicalName`.
+- **Key before name** — where the Dyntaxa–COL crosswalk links a cube key to backbone taxa and
+  the Tier 4 taxon is not one of them, the crosswalk taxon replaces it (`tier5_col`, match type
+  `col_crosswalk_override`). 09a lists every replacement in `taxonomic_tier4_overrides.csv`.
+  This changes the Tier 1–4 counts.
 
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 

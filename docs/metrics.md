@@ -392,7 +392,7 @@ Taxa detected in cubes:
 2. **Tier 2** — Synonym resolution via backbone synonym rows
 3. **Tier 3** — Infraspecific collapse (strip subspecies/variety, re-match locally)
 4. **Tier 4** — CoL synonyms of the cube key at species rank, by canonical name (GBIF Species API; for remaining unmatched, cached across runs). `tier4_ambiguous` when they lead to more than one backbone taxon
-5. **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`; matches on the cube's CoL `specieskey`)
+5. **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`; matches on the cube's CoL `specieskey`). Fills what Tiers 1–4 left unmatched and replaces a Tier 4 match where the key is linked only to other backbone taxa
 
 **Result:** ~99.8% occurrence coverage (up from 31% with name-only matching)
 
@@ -403,6 +403,7 @@ Taxa detected in cubes:
 
 **Outputs:**
 - `taxonomic_match_table.csv` (full matching details)
+- `taxonomic_tier4_overrides.csv` (Tier 4 matches replaced by the crosswalk taxon, with both taxa)
 - `taxonomic_match_summary.csv` (per-taxon summary)
 
 **Columns in match_summary:**

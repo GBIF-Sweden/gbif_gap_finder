@@ -16,7 +16,9 @@
 #   Tier 3 -- Infraspecific collapse (strip subsp/var, re-match locally)
 #   Tier 4 -- COL synonyms of the cube key at species rank (GBIF Species API,
 #             cached); several backbone taxa for one key -> tier4_ambiguous
-#   Tier 5 -- COL crosswalk (key match via 09a1's col_crosswalk.rds; additive)
+#   Tier 5 -- COL crosswalk (key match via 09a1's col_crosswalk.rds). Fills the
+#             rows Tiers 1-4 left unmatched, and replaces a Tier 4 match where
+#             the key is linked only to other backbone taxa
 #
 # Inputs:
 #   - data/{CC}/proc/derived/by_order/species_summary/*_10km.csv  (GBIF species)
@@ -32,6 +34,8 @@
 #                                                       authorship, taxonomic status)
 #   - data/{CC}/proc/gaps/taxonomic_match_table.csv      Reconciliation as CSV
 #   - data/{CC}/proc/gaps/taxonomic_reconciliation_summary.csv  Tier-level summary
+#   - data/{CC}/proc/gaps/taxonomic_tier4_overrides.csv  Tier 4 matches replaced by the
+#                                                       crosswalk taxon (both taxa)
 #
 # Dependencies: data.table, stringr, here, cli, httr2 (optional, for Tier 4)
 # ============================================================================
@@ -771,21 +775,15 @@ cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
 
 # ============================================================================
-# TIER 5: COL crosswalk (Dyntaxa <-> COL taxonID authority)
+# COL crosswalk (Dyntaxa <-> COL taxonID authority)
 # ============================================================================
-# For species still unmatched after Tiers 1-4, use the authoritative
-# Dyntaxa->COL crosswalk (built by 09a1 via GBIF's v2 match API). The cube's
-# specieskey IS a COL taxonID, so a cube key that equals a Dyntaxa taxon's COL
-# key IS that taxon -- a key-based match that resolves the COL name-divergence
-# (e.g. Sylvia -> Curruca) that name matching (Tiers 1-3) and the COL synonym
-# lookup (Tier 4) can miss. ADDITIVE: only fills rows Tiers 1-4 left NA, so the
-# Tier 1-4 assignments (and the Tier-4 count) are preserved exactly. Skipped
-# gracefully if the crosswalk has not been built, so 09a still runs standalone.
-
-cli_h2("Tier 5: COL crosswalk (Dyntaxa <-> COL key)")
+# Built by 09a1 via GBIF's v2 match API. The cube's specieskey IS a COL taxonID,
+# so a cube key that equals a Dyntaxa taxon's COL key IS that taxon. Read once
+# here for the two steps below. Both are skipped gracefully if the crosswalk has
+# not been built, so 09a still runs standalone.
 
 crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
-n_t5 <- 0L
+cw1 <- NULL
 if (file.exists(crosswalk_file)) {
   crosswalk <- as.data.table(readRDS(crosswalk_file))
   crosswalk <- crosswalk[!is.na(col_key) & nzchar(col_key)]
@@ -798,8 +796,99 @@ if (file.exists(crosswalk_file)) {
   if (!"confidence"  %in% names(crosswalk)) crosswalk[, confidence  := NA_integer_]
   setorder(crosswalk, col_key, via_synonym, -confidence)
   cw1 <- crosswalk[, .SD[1], by = col_key,
-                   .SDcols = c("dyntaxa_taxonID", "name_used")]
+                   .SDcols = c("dyntaxa_taxonID", "name_used", "via_synonym")]
+}
 
+
+# ============================================================================
+# KEY BEFORE NAME: the crosswalk replaces a Tier 4 match that disagrees
+# ============================================================================
+# Tier 4 matches by name: one of the cube key's synonyms is a backbone name.
+# The crosswalk matches by key, and can link one key to several backbone taxa
+# (a COL lump). A Tier 4 taxon that is one of them agrees with the key and
+# stays. Where the key is linked only to other taxa, the key decides and the row
+# becomes tier5_col / col_crosswalk_override, with the best-supported link.
+# Tiers 1-3 match the cube species' own name and are left as they are.
+
+cli_h2("Key before name: crosswalk check of the Tier 4 matches")
+
+n_t4_override  <- 0L
+n_t4_confirmed <- 0L
+# Every replacement, with both taxa, for review (written with the other outputs).
+t4_overrides <- data.table(
+  specieskey = character(0), species = character(0), total_occ = numeric(0),
+  tier4_tier = character(0), tier4_scientificName = character(0), tier4_name_used = character(0),
+  crosswalk_scientificName = character(0), crosswalk_name_used = character(0),
+  crosswalk_via_synonym = logical(0), crosswalk_n_taxa = integer(0)
+)
+if (!is.null(cw1)) {
+  t4_rows <- recon[match_tier %in% c("tier4", "tier4_ambiguous"),
+                   .(specieskey, tier4_taxonID = backbone_taxonID)]
+  cw_links <- unique(crosswalk[, .(specieskey = col_key, tier4_taxonID = dyntaxa_taxonID)])
+  cw_links[, crosswalk_n_taxa := .N, by = specieskey]
+
+  # Confirmed: the crosswalk links the key to the Tier 4 taxon itself.
+  t4_confirmed   <- merge(t4_rows, cw_links, by = c("specieskey", "tier4_taxonID"))
+  n_t4_confirmed <- uniqueN(t4_confirmed$specieskey)
+
+  t4_conflict <- merge(
+    t4_rows[!specieskey %in% t4_confirmed$specieskey],
+    cw1, by.x = "specieskey", by.y = "col_key"
+  )
+  t4_conflict <- merge(
+    t4_conflict, unique(cw_links[, .(specieskey, crosswalk_n_taxa)]), by = "specieskey"
+  )
+  # The crosswalk taxon has to be an accepted backbone taxon.
+  t4_conflict <- merge(
+    t4_conflict,
+    accepted_taxa[, .(taxonID, scientificName)][, .SD[1], by = taxonID],
+    by.x = "dyntaxa_taxonID", by.y = "taxonID"
+  )
+
+  if (nrow(t4_conflict) > 0) {
+    t4_overrides <- merge(
+      recon[, .(specieskey, species, total_occ,
+                tier4_tier = match_tier,
+                tier4_scientificName = backbone_scientificName,
+                tier4_name_used = match_name_used)],
+      t4_conflict[, .(specieskey,
+                      crosswalk_scientificName = scientificName,
+                      crosswalk_name_used = name_used,
+                      crosswalk_via_synonym = via_synonym,
+                      crosswalk_n_taxa)],
+      by = "specieskey"
+    )[order(-total_occ)]
+
+    recon[t4_conflict, on = "specieskey",
+          `:=`(backbone_taxonID        = i.dyntaxa_taxonID,
+               backbone_scientificName = i.scientificName,
+               match_tier             = "tier5_col",
+               match_type             = "col_crosswalk_override",
+               match_name_used        = i.name_used)]
+    n_t4_override <- nrow(t4_conflict)
+  }
+  cli_alert_success(
+    "Tier 4 matches replaced by the crosswalk taxon: {scales::comma(n_t4_override)} \\
+     ({scales::comma(n_t4_confirmed)} confirmed: the key is linked to the Tier 4 taxon)"
+  )
+} else {
+  cli_alert_warning(
+    "col_crosswalk.rds not found -- Tier 4 matches are not checked (run 09a1 to build it)."
+  )
+}
+
+
+# ============================================================================
+# TIER 5: COL crosswalk fills the rows still unmatched
+# ============================================================================
+# A key-based match that resolves the COL name-divergence (e.g. Sylvia ->
+# Curruca) that name matching (Tiers 1-3) and the COL synonym lookup (Tier 4)
+# can miss. ADDITIVE: only fills rows that are still unmatched.
+
+cli_h2("Tier 5: COL crosswalk (Dyntaxa <-> COL key)")
+
+n_t5 <- 0L
+if (!is.null(cw1)) {
   t5_join <- merge(
     recon[is.na(match_tier), .(specieskey)],
     cw1, by.x = "specieskey", by.y = "col_key"
@@ -827,7 +916,9 @@ if (file.exists(crosswalk_file)) {
   )
 }
 
-occ_t5 <- if (n_t5 > 0) recon[match_tier == "tier5_col", sum(as.numeric(total_occ))] else 0
+occ_t5 <- if (n_t5 > 0) {
+  recon[match_tier == "tier5_col" & match_type == "col_crosswalk", sum(as.numeric(total_occ))]
+} else 0
 cli_alert_success("Tier 5: {scales::comma(n_t5)} species ({scales::comma(occ_t5)} occ)")
 cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
@@ -974,6 +1065,11 @@ tier_summary <- recon[, .(
   pct_occurrences = round(100 * sum(as.numeric(total_occ)) /
                             sum(as.numeric(gbif_species$total_occ)), 2)
 ), by = .(match_tier, match_type)][order(match_tier, -n_species)]
+
+# Tier 4 matches replaced by the crosswalk taxon (empty when there are none)
+overrides_path <- here(p_gaps, "taxonomic_tier4_overrides.csv")
+fwrite(t4_overrides, overrides_path)
+cli_alert_success("Saved: {.path {overrides_path}}")
 
 # Tier summary CSV (09a-specific; 09b writes the backbone-level match_summary)
 match_summary_path <- here(p_gaps, "taxonomic_reconciliation_summary.csv")
