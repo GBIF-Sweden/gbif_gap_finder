@@ -49,6 +49,15 @@ the wrong species.
   present when one of its own subspecies, varieties or forms is, and takes their records
   (`best_match_tier` `infraspecific`). *Papaver radicatum* (NT) was counted missing while
   its records sat under subsp. *radicatum*.
+- **Crosswalk: nominate subspecies** — CoL files many species names under the nominate
+  subspecies of another name (*Lycopodium annotinum* under *Spinulum annotinum* subsp.
+  *annotinum*), whose key no species-level cube has. 09a1 links such a name to the cube key
+  of the species (`via_nominate`). No new GBIF queries: the cached CoL name shows it.
+  The validation report counts these names and the ones filed under another infraspecific
+  taxon; `col_crosswalk_infraspecific.csv` lists the species-rank taxa among the latter.
+- **One taxon per cube key** — where the crosswalk links a cube key to several backbone taxa
+  by their own names, 09a takes a species-rank taxon first (before: the highest confidence,
+  which could be a variety of that species).
 
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 

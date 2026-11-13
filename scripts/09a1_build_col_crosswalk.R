@@ -25,10 +25,15 @@
 #      parallel httr2 requests to /v2/species/match; an optional bulk path via
 #      rgbif::name_backbone_checklist() can fill the cache first.
 #   3. Writes the crosswalk  data/{CC}/proc/col_crosswalk.rds
-#      (dyntaxa_taxonID, col_key, match_status, match_type, confidence, name_used).
+#      (dyntaxa_taxonID, col_key, match_status, match_type, confidence, name_used,
+#      via_synonym, via_nominate). A name that COL files under a nominate
+#      infraspecific taxon is linked to the cube key of that taxon's species
+#      (via_nominate).
 #   4. VALIDATES coverage vs the cube and the configured baseline
 #      (parameters.taxonomic.crosswalk_baseline) and writes
-#      data/{CC}/proc/gaps/col_crosswalk_validation.md.
+#      data/{CC}/proc/gaps/col_crosswalk_validation.md, plus
+#      col_crosswalk_infraspecific.csv: the species-rank taxa that COL files
+#      under another infraspecific taxon.
 #
 # RUN:  source("scripts/09a1_build_col_crosswalk.R")     (after 03 + 06b)
 # Config (all optional; safe defaults, NO config-file change required):
@@ -138,6 +143,7 @@ sum_files <- list.files(
   pattern = "species_summary.*10km\\.csv$", recursive = TRUE, full.names = TRUE
 )
 cube_sp <- NULL
+cube_names <- data.table(name_std = character(0), specieskey = character(0))
 if (length(sum_files) == 0) {
   cli_alert_warning(
     "No species_summary files (run 06b) -- crosswalk will build but cube \\
@@ -145,10 +151,15 @@ if (length(sum_files) == 0) {
   )
 } else {
   gbif_raw <- rbindlist(lapply(sum_files, fread,
-    select = c("specieskey", "occurrences", "basisofrecord")), fill = TRUE)
+    select = c("specieskey", "species", "occurrences", "basisofrecord")), fill = TRUE)
   gbif_raw[, specieskey := as.character(specieskey)]
   cube_sp <- gbif_raw[basisofrecord == "all",
     .(total_occ = sum(as.numeric(occurrences), na.rm = TRUE)), by = specieskey]
+  # Species name -> cube key, for the names that stand for one key. It gives the
+  # cube key of a species from the name of its nominate subspecies (Step 4).
+  cube_names <- unique(gbif_raw[basisofrecord == "all" & !is.na(species) & species != "",
+                                .(name_std = tolower(trimws(species)), specieskey)])
+  cube_names <- cube_names[, if (.N == 1L) .SD, by = name_std]
   cli_alert_success(
     "Cube species: {scales::comma(nrow(cube_sp))}  \\
      occ: {scales::comma(sum(cube_sp$total_occ))}"
@@ -340,22 +351,56 @@ cache_dt <- rbindlist(lapply(names(api_cache), function(nm) {
 # Accept a COL key only for EXACT matches, or FUZZY at/above the confidence
 # floor. HIGHERRANK / NONE and low-confidence fuzzies carry no key. (A key that
 # is a higher-rank COL id simply is not in the cube, so the membership test is
-# self-cleaning — this filter just keeps the crosswalk honest.)
+# self-cleaning — this filter just keeps the crosswalk honest.) The v2 API
+# reports spelling variants as VARIANT, not FUZZY. They carry no key either:
+# some of them join two species (Muscicapa albicilla to Ficedula albicollis).
 cache_dt[, keep := !is.na(col_key) & nzchar(col_key) &
   (match_type == "EXACT" |
      (match_type == "FUZZY" & !is.na(confidence) & confidence >= min_fuzzy_conf))]
 cache_dt[keep == FALSE, col_key := NA_character_]
 
+# A name that COL files under a nominate infraspecific taxon ("Spinulum
+# annotinum annotinum" for Lycopodium annotinum) is, at species rank, the
+# species itself. The cube is keyed at species rank, so its records sit under
+# the species' key, and the name is linked to that key (via_nominate). A name
+# filed under any other infraspecific taxon ("Dactylis glomerata lobata" for
+# Dactylis polygama) keeps that taxon's own key: its records are inside the
+# species' key and cannot be told apart there. The validation report counts
+# both. An infraspecific COL name has three words and no hybrid sign; the first
+# two are the species.
+col_words <- strsplit(tolower(cache_dt$col_name), " ", fixed = TRUE)
+is_infra  <- cache_dt$keep & lengths(col_words) == 3L & !grepl("\u00d7", cache_dt$col_name)
+is_infra[is.na(is_infra)] <- FALSE
+col_species <- rep(NA_character_, nrow(cache_dt))
+col_species[is_infra] <- vapply(col_words[is_infra],
+                                function(w) paste(w[1:2], collapse = " "), character(1))
+is_nominate <- is_infra
+is_nominate[is_infra] <- vapply(col_words[is_infra], function(w) w[2] == w[3], logical(1))
+
+cache_dt[, `:=`(col_infraspecific = is_infra,
+                col_nominate      = is_nominate,
+                col_species       = col_species,
+                species_cube_key  = NA_character_)]
+cache_dt[cube_names, on = c(col_species = "name_std"), species_cube_key := i.specieskey]
+cache_dt[, via_nominate := col_nominate & !is.na(species_cube_key)]
+cache_dt[via_nominate == TRUE, col_key := species_cube_key]
+cli_alert_info(
+  "Names under a nominate infraspecific COL taxon: \\
+   {scales::comma(sum(cache_dt$col_nominate))} \\
+   ({scales::comma(sum(cache_dt$via_nominate))} linked to the species' cube key)"
+)
+
 # Join names -> accepted taxon; one row per (accepted taxon, COL key), keeping
 # the best supporting name (accepted-row over synonym, then higher confidence).
 xwalk <- merge(
   name_map,
-  cache_dt[keep == TRUE, .(name_std, col_key, status, match_type, confidence)],
+  cache_dt[keep == TRUE, .(name_std, col_key, status, match_type, confidence, via_nominate)],
   by = "name_std"
 )
-setorder(xwalk, accepted_taxonID, col_key, is_syn, -confidence)
+setorder(xwalk, accepted_taxonID, col_key, via_nominate, is_syn, -confidence)
 crosswalk <- xwalk[, .SD[1], by = .(accepted_taxonID, col_key),
-                   .SDcols = c("status", "match_type", "confidence", "name_std", "is_syn")]
+                   .SDcols = c("status", "match_type", "confidence", "name_std", "is_syn",
+                               "via_nominate")]
 setnames(crosswalk,
          c("accepted_taxonID", "status", "name_std", "is_syn"),
          c("dyntaxa_taxonID", "match_status", "name_used", "via_synonym"))
@@ -388,6 +433,35 @@ report <- c(
   "",
   "### Match-type breakdown",
   paste0("- ", mtype_tab$match_type, ": ", vapply(mtype_tab$N, scales::comma, character(1)))
+)
+
+# Species-rank taxa whose own name COL files under an infraspecific taxon that
+# is not the nominate one, with that taxon's species in the cube. Their records
+# are inside the species' cube key; whether they have any cannot be read from a
+# species-level cube.
+other_infra <- merge(
+  name_map[is_syn == FALSE, .(name_std, dyntaxa_taxonID = accepted_taxonID, threatStatus,
+                              taxonRank = if ("taxonRank" %in% names(name_map)) taxonRank
+                                          else NA_character_)],
+  cache_dt[col_infraspecific == TRUE & col_nominate == FALSE & !is.na(species_cube_key),
+           .(name_std, col_name, col_species, species_cube_key)],
+  by = "name_std"
+)
+other_infra <- other_infra[is.na(taxonRank) | tolower(taxonRank) == "species"]
+other_infra <- other_infra[order(!(threatStatus %in% THREATENED_CODES), name_std)]
+other_infra_file <- here(p_gaps, "col_crosswalk_infraspecific.csv")
+dir.create(dirname(other_infra_file), showWarnings = FALSE, recursive = TRUE)
+fwrite(other_infra, other_infra_file)
+
+report <- c(report, "",
+  "## Names that COL files below species rank",
+  sprintf("- Under a nominate infraspecific taxon: %s names, %s of them linked to the cube key of the species",
+          scales::comma(sum(cache_dt$col_nominate)), scales::comma(sum(cache_dt$via_nominate))),
+  sprintf("- Under another infraspecific taxon: %s names. Their records are inside the species' cube key and cannot be told apart there.",
+          scales::comma(sum(cache_dt$col_infraspecific & !cache_dt$col_nominate))),
+  sprintf("- Species-rank taxa whose own name is filed that way, with the species in the cube: %s (threatened: %s). Listed in `col_crosswalk_infraspecific.csv`.",
+          scales::comma(uniqueN(other_infra$dyntaxa_taxonID)),
+          scales::comma(uniqueN(other_infra[threatStatus %in% THREATENED_CODES, dyntaxa_taxonID])))
 )
 
 if (length(cube_keys) > 0) {

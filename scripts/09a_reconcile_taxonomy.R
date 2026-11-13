@@ -888,13 +888,23 @@ if (file.exists(crosswalk_file)) {
   crosswalk <- as.data.table(readRDS(crosswalk_file))
   crosswalk <- crosswalk[!is.na(col_key) & nzchar(col_key)]
 
-  # One accepted taxon per COL key: prefer an accepted-name link over a synonym
-  # link, then higher confidence. (A COL "lump" -- two Dyntaxa taxa sharing one
-  # COL key -- is rare here, ~1%; picking the best-supported link keeps the
-  # GBIF-species-centric reconciliation at one taxon per cube key.)
-  if (!"via_synonym" %in% names(crosswalk)) crosswalk[, via_synonym := FALSE]
-  if (!"confidence"  %in% names(crosswalk)) crosswalk[, confidence  := NA_integer_]
-  setorder(crosswalk, col_key, via_synonym, -confidence)
+  # One accepted taxon per COL key: an accepted-name link before a synonym
+  # link; then a species-rank taxon before any other, because a cube key stands
+  # for a species; then a link to the key itself before one through a nominate
+  # subspecies (via_nominate, set by 09a1); then higher confidence. (A COL
+  # "lump" -- two Dyntaxa taxa sharing one COL key -- is rare here, ~1%; picking
+  # the best-supported link keeps the GBIF-species-centric reconciliation at
+  # one taxon per cube key.)
+  if (!"via_synonym"  %in% names(crosswalk)) crosswalk[, via_synonym  := FALSE]
+  if (!"via_nominate" %in% names(crosswalk)) crosswalk[, via_nominate := FALSE]
+  if (!"confidence"   %in% names(crosswalk)) crosswalk[, confidence   := NA_integer_]
+  species_ids <- if ("taxonRank" %in% names(accepted_taxa)) {
+    accepted_taxa[tolower(taxonRank) == "species", taxonID]
+  } else {
+    accepted_taxa$taxonID
+  }
+  crosswalk[, not_species := !(dyntaxa_taxonID %in% species_ids)]
+  setorder(crosswalk, col_key, via_synonym, not_species, via_nominate, -confidence)
   cw1 <- crosswalk[, .SD[1], by = col_key,
                    .SDcols = c("dyntaxa_taxonID", "name_used", "via_synonym")]
 }
