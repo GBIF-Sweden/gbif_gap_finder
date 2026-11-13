@@ -13,7 +13,8 @@
 # Matching tiers:
 #   Tier 1 -- Direct accepted name match (local)
 #   Tier 2 -- Synonym name match (local, via backbone synonym rows)
-#   Tier 3 -- Infraspecific collapse (strip subsp/var, re-match locally)
+#   Tier 3 -- Local name variants: infraspecific collapse (strip subsp/var),
+#             a hybrid name written without the hybrid sign
 #   Tier 4 -- COL synonyms of the cube key at species rank (GBIF Species API,
 #             cached); several backbone taxa for one key -> tier4_ambiguous
 #   Tier 5 -- COL crosswalk (key match via 09a1's col_crosswalk.rds). Fills the
@@ -396,12 +397,16 @@ if (n_t2 > 0) {
 
 
 # ============================================================================
-# TIER 3: Infraspecific Collapse
+# TIER 3: Local name variants
 # ============================================================================
-# For names with 3+ words (or containing subsp./var./f.), extract the
-# binomial (first two words) and try matching that against the backbone.
+# The cube name is not a backbone name as it stands, but a variant of one.
+# match_type says which:
+#   infraspecific_collapse  for names with 3+ words (or containing
+#                           subsp./var./f.), the binomial (first two words) is
+#                           a backbone name
+#   hybrid_sign             the backbone writes the name with a hybrid sign
 
-cli_h2("Tier 3: Infraspecific collapse to binomial")
+cli_h2("Tier 3: Local name variants")
 
 t3_pool <- recon[is.na(match_tier), .(specieskey, name_std, total_occ)]
 t3_pool[, n_words := sapply(strsplit(name_std, "\\s+"), length)]
@@ -454,9 +459,46 @@ if (nrow(t3_candidates) > 0) {
   }
 }
 
-occ_t3 <- if (n_t3 > 0) recon[match_tier == "tier3", sum(as.numeric(total_occ))] else 0
-cli_alert_success("Tier 3: {scales::comma(n_t3)} species ({scales::comma(occ_t3)} occ)")
-cli_alert_info("  Infraspecific candidates tested: {nrow(t3_candidates)}")
+# Every backbone name with the accepted taxon it stands for.
+bb_names <- rbind(
+  accepted_taxa[, .(name_std, taxonID, scientificName)],
+  syn_lookup[!is.na(accepted_name),
+             .(name_std, taxonID = accepted_taxonID, scientificName = accepted_name)]
+)
+
+# --- Hybrid sign ---
+# COL writes a named hybrid without the sign ("Symphytum uplandicum"); the
+# backbone puts a multiplication sign or an "x" between genus and epithet. A
+# cube binomial that equals a backbone hybrid name without its sign is that
+# hybrid. Only where the plain form leads to one backbone taxon.
+n_t3_hybrid <- 0L
+bb_hybrids <- bb_names[grepl("\u00d7| x ", name_std)]
+bb_hybrids[, plain := trimws(gsub("\\s+", " ", gsub("\u00d7\\s*| x ", " ", name_std)))]
+bb_hybrids <- bb_hybrids[lengths(strsplit(plain, " ", fixed = TRUE)) == 2L]
+bb_hybrids[, n_taxa := uniqueN(taxonID), by = plain]
+bb_hybrids <- bb_hybrids[n_taxa == 1L][, .SD[1L], by = plain]
+setnames(bb_hybrids, "name_std", "bb_name")
+
+t3_hybrid <- merge(
+  recon[is.na(match_tier), .(specieskey, name_std)],
+  bb_hybrids[, .(plain, bb_name, taxonID, scientificName)],
+  by.x = "name_std", by.y = "plain"
+)
+if (nrow(t3_hybrid) > 0) {
+  recon[t3_hybrid, on = "specieskey",
+        `:=`(backbone_taxonID        = i.taxonID,
+             backbone_scientificName = i.scientificName,
+             match_tier             = "tier3",
+             match_type             = "hybrid_sign",
+             match_name_used        = i.bb_name)]
+  n_t3_hybrid <- nrow(t3_hybrid)
+}
+
+n_t3_all <- sum(recon$match_tier == "tier3", na.rm = TRUE)
+occ_t3   <- if (n_t3_all > 0) recon[match_tier == "tier3", sum(as.numeric(total_occ))] else 0
+cli_alert_success("Tier 3: {scales::comma(n_t3_all)} species ({scales::comma(occ_t3)} occ)")
+cli_alert_info("  Infraspecific collapse: {scales::comma(n_t3)} of {nrow(t3_candidates)} candidates")
+cli_alert_info("  Hybrid sign: {scales::comma(n_t3_hybrid)}")
 cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
 

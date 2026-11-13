@@ -39,6 +39,9 @@ the wrong species.
   the record count of its cube keys instead of showing as present with 0 records.
   `shared_key` in `taxonomic_match_summary.csv` marks the rows whose key is matched to
   another taxon as well: those records count for both.
+- **Hybrids without the sign** — Tier 3 matches a cube name such as *Symphytum uplandicum* to
+  the backbone hybrid *Symphytum × uplandicum* (`match_type` `hybrid_sign`), where the name
+  without the sign leads to one backbone taxon.
 
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 
