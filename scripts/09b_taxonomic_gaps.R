@@ -260,9 +260,14 @@ match_summary[is.na(gbif_total_occ), gbif_total_occ := 0]
 # Skipped if the crosswalk is absent. `cw_sk_map` (COL key -> taxon) also feeds
 # the spatial-coverage join below, so recovered taxa carry their cube key's
 # cells/occurrences instead of showing up as present-but-empty.
+#
+# A recovered taxon also takes the record count of its cube keys. Such a key is
+# matched to another backbone taxon in 09a, so its records count for both taxa;
+# `shared_key` marks the recovered rows where that is the case.
 crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
 cube_keys <- unique(recon$specieskey)
 cw_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
+match_summary[, shared_key := FALSE]
 if (file.exists(crosswalk_file)) {
   cw <- as.data.table(readRDS(crosswalk_file))
   cw <- cw[!is.na(col_key) & nzchar(col_key) & col_key %in% cube_keys]
@@ -270,8 +275,26 @@ if (file.exists(crosswalk_file)) {
   cw_sk_map <- unique(cw[, .(specieskey = col_key, backbone_taxonID = dyntaxa_taxonID)])
   newly <- match_summary$matched_any == FALSE & match_summary$taxonID %in% xwalk_present
   match_summary[newly, `:=`(matched_any = TRUE, best_match_tier = "tier5_col")]
+
+  xw <- merge(cw_sk_map, recon[, .(specieskey, total_occ, match_tier)], by = "specieskey")
+  xw <- xw[, .(xw_n      = uniqueN(specieskey),
+               xw_occ    = sum(as.numeric(total_occ), na.rm = TRUE),
+               xw_keys   = paste(unique(specieskey), collapse = ";"),
+               xw_shared = any(match_tier != "unmatched")),
+           by = backbone_taxonID]
+  match_summary[xw, on = c(taxonID = "backbone_taxonID"),
+                `:=`(xw_n = i.xw_n, xw_occ = i.xw_occ,
+                     xw_keys = i.xw_keys, xw_shared = i.xw_shared)]
+  match_summary[newly & !is.na(xw_n),
+                `:=`(n_gbif_species   = xw_n,
+                     gbif_total_occ   = xw_occ,
+                     gbif_specieskeys = xw_keys,
+                     shared_key       = xw_shared)]
+  match_summary[, c("xw_n", "xw_occ", "xw_keys", "xw_shared") := NULL]
+
   cli_alert_success(
-    "COL crosswalk presence overlay: +{scales::comma(sum(newly))} backbone taxa now in GBIF"
+    "COL crosswalk presence overlay: +{scales::comma(sum(newly))} backbone taxa now in GBIF \\
+     ({scales::comma(sum(match_summary$shared_key))} on a cube key shared with another taxon)"
   )
 } else {
   cli_alert_warning("col_crosswalk.rds not found -- COL presence overlay skipped (run 09a1).")

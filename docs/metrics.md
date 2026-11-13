@@ -411,6 +411,8 @@ Taxa detected in cubes:
 - `matched_grid10` (found in 10km grid)
 - `matched_grid50` (found in 50km grid)
 - `n_grids` (number of grids where found)
+- `shared_key` (present through a cube key that is matched to another taxon as well; its
+  records count for both)
 
 ### 5.4 Missing Taxa (Taxonomic Gaps)
 

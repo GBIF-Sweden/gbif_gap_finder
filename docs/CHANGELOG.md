@@ -30,6 +30,10 @@ the wrong species.
   the Tier 4 taxon is not one of them, the crosswalk taxon replaces it (`tier5_col`, match type
   `col_crosswalk_override`). 09a lists every replacement in `taxonomic_tier4_overrides.csv`.
   This changes the Tier 1–4 counts.
+- **Crosswalk overlay records** — a taxon that 09b marks present through the crosswalk takes
+  the record count of its cube keys instead of showing as present with 0 records.
+  `shared_key` in `taxonomic_match_summary.csv` marks the rows whose key is matched to
+  another taxon as well: those records count for both.
 
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 
