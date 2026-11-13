@@ -232,7 +232,7 @@ matched_agg <- matched_taxa[, .(
   gbif_total_occ = sum(as.numeric(gbif_total_occ), na.rm = TRUE),
   best_match_tier = match_tier[which.min(match(
     match_tier,
-    c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "tier5_col")
+    c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "tier4_ambiguous", "tier5_col")
   ))],
   gbif_specieskeys = paste(unique(gbif_specieskey), collapse = ";")
 ), by = .(backbone_taxonID)]

@@ -14,6 +14,19 @@ the wrong species.
   kingdom and order exclusions, and `docs/metrics.md` states how many are set aside.
   `parameters.taxonomic.gap_include_infraspecific: true` puts them back in the denominator.
 
+### Fixed
+
+- **Tier 4 names** — a cube key is matched through its COL synonyms at species rank only,
+  by canonical name. Until now an infraspecific synonym was cut to its first two words, so
+  *Ricasolia amplissima* (CR, sensitive; *Lobaria amplissima* in Dyntaxa) matched *Cladonia
+  uncialis* through "Cladonia uncialis var. bolacina". The synonym cache stores each
+  synonym's canonical name, rank, authorship and status; entries without ranks are queried
+  again on the next run (once, up to about an hour).
+- **Tier 4 hits** — when the synonyms of a cube key lead to more than one backbone taxon, the
+  match is marked `tier4_ambiguous` instead of silently taking the first.
+- **Preflight** — the Tier 4 check also asserts that GBIF's synonyms carry `rank` and
+  `canonicalName`.
+
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 
 In November 2026 snapshot.ubuntu.com and archive.ubuntu.com were unreliable for two days.

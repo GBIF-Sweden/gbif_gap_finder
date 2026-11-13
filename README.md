@@ -284,7 +284,7 @@ The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as t
 - **Tier 1** — Direct accepted name match
 - **Tier 2** — Synonym resolution via backbone
 - **Tier 3** — Infraspecific collapse (subspecies → species)
-- **Tier 4** — GBIF Species API lookup
+- **Tier 4** — CoL synonyms of the cube key at species rank (GBIF Species API, cached); `tier4_ambiguous` when they lead to more than one backbone taxon
 - **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`, matched on the cube's CoL `specieskey`)
 
 Each species receives three key flags:
