@@ -226,9 +226,18 @@ parameters:
     restrict_to_backbone_scope: false
     min_occurrences: 1
     min_cells: 1
-    # Taxonomic-gap denominator keeps backbone taxa at species/subspecies/variety/
-    # form rank (all four — 09b species_ranks). Microbial kingdoms + Primates excluded.
+    # Taxonomic-gap denominator: backbone taxa at species rank. Subspecies,
+    # varieties and forms cannot be assessed against a cube keyed at species
+    # rank, so 09b writes them to taxonomic_infraspecific_taxa.csv instead of
+    # counting them as missing; gap_include_infraspecific: true puts them back
+    # in the denominator. Microbial kingdoms + Primates excluded.
     gap_species_only: true
+    gap_include_infraspecific: false
+    # A species that COL, the cube's taxonomy, files as a subspecies or variety
+    # of another species cannot be assessed either: its records are counted
+    # under that species' key. Without a match of its own, 09b sets it aside in
+    # the same table; gap_include_col_infraspecific: true counts it as missing.
+    gap_include_col_infraspecific: false
     exclude_kingdoms: ["Bacteria", "Archaea", "Viruses"]   # drop non-multicellular kingdoms from the gap
     exclude_orders: ["Primates"]
     # "Poorly sampled" (Priorities): a matched taxon in the bottom quantile of

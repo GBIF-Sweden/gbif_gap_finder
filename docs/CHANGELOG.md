@@ -1,5 +1,81 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Taxon matching: infraspecific taxa and Tier 4
+
+Two matching problems made some gaps look bigger than they are and put some records under
+the wrong species.
+
+### Changed
+
+- **Gap denominator: species rank** — subspecies, varieties and forms no longer count in the
+  taxonomic gap. The cube groups records by species key, so no cube key carries an
+  infraspecific name and most of these taxa could never match (2,707 of 3,698 counted as
+  missing in v1.0.2). 09b writes them to `taxonomic_infraspecific_taxa.csv`, with the same
+  kingdom and order exclusions, and `docs/metrics.md` states how many are set aside.
+  `parameters.taxonomic.gap_include_infraspecific: true` puts them back in the denominator.
+- **Species that CoL ranks below species** — a species-rank taxon whose own name CoL files as
+  a subspecies or variety of another species (*Dactylis polygama* as *D. glomerata* subsp.
+  *lobata*) is set aside as well when it has no match of its own. Its records are counted
+  under that other species' key, so a species-level cube cannot say whether it has any; on
+  13 Nov 2026 GBIF held 1,324 Swedish records under that subspecies. The rows carry
+  `set_aside_reason` `col_infraspecific`, CoL's name and the cube key of that species.
+  `parameters.taxonomic.gap_include_col_infraspecific: true` counts them as missing.
+- **App: taxa set aside** — the Taxonomic and Species of Concern tabs state how many
+  subspecies, varieties and forms, and how many species that CoL ranks below species, are
+  set aside (on Species of Concern: how many of them are red-listed or sensitive) and offer
+  the list as CSV; Data & Sources lists the table too.
+  With a bundle that has no such table, the app shows no note and keeps the About wording
+  that fits that bundle.
+
+### Fixed
+
+- **Tier 4 names** — a cube key is matched through its COL synonyms at species rank only,
+  by canonical name. Until now an infraspecific synonym was cut to its first two words, so
+  *Ricasolia amplissima* (CR, sensitive; *Lobaria amplissima* in Dyntaxa) matched *Cladonia
+  uncialis* through "Cladonia uncialis var. bolacina". The synonym cache stores each
+  synonym's canonical name, rank, authorship and status; entries without ranks are queried
+  again on the next run (once, up to about an hour).
+- **Tier 4 hits** — when the synonyms of a cube key lead to more than one backbone taxon, the
+  match is marked `tier4_ambiguous` instead of silently taking the first.
+- **Preflight** — the Tier 4 check also asserts that GBIF's synonyms carry `rank` and
+  `canonicalName`.
+- **Key before name** — where the Dyntaxa–COL crosswalk links a cube key to backbone taxa and
+  the Tier 4 taxon is not one of them, the crosswalk taxon replaces it (`tier5_col`, match type
+  `col_crosswalk_override`). 09a lists every replacement in `taxonomic_tier4_overrides.csv`.
+  This changes the Tier 1–4 counts.
+- **Crosswalk overlay records** — a taxon that 09b marks present through the crosswalk takes
+  the record count of its cube keys instead of showing as present with 0 records.
+  `shared_key` in `taxonomic_match_summary.csv` marks the rows whose key is matched to
+  another taxon as well: those records count for both.
+- **Hybrids without the sign** — Tier 3 matches a cube name such as *Symphytum uplandicum* to
+  the backbone hybrid *Symphytum × uplandicum* (`match_type` `hybrid_sign`), where the name
+  without the sign leads to one backbone taxon.
+- **Epithet endings** — Tier 3 matches names that differ only in the ending of the epithet:
+  -i/-ii (*Juncus gerardi*, *J. gerardii*), -us/-a/-um (*Rhagio scolopacea*, *R. scolopaceus*)
+  and -is/-e (`match_type` `ending_variant`), where the stem leads to one backbone taxon.
+- **Species through their subspecies** — a species-rank taxon without a match of its own is
+  present when one of its own subspecies, varieties or forms is, and takes their records
+  (`best_match_tier` `infraspecific`). *Papaver radicatum* (NT) was counted missing while
+  its records sat under subsp. *radicatum*.
+- **Crosswalk: nominate subspecies** — CoL files many species names under the nominate
+  subspecies of another name (*Lycopodium annotinum* under *Spinulum annotinum* subsp.
+  *annotinum*), whose key no species-level cube has. 09a1 links such a name to the cube key
+  of the species (`via_nominate`). No new GBIF queries: the cached CoL name shows it.
+  The validation report counts these names and the ones filed under another infraspecific
+  taxon; `col_crosswalk_infraspecific.csv` lists the species-rank taxa among the latter.
+- **One taxon per cube key** — where the crosswalk links a cube key to several backbone taxa
+  by their own names, 09a takes a species-rank taxon first (before: the highest confidence,
+  which could be a variety of that species).
+- **Spatial coverage per taxon** — a taxon with a match of its own no longer takes the cells
+  and records of the other cube keys the crosswalk links it to; only a taxon that the
+  crosswalk overlay recovered uses those keys. Until now `taxonomic_spatial_coverage.csv`
+  gave 1,304 taxa the records of other species as well (*Betula pendula* 188,693 instead of
+  78,258), and 100 taxa, 7 of them threatened, were not flagged `poorly_sampled` although
+  their own records are few (*Montanelia tominii*, CR: 2 records in 1 cell).
+- **Priority counts** — "Taxa - Poorly sampled" in `priority_summary.csv` counts the
+  threatened taxa that are poorly sampled. It used to count the whole priority list, the
+  missing threatened taxa included.
+
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 
 In November 2026 snapshot.ubuntu.com and archive.ubuntu.com were unreliable for two days.

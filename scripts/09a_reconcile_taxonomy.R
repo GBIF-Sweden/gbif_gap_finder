@@ -13,9 +13,14 @@
 # Matching tiers:
 #   Tier 1 -- Direct accepted name match (local)
 #   Tier 2 -- Synonym name match (local, via backbone synonym rows)
-#   Tier 3 -- Infraspecific collapse (strip subsp/var, re-match locally)
-#   Tier 4 -- GBIF Species API (for remaining unmatched, cached)
-#   Tier 5 -- COL crosswalk (key match via 09a1's col_crosswalk.rds; additive)
+#   Tier 3 -- Local name variants: infraspecific collapse (strip subsp/var),
+#             a hybrid name written without the hybrid sign, another ending
+#             of the epithet
+#   Tier 4 -- COL synonyms of the cube key at species rank (GBIF Species API,
+#             cached); several backbone taxa for one key -> tier4_ambiguous
+#   Tier 5 -- COL crosswalk (key match via 09a1's col_crosswalk.rds). Fills the
+#             rows Tiers 1-4 left unmatched, and replaces a Tier 4 match where
+#             the key is linked only to other backbone taxa
 #
 # Inputs:
 #   - data/{CC}/proc/derived/by_order/species_summary/*_10km.csv  (GBIF species)
@@ -26,9 +31,13 @@
 # Outputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds       Main lookup table
 #   - data/{CC}/proc/taxa_reference_classified.rds      Classified backbone (read by 09b)
-#   - data/{CC}/proc/col_synonym_cache.rds              Cached COL synonym lookups
+#   - data/{CC}/proc/col_synonym_cache.rds              Cached COL synonym lookups (per
+#                                                       synonym: canonical name, rank,
+#                                                       authorship, taxonomic status)
 #   - data/{CC}/proc/gaps/taxonomic_match_table.csv      Reconciliation as CSV
 #   - data/{CC}/proc/gaps/taxonomic_reconciliation_summary.csv  Tier-level summary
+#   - data/{CC}/proc/gaps/taxonomic_tier4_overrides.csv  Tier 4 matches replaced by the
+#                                                       crosswalk taxon (both taxa)
 #
 # Dependencies: data.table, stringr, here, cli, httr2 (optional, for Tier 4)
 # ============================================================================
@@ -389,12 +398,17 @@ if (n_t2 > 0) {
 
 
 # ============================================================================
-# TIER 3: Infraspecific Collapse
+# TIER 3: Local name variants
 # ============================================================================
-# For names with 3+ words (or containing subsp./var./f.), extract the
-# binomial (first two words) and try matching that against the backbone.
+# The cube name is not a backbone name as it stands, but a variant of one.
+# match_type says which:
+#   infraspecific_collapse  for names with 3+ words (or containing
+#                           subsp./var./f.), the binomial (first two words) is
+#                           a backbone name
+#   hybrid_sign             the backbone writes the name with a hybrid sign
+#   ending_variant          the backbone writes the epithet with another ending
 
-cli_h2("Tier 3: Infraspecific collapse to binomial")
+cli_h2("Tier 3: Local name variants")
 
 t3_pool <- recon[is.na(match_tier), .(specieskey, name_std, total_occ)]
 t3_pool[, n_words := sapply(strsplit(name_std, "\\s+"), length)]
@@ -447,9 +461,102 @@ if (nrow(t3_candidates) > 0) {
   }
 }
 
-occ_t3 <- if (n_t3 > 0) recon[match_tier == "tier3", sum(as.numeric(total_occ))] else 0
-cli_alert_success("Tier 3: {scales::comma(n_t3)} species ({scales::comma(occ_t3)} occ)")
-cli_alert_info("  Infraspecific candidates tested: {nrow(t3_candidates)}")
+# Every backbone name with the accepted taxon it stands for.
+bb_names <- rbind(
+  accepted_taxa[, .(name_std, taxonID, scientificName)],
+  syn_lookup[!is.na(accepted_name),
+             .(name_std, taxonID = accepted_taxonID, scientificName = accepted_name)]
+)
+
+# --- Hybrid sign ---
+# COL writes a named hybrid without the sign ("Symphytum uplandicum"); the
+# backbone puts a multiplication sign or an "x" between genus and epithet. A
+# cube binomial that equals a backbone hybrid name without its sign is that
+# hybrid. Only where the plain form leads to one backbone taxon.
+n_t3_hybrid <- 0L
+bb_hybrids <- bb_names[grepl("\u00d7| x ", name_std)]
+bb_hybrids[, plain := trimws(gsub("\\s+", " ", gsub("\u00d7\\s*| x ", " ", name_std)))]
+bb_hybrids <- bb_hybrids[lengths(strsplit(plain, " ", fixed = TRUE)) == 2L]
+bb_hybrids[, n_taxa := uniqueN(taxonID), by = plain]
+bb_hybrids <- bb_hybrids[n_taxa == 1L][, .SD[1L], by = plain]
+setnames(bb_hybrids, "name_std", "bb_name")
+
+t3_hybrid <- merge(
+  recon[is.na(match_tier), .(specieskey, name_std)],
+  bb_hybrids[, .(plain, bb_name, taxonID, scientificName)],
+  by.x = "name_std", by.y = "plain"
+)
+if (nrow(t3_hybrid) > 0) {
+  recon[t3_hybrid, on = "specieskey",
+        `:=`(backbone_taxonID        = i.taxonID,
+             backbone_scientificName = i.scientificName,
+             match_tier             = "tier3",
+             match_type             = "hybrid_sign",
+             match_name_used        = i.bb_name)]
+  n_t3_hybrid <- nrow(t3_hybrid)
+}
+
+# --- Epithet ending ---
+# The cube and the backbone can write one epithet with different endings:
+#   -i / -ii                  Juncus gerardi, Juncus gerardii
+#   -us / -a / -um (and -er)  Rhagio scolopacea, Rhagio scolopaceus; niger, nigra
+#   -is / -e                  Temnostoma apiformis, Temnostoma apiforme
+# Within a genus these are spellings of one name. The stem is the genus, the
+# epithet without its ending, and which of the three endings it has. A cube
+# binomial matches where its stem leads to one backbone taxon.
+ending_stem <- function(name_std) {
+  genus   <- sub(" .*$", "", name_std)
+  epithet <- sub("^[^ ]+ ", "", name_std)
+  stem <- rep(NA_character_, length(name_std))
+  kind <- rep(NA_character_, length(name_std))
+
+  i <- grepl("i$", epithet)
+  stem[i] <- sub("i+$", "", epithet[i])
+  kind[i] <- "i"
+
+  us <- !i & grepl("(us|um|a|er)$", epithet)
+  stem[us] <- sub("er$", "r", sub("(us|um|a)$", "", epithet[us]))
+  kind[us] <- "us"
+
+  is <- !i & !us & grepl("(is|e)$", epithet) & !grepl("ae$", epithet)
+  stem[is] <- sub("(is|e)$", "", epithet[is])
+  kind[is] <- "is"
+
+  ifelse(is.na(stem) | nchar(stem) < 3L, NA_character_, paste(genus, stem, kind))
+}
+
+n_t3_ending <- 0L
+is_binomial <- function(x) grepl("^[a-z-]+ [a-z-]+$", x)
+bb_stems <- bb_names[is_binomial(name_std)]
+bb_stems[, stem := ending_stem(name_std)]
+bb_stems <- bb_stems[!is.na(stem)]
+bb_stems[, n_taxa := uniqueN(taxonID), by = stem]
+bb_stems <- bb_stems[n_taxa == 1L][, .SD[1L], by = stem]
+setnames(bb_stems, "name_std", "bb_name")
+
+t3_ending <- recon[is.na(match_tier) & is_binomial(name_std), .(specieskey, name_std)]
+t3_ending[, stem := ending_stem(name_std)]
+t3_ending <- merge(
+  t3_ending[!is.na(stem)],
+  bb_stems[, .(stem, bb_name, taxonID, scientificName)],
+  by = "stem"
+)
+if (nrow(t3_ending) > 0) {
+  recon[t3_ending, on = "specieskey",
+        `:=`(backbone_taxonID        = i.taxonID,
+             backbone_scientificName = i.scientificName,
+             match_tier             = "tier3",
+             match_type             = "ending_variant",
+             match_name_used        = i.bb_name)]
+  n_t3_ending <- nrow(t3_ending)
+}
+
+n_t3_all <- sum(recon$match_tier == "tier3", na.rm = TRUE)
+occ_t3   <- if (n_t3_all > 0) recon[match_tier == "tier3", sum(as.numeric(total_occ))] else 0
+cli_alert_success("Tier 3: {scales::comma(n_t3_all)} species ({scales::comma(occ_t3)} occ)")
+cli_alert_info("  Infraspecific collapse: {scales::comma(n_t3)} of {nrow(t3_candidates)} candidates")
+cli_alert_info("  Hybrid sign: {scales::comma(n_t3_hybrid)}")
+cli_alert_info("  Epithet ending: {scales::comma(n_t3_ending)}")
 cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
 
@@ -459,8 +566,12 @@ cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 # For remaining unmatched species above the occurrence threshold:
 #   1. Resolve the cube's COL taxonID -> GBIF integer usage key (sourceId lookup)
 #   2. Query that usage's synonyms within the COL checklist dataset
-#   3. Check if any returned synonym matches a backbone name
+#   3. Keep the synonyms at species rank and check them against backbone names
 #   4. Cache successful responses so reruns are instant
+#
+# Only a species-rank synonym names the same species as the cube key. An
+# infraspecific synonym ("Cladonia uncialis var. bolacina") says nothing about
+# its parent species ("Cladonia uncialis"), so it is not used for matching.
 #
 # The cube key is a COL taxonID (e.g. "6VFN8"), not an integer, so the classic
 # GET /v1/species/{key}/synonyms 400s on it. COL-aware path instead:
@@ -488,9 +599,29 @@ cli_alert_info("  (>= {api_min_occurrences} occ, non-hybrid, binomial+)")
 # is reported by scripts/00_preflight.R.
 api_cache <- load_cache(cache_file, "COL synonym cache", max_age_days = NULL)
 
+# A cache entry is usable when it records the rank of each synonym
+# (`syn_ranks`). An entry without ranks holds names cut down to binomials, which
+# turns an infraspecific synonym into its parent species, so it is queried
+# again. An entry without any synonym is complete as it is and only gains the
+# (empty) rank fields.
+cache_has_ranks <- vapply(api_cache, function(e) !is.null(e$syn_ranks), logical(1))
+cache_is_empty  <- vapply(api_cache, function(e) length(e$synonyms) == 0L, logical(1))
+for (sk in names(api_cache)[!cache_has_ranks & cache_is_empty]) {
+  api_cache[[sk]]$syn_names   <- character(0)
+  api_cache[[sk]]$syn_ranks   <- character(0)
+  api_cache[[sk]]$syn_authors <- character(0)
+  api_cache[[sk]]$syn_status  <- character(0)
+}
+n_cache_no_ranks <- sum(!cache_has_ranks & !cache_is_empty)
+if (n_cache_no_ranks > 0) {
+  cli_alert_warning(
+    "Cached entries without synonym ranks: {scales::comma(n_cache_no_ranks)} (queried again)"
+  )
+}
+
 # Determine which specieskeys still need querying
 t4_candidates[, sk_chr := as.character(specieskey)]
-already_cached <- t4_candidates$sk_chr %in% names(api_cache)
+already_cached <- t4_candidates$sk_chr %in% names(api_cache)[cache_has_ranks | cache_is_empty]
 remaining <- t4_candidates[!already_cached]
 
 cli_alert_info("Already cached: {scales::comma(sum(already_cached))}")
@@ -563,10 +694,13 @@ if (nrow(remaining) > 0 && api_available) {
           req_perform()
         src_results <- resp_body_json(src)$results %||% list()
 
-        # Extract synonym names. scientificName carries authorship (e.g.
-        # "Sylvia communis Latham, 1787"); species is the canonical binomial
-        # ("Sylvia communis"). Keep both, plus a stripped-binomial fallback.
-        all_names <- character(0)
+        # Canonical name (no authorship) and rank of every synonym: what the
+        # matching uses. Authorship and taxonomic status are stored with them
+        # for inspection (homonyms, misapplied names).
+        syn_names   <- character(0)
+        syn_ranks   <- character(0)
+        syn_authors <- character(0)
+        syn_status  <- character(0)
 
         if (length(src_results) > 0) {
           usage_key <- src_results[[1]]$key
@@ -580,31 +714,27 @@ if (nrow(remaining) > 0 && api_available) {
           results <- resp_body_json(resp)$results %||% list()
 
           for (r in results) {
-            sn <- tolower(trimws(r$scientificName %||% ""))
-            cn <- tolower(trimws(r$species %||% r$canonicalName %||% ""))
-
-            if (nzchar(cn)) all_names <- c(all_names, cn)
-            if (nzchar(sn)) {
-              all_names <- c(all_names, sn)
-              # Canonical binomial from scientificName (first two lowercase words)
-              parts <- strsplit(sn, "\\s+")[[1]]
-              if (length(parts) >= 2 &&
-                  grepl("^[a-z]+$", parts[1]) &&
-                  grepl("^[a-z-]+$", parts[2])) {
-                all_names <- c(all_names, paste(parts[1], parts[2]))
-              }
+            cn <- tolower(trimws(r$canonicalName %||% ""))
+            if (nzchar(cn)) {
+              syn_names   <- c(syn_names, cn)
+              syn_ranks   <- c(syn_ranks, toupper(r$rank %||% ""))
+              syn_authors <- c(syn_authors, r$authorship %||% "")
+              syn_status  <- c(syn_status, toupper(r$taxonomicStatus %||% ""))
             }
           }
         }
 
-        all_names <- unique(all_names[all_names != ""])
-
         # Cache the (possibly empty) result. Empty is a VALID answer here (no COL
         # usage for this key, or a taxon with no synonyms) and is cached so reruns
         # skip it. Transport errors are handled below and deliberately NOT cached.
+        # `synonyms` holds the names used for matching: species rank only.
         api_cache[[sk]] <- list(
-          synonyms   = all_names,
-          queried_at = Sys.time()
+          synonyms    = unique(syn_names[syn_ranks == "SPECIES"]),
+          syn_names   = syn_names,
+          syn_ranks   = syn_ranks,
+          syn_authors = syn_authors,
+          syn_status  = syn_status,
+          queried_at  = Sys.time()
         )
       },
       error = function(e) {
@@ -656,118 +786,219 @@ if (nrow(remaining) > 0 && api_available) {
 }
 
 # --- Resolve cached synonyms to backbone ---
-n_t4 <- 0
-occ_t4 <- 0
+# Every species-rank synonym that is a backbone name is a hit, and each hit is
+# resolved to its accepted backbone taxon. A hit on an accepted name ranks
+# before a hit on a backbone synonym; within each, the API order decides. A key
+# whose hits lead to more than one backbone taxon keeps the first and is marked
+# tier4_ambiguous.
+n_t4       <- 0
+n_t4_ambig <- 0
+occ_t4     <- 0
 
-if (nrow(t4_candidates) > 0) {
-  t4_results <- rbindlist(lapply(seq_len(nrow(t4_candidates)), function(i) {
-    sk  <- t4_candidates$sk_chr[i]
-    row <- t4_candidates[i]
+t4_usable <- t4_candidates$sk_chr[
+  vapply(api_cache[t4_candidates$sk_chr], function(e) !is.null(e$syn_ranks), logical(1))
+]
+n_t4_waiting <- nrow(t4_candidates) - length(t4_usable)
 
-    cached <- api_cache[[sk]]
-    if (is.null(cached) || length(cached$synonyms) == 0) {
-      return(NULL)
-    }
+if (length(t4_usable) > 0) {
+  t4_syn <- lapply(api_cache[t4_usable], function(e) e$synonyms)
+  syn_long <- data.table(
+    specieskey = rep(t4_usable, lengths(t4_syn)),
+    name_std   = as.character(unlist(t4_syn, use.names = FALSE))
+  )
+  syn_long[, syn_order := seq_len(.N), by = specieskey]
 
-    syn_names <- cached$synonyms
-    matched_name <- NA_character_
-
-    # Check against accepted names first (more reliable)
-    hit_acc <- syn_names[syn_names %in% accepted_names]
-    if (length(hit_acc) > 0) {
-      matched_name <- hit_acc[1]
-    } else {
-      # Check against synonym names
-      hit_syn <- syn_names[syn_names %in% syn_lookup_unique$name_std]
-      if (length(hit_syn) > 0) {
-        matched_name <- hit_syn[1]
-      }
-    }
-
-    if (!is.na(matched_name)) {
-      data.table(specieskey = row$specieskey, api_matched_name = matched_name)
-    } else {
-      NULL
-    }
-  }), fill = TRUE)
-
-  if (!is.null(t4_results) && nrow(t4_results) > 0) {
-    # Resolve the matched API name to a backbone accepted taxon
-    t4_results[, name_std := api_matched_name]
-
-    # Try accepted
-    t4_resolved <- merge(
-      t4_results,
-      accepted_taxa[, .(name_std, taxonID, scientificName)][
-        , .SD[1], by = name_std],
-      by = "name_std", all.x = TRUE
+  rank_tab <- sort(table(unlist(lapply(api_cache[t4_usable], function(e) e$syn_ranks),
+                                use.names = FALSE)), decreasing = TRUE)
+  if (length(rank_tab) > 0) {
+    cli_alert_info(
+      "  Cached synonyms by rank: \\
+       {paste0(names(rank_tab), ' ', scales::comma(as.integer(rank_tab)), collapse = ', ')}"
     )
+  }
 
-    # Try synonym for unresolved
-    t4_na <- t4_resolved[is.na(taxonID)]
-    if (nrow(t4_na) > 0) {
-      t4_syn <- merge(
-        t4_na[, .(specieskey, name_std)],
-        syn_lookup_unique[, .(name_std,
-                              taxonID = accepted_taxonID,
-                              scientificName = accepted_name)],
-        by = "name_std", all.x = TRUE
-      )
-      t4_resolved[t4_syn, on = "specieskey",
-                  `:=`(taxonID = i.taxonID,
-                       scientificName = i.scientificName)]
-    }
+  status_tab <- sort(table(unlist(lapply(api_cache[t4_usable], function(e) e$syn_status),
+                                  use.names = FALSE)), decreasing = TRUE)
+  if (length(status_tab) > 0) {
+    cli_alert_info(
+      "  Cached synonyms by status: \\
+       {paste0(names(status_tab), ' ', scales::comma(as.integer(status_tab)), collapse = ', ')}"
+    )
+  }
 
-    t4_resolved <- t4_resolved[!is.na(taxonID)]
+  acc_lookup <- accepted_taxa[, .(name_std, taxonID, scientificName)][, .SD[1], by = name_std]
+  hits_acc <- merge(syn_long, acc_lookup, by = "name_std")
+  hits_acc[, hit_rank := 1L]
+  hits_syn <- merge(
+    syn_long[!name_std %in% acc_lookup$name_std],
+    syn_lookup_unique[, .(name_std,
+                          taxonID = accepted_taxonID,
+                          scientificName = accepted_name)],
+    by = "name_std"
+  )
+  hits_syn[, hit_rank := 2L]
 
-    if (nrow(t4_resolved) > 0) {
-      recon[t4_resolved, on = "specieskey",
-            `:=`(backbone_taxonID        = i.taxonID,
-                 backbone_scientificName = i.scientificName,
-                 match_tier             = "tier4",
-                 match_type             = "gbif_api_synonym",
-                 match_name_used        = i.api_matched_name)]
+  t4_hits <- rbind(hits_acc, hits_syn, use.names = TRUE)[!is.na(taxonID)]
 
-      n_t4   <- nrow(t4_resolved)
-      occ_t4 <- recon[match_tier == "tier4", sum(as.numeric(total_occ))]
-    }
+  if (nrow(t4_hits) > 0) {
+    setorder(t4_hits, specieskey, hit_rank, syn_order)
+    t4_hits[, n_taxa := uniqueN(taxonID), by = specieskey]
+    t4_resolved <- t4_hits[, .SD[1L], by = specieskey]
+
+    recon[t4_resolved, on = "specieskey",
+          `:=`(backbone_taxonID        = i.taxonID,
+               backbone_scientificName = i.scientificName,
+               match_tier             = fifelse(i.n_taxa > 1L, "tier4_ambiguous", "tier4"),
+               match_type             = "gbif_api_synonym",
+               match_name_used        = i.name_std)]
+
+    n_t4       <- nrow(t4_resolved)
+    n_t4_ambig <- sum(t4_resolved$n_taxa > 1L)
+    occ_t4     <- recon[match_tier %in% c("tier4", "tier4_ambiguous"),
+                        sum(as.numeric(total_occ))]
   }
 }
 
 cli_alert_success("Tier 4: {scales::comma(n_t4)} species ({scales::comma(occ_t4)} occ)")
+if (n_t4_ambig > 0) {
+  cli_alert_warning(
+    "  Of which {scales::comma(n_t4_ambig)} ambiguous (synonyms lead to >1 backbone taxon)"
+  )
+}
+if (n_t4_waiting > 0) {
+  cli_alert_warning(
+    "  Candidates without a usable cache entry: {scales::comma(n_t4_waiting)} \\
+     (not matched in Tier 4 until queried)"
+  )
+}
 cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
 
 # ============================================================================
-# TIER 5: COL crosswalk (Dyntaxa <-> COL taxonID authority)
+# COL crosswalk (Dyntaxa <-> COL taxonID authority)
 # ============================================================================
-# For species still unmatched after Tiers 1-4, use the authoritative
-# Dyntaxa->COL crosswalk (built by 09a1 via GBIF's v2 match API). The cube's
-# specieskey IS a COL taxonID, so a cube key that equals a Dyntaxa taxon's COL
-# key IS that taxon -- a key-based match that resolves the COL name-divergence
-# (e.g. Sylvia -> Curruca) that name matching (Tiers 1-3) and the COL synonym
-# lookup (Tier 4) can miss. ADDITIVE: only fills rows Tiers 1-4 left NA, so the
-# Tier 1-4 assignments (and the Tier-4 count) are preserved exactly. Skipped
-# gracefully if the crosswalk has not been built, so 09a still runs standalone.
-
-cli_h2("Tier 5: COL crosswalk (Dyntaxa <-> COL key)")
+# Built by 09a1 via GBIF's v2 match API. The cube's specieskey IS a COL taxonID,
+# so a cube key that equals a Dyntaxa taxon's COL key IS that taxon. Read once
+# here for the two steps below. Both are skipped gracefully if the crosswalk has
+# not been built, so 09a still runs standalone.
 
 crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
-n_t5 <- 0L
+cw1 <- NULL
 if (file.exists(crosswalk_file)) {
   crosswalk <- as.data.table(readRDS(crosswalk_file))
   crosswalk <- crosswalk[!is.na(col_key) & nzchar(col_key)]
 
-  # One accepted taxon per COL key: prefer an accepted-name link over a synonym
-  # link, then higher confidence. (A COL "lump" -- two Dyntaxa taxa sharing one
-  # COL key -- is rare here, ~1%; picking the best-supported link keeps the
-  # GBIF-species-centric reconciliation at one taxon per cube key.)
-  if (!"via_synonym" %in% names(crosswalk)) crosswalk[, via_synonym := FALSE]
-  if (!"confidence"  %in% names(crosswalk)) crosswalk[, confidence  := NA_integer_]
-  setorder(crosswalk, col_key, via_synonym, -confidence)
+  # One accepted taxon per COL key: an accepted-name link before a synonym
+  # link; then a species-rank taxon before any other, because a cube key stands
+  # for a species; then a link to the key itself before one through a nominate
+  # subspecies (via_nominate, set by 09a1); then higher confidence. (A COL
+  # "lump" -- two Dyntaxa taxa sharing one COL key -- is rare here, ~1%; picking
+  # the best-supported link keeps the GBIF-species-centric reconciliation at
+  # one taxon per cube key.)
+  if (!"via_synonym"  %in% names(crosswalk)) crosswalk[, via_synonym  := FALSE]
+  if (!"via_nominate" %in% names(crosswalk)) crosswalk[, via_nominate := FALSE]
+  if (!"confidence"   %in% names(crosswalk)) crosswalk[, confidence   := NA_integer_]
+  species_ids <- if ("taxonRank" %in% names(accepted_taxa)) {
+    accepted_taxa[tolower(taxonRank) == "species", taxonID]
+  } else {
+    accepted_taxa$taxonID
+  }
+  crosswalk[, not_species := !(dyntaxa_taxonID %in% species_ids)]
+  setorder(crosswalk, col_key, via_synonym, not_species, via_nominate, -confidence)
   cw1 <- crosswalk[, .SD[1], by = col_key,
-                   .SDcols = c("dyntaxa_taxonID", "name_used")]
+                   .SDcols = c("dyntaxa_taxonID", "name_used", "via_synonym")]
+}
 
+
+# ============================================================================
+# KEY BEFORE NAME: the crosswalk replaces a Tier 4 match that disagrees
+# ============================================================================
+# Tier 4 matches by name: one of the cube key's synonyms is a backbone name.
+# The crosswalk matches by key, and can link one key to several backbone taxa
+# (a COL lump). A Tier 4 taxon that is one of them agrees with the key and
+# stays. Where the key is linked only to other taxa, the key decides and the row
+# becomes tier5_col / col_crosswalk_override, with the best-supported link.
+# Tiers 1-3 match the cube species' own name and are left as they are.
+
+cli_h2("Key before name: crosswalk check of the Tier 4 matches")
+
+n_t4_override  <- 0L
+n_t4_confirmed <- 0L
+# Every replacement, with both taxa, for review (written with the other outputs).
+t4_overrides <- data.table(
+  specieskey = character(0), species = character(0), total_occ = numeric(0),
+  tier4_tier = character(0), tier4_scientificName = character(0), tier4_name_used = character(0),
+  crosswalk_scientificName = character(0), crosswalk_name_used = character(0),
+  crosswalk_via_synonym = logical(0), crosswalk_n_taxa = integer(0)
+)
+if (!is.null(cw1)) {
+  t4_rows <- recon[match_tier %in% c("tier4", "tier4_ambiguous"),
+                   .(specieskey, tier4_taxonID = backbone_taxonID)]
+  cw_links <- unique(crosswalk[, .(specieskey = col_key, tier4_taxonID = dyntaxa_taxonID)])
+  cw_links[, crosswalk_n_taxa := .N, by = specieskey]
+
+  # Confirmed: the crosswalk links the key to the Tier 4 taxon itself.
+  t4_confirmed   <- merge(t4_rows, cw_links, by = c("specieskey", "tier4_taxonID"))
+  n_t4_confirmed <- uniqueN(t4_confirmed$specieskey)
+
+  t4_conflict <- merge(
+    t4_rows[!specieskey %in% t4_confirmed$specieskey],
+    cw1, by.x = "specieskey", by.y = "col_key"
+  )
+  t4_conflict <- merge(
+    t4_conflict, unique(cw_links[, .(specieskey, crosswalk_n_taxa)]), by = "specieskey"
+  )
+  # The crosswalk taxon has to be an accepted backbone taxon.
+  t4_conflict <- merge(
+    t4_conflict,
+    accepted_taxa[, .(taxonID, scientificName)][, .SD[1], by = taxonID],
+    by.x = "dyntaxa_taxonID", by.y = "taxonID"
+  )
+
+  if (nrow(t4_conflict) > 0) {
+    t4_overrides <- merge(
+      recon[, .(specieskey, species, total_occ,
+                tier4_tier = match_tier,
+                tier4_scientificName = backbone_scientificName,
+                tier4_name_used = match_name_used)],
+      t4_conflict[, .(specieskey,
+                      crosswalk_scientificName = scientificName,
+                      crosswalk_name_used = name_used,
+                      crosswalk_via_synonym = via_synonym,
+                      crosswalk_n_taxa)],
+      by = "specieskey"
+    )[order(-total_occ)]
+
+    recon[t4_conflict, on = "specieskey",
+          `:=`(backbone_taxonID        = i.dyntaxa_taxonID,
+               backbone_scientificName = i.scientificName,
+               match_tier             = "tier5_col",
+               match_type             = "col_crosswalk_override",
+               match_name_used        = i.name_used)]
+    n_t4_override <- nrow(t4_conflict)
+  }
+  cli_alert_success(
+    "Tier 4 matches replaced by the crosswalk taxon: {scales::comma(n_t4_override)} \\
+     ({scales::comma(n_t4_confirmed)} confirmed: the key is linked to the Tier 4 taxon)"
+  )
+} else {
+  cli_alert_warning(
+    "col_crosswalk.rds not found -- Tier 4 matches are not checked (run 09a1 to build it)."
+  )
+}
+
+
+# ============================================================================
+# TIER 5: COL crosswalk fills the rows still unmatched
+# ============================================================================
+# A key-based match that resolves the COL name-divergence (e.g. Sylvia ->
+# Curruca) that name matching (Tiers 1-3) and the COL synonym lookup (Tier 4)
+# can miss. ADDITIVE: only fills rows that are still unmatched.
+
+cli_h2("Tier 5: COL crosswalk (Dyntaxa <-> COL key)")
+
+n_t5 <- 0L
+if (!is.null(cw1)) {
   t5_join <- merge(
     recon[is.na(match_tier), .(specieskey)],
     cw1, by.x = "specieskey", by.y = "col_key"
@@ -795,7 +1026,9 @@ if (file.exists(crosswalk_file)) {
   )
 }
 
-occ_t5 <- if (n_t5 > 0) recon[match_tier == "tier5_col", sum(as.numeric(total_occ))] else 0
+occ_t5 <- if (n_t5 > 0) {
+  recon[match_tier == "tier5_col" & match_type == "col_crosswalk", sum(as.numeric(total_occ))]
+} else 0
 cli_alert_success("Tier 5: {scales::comma(n_t5)} species ({scales::comma(occ_t5)} occ)")
 cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 
@@ -943,6 +1176,11 @@ tier_summary <- recon[, .(
                             sum(as.numeric(gbif_species$total_occ)), 2)
 ), by = .(match_tier, match_type)][order(match_tier, -n_species)]
 
+# Tier 4 matches replaced by the crosswalk taxon (empty when there are none)
+overrides_path <- here(p_gaps, "taxonomic_tier4_overrides.csv")
+fwrite(t4_overrides, overrides_path)
+cli_alert_success("Saved: {.path {overrides_path}}")
+
 # Tier summary CSV (09a-specific; 09b writes the backbone-level match_summary)
 match_summary_path <- here(p_gaps, "taxonomic_reconciliation_summary.csv")
 fwrite(tier_summary, match_summary_path)
@@ -969,7 +1207,8 @@ cli_alert_success("Occurrence coverage:  {round(100 * occ_matched / occ_total, 2
 cli_alert_info("")
 
 # Per-tier breakdown
-tier_order <- c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "tier5_col", "unmatched")
+tier_order <- c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "tier4_ambiguous",
+                "tier5_col", "unmatched")
 tier_top <- recon[, .(
   n   = .N,
   occ = sum(as.numeric(total_occ))

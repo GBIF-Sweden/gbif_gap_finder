@@ -266,7 +266,15 @@ pf_check("tier4_roundtrip", function() {
   if (n < 1L) {
     return(warn(sprintf("usage key %s resolved but returned no synonyms (Tier 4 will match less)", keys[1])))
   }
-  ok(sprintf("taxonID %s -> usage key %s -> %d synonym(s)", probe, keys[1], n))
+  # Tier 4 reads each synonym's `rank` and `canonicalName`. Without them it
+  # matches nothing, and nothing else would say so.
+  res <- syn$results
+  if (!is.data.frame(res) || !all(c("rank", "canonicalName") %in% names(res))) {
+    return(fail("synonyms come without `rank` and `canonicalName` — Tier 4 would match nothing"))
+  }
+  n_sp <- sum(toupper(res$rank) == "SPECIES" & !is.na(res$canonicalName), na.rm = TRUE)
+  ok(sprintf("taxonID %s -> usage key %s -> %d synonym(s), %d at species rank",
+             probe, keys[1], n, n_sp))
 }, network = TRUE)
 
 pf_check("species_match_v2", function() {

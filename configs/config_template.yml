@@ -199,7 +199,9 @@ parameters:
     restrict_to_backbone_scope: false
     min_occurrences: 10
     min_cells: 5
-    gap_species_only: true                                 # keeps species/subspecies/variety/form ranks in the gap denominator
+    gap_species_only: true                                 # gap denominator = species-rank backbone taxa
+    gap_include_infraspecific: false                       # true = also count subspecies/varieties/forms (they cannot match a species-level cube)
+    gap_include_col_infraspecific: false                   # true = count species that COL files below species rank as missing (their records sit under another species' cube key)
     exclude_kingdoms: ["Bacteria", "Archaea", "Viruses"]   # non-multicellular kingdoms to drop from the gap (national backbone may still list them)
     exclude_orders: ["Primates"]                           # drops Homo sapiens from the gap; CLEAR this list (or remove Primates) for countries with native non-human primates
     # "Poorly sampled" = bottom-quantile occurrences OR fewer than N cells.

@@ -283,15 +283,17 @@ The pipeline uses the national taxonomy backbone (e.g., Dyntaxa for Sweden) as t
 
 - **Tier 1** — Direct accepted name match
 - **Tier 2** — Synonym resolution via backbone
-- **Tier 3** — Infraspecific collapse (subspecies → species)
-- **Tier 4** — GBIF Species API lookup
-- **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`, matched on the cube's CoL `specieskey`)
+- **Tier 3** — Local name variants: infraspecific collapse (subspecies → species); a hybrid name written without the hybrid sign; another ending of the epithet (*gerardi*/*gerardii*, *scolopacea*/*scolopaceus*)
+- **Tier 4** — CoL synonyms of the cube key at species rank (GBIF Species API, cached); `tier4_ambiguous` when they lead to more than one backbone taxon
+- **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`, matched on the cube's CoL `specieskey`). It fills what Tiers 1–4 left unmatched, and it replaces a Tier 4 match where the key is linked only to other backbone taxa (`taxonomic_tier4_overrides.csv` lists these). A name that CoL files under a nominate subspecies (*Lycopodium annotinum* under *Spinulum annotinum* subsp. *annotinum*) is linked to the cube key of the species
 
 Each species receives three key flags:
 
 - `in_dyntaxa` — whether the species is in the national backbone (gap metrics only apply to these)
 - `is_invasive` — whether the species appears on the national invasive species registry
 - `is_sensitive` — whether the species is on the restricted access list (coordinates generalized in GBIF)
+
+The gap denominator is the backbone's species-rank taxa. Subspecies, varieties and forms cannot be assessed against a cube keyed at species rank: a record identified to a subspecies is counted under its species. Script **09b** lists them in `taxonomic_infraspecific_taxa.csv` instead of counting them as missing (`gap_include_infraspecific: true` puts them back). Their records are records of the species, so a species without a match of its own counts as present when one of its subspecies, varieties or forms is. A species that CoL files as a subspecies or variety of another species (*Dactylis polygama* as *D. glomerata* subsp. *lobata*) is set aside in the same table when it has no match of its own: its records are counted under that other species' key (`set_aside_reason` `col_infraspecific`; `gap_include_col_infraspecific: true` counts it as missing).
 
 Script **09c** uses these flags to produce four scope-filtered variants of every cube-based summary (cell, time, cell × time, order × cell, order × time, family × time, recency, record-type recent period, spatial gaps, cell-last-year), per grid:
 

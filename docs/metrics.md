@@ -390,9 +390,9 @@ Taxa detected in cubes:
 **Process:**
 1. **Tier 1** — Direct accepted name match (local, exact binomial)
 2. **Tier 2** — Synonym resolution via backbone synonym rows
-3. **Tier 3** — Infraspecific collapse (strip subspecies/variety, re-match locally)
-4. **Tier 4** — GBIF Species API lookup (for remaining unmatched, cached across runs)
-5. **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`; matches on the cube's CoL `specieskey`)
+3. **Tier 3** — Local name variants (`match_type` says which): infraspecific collapse (strip subspecies/variety, re-match locally); a hybrid name that the cube writes without the hybrid sign; an epithet with another ending (-i/-ii, -us/-a/-um, -is/-e)
+4. **Tier 4** — CoL synonyms of the cube key at species rank, by canonical name (GBIF Species API; for remaining unmatched, cached across runs). `tier4_ambiguous` when they lead to more than one backbone taxon
+5. **Tier 5** — Dyntaxa ↔ Catalogue of Life key crosswalk (built by `09a1`; matches on the cube's CoL `specieskey`). Fills what Tiers 1–4 left unmatched and replaces a Tier 4 match where the key is linked only to other backbone taxa. A name that CoL files under a nominate subspecies is linked to the cube key of the species; where a key is linked to several taxa, a species-rank taxon comes first
 
 **Result:** ~99.8% occurrence coverage (up from 31% with name-only matching)
 
@@ -403,6 +403,7 @@ Taxa detected in cubes:
 
 **Outputs:**
 - `taxonomic_match_table.csv` (full matching details)
+- `taxonomic_tier4_overrides.csv` (Tier 4 matches replaced by the crosswalk taxon, with both taxa)
 - `taxonomic_match_summary.csv` (per-taxon summary)
 
 **Columns in match_summary:**
@@ -410,6 +411,8 @@ Taxa detected in cubes:
 - `matched_grid10` (found in 10km grid)
 - `matched_grid50` (found in 50km grid)
 - `n_grids` (number of grids where found)
+- `shared_key` (present through a cube key that is matched to another taxon as well; its
+  records count for both)
 
 ### 5.4 Missing Taxa (Taxonomic Gaps)
 
@@ -420,9 +423,22 @@ A reference taxon is missing from GBIF if:
 taxon in Swedish reference AND no match found in cube taxa set
 ```
 
+The reference is the backbone's species-rank taxa. Subspecies, varieties and forms cannot
+be assessed against a cube keyed at species rank, so they do not count as missing; they are
+listed separately. Their records are records of the species: a species without a match of
+its own is present when one of its subspecies, varieties or forms is (`best_match_tier`
+`infraspecific`).
+
+A species-rank taxon that CoL, the cube's taxonomy, files as a subspecies or variety of
+another species (*Dactylis polygama* as *Dactylis glomerata* subsp. *lobata*) cannot be
+assessed either: its records are counted under that other species' key. When it has no
+match of its own it is set aside with the subspecies, varieties and forms
+(`set_aside_reason` `col_infraspecific`) and does not count as missing.
+
 **Outputs:**
 - `taxonomic_missing_taxa.csv` (5,304 missing taxa)
 - `taxonomic_missing_threatened.csv` (subset: threatened taxa missing)
+- `taxonomic_infraspecific_taxa.csv` (taxa set aside: subspecies, varieties and forms, and species that CoL files below species rank)
 
 ### 5.5 Coverage Analysis
 
@@ -461,16 +477,19 @@ taxon in Swedish reference AND no match found in cube taxa set
 - `taxonomic_spatial_coverage.csv` (all matched taxa)
 - `taxonomic_threatened_spatial_coverage.csv` (threatened species specifically)
 
+A taxon's cells and records are those of its own cube keys (`gbif_specieskeys` in
+`taxonomic_match_summary.csv`): the keys matched to it in the reconciliation, the keys the
+crosswalk overlay recovered it through, or the keys of its infraspecific taxa.
+
 **Columns:**
-- `n_cells_10km` (number of 10km cells where recorded)
+- `n_cells_10km` (number of 10km cells where recorded; for a taxon with several cube keys, the highest count among them)
 - `n_cells_50km` (number of 50km cells)
 - `total_occ_10km`, `total_occ_50km`
-- `poorly_sampled_spatial` (flag if <5 cells)
-- `poorly_sampled_abundance` (flag if <10 occurrences)
+- `poorly_sampled` (flag: among the lowest 10 % of the matched taxa by records, or in fewer than 3 cells at 10 km); `poorly_sampled_spatial` and `poorly_sampled_abundance` repeat it
 
 **Parameters (configs/config_{CC}.yml):**
-- `min_cells = 5` (minimum for adequate coverage)
-- `min_occurrences = 10` (minimum for abundance)
+- `poorly_sampled_occ_quantile = 0.10`
+- `poorly_sampled_min_cells = 3`
 
 ### 5.7 Higher Taxonomy Gaps
 
@@ -496,7 +515,7 @@ taxon in Swedish reference AND no match found in cube taxa set
    
 2. **Threatened taxa poorly sampled**
    - Priority: "Threatened - Poorly Sampled"
-   - Criteria: <5 cells OR <10 occurrences
+   - Criteria: the `poorly_sampled` flag of section 5.6
 
 **Columns:**
 - `taxonID`, `scientificName`, `taxonRank`, `threatStatus`

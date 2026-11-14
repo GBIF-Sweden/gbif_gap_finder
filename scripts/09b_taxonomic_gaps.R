@@ -13,6 +13,7 @@
 # Inputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds  (from 09a)
 #   - data/{CC}/proc/taxa_reference_current.rds    (from 03)
+#   - data/{CC}/proc/gaps/col_crosswalk_infraspecific.csv  (from 09a1)
 #   - data/{CC}/proc/derived/by_order/species_cell_*.csv  (from 06b)
 #   - data/{CC}/proc/derived/by_family/species_cell_*.csv (from 06b)
 #   - data/{CC}/proc/derived/by_order/species_summary_*.csv  (from 06b)
@@ -22,6 +23,11 @@
 #   Missing taxa:
 #     - taxonomic_missing_taxa.csv           All backbone taxa not in GBIF
 #     - taxonomic_missing_threatened.csv     Threatened backbone taxa not in GBIF
+#   Set aside:
+#     - taxonomic_infraspecific_taxa.csv     Not assessable from a species-level
+#                                            cube: subspecies, varieties and forms,
+#                                            and species that COL files below
+#                                            species rank (`set_aside_reason`)
 #   Coverage:
 #     - taxonomic_coverage_by_rank.csv       Coverage % by taxonomic rank
 #     - taxonomic_coverage_by_threat.csv     Coverage % by threat status
@@ -191,12 +197,15 @@ keep_cols <- intersect(
 )
 tax_clean <- tax_accepted[, ..keep_cols]
 
+# Ranks below species. The cube groups records by species key, so these taxa
+# cannot be assessed against it; the gap scoping below sets them aside.
+INFRA_RANKS <- c("subspecies", "variety", "form")
+
 # Report rank distribution
 if ("taxonRank" %in% names(tax_clean)) {
-  species_ranks <- c("species", "Species", "SPECIES", "subspecies",
-                     "Subspecies", "variety", "form")
-  n_species_rank <- sum(tax_clean$taxonRank %in% species_ranks, na.rm = TRUE)
-  cli_alert_info("Species-rank taxa: {scales::comma(n_species_rank)}")
+  rank_lc <- tolower(tax_clean$taxonRank)
+  cli_alert_info("Species-rank taxa: {scales::comma(sum(rank_lc == 'species', na.rm = TRUE))}")
+  cli_alert_info("Infraspecific taxa: {scales::comma(sum(rank_lc %in% INFRA_RANKS, na.rm = TRUE))}")
 }
 
 
@@ -226,7 +235,7 @@ matched_agg <- matched_taxa[, .(
   gbif_total_occ = sum(as.numeric(gbif_total_occ), na.rm = TRUE),
   best_match_tier = match_tier[which.min(match(
     match_tier,
-    c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "tier5_col")
+    c("tier1", "tier2", "tier2_ambiguous", "tier3", "tier4", "tier4_ambiguous", "tier5_col")
   ))],
   gbif_specieskeys = paste(unique(gbif_specieskey), collapse = ";")
 ), by = .(backbone_taxonID)]
@@ -251,12 +260,22 @@ match_summary[is.na(gbif_total_occ), gbif_total_occ := 0]
 # whose cube key was name-matched to a DIFFERENT backbone taxon in 09a (so 09a's
 # GBIF-species-centric Tier 5, which only fills unmatched cube rows, never fired
 # on them). ADDITIVE: only flips matched_any FALSE->TRUE, never removes a match.
-# Skipped if the crosswalk is absent. `cw_sk_map` (COL key -> taxon) also feeds
-# the spatial-coverage join below, so recovered taxa carry their cube key's
-# cells/occurrences instead of showing up as present-but-empty.
+# Skipped if the crosswalk is absent.
+#
+# A recovered taxon also takes the record count of its cube keys. Such a key is
+# matched to another backbone taxon in 09a, so its records count for both taxa;
+# `shared_key` marks the recovered rows where that is the case.
+#
+# `cw_sk_map` (COL key -> recovered taxon) feeds the roll-up to species and the
+# spatial-coverage join below, so a recovered taxon carries the cells and
+# records of the same keys there instead of showing up as present-but-empty. A
+# taxon with a match of its own is not in the map: its keys are the ones 09a
+# matched to it, and the further keys the crosswalk links it to are matched to
+# other taxa.
 crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
 cube_keys <- unique(recon$specieskey)
 cw_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
+match_summary[, shared_key := FALSE]
 if (file.exists(crosswalk_file)) {
   cw <- as.data.table(readRDS(crosswalk_file))
   cw <- cw[!is.na(col_key) & nzchar(col_key) & col_key %in% cube_keys]
@@ -264,37 +283,179 @@ if (file.exists(crosswalk_file)) {
   cw_sk_map <- unique(cw[, .(specieskey = col_key, backbone_taxonID = dyntaxa_taxonID)])
   newly <- match_summary$matched_any == FALSE & match_summary$taxonID %in% xwalk_present
   match_summary[newly, `:=`(matched_any = TRUE, best_match_tier = "tier5_col")]
+
+  xw <- merge(cw_sk_map, recon[, .(specieskey, total_occ, match_tier)], by = "specieskey")
+  xw <- xw[, .(xw_n      = uniqueN(specieskey),
+               xw_occ    = sum(as.numeric(total_occ), na.rm = TRUE),
+               xw_keys   = paste(unique(specieskey), collapse = ";"),
+               xw_shared = any(match_tier != "unmatched")),
+           by = backbone_taxonID]
+  match_summary[xw, on = c(taxonID = "backbone_taxonID"),
+                `:=`(xw_n = i.xw_n, xw_occ = i.xw_occ,
+                     xw_keys = i.xw_keys, xw_shared = i.xw_shared)]
+  match_summary[newly & !is.na(xw_n),
+                `:=`(n_gbif_species   = xw_n,
+                     gbif_total_occ   = xw_occ,
+                     gbif_specieskeys = xw_keys,
+                     shared_key       = xw_shared)]
+  match_summary[, c("xw_n", "xw_occ", "xw_keys", "xw_shared") := NULL]
+  cw_sk_map <- cw_sk_map[backbone_taxonID %in% match_summary$taxonID[newly]]
+
   cli_alert_success(
-    "COL crosswalk presence overlay: +{scales::comma(sum(newly))} backbone taxa now in GBIF"
+    "COL crosswalk presence overlay: +{scales::comma(sum(newly))} backbone taxa now in GBIF \\
+     ({scales::comma(sum(match_summary$shared_key))} on a cube key shared with another taxon)"
   )
 } else {
   cli_alert_warning("col_crosswalk.rds not found -- COL presence overlay skipped (run 09a1).")
 }
 
 # ---------------------------------------------------------------------------
+# Species present through their own subspecies, varieties or forms
+# ---------------------------------------------------------------------------
+# A record of a subspecies is a record of its species. A species-rank taxon
+# without a match of its own is present when an infraspecific taxon below it
+# is, and takes that taxon's cube keys and records. ADDITIVE: only flips
+# matched_any FALSE -> TRUE. The keys are matched to the infraspecific taxon as
+# well, so `shared_key` is TRUE for these rows. `infra_sk_map` (cube key ->
+# species) feeds the spatial-coverage join below.
+infra_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
+if (all(c("taxonRank", "parentNameUsageID") %in% names(tax_accepted))) {
+  tax_tree  <- tax_accepted[!duplicated(taxonID),
+                            .(taxonID,
+                              parent = as.character(parentNameUsageID),
+                              rank   = tolower(taxonRank))]
+  parent_of <- setNames(tax_tree$parent, tax_tree$taxonID)
+  rank_of   <- setNames(tax_tree$rank,   tax_tree$taxonID)
+
+  # The species above an infraspecific taxon: its parent, or further up for a
+  # form below a variety below a subspecies.
+  species_above <- function(id) {
+    up <- unname(parent_of[id])
+    for (step in seq_len(3L)) {
+      below <- !is.na(up) & unname(rank_of[up]) %in% INFRA_RANKS
+      if (!any(below)) break
+      up[below] <- unname(parent_of[up[below]])
+    }
+    up[!(unname(rank_of[up]) %in% "species")] <- NA_character_
+    up
+  }
+
+  present_infra <- match_summary[tolower(taxonRank) %in% INFRA_RANKS & matched_any == TRUE,
+                                 .(infra_taxonID = taxonID)]
+  present_infra[, species_taxonID := species_above(infra_taxonID)]
+  present_infra <- present_infra[!is.na(species_taxonID)]
+
+  # Cube keys of a present taxon: matched to it in 09a, or the keys the
+  # crosswalk overlay recovered it through.
+  key_of_taxon <- unique(rbind(
+    recon[match_tier != "unmatched", .(specieskey, backbone_taxonID)],
+    cw_sk_map
+  ))
+  infra_keys <- merge(present_infra, key_of_taxon,
+                      by.x = "infra_taxonID", by.y = "backbone_taxonID")
+  infra_keys <- unique(infra_keys[, .(species_taxonID, specieskey)])
+  infra_keys <- merge(infra_keys, recon[, .(specieskey, total_occ)], by = "specieskey")
+
+  via_infra  <- match_summary[matched_any == FALSE & taxonID %in% infra_keys$species_taxonID,
+                              taxonID]
+  infra_keys <- infra_keys[species_taxonID %in% via_infra]
+  if (length(via_infra) > 0) {
+    infra_agg <- infra_keys[, .(n_keys = .N,
+                                occ    = sum(as.numeric(total_occ), na.rm = TRUE),
+                                keys   = paste(specieskey, collapse = ";")),
+                            by = species_taxonID]
+    match_summary[infra_agg, on = c(taxonID = "species_taxonID"),
+                  `:=`(matched_any      = TRUE,
+                       best_match_tier  = "infraspecific",
+                       n_gbif_species   = i.n_keys,
+                       gbif_total_occ   = i.occ,
+                       gbif_specieskeys = i.keys,
+                       shared_key       = TRUE)]
+    infra_sk_map <- infra_keys[, .(specieskey, backbone_taxonID = species_taxonID)]
+  }
+  cli_alert_success(
+    "Species present through their own infraspecific taxa: +{scales::comma(length(via_infra))}"
+  )
+}
+
+# ---------------------------------------------------------------------------
 # Scope the gap denominator to the organisms we actually compare against GBIF.
-#  (1) Species-rank only: a genus/family/order name cannot match a GBIF species
+#  (1) Species rank only. A genus/family/order name cannot match a GBIF species
 #      binomial, so higher ranks would otherwise be counted as "missing" and
 #      massively inflate the gap. The national checklist carries ~30k such
 #      higher-rank accepted taxa.
+#      Subspecies, varieties and forms cannot be assessed either: a record
+#      identified to a subspecies is counted under its species in the cube, so
+#      no cube key carries an infraspecific name. They go to their own table
+#      (infra_taxa) instead of counting as missing.
+#      `gap_include_infraspecific: true` keeps them in the denominator.
 #  (2) Drop non-multicellular kingdoms the backbone happens to list (Dyntaxa
 #      does carry Bacteria/Archaea/Viruses). Protozoa/Chromista are KEPT.
-# Both are config-gated so portability/other countries can opt out.
+# All are config-gated so portability/other countries can opt out. The kingdom
+# and order exclusions apply to infra_taxa as well.
 # ---------------------------------------------------------------------------
+gap_ranks <- if (isTRUE(cfg_get("parameters.taxonomic.gap_include_infraspecific", FALSE))) {
+  c("species", INFRA_RANKS)
+} else {
+  "species"
+}
+infra_taxa <- match_summary[0L]
 if (isTRUE(cfg_get("parameters.taxonomic.gap_species_only", TRUE)) &&
     "taxonRank" %in% names(match_summary)) {
-  species_ranks <- c("species", "subspecies", "variety", "form")
   n_before <- nrow(match_summary)
-  match_summary <- match_summary[tolower(taxonRank) %in% species_ranks]
+  rank_lc  <- tolower(match_summary$taxonRank)
+  infra_taxa    <- match_summary[rank_lc %in% setdiff(INFRA_RANKS, gap_ranks)]
+  match_summary <- match_summary[rank_lc %in% gap_ranks]
   cli_alert_info(
-    "Gap scoped to species rank: {scales::comma(n_before)} -> \\
-    {scales::comma(nrow(match_summary))} taxa"
+    "Gap scoped to {paste(gap_ranks, collapse = '/')} rank: {scales::comma(n_before)} -> \\
+    {scales::comma(nrow(match_summary))} taxa \\
+    ({scales::comma(nrow(infra_taxa))} infraspecific taxa set aside)"
   )
+}
+infra_taxa[, `:=`(set_aside_reason = "infraspecific_rank",
+                  col_name         = NA_character_,
+                  col_species_key  = NA_character_)]
+
+# Species that COL files below species rank. 09a1 lists the species-rank taxa
+# whose own name COL files under an infraspecific taxon of another species
+# (Dactylis polygama as Dactylis glomerata subsp. lobata), with that species in
+# the cube. The records of such a taxon are counted under the other species'
+# key, so the cube cannot say whether it has any. Without a match of its own it
+# joins the taxa set aside, with COL's name for it and the cube key of that
+# species; a taxon on the list that is present through another of its names
+# stays in the denominator. `gap_include_col_infraspecific: true` keeps all of
+# them in the denominator.
+if (!isTRUE(cfg_get("parameters.taxonomic.gap_include_col_infraspecific", FALSE))) {
+  col_infra_file <- here(p_gaps, "col_crosswalk_infraspecific.csv")
+  if (file.exists(col_infra_file)) {
+    col_infra <- fread(col_infra_file, colClasses = "character")
+    col_infra <- unique(col_infra[species_cube_key %in% cube_keys], by = "dyntaxa_taxonID")
+    on_list   <- match_summary$taxonID %in% col_infra$dyntaxa_taxonID
+    aside     <- on_list & match_summary$matched_any == FALSE
+    col_aside <- match_summary[aside]
+    col_aside[, `:=`(set_aside_reason = "col_infraspecific",
+                     col_name         = NA_character_,
+                     col_species_key  = NA_character_)]
+    col_aside[col_infra, on = c(taxonID = "dyntaxa_taxonID"),
+              `:=`(col_name = i.col_name, col_species_key = i.species_cube_key)]
+    infra_taxa    <- rbind(infra_taxa, col_aside, use.names = TRUE)
+    match_summary <- match_summary[!aside]
+    cli_alert_info(
+      "Species that COL files below species rank: {scales::comma(sum(aside))} set aside, \\
+      {scales::comma(sum(on_list & !aside))} present through another name"
+    )
+  } else {
+    cli_alert_warning(
+      "col_crosswalk_infraspecific.csv not found -- species that COL files below species rank \\
+      stay in the denominator (run 09a1)."
+    )
+  }
 }
 exclude_kingdoms <- unlist(cfg_get("parameters.taxonomic.exclude_kingdoms", character(0)))
 if (length(exclude_kingdoms) && "kingdom" %in% names(match_summary)) {
   n_before <- nrow(match_summary)
   match_summary <- match_summary[is.na(kingdom) | !(kingdom %in% exclude_kingdoms)]
+  infra_taxa    <- infra_taxa[is.na(kingdom) | !(kingdom %in% exclude_kingdoms)]
   cli_alert_info(
     "Excluded kingdoms ({paste(exclude_kingdoms, collapse = ', ')}): \\
     {scales::comma(n_before)} -> {scales::comma(nrow(match_summary))} taxa"
@@ -311,6 +472,7 @@ exclude_orders <- unlist(cfg_get("parameters.taxonomic.exclude_orders", characte
 if (length(exclude_orders) && "order" %in% names(match_summary)) {
   n_before <- nrow(match_summary)
   match_summary <- match_summary[is.na(order) | !(order %in% exclude_orders)]
+  infra_taxa    <- infra_taxa[is.na(order) | !(order %in% exclude_orders)]
   cli_alert_info(
     "Excluded orders ({paste(exclude_orders, collapse = ', ')}): \\
     {scales::comma(n_before)} -> {scales::comma(nrow(match_summary))} taxa"
@@ -323,6 +485,7 @@ if (length(exclude_orders) && "order" %in% names(match_summary)) {
 # taxonomic_match_summary.csv that 11 and the app read) inherits the bucket, so
 # no taxon is dropped just because a parent rank is missing in the backbone.
 match_summary <- bucket_unclassified(match_summary)
+infra_taxa    <- bucket_unclassified(infra_taxa)
 
 n_backbone_matched <- sum(match_summary$matched_any)
 cli_alert_success(
@@ -546,10 +709,12 @@ if (!is.null(sp_cell_10) || !is.null(sp_cell_50)) {
   sp_cells[, specieskey := as.character(specieskey)]
   # Include the COL crosswalk presence map (cw_sk_map, built in the presence
   # overlay above) so concept-split taxa recovered only by the crosswalk carry
-  # their cube key's cells/occurrences here too.
+  # their cube key's cells/occurrences here too. The same for the species that
+  # are present through their infraspecific taxa (infra_sk_map).
   sk_to_taxon <- unique(rbind(
     recon[match_tier != "unmatched", .(specieskey, backbone_taxonID)],
-    cw_sk_map
+    cw_sk_map,
+    infra_sk_map
   ), by = c("specieskey", "backbone_taxonID"))
 
   sp_cells_with_taxon <- merge(sp_cells, sk_to_taxon, by = "specieskey", all.x = TRUE)
@@ -715,6 +880,12 @@ write_gap_file <- function(dt, filename, label = NULL) {
 # Match summary (backbone view)
 write_gap_file(match_summary, "taxonomic_match_summary.csv")
 
+# Taxa set aside from the gap denominator: infraspecific taxa, and species that
+# COL files below species rank (`set_aside_reason` says which). Written on every
+# run, empty when none are set aside, so the table never outlives the run it
+# describes.
+write_gap_file(infra_taxa, "taxonomic_infraspecific_taxa.csv")
+
 # Missing taxa
 write_gap_file(missing_taxa, "taxonomic_missing_taxa.csv")
 write_gap_file(missing_threatened, "taxonomic_missing_threatened.csv")
@@ -769,7 +940,9 @@ summary_dt <- data.table(
     "Threatened in reference",
     "Threatened in GBIF",
     "Threatened missing from GBIF",
-    "Priority taxa for sampling"
+    "Priority taxa for sampling",
+    "Infraspecific taxa set aside",
+    "Species set aside (COL files them below species rank)"
   ),
   Value = c(
     scales::comma(nrow(tax_clean)),
@@ -779,7 +952,9 @@ summary_dt <- data.table(
     scales::comma(sum(match_summary$matched_any &
                         match_summary$threatStatus %in% THREATENED_CODES, na.rm = TRUE)),
     scales::comma(nrow(missing_threatened)),
-    scales::comma(nrow(priority_all))
+    scales::comma(nrow(priority_all)),
+    scales::comma(sum(infra_taxa$set_aside_reason == "infraspecific_rank")),
+    scales::comma(sum(infra_taxa$set_aside_reason == "col_infraspecific"))
   )
 )
 

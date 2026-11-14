@@ -124,6 +124,17 @@ tax_threatened_spatial <- safe_read_gap("taxonomic_threatened_spatial_coverage.c
 tax_priority <- safe_read_gap("taxonomic_priority_taxa.csv")
 tax_missing <- safe_read_gap("taxonomic_missing_taxa.csv")
 tax_missing_threatened <- safe_read_gap("taxonomic_missing_threatened.csv")
+tax_infraspecific <- safe_read_gap("taxonomic_infraspecific_taxa.csv")
+# The table of taxa set aside holds two groups (`set_aside_reason`): the
+# backbone's infraspecific taxa, and species that COL files below species rank.
+# A table without the column holds the first group only.
+tax_set_aside_is_col <- if (is.null(tax_infraspecific)) {
+  logical(0)
+} else if ("set_aside_reason" %in% names(tax_infraspecific)) {
+  tax_infraspecific$set_aside_reason %in% "col_infraspecific"
+} else {
+  rep(FALSE, nrow(tax_infraspecific))
+}
 
 cli_alert_success("Gap files loaded")
 
@@ -206,6 +217,24 @@ dashboard <- data.table(
     sum(tax_coverage_threat[threatStatus %in% THREATENED_CODES]$n_in_gbif, na.rm = TRUE)
   ),
   threatened_missing = calc_metric(nrow(tax_missing_threatened)),
+
+  # --- Taxa set aside by 09b (not assessable from a species-level cube) ---
+  # infraspecific_*: the backbone's subspecies, varieties and forms;
+  # col_infraspecific_*: species that COL files below species rank.
+  infraspecific_set_aside = calc_metric(
+    if (is.null(tax_infraspecific)) NA_integer_ else sum(!tax_set_aside_is_col)
+  ),
+  infraspecific_threatened = calc_metric(
+    if (is.null(tax_infraspecific)) NA_integer_
+    else sum(!tax_set_aside_is_col & tax_infraspecific$threatStatus %in% THREATENED_CODES)
+  ),
+  col_infraspecific_set_aside = calc_metric(
+    if (is.null(tax_infraspecific)) NA_integer_ else sum(tax_set_aside_is_col)
+  ),
+  col_infraspecific_threatened = calc_metric(
+    if (is.null(tax_infraspecific)) NA_integer_
+    else sum(tax_set_aside_is_col & tax_infraspecific$threatStatus %in% THREATENED_CODES)
+  ),
   
   # --- Priority counts ---
   n_priority_taxa = calc_metric(nrow(tax_priority)),
@@ -646,7 +675,7 @@ if (!is.null(tax_missing_threatened) && nrow(tax_missing_threatened) > 0) {
   write_integrated(priority_threatened_missing, "priority_taxa_threatened_missing.csv")
 }
 
-# 9.5 Priority taxa: Poorly sampled threatened species
+# 9.5 Priority taxa: threatened species that are missing or poorly sampled
 if (!is.null(tax_priority) && nrow(tax_priority) > 0) {
   priority_taxa <- copy(tax_priority)
   
@@ -673,7 +702,9 @@ priority_summary <- data.table(
     calc_metric(nrow(spatial_low_cells)),
     calc_metric(nrow(recency_10[basisofrecord == "all" & gap_stale_5y == TRUE])),
     calc_metric(nrow(tax_missing_threatened)),
-    calc_metric(nrow(tax_priority))
+    # tax_priority lists the threatened taxa that are missing and the ones that
+    # are poorly sampled; this row counts the second group.
+    calc_metric(sum(tax_priority$priority == "Threatened - Poorly Sampled"))
   )
 )
 

@@ -127,7 +127,10 @@ Insects, Vascular Plants, Fungi…) or standard **Kingdoms**, drill down through
 hierarchy, and exclude dominant groups (e.g. Aves) to see the rest. Completeness uses
 species‑rank Dyntaxa taxa as the denominator, excluding microbial kingdoms (Bacteria,
 Archaea, Viruses) and *Homo sapiens*; a species counts as "in GBIF" when at least one
-occurrence resolves to it.
+occurrence resolves to it. Subspecies, varieties and forms are set aside, because the cube
+counts their records under the species; so are species that GBIF's taxonomy (Catalogue of
+Life) ranks as a subspecies or variety of another species. The tab says how many there are
+and offers the list.
 
 ### Species of Concern
 
@@ -139,7 +142,9 @@ show the Swedish name where Dyntaxa has one. Reintroduced native species count a
 - **Threatened** — national Red List species in the IUCN categories CR, EN, VU, NT (and DD
   reported separately, not counted as threatened). Missing threatened species can't support
   range modelling, trend analysis, or habitat assessment. Source: SLU Artdatabanken's Red
-  List, matched at the rank each list publishes.
+  List, matched at the rank each list publishes. A subspecies, variety or form on the Red
+  List or the sensitive list is set aside and counted in the note under the filters; so
+  is a listed species that GBIF's taxonomy ranks below species.
 - **Invasive** — species GRIIS explicitly flags as invasive for Sweden (not all introduced
   or alien taxa). Because cubes aggregate at species level, this flag is rolled up to
   species: it answers "which species have an invasive form that may warrant monitoring,"
@@ -227,6 +232,10 @@ anyone deciding where to spend effort.
   have had its recent data digitised yet — check before scheduling a resurvey.
 - **Sensitive‑species maps are approximate** by design (generalised coordinates).
 - **Invasive flags are species‑level** rollups from GRIIS, not subspecies‑specific.
+- **Subspecies, varieties and forms are not assessed.** The cube counts their records under
+  the species, so they are set aside from the taxonomic figures and listed separately. The
+  same holds for species that GBIF's taxonomy (Catalogue of Life) ranks as a subspecies or
+  variety of another species.
 - **Threatened = CR/EN/VU/NT.** Data Deficient (DD) is shown separately and not counted as
   threatened.
 - **Matching is conservative.** Taxonomic matching to the backbone is deliberately cautious,
@@ -275,7 +284,7 @@ listed live on the **Data & Sources** tab):
 Spatial reference: EEA 10 km + 50 km grids; administrative boundaries from GADM.
 
 Under the hood, every GBIF species is matched to the backbone through a 5‑tier
-reconciliation (accepted name → synonym → infraspecific collapse → GBIF API synonym →
+reconciliation (accepted name → synonym → local name variants → GBIF API synonym →
 Catalogue of Life crosswalk), reaching ~99.8% of occurrences — so the taxonomic figures are
 robust to naming differences.
 
