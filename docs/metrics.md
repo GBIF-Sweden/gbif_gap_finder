@@ -477,16 +477,19 @@ match of its own it is set aside with the subspecies, varieties and forms
 - `taxonomic_spatial_coverage.csv` (all matched taxa)
 - `taxonomic_threatened_spatial_coverage.csv` (threatened species specifically)
 
+A taxon's cells and records are those of its own cube keys (`gbif_specieskeys` in
+`taxonomic_match_summary.csv`): the keys matched to it in the reconciliation, the keys the
+crosswalk overlay recovered it through, or the keys of its infraspecific taxa.
+
 **Columns:**
-- `n_cells_10km` (number of 10km cells where recorded)
+- `n_cells_10km` (number of 10km cells where recorded; for a taxon with several cube keys, the highest count among them)
 - `n_cells_50km` (number of 50km cells)
 - `total_occ_10km`, `total_occ_50km`
-- `poorly_sampled_spatial` (flag if <5 cells)
-- `poorly_sampled_abundance` (flag if <10 occurrences)
+- `poorly_sampled` (flag: among the lowest 10 % of the matched taxa by records, or in fewer than 3 cells at 10 km); `poorly_sampled_spatial` and `poorly_sampled_abundance` repeat it
 
 **Parameters (configs/config_{CC}.yml):**
-- `min_cells = 5` (minimum for adequate coverage)
-- `min_occurrences = 10` (minimum for abundance)
+- `poorly_sampled_occ_quantile = 0.10`
+- `poorly_sampled_min_cells = 3`
 
 ### 5.7 Higher Taxonomy Gaps
 
@@ -512,7 +515,7 @@ match of its own it is set aside with the subspecies, varieties and forms
    
 2. **Threatened taxa poorly sampled**
    - Priority: "Threatened - Poorly Sampled"
-   - Criteria: <5 cells OR <10 occurrences
+   - Criteria: the `poorly_sampled` flag of section 5.6
 
 **Columns:**
 - `taxonID`, `scientificName`, `taxonRank`, `threatStatus`

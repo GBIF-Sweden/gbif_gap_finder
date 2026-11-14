@@ -66,6 +66,15 @@ the wrong species.
 - **One taxon per cube key** — where the crosswalk links a cube key to several backbone taxa
   by their own names, 09a takes a species-rank taxon first (before: the highest confidence,
   which could be a variety of that species).
+- **Spatial coverage per taxon** — a taxon with a match of its own no longer takes the cells
+  and records of the other cube keys the crosswalk links it to; only a taxon that the
+  crosswalk overlay recovered uses those keys. Until now `taxonomic_spatial_coverage.csv`
+  gave 1,304 taxa the records of other species as well (*Betula pendula* 188,693 instead of
+  78,258), and 100 taxa, 7 of them threatened, were not flagged `poorly_sampled` although
+  their own records are few (*Montanelia tominii*, CR: 2 records in 1 cell).
+- **Priority counts** — "Taxa - Poorly sampled" in `priority_summary.csv` counts the
+  threatened taxa that are poorly sampled. It used to count the whole priority list, the
+  missing threatened taxa included.
 
 ## Unreleased — Image build: releases no longer need the Ubuntu package servers
 

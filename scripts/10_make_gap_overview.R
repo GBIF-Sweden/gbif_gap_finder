@@ -675,7 +675,7 @@ if (!is.null(tax_missing_threatened) && nrow(tax_missing_threatened) > 0) {
   write_integrated(priority_threatened_missing, "priority_taxa_threatened_missing.csv")
 }
 
-# 9.5 Priority taxa: Poorly sampled threatened species
+# 9.5 Priority taxa: threatened species that are missing or poorly sampled
 if (!is.null(tax_priority) && nrow(tax_priority) > 0) {
   priority_taxa <- copy(tax_priority)
   
@@ -702,7 +702,9 @@ priority_summary <- data.table(
     calc_metric(nrow(spatial_low_cells)),
     calc_metric(nrow(recency_10[basisofrecord == "all" & gap_stale_5y == TRUE])),
     calc_metric(nrow(tax_missing_threatened)),
-    calc_metric(nrow(tax_priority))
+    # tax_priority lists the threatened taxa that are missing and the ones that
+    # are poorly sampled; this row counts the second group.
+    calc_metric(sum(tax_priority$priority == "Threatened - Poorly Sampled"))
   )
 )
 

@@ -260,13 +260,18 @@ match_summary[is.na(gbif_total_occ), gbif_total_occ := 0]
 # whose cube key was name-matched to a DIFFERENT backbone taxon in 09a (so 09a's
 # GBIF-species-centric Tier 5, which only fills unmatched cube rows, never fired
 # on them). ADDITIVE: only flips matched_any FALSE->TRUE, never removes a match.
-# Skipped if the crosswalk is absent. `cw_sk_map` (COL key -> taxon) also feeds
-# the spatial-coverage join below, so recovered taxa carry their cube key's
-# cells/occurrences instead of showing up as present-but-empty.
+# Skipped if the crosswalk is absent.
 #
 # A recovered taxon also takes the record count of its cube keys. Such a key is
 # matched to another backbone taxon in 09a, so its records count for both taxa;
 # `shared_key` marks the recovered rows where that is the case.
+#
+# `cw_sk_map` (COL key -> recovered taxon) feeds the roll-up to species and the
+# spatial-coverage join below, so a recovered taxon carries the cells and
+# records of the same keys there instead of showing up as present-but-empty. A
+# taxon with a match of its own is not in the map: its keys are the ones 09a
+# matched to it, and the further keys the crosswalk links it to are matched to
+# other taxa.
 crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
 cube_keys <- unique(recon$specieskey)
 cw_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
@@ -294,6 +299,7 @@ if (file.exists(crosswalk_file)) {
                      gbif_specieskeys = xw_keys,
                      shared_key       = xw_shared)]
   match_summary[, c("xw_n", "xw_occ", "xw_keys", "xw_shared") := NULL]
+  cw_sk_map <- cw_sk_map[backbone_taxonID %in% match_summary$taxonID[newly]]
 
   cli_alert_success(
     "COL crosswalk presence overlay: +{scales::comma(sum(newly))} backbone taxa now in GBIF \\
@@ -339,7 +345,8 @@ if (all(c("taxonRank", "parentNameUsageID") %in% names(tax_accepted))) {
   present_infra[, species_taxonID := species_above(infra_taxonID)]
   present_infra <- present_infra[!is.na(species_taxonID)]
 
-  # Cube keys of a present taxon: matched to it in 09a, or linked by the crosswalk.
+  # Cube keys of a present taxon: matched to it in 09a, or the keys the
+  # crosswalk overlay recovered it through.
   key_of_taxon <- unique(rbind(
     recon[match_tier != "unmatched", .(specieskey, backbone_taxonID)],
     cw_sk_map
