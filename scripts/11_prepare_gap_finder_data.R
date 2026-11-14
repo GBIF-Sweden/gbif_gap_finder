@@ -612,12 +612,13 @@ if (!is.null(match_summary)) {
   }
 }
 
-# Infraspecific taxa set aside by 09b. They are in none of the coverage tables
-# above; the app states how many there are and lists them.
+# Taxa set aside by 09b: infraspecific taxa, and species that COL files below
+# species rank. They are in none of the coverage tables above; the app states
+# how many there are and lists them.
 infra_taxa <- safe_read(here(p_gaps, "taxonomic_infraspecific_taxa.csv"))
 if (!is.null(infra_taxa) && nrow(infra_taxa) > 0) {
   shiny_data$taxonomic_infraspecific <- as_tibble(bucket_unclassified(infra_taxa))
-  cli_alert_success("Infraspecific taxa set aside: {scales::comma(nrow(infra_taxa))}")
+  cli_alert_success("Taxa set aside: {scales::comma(nrow(infra_taxa))}")
 }
 
 # Pre-computed tax_by_rank from script 10

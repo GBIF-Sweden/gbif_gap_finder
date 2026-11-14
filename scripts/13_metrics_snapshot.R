@@ -90,8 +90,15 @@ build_metrics_block <- function(tables_dir, snap_date = "n/a", gen_date = "n/a")
             gN("threatened_in_reference"), gN("threatened_in_gbif"), gN("threatened_missing")),
     "",
     if ("infraspecific_set_aside" %in% names(v) && gN("infraspecific_set_aside") != "n/a") c(
-      sprintf("Set aside, not assessable from a species-level cube: %s subspecies, varieties and forms, %s of them threatened (CR/EN/VU/NT).",
-              gN("infraspecific_set_aside"), gN("infraspecific_threatened")),
+      paste0(
+        sprintf("Set aside, not assessable from a species-level cube: %s subspecies, varieties and forms, %s of them threatened (CR/EN/VU/NT)",
+                gN("infraspecific_set_aside"), gN("infraspecific_threatened")),
+        if ("col_infraspecific_set_aside" %in% names(v) &&
+            !(gN("col_infraspecific_set_aside") %in% c("n/a", "0"))) {
+          sprintf("; %s species that Catalogue of Life ranks below species, %s of them threatened",
+                  gN("col_infraspecific_set_aside"), gN("col_infraspecific_threatened"))
+        },
+        "."),
       ""),
     "Coverage by rank:",
     "",

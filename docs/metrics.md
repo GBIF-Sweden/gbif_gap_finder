@@ -429,10 +429,16 @@ listed separately. Their records are records of the species: a species without a
 its own is present when one of its subspecies, varieties or forms is (`best_match_tier`
 `infraspecific`).
 
+A species-rank taxon that CoL, the cube's taxonomy, files as a subspecies or variety of
+another species (*Dactylis polygama* as *Dactylis glomerata* subsp. *lobata*) cannot be
+assessed either: its records are counted under that other species' key. When it has no
+match of its own it is set aside with the subspecies, varieties and forms
+(`set_aside_reason` `col_infraspecific`) and does not count as missing.
+
 **Outputs:**
 - `taxonomic_missing_taxa.csv` (5,304 missing taxa)
 - `taxonomic_missing_threatened.csv` (subset: threatened taxa missing)
-- `taxonomic_infraspecific_taxa.csv` (subspecies, varieties and forms set aside)
+- `taxonomic_infraspecific_taxa.csv` (taxa set aside: subspecies, varieties and forms, and species that CoL files below species rank)
 
 ### 5.5 Coverage Analysis
 

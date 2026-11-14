@@ -125,6 +125,16 @@ tax_priority <- safe_read_gap("taxonomic_priority_taxa.csv")
 tax_missing <- safe_read_gap("taxonomic_missing_taxa.csv")
 tax_missing_threatened <- safe_read_gap("taxonomic_missing_threatened.csv")
 tax_infraspecific <- safe_read_gap("taxonomic_infraspecific_taxa.csv")
+# The table of taxa set aside holds two groups (`set_aside_reason`): the
+# backbone's infraspecific taxa, and species that COL files below species rank.
+# A table without the column holds the first group only.
+tax_set_aside_is_col <- if (is.null(tax_infraspecific)) {
+  logical(0)
+} else if ("set_aside_reason" %in% names(tax_infraspecific)) {
+  tax_infraspecific$set_aside_reason %in% "col_infraspecific"
+} else {
+  rep(FALSE, nrow(tax_infraspecific))
+}
 
 cli_alert_success("Gap files loaded")
 
@@ -208,13 +218,22 @@ dashboard <- data.table(
   ),
   threatened_missing = calc_metric(nrow(tax_missing_threatened)),
 
-  # --- Infraspecific taxa set aside by 09b (not assessable from a species-level cube) ---
+  # --- Taxa set aside by 09b (not assessable from a species-level cube) ---
+  # infraspecific_*: the backbone's subspecies, varieties and forms;
+  # col_infraspecific_*: species that COL files below species rank.
   infraspecific_set_aside = calc_metric(
-    if (is.null(tax_infraspecific)) NA_integer_ else nrow(tax_infraspecific)
+    if (is.null(tax_infraspecific)) NA_integer_ else sum(!tax_set_aside_is_col)
   ),
   infraspecific_threatened = calc_metric(
     if (is.null(tax_infraspecific)) NA_integer_
-    else sum(tax_infraspecific$threatStatus %in% THREATENED_CODES)
+    else sum(!tax_set_aside_is_col & tax_infraspecific$threatStatus %in% THREATENED_CODES)
+  ),
+  col_infraspecific_set_aside = calc_metric(
+    if (is.null(tax_infraspecific)) NA_integer_ else sum(tax_set_aside_is_col)
+  ),
+  col_infraspecific_threatened = calc_metric(
+    if (is.null(tax_infraspecific)) NA_integer_
+    else sum(tax_set_aside_is_col & tax_infraspecific$threatStatus %in% THREATENED_CODES)
   ),
   
   # --- Priority counts ---

@@ -13,9 +13,17 @@ the wrong species.
   missing in v1.0.2). 09b writes them to `taxonomic_infraspecific_taxa.csv`, with the same
   kingdom and order exclusions, and `docs/metrics.md` states how many are set aside.
   `parameters.taxonomic.gap_include_infraspecific: true` puts them back in the denominator.
+- **Species that CoL ranks below species** — a species-rank taxon whose own name CoL files as
+  a subspecies or variety of another species (*Dactylis polygama* as *D. glomerata* subsp.
+  *lobata*) is set aside as well when it has no match of its own. Its records are counted
+  under that other species' key, so a species-level cube cannot say whether it has any; on
+  13 Nov 2026 GBIF held 1,324 Swedish records under that subspecies. The rows carry
+  `set_aside_reason` `col_infraspecific`, CoL's name and the cube key of that species.
+  `parameters.taxonomic.gap_include_col_infraspecific: true` counts them as missing.
 - **App: taxa set aside** — the Taxonomic and Species of Concern tabs state how many
-  subspecies, varieties and forms are set aside (on Species of Concern: how many of them are
-  red-listed or sensitive) and offer the list as CSV; Data & Sources lists the table too.
+  subspecies, varieties and forms, and how many species that CoL ranks below species, are
+  set aside (on Species of Concern: how many of them are red-listed or sensitive) and offer
+  the list as CSV; Data & Sources lists the table too.
   With a bundle that has no such table, the app shows no note and keeps the About wording
   that fits that bundle.
 

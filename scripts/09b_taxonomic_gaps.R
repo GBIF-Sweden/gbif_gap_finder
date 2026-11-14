@@ -13,6 +13,7 @@
 # Inputs:
 #   - data/{CC}/proc/taxonomic_reconciliation.rds  (from 09a)
 #   - data/{CC}/proc/taxa_reference_current.rds    (from 03)
+#   - data/{CC}/proc/gaps/col_crosswalk_infraspecific.csv  (from 09a1)
 #   - data/{CC}/proc/derived/by_order/species_cell_*.csv  (from 06b)
 #   - data/{CC}/proc/derived/by_family/species_cell_*.csv (from 06b)
 #   - data/{CC}/proc/derived/by_order/species_summary_*.csv  (from 06b)
@@ -23,8 +24,10 @@
 #     - taxonomic_missing_taxa.csv           All backbone taxa not in GBIF
 #     - taxonomic_missing_threatened.csv     Threatened backbone taxa not in GBIF
 #   Set aside:
-#     - taxonomic_infraspecific_taxa.csv     Subspecies, varieties and forms: not
-#                                            assessable from a species-level cube
+#     - taxonomic_infraspecific_taxa.csv     Not assessable from a species-level
+#                                            cube: subspecies, varieties and forms,
+#                                            and species that COL files below
+#                                            species rank (`set_aside_reason`)
 #   Coverage:
 #     - taxonomic_coverage_by_rank.csv       Coverage % by taxonomic rank
 #     - taxonomic_coverage_by_threat.csv     Coverage % by threat status
@@ -401,6 +404,45 @@ if (isTRUE(cfg_get("parameters.taxonomic.gap_species_only", TRUE)) &&
     {scales::comma(nrow(match_summary))} taxa \\
     ({scales::comma(nrow(infra_taxa))} infraspecific taxa set aside)"
   )
+}
+infra_taxa[, `:=`(set_aside_reason = "infraspecific_rank",
+                  col_name         = NA_character_,
+                  col_species_key  = NA_character_)]
+
+# Species that COL files below species rank. 09a1 lists the species-rank taxa
+# whose own name COL files under an infraspecific taxon of another species
+# (Dactylis polygama as Dactylis glomerata subsp. lobata), with that species in
+# the cube. The records of such a taxon are counted under the other species'
+# key, so the cube cannot say whether it has any. Without a match of its own it
+# joins the taxa set aside, with COL's name for it and the cube key of that
+# species; a taxon on the list that is present through another of its names
+# stays in the denominator. `gap_include_col_infraspecific: true` keeps all of
+# them in the denominator.
+if (!isTRUE(cfg_get("parameters.taxonomic.gap_include_col_infraspecific", FALSE))) {
+  col_infra_file <- here(p_gaps, "col_crosswalk_infraspecific.csv")
+  if (file.exists(col_infra_file)) {
+    col_infra <- fread(col_infra_file, colClasses = "character")
+    col_infra <- unique(col_infra[species_cube_key %in% cube_keys], by = "dyntaxa_taxonID")
+    on_list   <- match_summary$taxonID %in% col_infra$dyntaxa_taxonID
+    aside     <- on_list & match_summary$matched_any == FALSE
+    col_aside <- match_summary[aside]
+    col_aside[, `:=`(set_aside_reason = "col_infraspecific",
+                     col_name         = NA_character_,
+                     col_species_key  = NA_character_)]
+    col_aside[col_infra, on = c(taxonID = "dyntaxa_taxonID"),
+              `:=`(col_name = i.col_name, col_species_key = i.species_cube_key)]
+    infra_taxa    <- rbind(infra_taxa, col_aside, use.names = TRUE)
+    match_summary <- match_summary[!aside]
+    cli_alert_info(
+      "Species that COL files below species rank: {scales::comma(sum(aside))} set aside, \\
+      {scales::comma(sum(on_list & !aside))} present through another name"
+    )
+  } else {
+    cli_alert_warning(
+      "col_crosswalk_infraspecific.csv not found -- species that COL files below species rank \\
+      stay in the denominator (run 09a1)."
+    )
+  }
 }
 exclude_kingdoms <- unlist(cfg_get("parameters.taxonomic.exclude_kingdoms", character(0)))
 if (length(exclude_kingdoms) && "kingdom" %in% names(match_summary)) {
@@ -831,8 +873,10 @@ write_gap_file <- function(dt, filename, label = NULL) {
 # Match summary (backbone view)
 write_gap_file(match_summary, "taxonomic_match_summary.csv")
 
-# Infraspecific taxa set aside from the gap denominator. Written on every run,
-# empty when none are set aside, so the table never outlives the run it describes.
+# Taxa set aside from the gap denominator: infraspecific taxa, and species that
+# COL files below species rank (`set_aside_reason` says which). Written on every
+# run, empty when none are set aside, so the table never outlives the run it
+# describes.
 write_gap_file(infra_taxa, "taxonomic_infraspecific_taxa.csv")
 
 # Missing taxa
@@ -890,7 +934,8 @@ summary_dt <- data.table(
     "Threatened in GBIF",
     "Threatened missing from GBIF",
     "Priority taxa for sampling",
-    "Infraspecific taxa set aside"
+    "Infraspecific taxa set aside",
+    "Species set aside (COL files them below species rank)"
   ),
   Value = c(
     scales::comma(nrow(tax_clean)),
@@ -901,7 +946,8 @@ summary_dt <- data.table(
                         match_summary$threatStatus %in% THREATENED_CODES, na.rm = TRUE)),
     scales::comma(nrow(missing_threatened)),
     scales::comma(nrow(priority_all)),
-    scales::comma(nrow(infra_taxa))
+    scales::comma(sum(infra_taxa$set_aside_reason == "infraspecific_rank")),
+    scales::comma(sum(infra_taxa$set_aside_reason == "col_infraspecific"))
   )
 )
 

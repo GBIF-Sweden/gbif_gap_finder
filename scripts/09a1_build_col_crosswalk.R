@@ -33,7 +33,8 @@
 #      (parameters.taxonomic.crosswalk_baseline) and writes
 #      data/{CC}/proc/gaps/col_crosswalk_validation.md, plus
 #      col_crosswalk_infraspecific.csv: the species-rank taxa that COL files
-#      under another infraspecific taxon.
+#      under another infraspecific taxon. 09b reads that list and sets aside
+#      the taxa on it that have no match of their own.
 #
 # RUN:  source("scripts/09a1_build_col_crosswalk.R")     (after 03 + 06b)
 # Config (all optional; safe defaults, NO config-file change required):
@@ -438,7 +439,7 @@ report <- c(
 # Species-rank taxa whose own name COL files under an infraspecific taxon that
 # is not the nominate one, with that taxon's species in the cube. Their records
 # are inside the species' cube key; whether they have any cannot be read from a
-# species-level cube.
+# species-level cube. 09b sets aside the ones without a match of their own.
 other_infra <- merge(
   name_map[is_syn == FALSE, .(name_std, dyntaxa_taxonID = accepted_taxonID, threatStatus,
                               taxonRank = if ("taxonRank" %in% names(name_map)) taxonRank
