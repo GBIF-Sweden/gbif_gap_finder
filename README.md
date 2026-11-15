@@ -386,17 +386,28 @@ nothing is deployed automatically from this repository.
    `CITATION.cff` on the default branch as a follow-up commit — so `git pull` after a
    release, or the next push is rejected as non-fast-forward.
 
-**Dependency image** (`.github/workflows/build-deps-image.yml`): the system libraries and
-the R packages of `renv.lock` are built separately and pushed as
+**Dependency image** (`.github/workflows/build-deps-image.yml`, job `deps`): the system
+libraries and the R packages of `renv.lock` are built separately and pushed as
 `ghcr.io/gbif-sweden/gap-finder:deps-<hash>`. `<hash>` comes from the Dockerfile and
-`renv.lock` (`bash .github/scripts/deps_image.sh` prints the name). The workflow runs when
-either file changes on `main`. A release therefore needs only GitHub: no Ubuntu package
-server, Docker Hub or Posit Package Manager.
+`renv.lock` (`bash .github/scripts/deps_image.sh` prints the name). A release therefore
+needs only GitHub: no Ubuntu package server, Docker Hub or Posit Package Manager.
 
-- **Before tagging**, after a merge that changed the Dockerfile or `renv.lock`: wait for
-  the *Build deps image* run on `main` to be green.
-- If that run fails because a package server is down, re-run it later. There is no fallback
-  to other servers.
+**App check** (the same workflow, job `app`): builds the app image on the dependency image
+the way a release does, without publishing it, then starts it and checks it
+(`.github/scripts/check_app_image.sh`). The page has to answer. In a headless browser every
+tab has to open without an error and without a plot, map or table that stays empty, which
+is what the app shows when the bundle lacks a table. And the container log must have no R
+error. The result and the end of the container log are on the run's summary page. No other
+workflow starts the app.
+
+The workflow runs on `main` when the Dockerfile, `renv.lock`, `app.R`, `www/`, the data
+bundle or the country config change. To check a branch before merging it, run the workflow
+by hand on that branch (Actions → *Build deps image* → Run workflow → Use workflow from).
+
+- **Before tagging**: wait for the newest *Build deps image* run on `main` to be green. A
+  red `app` job means the image does not start or a tab does not render: do not tag.
+- If the `deps` job fails because a package server is down, re-run it later. There is no
+  fallback to other servers.
 - If `publish` stops with "… is not on GHCR", the deps image for that commit is missing:
   run *Build deps image* (Actions → Run workflow), then re-run the failed job.
 

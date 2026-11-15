@@ -97,6 +97,17 @@ live archive instead of the pinned snapshot (the library versions were the same)
 - **Workflows** — the GitHub layer-cache settings are removed from the release and PR
   builds; no build could read those caches.
 
+### Added
+
+- **App check** — *Build deps image* has a second job, `app`. It builds the app image on the
+  dependency image as a release does, starts it and checks it: the page answers, every tab
+  opens in a headless browser without an error and without a plot, map or table that stays
+  empty, and the container log has no R error (`.github/scripts/check_app_image.sh`,
+  `check_app_tabs.py`). The workflow now also runs
+  when `app.R`, `www/`, the data bundle or the country config change on `main`, and it can
+  be run by hand on a branch. Until now no workflow started the app: a release could publish
+  an image that built and did not run.
+
 ## Unreleased — Empty GBIF cube: status filter and guards
 
 On 2026-11-10 both GBIF SQL cube downloads came back with 0 rows, and nothing stopped them.
