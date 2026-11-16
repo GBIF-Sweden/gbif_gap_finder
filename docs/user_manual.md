@@ -130,7 +130,10 @@ Archaea, Viruses) and *Homo sapiens*; a species counts as "in GBIF" when at leas
 occurrence resolves to it. Subspecies, varieties and forms are set aside, because the cube
 counts their records under the species; so are species that GBIF's taxonomy (Catalogue of
 Life) ranks as a subspecies or variety of another species. The tab says how many there are
-and offers the list.
+and offers the list. Some species count as "in GBIF" only through a GBIF key that GBIF's
+taxonomy gives to them together with another taxon: the records of that key count for
+both, so such a species may have no records of its own. A note says how many there are and
+offers the list, with the GBIF name of each key.
 
 ### Species of Concern
 
@@ -144,7 +147,10 @@ show the Swedish name where Dyntaxa has one. Reintroduced native species count a
   range modelling, trend analysis, or habitat assessment. Source: SLU Artdatabanken's Red
   List, matched at the rank each list publishes. A subspecies, variety or form on the Red
   List or the sensitive list is set aside and counted in the note under the filters; so
-  is a listed species that GBIF's taxonomy ranks below species.
+  is a listed species that GBIF's taxonomy ranks below species. The coverage line says how
+  many of the threatened species in GBIF count only through a GBIF key they share with
+  another taxon; a second note lists them, and the Invasive and Sensitive tables mark
+  such species "In GBIF (shared key)".
 - **Invasive** — species GRIIS explicitly flags as invasive for Sweden (not all introduced
   or alien taxa). Because cubes aggregate at species level, this flag is rolled up to
   species: it answers "which species have an invasive form that may warrant monitoring,"

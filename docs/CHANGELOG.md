@@ -1,5 +1,22 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — App: species on shared keys
+
+### Added
+
+- **Species on shared keys** — some species count as in GBIF only through a GBIF key that
+  GBIF's taxonomy (Catalogue of Life) gives to them together with another taxon, so the
+  records of that key count for both (`shared_key` with `best_match_tier` `tier5_col` in
+  `taxonomic_match_summary.csv`). The Taxonomic and Species of Concern tabs state how many
+  there are and offer the list as CSV, with the GBIF name of each key and the listed taxa
+  that share it; the Threatened coverage line says how many of the threatened species in
+  GBIF count only that way; the Invasive and Sensitive tables mark them "In GBIF (shared
+  key)". The figures do not change. The notes appear with a bundle that has the column (the
+  next data release); with the current bundle the app looks as before. Not counted: a
+  species whose key carries only its own subspecies, varieties or forms, and the species
+  that 09b marks present through their subspecies (both carry `shared_key`); their records
+  are their own.
+
 ## Unreleased — Weekly status
 
 ### Added
