@@ -37,6 +37,25 @@
   leaves out the local checks of `scripts/00_preflight.R`, for a machine without the data
   folder. The pipeline runs the preflight as before.
 
+## Unreleased — Tier 4 without misapplied names; radio contrast
+
+### Fixed
+
+- **Tier 4 (09a) leaves out misapplied names.** A synonym that the Catalogue of Life marks
+  MISAPPLIED was used for the taxon in error and stands for another one, so a cube key no
+  longer matches the backbone taxon of that name. On the inputs of 13 November: 5 keys
+  (10 records) lose a wrong match (*Potentilla arenosa* no longer counts for *P. nivea*),
+  1 key (1 record) moves to another taxon, 3 keys keep their taxon on another tier; no
+  taxon becomes missing. Takes effect with the next data release.
+- **Radio groups (Spatial, Publishers):** the chosen button is white on dark green, 7.4:1
+  against the buttons beside it (it was light grey, 1.25:1), so the choice does not rest on
+  a faint shade (WCAG 1.4.11).
+
+### Changed
+
+- **ROADMAP:** current state (live since v1.0.0, the checks, the data) and the launch item
+  marked done.
+
 ## 2026-11-16: v1.1.2 — Accessibility, app check and pipeline fixes
 
 **Data: unchanged.** The app bundle is still the one released with v1.0.2 (GBIF cubes of

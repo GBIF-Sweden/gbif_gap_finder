@@ -572,6 +572,9 @@ cli_alert_info("  Remaining: {scales::comma(sum(is.na(recon$match_tier)))}")
 # Only a species-rank synonym names the same species as the cube key. An
 # infraspecific synonym ("Cladonia uncialis var. bolacina") says nothing about
 # its parent species ("Cladonia uncialis"), so it is not used for matching.
+# Neither is a name COL marks MISAPPLIED: it was used for this taxon in error
+# and stands for another one (COL lists "Potentilla nivea auct." under
+# Potentilla arenosa), so the backbone taxon of that name is not the key's.
 #
 # The cube key is a COL taxonID (e.g. "6VFN8"), not an integer, so the classic
 # GET /v1/species/{key}/synonyms 400s on it. COL-aware path instead:
@@ -727,7 +730,8 @@ if (nrow(remaining) > 0 && api_available) {
         # Cache the (possibly empty) result. Empty is a VALID answer here (no COL
         # usage for this key, or a taxon with no synonyms) and is cached so reruns
         # skip it. Transport errors are handled below and deliberately NOT cached.
-        # `synonyms` holds the names used for matching: species rank only.
+        # `synonyms` lists the species-rank names; matching reads the
+        # per-synonym fields, which carry rank and status.
         api_cache[[sk]] <- list(
           synonyms    = unique(syn_names[syn_ranks == "SPECIES"]),
           syn_names   = syn_names,
@@ -801,7 +805,14 @@ t4_usable <- t4_candidates$sk_chr[
 n_t4_waiting <- nrow(t4_candidates) - length(t4_usable)
 
 if (length(t4_usable) > 0) {
-  t4_syn <- lapply(api_cache[t4_usable], function(e) e$synonyms)
+  # Species-rank synonyms, without the misapplied names (see the Tier 4 notes).
+  t4_syn <- lapply(api_cache[t4_usable], function(e) {
+    status <- e$syn_status %||% rep("", length(e$syn_names))
+    unique(e$syn_names[e$syn_ranks == "SPECIES" & status != "MISAPPLIED"])
+  })
+  n_t4_misapplied <- sum(vapply(api_cache[t4_usable], function(e) {
+    sum(e$syn_ranks == "SPECIES" & e$syn_status %in% "MISAPPLIED")
+  }, integer(1)))
   syn_long <- data.table(
     specieskey = rep(t4_usable, lengths(t4_syn)),
     name_std   = as.character(unlist(t4_syn, use.names = FALSE))
@@ -824,6 +835,9 @@ if (length(t4_usable) > 0) {
       "  Cached synonyms by status: \\
        {paste0(names(status_tab), ' ', scales::comma(as.integer(status_tab)), collapse = ', ')}"
     )
+  }
+  if (n_t4_misapplied > 0) {
+    cli_alert_info("  Misapplied names left out of the matching: {scales::comma(n_t4_misapplied)}")
   }
 
   acc_lookup <- accepted_taxa[, .(name_std, taxonID, scientificName)][, .SD[1], by = name_std]
