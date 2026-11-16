@@ -468,6 +468,14 @@ filter_label <- function(text) tags$span(class = "filter-label", text)
 # to it: the input keeps a label for screen readers, but it is not displayed.
 sr_label <- function(input) div(class = "sr-label", input)
 
+# A radio group drawn as a row of buttons (.seg-radio in www/styles.css). Each
+# choice stays a native radio button inside its own label, so screen readers
+# announce a named radio group and the arrow keys move the choice.
+seg_radio <- function(inputId, label, choices, selected = NULL) {
+  div(class = "seg-radio",
+    radioButtons(inputId, label, choices = choices, selected = selected, inline = TRUE))
+}
+
 # Icons in this app are decorative: each one sits next to text that says the same
 # thing. fontawesome gives them role="presentation" plus an aria-label, a
 # combination ARIA does not allow (screen readers then announce "gauge icon");
@@ -1340,10 +1348,10 @@ ui <- fluidPage(
                 # Coverage-area (marine) toggle at the top of the Display panel
                 if (has_marine) tagList(
                   div(class = "filter-label", `aria-hidden` = "true", "Coverage area"),
-                  sr_label(radioGroupButtons("coverage_area", label = "Coverage area",
+                  sr_label(seg_radio("coverage_area", label = "Coverage area",
                     choices = c("Land + sea" = "land_sea", "Land only" = "land_only",
                                 "Sea only" = "sea_only"),
-                    selected = "land_sea", size = "sm")),
+                    selected = "land_sea")),
                   tags$hr(style = "margin: 0.6rem 0; border-color: #eee;")
                 ),
                 sr_label(radioButtons("map_var", "Map measure",
@@ -1526,10 +1534,10 @@ ui <- fluidPage(
                 selectInput("cl_pair", "Time points",
                   choices = closure_pair_choices,
                   selected = closure_pair_choices[length(closure_pair_choices)]),
-                div(class = "filter-label", "Resolution"),
-                radioGroupButtons("cl_res", label = NULL,
+                div(class = "filter-label", `aria-hidden` = "true", "Resolution"),
+                sr_label(seg_radio("cl_res", label = "Resolution",
                   choices = c("10 km" = "10km", "50 km" = "50km"),
-                  selected = "10km", size = "sm"),
+                  selected = "10km")),
                 div(class = "filter-label", style = "margin-top:0.6rem;", "Source"),
                 radioButtons("cl_source", NULL,
                   choices = c("Both streams" = "total",
@@ -2181,9 +2189,9 @@ ui <- fluidPage(
           div(style = "display:flex; justify-content:flex-end; align-items:center; gap:0.6rem; margin-bottom:0.75rem;",
             tags$span(style = "font-weight:600; color:var(--text-secondary);",
               `aria-hidden` = "true", "Bar axis scale:"),
-            sr_label(radioGroupButtons("pub_scale", label = "Bar axis scale",
+            sr_label(seg_radio("pub_scale", label = "Bar axis scale",
               choices = c("Linear" = "linear", "Log" = "log"),
-              selected = "linear", size = "sm"))),
+              selected = "linear"))),
 
           fluidRow(
             column(6, div(class = "card",
@@ -4014,7 +4022,7 @@ server <- function(input, output, session) {
       tags$span("Showing:"),
       tags$strong(breadcrumb, style = "color: var(--text-primary, #333);"),
       actionLink("tax_clear_filters", tagList(icon("times-circle"), "Clear"),
-        style = "margin-left: auto; font-size:1rem; color: var(--coral, #EE6677); text-decoration: none;")
+        style = "margin-left: auto; font-size:1rem; color: var(--coral-ink, #b32e44); text-decoration: none;")
     )
   })
 
@@ -5846,7 +5854,7 @@ server <- function(input, output, session) {
     ds <- ds_meta()
     n <- ds$n_contributing_datasets %||% 0L; p <- ds$n_publishers %||% 0L
     if (!length(n) || n == 0) return(NULL)
-    div(style = "font-size: 1.05rem; font-weight: 600; color: var(--coral, #c0654f);",
+    div(style = "font-size: 1.05rem; font-weight: 600; color: var(--coral-ink, #b32e44);",
       sprintf("%s datasets from %s publishers made this analysis possible",
         format(n, big.mark = ","), format(p, big.mark = ",")))
   })
