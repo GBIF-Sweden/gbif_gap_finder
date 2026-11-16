@@ -263,8 +263,8 @@ match_summary[is.na(gbif_total_occ), gbif_total_occ := 0]
 # Skipped if the crosswalk is absent.
 #
 # A recovered taxon also takes the record count of its cube keys. Such a key is
-# matched to another backbone taxon in 09a, so its records count for both taxa;
-# `shared_key` marks the recovered rows where that is the case.
+# usually matched to another backbone taxon in 09a, so its records count for
+# both; "Shared cube keys" below marks these rows.
 #
 # `cw_sk_map` (COL key -> recovered taxon) feeds the roll-up to species and the
 # spatial-coverage join below, so a recovered taxon carries the cells and
@@ -275,7 +275,6 @@ match_summary[is.na(gbif_total_occ), gbif_total_occ := 0]
 crosswalk_file <- here(p_data_proc, "col_crosswalk.rds")
 cube_keys <- unique(recon$specieskey)
 cw_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
-match_summary[, shared_key := FALSE]
 if (file.exists(crosswalk_file)) {
   cw <- as.data.table(readRDS(crosswalk_file))
   cw <- cw[!is.na(col_key) & nzchar(col_key) & col_key %in% cube_keys]
@@ -284,51 +283,44 @@ if (file.exists(crosswalk_file)) {
   newly <- match_summary$matched_any == FALSE & match_summary$taxonID %in% xwalk_present
   match_summary[newly, `:=`(matched_any = TRUE, best_match_tier = "tier5_col")]
 
-  xw <- merge(cw_sk_map, recon[, .(specieskey, total_occ, match_tier)], by = "specieskey")
-  xw <- xw[, .(xw_n      = uniqueN(specieskey),
-               xw_occ    = sum(as.numeric(total_occ), na.rm = TRUE),
-               xw_keys   = paste(unique(specieskey), collapse = ";"),
-               xw_shared = any(match_tier != "unmatched")),
+  xw <- merge(cw_sk_map, recon[, .(specieskey, total_occ)], by = "specieskey")
+  xw <- xw[, .(xw_n    = uniqueN(specieskey),
+               xw_occ  = sum(as.numeric(total_occ), na.rm = TRUE),
+               xw_keys = paste(unique(specieskey), collapse = ";")),
            by = backbone_taxonID]
   match_summary[xw, on = c(taxonID = "backbone_taxonID"),
-                `:=`(xw_n = i.xw_n, xw_occ = i.xw_occ,
-                     xw_keys = i.xw_keys, xw_shared = i.xw_shared)]
+                `:=`(xw_n = i.xw_n, xw_occ = i.xw_occ, xw_keys = i.xw_keys)]
   match_summary[newly & !is.na(xw_n),
                 `:=`(n_gbif_species   = xw_n,
                      gbif_total_occ   = xw_occ,
-                     gbif_specieskeys = xw_keys,
-                     shared_key       = xw_shared)]
-  match_summary[, c("xw_n", "xw_occ", "xw_keys", "xw_shared") := NULL]
+                     gbif_specieskeys = xw_keys)]
+  match_summary[, c("xw_n", "xw_occ", "xw_keys") := NULL]
   cw_sk_map <- cw_sk_map[backbone_taxonID %in% match_summary$taxonID[newly]]
 
   cli_alert_success(
-    "COL crosswalk presence overlay: +{scales::comma(sum(newly))} backbone taxa now in GBIF \\
-     ({scales::comma(sum(match_summary$shared_key))} on a cube key shared with another taxon)"
+    "COL crosswalk presence overlay: +{scales::comma(sum(newly))} backbone taxa now in GBIF"
   )
 } else {
   cli_alert_warning("col_crosswalk.rds not found -- COL presence overlay skipped (run 09a1).")
 }
 
 # ---------------------------------------------------------------------------
-# Species present through their own subspecies, varieties or forms
+# Backbone tree
 # ---------------------------------------------------------------------------
-# A record of a subspecies is a record of its species. A species-rank taxon
-# without a match of its own is present when an infraspecific taxon below it
-# is, and takes that taxon's cube keys and records. ADDITIVE: only flips
-# matched_any FALSE -> TRUE. The keys are matched to the infraspecific taxon as
-# well, so `shared_key` is TRUE for these rows. `infra_sk_map` (cube key ->
-# species) feeds the spatial-coverage join below.
-infra_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
-if (all(c("taxonRank", "parentNameUsageID") %in% names(tax_accepted))) {
+# `rank_of` (taxonID -> rank) and `species_above()`: the species above an
+# infraspecific taxon, i.e. its parent, or further up for a form below a variety
+# below a subspecies. Without parent links in the backbone, `rank_of` is empty
+# and `species_above()` gives NA.
+has_tree      <- all(c("taxonRank", "parentNameUsageID") %in% names(tax_accepted))
+rank_of       <- character(0)
+species_above <- function(id) rep(NA_character_, length(id))
+if (has_tree) {
   tax_tree  <- tax_accepted[!duplicated(taxonID),
                             .(taxonID,
                               parent = as.character(parentNameUsageID),
                               rank   = tolower(taxonRank))]
   parent_of <- setNames(tax_tree$parent, tax_tree$taxonID)
   rank_of   <- setNames(tax_tree$rank,   tax_tree$taxonID)
-
-  # The species above an infraspecific taxon: its parent, or further up for a
-  # form below a variety below a subspecies.
   species_above <- function(id) {
     up <- unname(parent_of[id])
     for (step in seq_len(3L)) {
@@ -339,7 +331,18 @@ if (all(c("taxonRank", "parentNameUsageID") %in% names(tax_accepted))) {
     up[!(unname(rank_of[up]) %in% "species")] <- NA_character_
     up
   }
+}
 
+# ---------------------------------------------------------------------------
+# Species present through their own subspecies, varieties or forms
+# ---------------------------------------------------------------------------
+# A record of a subspecies is a record of its species. A species-rank taxon
+# without a match of its own is present when an infraspecific taxon below it
+# is, and takes that taxon's cube keys and records. ADDITIVE: only flips
+# matched_any FALSE -> TRUE. `infra_sk_map` (cube key -> species) feeds the
+# spatial-coverage join below.
+infra_sk_map <- recon[0L, .(specieskey, backbone_taxonID)]
+if (has_tree) {
   present_infra <- match_summary[tolower(taxonRank) %in% INFRA_RANKS & matched_any == TRUE,
                                  .(infra_taxonID = taxonID)]
   present_infra[, species_taxonID := species_above(infra_taxonID)]
@@ -369,14 +372,45 @@ if (all(c("taxonRank", "parentNameUsageID") %in% names(tax_accepted))) {
                        best_match_tier  = "infraspecific",
                        n_gbif_species   = i.n_keys,
                        gbif_total_occ   = i.occ,
-                       gbif_specieskeys = i.keys,
-                       shared_key       = TRUE)]
+                       gbif_specieskeys = i.keys)]
     infra_sk_map <- infra_keys[, .(specieskey, backbone_taxonID = species_taxonID)]
   }
   cli_alert_success(
     "Species present through their own infraspecific taxa: +{scales::comma(length(via_infra))}"
   )
 }
+
+# ---------------------------------------------------------------------------
+# Shared cube keys
+# ---------------------------------------------------------------------------
+# A taxon that the two overlays above recover counts as in GBIF through cube
+# keys that other taxa can hold as well: the taxon 09a matched a key to, and the
+# other taxa recovered through the same key. The records of such a key count for
+# each of them and may all belong to another. `shared_with` names those other
+# taxa and `shared_key` marks the rows that have any. The taxon's own
+# subspecies, varieties and forms do not count: their records are its own.
+recovered_keys <- unique(rbind(cw_sk_map, infra_sk_map))
+key_holders <- unique(rbind(
+  recon[match_tier != "unmatched", .(specieskey, holder = backbone_taxonID)],
+  recovered_keys[, .(specieskey, holder = backbone_taxonID)]
+))
+shared <- merge(recovered_keys, key_holders, by = "specieskey", allow.cartesian = TRUE)
+shared <- shared[holder != backbone_taxonID]
+holder_species <- species_above(shared$holder)
+own_infra <- unname(rank_of[shared$holder]) %in% INFRA_RANKS &
+  !is.na(holder_species) & holder_species == shared$backbone_taxonID
+shared <- shared[!own_infra]
+name_of <- setNames(match_summary$scientificName, match_summary$taxonID)
+shared[, holder_name := fcoalesce(unname(name_of[holder]), holder)]
+shared <- shared[, .(shared_with = paste(sort(unique(holder_name)), collapse = "; ")),
+                 by = backbone_taxonID]
+match_summary[, shared_with := NA_character_]
+match_summary[shared, on = c(taxonID = "backbone_taxonID"), shared_with := i.shared_with]
+match_summary[, shared_key := !is.na(shared_with)]
+cli_alert_info(
+  "Present only through a cube key that other taxa hold as well: \\
+   {scales::comma(sum(match_summary$shared_key))} taxa"
+)
 
 # ---------------------------------------------------------------------------
 # Scope the gap denominator to the organisms we actually compare against GBIF.
