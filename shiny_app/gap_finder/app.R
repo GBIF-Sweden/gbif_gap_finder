@@ -280,46 +280,12 @@ n_infra_sensitive <- if (has_infra && "is_sensitive" %in% names(infra_taxa)) {
 # Species that count as in GBIF only through a GBIF key they share with another
 # taxon. GBIF's taxonomy (Catalogue of Life) files the two under one key, so the
 # records of that key count for both and may all belong to the other taxon.
-# Script 09b marks such a species with `shared_key` and `best_match_tier`
-# "tier5_col". Left out here: a species whose key carries only its own
-# subspecies, varieties or forms, because those records are its own (as for the
-# species that 09b marks present through their subspecies, which carry
-# `shared_key` too). None in a bundle without these columns.
-shared_taxa <- NULL
-if (!is.null(match_summary_full) &&
-    all(c("taxonID", "scientificName", "shared_key", "best_match_tier", "gbif_specieskeys",
-          "matched_any") %in% names(match_summary_full))) {
-  shared_taxa <- local({
-    ms <- as_tibble(match_summary_full)
-    cand <- ms[ms$shared_key %in% TRUE & ms$best_match_tier %in% "tier5_col", ]
-    # Taxa that hold a cube key: the present species, and the taxa set aside below
-    # species rank that have records.
-    hold <- ms[ms$matched_any %in% TRUE, c("taxonID", "scientificName", "gbif_specieskeys")]
-    hold$label <- hold$scientificName
-    if (has_infra && all(c("taxonID", "scientificName", "gbif_specieskeys", "matched_any")
-                         %in% names(infra_taxa))) {
-      ia <- as_tibble(infra_taxa)
-      ia <- ia[ia$matched_any %in% TRUE, c("taxonID", "scientificName", "gbif_specieskeys")]
-      ia$label <- paste(ia$scientificName, "(set aside)")
-      hold <- rbind(hold, ia)
-    }
-    key_list <- strsplit(as.character(hold$gbif_specieskeys), ";", fixed = TRUE)
-    key_rows <- split(rep(seq_len(nrow(hold)), lengths(key_list)), unlist(key_list))
-    own_keys <- strsplit(as.character(cand$gbif_specieskeys), ";", fixed = TRUE)
-    partners <- lapply(seq_len(nrow(cand)), function(i) {
-      rows <- unique(unlist(key_rows[own_keys[[i]]], use.names = FALSE))
-      rows[hold$taxonID[rows] != cand$taxonID[i]]
-    })
-    own_only <- vapply(seq_len(nrow(cand)), function(i) {
-      nm <- hold$scientificName[partners[[i]]]
-      length(nm) > 0 && all(startsWith(nm, paste0(cand$scientificName[i], " ")))
-    }, logical(1))
-    cand$shares_key_with <- vapply(partners, function(rows) {
-      paste(sort(unique(hold$label[rows])), collapse = "; ")
-    }, character(1))
-    cand[!own_only, ]
-  })
-}
+# Script 09b marks such a species with `shared_key` and names the other taxa in
+# `shared_with`. None in a bundle without these columns.
+shared_taxa <- if (!is.null(match_summary_full) &&
+                   all(c("taxonID", "shared_key", "shared_with") %in% names(match_summary_full))) {
+  as_tibble(match_summary_full)[match_summary_full$shared_key %in% TRUE, ]
+} else NULL
 has_shared <- NROW(shared_taxa) > 0
 shared_ids <- if (has_shared) shared_taxa$taxonID else character(0)
 
@@ -328,12 +294,10 @@ shared_key_flag <- function(d) {
   if (is.null(d) || !"taxonID" %in% names(d)) return(rep(FALSE, NROW(d)))
   d$taxonID %in% shared_ids
 }
-# The lists offered as CSV. `gbif_name` is the name GBIF gives each key (from the
-# species scope lookup); `shares_key_with` names the other species, or taxa set
-# aside, on the same key and is empty when that taxon is not on the list (e.g. a
-# species aggregate).
+# The lists offered as CSV, with the name GBIF gives each key (`gbif_name`, from
+# the species scope lookup) and the other taxa on it (`shared_with`).
 shared_csv_cols <- c("taxonID", "scientificName", "vernacularName", "gbif_name",
-                     "shares_key_with", "gbif_specieskeys", "gbif_total_occ", "threatStatus",
+                     "shared_with", "gbif_specieskeys", "gbif_total_occ", "threatStatus",
                      "is_invasive", "is_sensitive", "kingdom", "phylum", "class", "order",
                      "family")
 shared_csv <- function(d) {

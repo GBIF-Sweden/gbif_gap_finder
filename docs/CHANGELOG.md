@@ -1,21 +1,26 @@
 # gbif_gap_finder — Changelog
 
-## Unreleased — App: species on shared keys
+## Unreleased — Species on shared keys
 
 ### Added
 
 - **Species on shared keys** — some species count as in GBIF only through a GBIF key that
   GBIF's taxonomy (Catalogue of Life) gives to them together with another taxon, so the
-  records of that key count for both (`shared_key` with `best_match_tier` `tier5_col` in
-  `taxonomic_match_summary.csv`). The Taxonomic and Species of Concern tabs state how many
-  there are and offer the list as CSV, with the GBIF name of each key and the listed taxa
-  that share it; the Threatened coverage line says how many of the threatened species in
-  GBIF count only that way; the Invasive and Sensitive tables mark them "In GBIF (shared
-  key)". The figures do not change. The notes appear with a bundle that has the column (the
-  next data release); with the current bundle the app looks as before. Not counted: a
-  species whose key carries only its own subspecies, varieties or forms, and the species
-  that 09b marks present through their subspecies (both carry `shared_key`); their records
-  are their own.
+  records of that key count for both. The Taxonomic and Species of Concern tabs state how
+  many there are and offer the list as CSV, with the GBIF name of each key and the taxa that
+  share it; the Threatened coverage line says how many of the threatened species in GBIF
+  count only that way; the Invasive and Sensitive tables mark them "In GBIF (shared key)".
+  The figures do not change. The notes appear with the next data release; with the current
+  bundle the app looks as before.
+
+### Changed
+
+- **`shared_key` in `taxonomic_match_summary.csv` (09b)** — set in one place for every taxon
+  that the COL crosswalk or its own subspecies make present: TRUE when another taxon holds
+  one of its cube keys as well (the taxon 09a matched the key to, or another taxon present
+  through the same key). The taxon's own subspecies, varieties and forms do not count, so a
+  species present only through them is FALSE now. The new column `shared_with` names the
+  other taxa. Takes effect with the next data release.
 
 ## Unreleased — Weekly status
 
