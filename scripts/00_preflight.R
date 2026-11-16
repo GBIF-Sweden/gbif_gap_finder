@@ -20,6 +20,7 @@
 # Usage:
 #   Rscript scripts/00_preflight.R              # all checks; exit 1 on any FAIL
 #   Rscript scripts/00_preflight.R --offline    # local checks only (CI, no network)
+#   Rscript scripts/00_preflight.R --network-only  # network checks only (no data folder)
 #   run_preflight()                             # from run.R
 #   tar_make()                                  # runs as the gating `preflight` target
 #
@@ -33,6 +34,17 @@ if (!exists("COUNTRY_CODE")) source(here::here("scripts", "00_setup.R"))
 .pf_offline <- isTRUE(get0("preflight_offline", ifnotfound = FALSE)) ||
   "--offline" %in% commandArgs(trailingOnly = TRUE) ||
   nzchar(Sys.getenv("PREFLIGHT_OFFLINE"))
+
+# Network checks only, for a machine without the data folder: the weekly status
+# workflow (.github/scripts/weekly_status.R) runs them on a GitHub runner, where
+# the local checks could only report what is missing. The local checks are then
+# left out of the report.
+.pf_network_only <- isTRUE(get0("preflight_network_only", ifnotfound = FALSE)) ||
+  "--network-only" %in% commandArgs(trailingOnly = TRUE) ||
+  nzchar(Sys.getenv("PREFLIGHT_NETWORK_ONLY"))
+if (.pf_offline && .pf_network_only) {
+  stop("Preflight: offline and network-only together leave no check to run.", call. = FALSE)
+}
 
 .PF_TIMEOUT <- 15  # seconds per network call; a gate must not hang a build
 
@@ -57,6 +69,9 @@ pf_add <- function(id, status, detail) {
 pf_check <- function(id, fn, network = FALSE) {
   if (network && .pf_offline) {
     return(pf_add(id, "OK", "skipped (--offline)"))
+  }
+  if (!network && .pf_network_only) {
+    return(invisible(NULL))
   }
   res <- tryCatch(fn(), error = function(e) {
     list(status = "FAIL", detail = paste("check errored:", conditionMessage(e)))
@@ -124,6 +139,7 @@ GBIF_V2 <- "https://api.gbif.org/v2"
 
 cli_h1("Preflight — external dependencies")
 if (.pf_offline) cli_alert_info("Offline mode: network checks skipped")
+if (.pf_network_only) cli_alert_info("Network checks only: local checks left out")
 
 # ============================================================================
 # Local checks — always run
