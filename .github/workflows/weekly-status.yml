@@ -1,0 +1,131 @@
+name: Weekly status
+
+# Once a week, and by hand (Actions > Weekly status > Run workflow): do the
+# outside services that the pipeline and the app depend on still behave, and does
+# the live app work? Nothing here builds, publishes or deploys.
+#
+# Step "Check GBIF, the sources and the live page" runs
+# .github/scripts/weekly_status.R in the dependency image (R and the packages of
+# renv.lock, see build-deps-image.yml): the network checks of
+# scripts/00_preflight.R, the georeferenced records of the NRM bird and mammal
+# collections, the five checklists against provenance/, and the live app's page
+# (its version against the newest release, and the date of its data). Step "Open
+# every tab of the live app" opens the live app's tabs in a headless browser with
+# the check that the app check runs before a release (check_app_tabs.py).
+#
+# Each check gives one annotation: a notice when it is fine, a warning when it is
+# worth knowing, an error when it is broken. Only an error turns the run red, and
+# a failed check runs once more after 5 minutes before it counts. GitHub emails a
+# red run to whoever last changed the schedule line below. The monthly health
+# check reads the annotations.
+#
+# It also runs on a pull request that changes the check itself, so the change is
+# tested before the merge: a workflow can be started by hand only once it is on
+# the default branch.
+#
+# GitHub pauses the schedule of a public repository's workflow after 60 days
+# without activity in the repository. Actions > Weekly status > Enable workflow
+# turns it back on.
+on:
+  schedule:
+    # Tuesdays 05:23 UTC: before the monthly health check (second Tuesday, 09:39
+    # Stockholm time), and away from the full hour, when GitHub delays scheduled
+    # runs.
+    - cron: "23 5 * * 2"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/weekly-status.yml"
+      - ".github/scripts/weekly_status.R"
+      - ".github/scripts/check_live_tabs.sh"
+      - ".github/scripts/check_app_tabs.py"
+      - "scripts/00_preflight.R"
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  GBIF_GAP_COUNTRY: SE
+  LIVE_URL: https://gbif.se/gap-finder/
+
+concurrency:
+  group: weekly-status
+  cancel-in-progress: false
+
+jobs:
+  status:
+    name: Check the services and the live app
+    # Not in forks: they would check GBIF Sweden's live site.
+    if: github.repository == 'GBIF-Sweden/gbif_gap_finder'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          lfs: false
+
+      - name: Find the newest release
+        id: release
+        run: |
+          git fetch --quiet --depth=1 origin 'refs/tags/v*:refs/tags/v*'
+          tag=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "date=$(git log -1 --format=%cs "$tag")" >> "$GITHUB_OUTPUT"
+          echo "Newest release: $tag"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The dependency image of this commit has R and every package that the
+      # preflight loads. When it is not built yet, the latest release image, which
+      # has the packages of an earlier renv.lock, stands in.
+      - name: Pull the R image
+        id: image
+        run: |
+          image=$(bash .github/scripts/deps_image.sh)
+          if ! docker pull --quiet "$image"; then
+            fallback="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/gap-finder:latest"
+            echo "::warning title=R image::$image is not on GHCR (Build deps image has not built it); $fallback is used instead"
+            image=$fallback
+            docker pull --quiet "$image"
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      # The workspace and the runner's temp folder are mounted at their own paths,
+      # so the script finds the repository and writes the summary and the step
+      # outputs where the runner reads them.
+      - name: Check GBIF, the sources and the live page
+        id: status
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          NEWEST_TAG: ${{ steps.release.outputs.tag }}
+          NEWEST_TAG_DATE: ${{ steps.release.outputs.date }}
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+            -v "$RUNNER_TEMP:$RUNNER_TEMP" \
+            -e GITHUB_ACTIONS -e GITHUB_OUTPUT -e GITHUB_STEP_SUMMARY \
+            -e GBIF_GAP_COUNTRY -e LIVE_URL -e NEWEST_TAG -e NEWEST_TAG_DATE \
+            "$IMAGE" Rscript --no-init-file .github/scripts/weekly_status.R
+
+      # Playwright drives the Chrome that the runner has; no browser is downloaded.
+      - name: Set up Python
+        if: always() && steps.status.outputs.live == 'answers'
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install Playwright
+        if: always() && steps.status.outputs.live == 'answers'
+        run: python3 -m pip install --quiet -r .github/scripts/requirements.txt
+
+      - name: Open every tab of the live app
+        if: always() && steps.status.outputs.live == 'answers'
+        run: bash .github/scripts/check_live_tabs.sh "$LIVE_URL"

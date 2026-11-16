@@ -1,5 +1,20 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Weekly status
+
+### Added
+
+- **Weekly status** (`.github/workflows/weekly-status.yml`, Tuesdays, by hand, and on a
+  pull request that changes the check): the network checks of the preflight, the
+  georeferenced records of the NRM bird and mammal collections on GBIF, the five
+  checklists against `provenance/`, and the live app: its page, version and data date,
+  and every tab in a headless browser. One annotation per check; the run turns red only
+  when something is broken, after one more try 5 minutes later.
+  `.github/scripts/weekly_status.R` runs the checks, also on a laptop.
+- **Preflight, network checks only** — `PREFLIGHT_NETWORK_ONLY=1` (or `--network-only`)
+  leaves out the local checks of `scripts/00_preflight.R`, for a machine without the data
+  folder. The pipeline runs the preflight as before.
+
 ## 2026-11-16: v1.1.2 — Accessibility, app check and pipeline fixes
 
 **Data: unchanged.** The app bundle is still the one released with v1.0.2 (GBIF cubes of

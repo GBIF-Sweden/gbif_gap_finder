@@ -152,8 +152,10 @@ source("scripts/13_metrics_snapshot.R")         # Refresh docs/metrics.md
 ```
 
 `scripts/00_preflight.R` checks every external dependency first (it gates `tar_make()`;
-`PREFLIGHT_OFFLINE=1` skips the network checks), and `scripts/01b_resolve_data_sources.R`
-resolves dataset DOIs and writes `provenance/`.
+`PREFLIGHT_OFFLINE=1` skips the network checks, `PREFLIGHT_NETWORK_ONLY=1` the local ones),
+and `scripts/01b_resolve_data_sources.R` resolves dataset DOIs and writes `provenance/`.
+The network checks also run every week on GitHub (see [Deployment](#deployment), *Weekly
+status*).
 
 Or use `targets`:
 
@@ -439,7 +441,28 @@ docker run --rm -p 3838:3838 ghcr.io/gbif-sweden/gap-finder:latest
 **The last hop is manual and lives outside this repo.** The public instance at
 <https://gbif.se/gap-finder/> is updated by a GBIF Sweden colleague pulling the
 published image onto the NRM server. A green build therefore does NOT mean the change
-is live — confirm the deploy separately, and say which tag should be pulled.
+is live — confirm the deploy separately, and say which tag should be pulled. The weekly
+status (below) reads the version the live app reports.
+
+**Weekly status** (`.github/workflows/weekly-status.yml`): every Tuesday, by hand
+(Actions → *Weekly status* → Run workflow), and on a pull request that changes the check
+itself, a run checks what can break without a change in this repository. In the dependency image it runs `.github/scripts/weekly_status.R`: the
+network checks of `scripts/00_preflight.R` (GBIF API, Catalogue of Life, Tier 4, Tier 5,
+the checklist archives, the basemap, the action runtimes), the georeferenced records of
+the NRM bird and mammal collections on GBIF (the data refresh needs them), the five
+checklists against `provenance/`, and the live app's page: it answers, its version against
+the newest release tag, the date of its data. When the page answers, every tab of the live
+app is opened in a headless browser, with the same check as the app check before a release.
+
+- Each check is one annotation on the run: a notice when it is fine, a warning when it is
+  worth knowing (the live app runs an older release, a checklist has a newer release on
+  GBIF), an error when it is broken (the GBIF API, Tier 4 or Tier 5, the live app).
+- Only an error turns the run red. A failed check runs once more after 5 minutes before it
+  counts. GitHub emails a red run to whoever last changed the workflow's schedule line.
+- GitHub pauses the schedule after 60 days without activity in the repository:
+  Actions → *Weekly status* → Enable workflow turns it back on.
+- On a laptop, from the repository root: `Rscript .github/scripts/weekly_status.R` (the
+  tabs: `bash .github/scripts/check_live_tabs.sh https://gbif.se/gap-finder/`).
 
 > **To be added once the server maintainer sends it:** the run command or service
 > definition used on the NRM server (image tag pulled, port, environment variables, number
