@@ -766,6 +766,57 @@ h2.card-title { margin-top: 0; }
    visible text or a heading next to it already names it. */
 .sr-label label.control-label + br { display: none; }
 
+/* seg_radio() in app.R: a radio group drawn as a row of buttons. The radio
+   inputs stay in the page for the keyboard and screen readers (the arrow keys
+   move the choice); only their labels are drawn. */
+.seg-radio .shiny-options-group { display: inline-flex; flex-wrap: wrap; }
+.seg-radio .radio-inline {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  font-weight: 400;
+}
+.seg-radio .radio-inline + .radio-inline { margin-left: -1px; }
+.seg-radio .radio-inline input[type="radio"] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+.seg-radio .radio-inline > span {
+  display: inline-block;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #333;
+  background: #fff;
+  border: 1px solid #ccc;
+  cursor: pointer;
+}
+.seg-radio .radio-inline:first-child > span { border-radius: 3px 0 0 3px; }
+.seg-radio .radio-inline:last-child > span { border-radius: 0 3px 3px 0; }
+.seg-radio .radio-inline > span:hover { background: #e6e6e6; border-color: #adadad; }
+.seg-radio input:checked + span {
+  position: relative;
+  background: #e6e6e6;
+  border-color: #adadad;
+  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.125);
+}
+.seg-radio input:focus-visible + span {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid var(--slate);
+  outline-offset: 2px;
+}
+/* Windows high-contrast mode drops background colours: mark the choice with the
+   system highlight instead. */
+@media (forced-colors: active) {
+  .seg-radio input:checked + span { background: Highlight; color: HighlightText; }
+}
+
 /* Accessible inline glossary term: dotted underline; reveals a short definition
    on hover AND keyboard focus; screen readers get it via aria-label. */
 .gloss {

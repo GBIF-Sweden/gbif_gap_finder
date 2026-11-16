@@ -1,5 +1,19 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Accessibility: radio groups and coral text
+
+### Fixed
+
+- **Radio groups drawn as buttons** — "Coverage area" on Spatial, "Bar axis scale" on
+  Publishers and "Resolution" on Gaps filled are native radio groups with a label for each
+  choice (`seg_radio()` in `app.R`, `.seg-radio` in `styles.css`). They look as before;
+  screen readers announce a named radio group, and the arrow keys move the choice.
+  shinyWidgets' `radioGroupButtons()` put each radio inside a button (axe `label` and
+  `nested-interactive`).
+- **Coral text** — the "… datasets from … publishers" headline on Data & sources and the
+  "Clear" link of the taxonomic filter use the darker coral (`--coral-ink`, 6.2:1 on white)
+  instead of `--coral` (3.1:1).
+
 ## Unreleased — Taxon matching: infraspecific taxa and Tier 4
 
 Two matching problems made some gaps look bigger than they are and put some records under
