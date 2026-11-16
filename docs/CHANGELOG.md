@@ -1,8 +1,15 @@
 # gbif_gap_finder — Changelog
 
-## Unreleased — Accessibility: radio groups and coral text
+## 2026-11-16: v1.1.2 — Accessibility, app check and pipeline fixes
 
-### Fixed
+**Data: unchanged.** The app bundle is still the one released with v1.0.2 (GBIF cubes of
+29 July 2026, Dyntaxa 2026-09-29). The pipeline changes below, taxon matching and the
+empty-cube guards, change the figures with the next data release. Until then the app shows
+the same numbers, and its notes on the taxa set aside appear once the bundle has that table.
+
+### Accessibility: radio groups and coral text
+
+#### Fixed
 
 - **Radio groups drawn as buttons** — "Coverage area" on Spatial, "Bar axis scale" on
   Publishers and "Resolution" on Gaps filled are native radio groups with a label for each
@@ -14,12 +21,12 @@
   "Clear" link of the taxonomic filter use the darker coral (`--coral-ink`, 6.2:1 on white)
   instead of `--coral` (3.1:1).
 
-## Unreleased — Taxon matching: infraspecific taxa and Tier 4
+### Taxon matching: infraspecific taxa and Tier 4
 
 Two matching problems made some gaps look bigger than they are and put some records under
 the wrong species.
 
-### Changed
+#### Changed
 
 - **Gap denominator: species rank** — subspecies, varieties and forms no longer count in the
   taxonomic gap. The cube groups records by species key, so no cube key carries an
@@ -41,7 +48,7 @@ the wrong species.
   With a bundle that has no such table, the app shows no note and keeps the About wording
   that fits that bundle.
 
-### Fixed
+#### Fixed
 
 - **Tier 4 names** — a cube key is matched through its COL synonyms at species rank only,
   by canonical name. Until now an infraspecific synonym was cut to its first two words, so
@@ -90,13 +97,13 @@ the wrong species.
   threatened taxa that are poorly sampled. It used to count the whole priority list, the
   missing threatened taxa included.
 
-## Unreleased — Image build: releases no longer need the Ubuntu package servers
+### Image build: releases no longer need the Ubuntu package servers
 
 In November 2026 snapshot.ubuntu.com and archive.ubuntu.com were unreliable for two days.
 v1.1.0 got no image, and v1.1.1 was published a day late with its system libraries from the
 live archive instead of the pinned snapshot (the library versions were the same).
 
-### Changed
+#### Changed
 
 - **Dependency image** — the system libraries and R packages are built by the new
   workflow *Build deps image* when the Dockerfile or `renv.lock` changes on `main`, and
@@ -111,7 +118,7 @@ live archive instead of the pinned snapshot (the library versions were the same)
 - **Workflows** — the GitHub layer-cache settings are removed from the release and PR
   builds; no build could read those caches.
 
-### Added
+#### Added
 
 - **App check** — *Build deps image* has a second job, `app`. It builds the app image on the
   dependency image as a release does, starts it and checks it: the page answers, every tab
@@ -122,13 +129,13 @@ live archive instead of the pinned snapshot (the library versions were the same)
   be run by hand on a branch. Until now no workflow started the app: a release could publish
   an image that built and did not run.
 
-## Unreleased — Empty GBIF cube: status filter and guards
+### Empty GBIF cube: status filter and guards
 
 On 2026-11-10 both GBIF SQL cube downloads came back with 0 rows, and nothing stopped them.
 GBIF had renamed the occurrence status of presence records from PRESENT to DETECTED, so the
 cube's filter `occurrencestatus = 'PRESENT'` matched nothing.
 
-### Fixed
+#### Fixed
 
 - **Cube SQL** — the presence filter is `occurrencestatus IN ('DETECTED', 'PRESENT')`.
   DETECTED is GBIF's current value; PRESENT is the value in data processed before the
