@@ -420,7 +420,7 @@ by hand on that branch (Actions → *Build deps image* → Run workflow → Use 
 | `GBIF_GAP_COUNTRY` | `SE` | Which config and data bundle are baked in |
 | `GAP_FINDER_VERSION` | `dev` | What the app reports as its version; CI passes the git tag |
 | `RUNTIME` | `runtime` | Image the app stage starts from. The default builds everything in the Dockerfile; CI passes the dependency image |
-| `APT_SNAPSHOT` | `20261109T000000Z` | Ubuntu archive snapshot (snapshot.ubuntu.com) the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Empty (`--build-arg APT_SNAPSHOT=`) installs from the live Ubuntu archive instead; `/etc/gap-finder-apt-source` in the image says which. Bump the default in the Dockerfile at each release |
+| `APT_SNAPSHOT` | `20261116T000000Z` | Ubuntu archive snapshot (snapshot.ubuntu.com) the system libraries (GDAL/GEOS/PROJ, curl, openssl…) are installed from. Pinned so rebuilds are identical; security fixes arrive only when it moves. Empty (`--build-arg APT_SNAPSHOT=`) installs from the live Ubuntu archive instead; `/etc/gap-finder-apt-source` in the image says which. Bump the default in the Dockerfile at each release |
 
 **Runtime environment:**
 
