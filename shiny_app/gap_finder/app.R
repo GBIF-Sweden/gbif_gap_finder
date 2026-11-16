@@ -8,7 +8,6 @@
 # =============================================================================
 
 library(shiny)
-library(shinyWidgets)
 library(dplyr)
 library(tidyr)
 library(ggplot2)

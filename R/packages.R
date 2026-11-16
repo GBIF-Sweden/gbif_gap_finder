@@ -65,7 +65,6 @@ optional_packages <- c(
 app_packages <- c(
   # Shiny app runtime (loaded by shiny_app/gap_finder/app.R)
   "shiny",
-  "shinyWidgets",
   "plotly",
   "leaflet",
   "DT",

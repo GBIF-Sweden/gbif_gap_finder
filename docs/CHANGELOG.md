@@ -1,5 +1,17 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Image: renv pinned, APT snapshot, shinyWidgets dropped
+
+### Changed
+
+- **Docker:** the image installs renv at the version `renv.lock` records (from Posit's
+  package manager, current or archived) instead of the newest renv, so a rebuild of the
+  same lockfile runs the same renv. `APT_SNAPSHOT` 20261116T000000Z.
+- **shinyWidgets dropped:** the app has used none of its functions since v1.1.2 (native
+  radio groups). Removed from `app.R`, `R/packages.R` and `renv.lock`.
+
+Both change the dependency image; *Build deps image* builds the new one on `main`.
+
 ## Unreleased — Species on shared keys
 
 ### Added

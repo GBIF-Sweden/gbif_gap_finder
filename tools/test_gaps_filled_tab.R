@@ -6,7 +6,7 @@
 # against the REAL closure tables, and then checks the numbers rather than only
 # the absence of errors.
 #
-# The rendering libraries (leaflet, plotly, DT, sf, shinyWidgets) are stubbed.
+# The rendering libraries (leaflet, plotly, DT, sf) are stubbed.
 # What needs testing here is data plumbing - column names, joins, factor levels,
 # summary lookups - not whether plotly draws. Every stub FORCES its arguments
 # and evaluates leaflet/plotly formulas against the data, so a wrong column
@@ -106,12 +106,6 @@ datatable <- function(data, ...) { force(data); force_all(...); structure(list(d
 DTOutput <- mk(NULL); renderDT <- render_stub
 formatStyle <- function(x, ...) x
 
-radioGroupButtons <- function(inputId, label = NULL, choices = NULL, ...) {
-  force(choices); shiny::radioButtons(inputId, label, choices)
-}
-pickerInput <- function(inputId, label = NULL, choices = NULL, ...) {
-  force(choices); shiny::selectInput(inputId, label, choices)
-}
 st_drop_geometry <- function(x, ...) x
 st_read <- st_simplify <- st_transform <- st_centroid <- st_join <- st_crs <- mk(NULL)
 comma <- scales::comma

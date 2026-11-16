@@ -26,7 +26,7 @@
 # Manual override: `--build-arg APT_SNAPSHOT=` (empty) installs from the live
 # Ubuntu archive. /etc/gap-finder-apt-source in the image records the source
 # ("snapshot <date>" or "live archive <time>").
-ARG APT_SNAPSHOT=20261109T000000Z
+ARG APT_SNAPSHOT=20261116T000000Z
 
 # Image the app stage (the last one) starts from.
 # Default `runtime`: the stage below, so a local `docker build` and the PR
@@ -93,11 +93,21 @@ RUN (apt-get update --error-on=any \
     make \
     && rm -rf /var/lib/apt/lists/*
 
-RUN R -q -e "install.packages('renv', repos = 'https://packagemanager.posit.co/cran/latest')"
-
 WORKDIR /opt/project
 
 COPY renv.lock ./renv.lock
+
+# renv at the version renv.lock records, so a rebuild of the same lockfile runs
+# the same renv. Posit's package manager keeps the current version of a package
+# in src/contrib and the older ones in src/contrib/Archive.
+RUN v="$(sed -n '/^    "renv": {$/,/^    }/ s/^      "Version": "\([^"]*\)",$/\1/p' renv.lock)" \
+    && test -n "$v" \
+    && R -q -e "v <- '$v'; cran <- 'https://packagemanager.posit.co/cran/latest/src/contrib'; \
+                ok <- function() isTRUE(tryCatch(packageVersion('renv') == v, error = function(e) FALSE)); \
+                for (p in sprintf(c('%s/renv_%s.tar.gz', '%s/Archive/renv/renv_%s.tar.gz'), cran, v)) \
+                  if (!ok()) tryCatch(install.packages(p, repos = NULL, type = 'source'), \
+                                      error = function(e) message(conditionMessage(e))); \
+                stopifnot(ok())"
 
 RUN R -q -e "renv::consent(provided = TRUE); renv::restore(lockfile = 'renv.lock', library = '/usr/local/lib/R/site-library', prompt = FALSE)"
 
