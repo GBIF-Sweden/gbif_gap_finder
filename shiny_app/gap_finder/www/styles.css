@@ -768,7 +768,9 @@ h2.card-title { margin-top: 0; }
 
 /* seg_radio() in app.R: a radio group drawn as a row of buttons. The radio
    inputs stay in the page for the keyboard and screen readers (the arrow keys
-   move the choice); only their labels are drawn. */
+   move the choice); only their labels are drawn. The chosen button is white on
+   dark green: 7.4:1 against the white buttons beside it (WCAG 1.4.11 asks 3:1
+   for a state). */
 .seg-radio .shiny-options-group { display: inline-flex; flex-wrap: wrap; }
 .seg-radio .radio-inline {
   position: relative;
@@ -799,11 +801,12 @@ h2.card-title { margin-top: 0; }
 .seg-radio .radio-inline:first-child > span { border-radius: 3px 0 0 3px; }
 .seg-radio .radio-inline:last-child > span { border-radius: 0 3px 3px 0; }
 .seg-radio .radio-inline > span:hover { background: #e6e6e6; border-color: #adadad; }
-.seg-radio input:checked + span {
+.seg-radio input:checked + span,
+.seg-radio input:checked + span:hover {
   position: relative;
-  background: #e6e6e6;
-  border-color: #adadad;
-  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.125);
+  color: #fff;
+  background: var(--sage-ink);
+  border-color: var(--sage-ink);
 }
 .seg-radio input:focus-visible + span {
   position: relative;
