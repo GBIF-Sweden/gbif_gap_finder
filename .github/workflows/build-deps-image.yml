@@ -5,15 +5,26 @@ name: Build deps image
 # 2026 an outage of snapshot.ubuntu.com and archive.ubuntu.com held up a
 # release for about a day.
 #
-# This workflow builds the Dockerfile up to its `runtime` stage (the system
+# Job `deps` builds the Dockerfile up to its `runtime` stage (the system
 # libraries and the R packages of renv.lock) and pushes the result to GHCR as
 # ghcr.io/gbif-sweden/gap-finder:deps-<hash>. The release then starts from that
-# image and only copies the app and its data bundle on top.
+# image and only copies the app and its data bundle on top. <hash> changes with
+# the Dockerfile and renv.lock (.github/scripts/deps_image.sh), and an image
+# that exists is not built again. If a package server is down, the job fails:
+# run the workflow again later (Actions > Build deps image > Re-run, or Run
+# workflow). No release is waiting on it.
 #
-# It runs when the Dockerfile or renv.lock changes on main, which is when
-# <hash> changes (.github/scripts/deps_image.sh). If a package server is down,
-# this run fails: run it again later (Actions > Build deps image > Re-run, or
-# Run workflow). No release is waiting on it.
+# Job `app` builds the app image on that deps image the way a release does,
+# without publishing it, then starts it and checks it
+# (.github/scripts/check_app_image.sh): the page answers, every tab opens in a
+# browser without an error and without a plot, map or table that stays empty,
+# and the container log has no R error. No other workflow starts the app on
+# the production stack before a release.
+#
+# The workflow runs on main when the stack changes (Dockerfile, renv.lock) and
+# when something the app stage copies changes (app.R, www/, the data bundle,
+# the country config). To check a branch before a merge, run it by hand on that
+# branch (Actions > Build deps image > Run workflow > Use workflow from).
 on:
   push:
     branches:
@@ -21,13 +32,16 @@ on:
     paths:
       - "shiny_app/gap_finder/Dockerfile.gap_finder"
       - "renv.lock"
-      - ".github/scripts/deps_image.sh"
+      - "shiny_app/gap_finder/app.R"
+      - "shiny_app/gap_finder/www/**"
+      - "shiny_app/gap_finder/data/**"
+      - "configs/config_SE.yml"
+      - ".github/scripts/**"
       - ".github/workflows/build-deps-image.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
 
 env:
   GBIF_GAP_COUNTRY: SE
@@ -41,13 +55,17 @@ jobs:
     name: Build and push the deps image
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
-          # The last step builds the app stage, which needs the data bundle.
-          lfs: true
+          # The runtime stage copies only renv.lock, so the LFS data bundle is
+          # not needed in this job.
+          lfs: false
 
       - name: Name the deps image
         id: deps
@@ -93,23 +111,64 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
+  app:
+    name: Start the app image and check it
+    needs: deps
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # The app stage copies the data bundle.
+          lfs: true
+
+      - name: Name the deps image
+        id: deps
+        run: echo "image=$(bash .github/scripts/deps_image.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # The release path, without publishing anything: build the app stage on
       # top of the deps image, as publish-shiny-images.yml does. The build must
       # not run apt or renv; if it does, the Dockerfile's earlier stages were
       # not skipped and a release would need the package servers again.
-      - name: Check the release path (app stage on the deps image, no push)
+      # The image stays on this runner as gap-finder:check.
+      - name: Build the app image on the deps image (no push)
         env:
           IMAGE: ${{ steps.deps.outputs.image }}
         run: |
           set -o pipefail
-          docker buildx build --progress=plain --pull \
+          docker buildx build --progress=plain --pull --load \
             -f shiny_app/gap_finder/Dockerfile.gap_finder \
             --build-arg "RUNTIME=$IMAGE" \
             --build-arg "GBIF_GAP_COUNTRY=$GBIF_GAP_COUNTRY" \
+            --build-arg "GAP_FINDER_VERSION=check-${GITHUB_SHA::7}" \
             --platform linux/amd64 \
-            --output type=cacheonly . 2>&1 | tee "$RUNNER_TEMP/release-path.log"
+            -t gap-finder:check . 2>&1 | tee "$RUNNER_TEMP/release-path.log"
           if grep -E 'RUN .*(apt-get|renv::restore)' "$RUNNER_TEMP/release-path.log"; then
             echo "::error::The app stage build ran apt or renv; the earlier stages were not skipped"
             exit 1
           fi
           echo "::notice title=deps image::$IMAGE; the app stage builds on it without apt or renv"
+
+      # Playwright drives the Chrome that the runner has; no browser is downloaded.
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install Playwright
+        run: python3 -m pip install --quiet -r .github/scripts/requirements.txt
+
+      - name: Start the app image and check it
+        run: bash .github/scripts/check_app_image.sh gap-finder:check

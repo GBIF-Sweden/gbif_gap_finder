@@ -1,0 +1,3 @@
+# Python packages for the scripts in this folder (check_app_tabs.py).
+# Dependabot proposes updates (.github/dependabot.yml).
+playwright==1.65.2

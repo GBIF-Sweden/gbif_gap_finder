@@ -2,10 +2,19 @@
 # instead of rotting until something breaks.
 version: 2
 updates:
-  # GitHub Actions used by publish-shiny-images.yml, citation-version.yml and
-  # build-image-pr.yml.
+  # GitHub Actions used by the workflows in .github/workflows.
   - package-ecosystem: "github-actions"
     directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies", "ci"]
+
+  # Playwright, which opens the app's tabs in the app check of
+  # build-deps-image.yml (.github/scripts/requirements.txt).
+  - package-ecosystem: "pip"
+    directory: "/.github/scripts"
     schedule:
       interval: "monthly"
     commit-message:
