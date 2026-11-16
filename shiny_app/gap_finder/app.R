@@ -277,6 +277,96 @@ n_infra_sensitive <- if (has_infra && "is_sensitive" %in% names(infra_taxa)) {
   sum(infra_taxa$is_sensitive %in% TRUE)
 } else 0L
 
+# Species that count as in GBIF only through a GBIF key they share with another
+# taxon. GBIF's taxonomy (Catalogue of Life) files the two under one key, so the
+# records of that key count for both and may all belong to the other taxon.
+# Script 09b marks such a species with `shared_key` and `best_match_tier`
+# "tier5_col". Left out here: a species whose key carries only its own
+# subspecies, varieties or forms, because those records are its own (as for the
+# species that 09b marks present through their subspecies, which carry
+# `shared_key` too). None in a bundle without these columns.
+shared_taxa <- NULL
+if (!is.null(match_summary_full) &&
+    all(c("taxonID", "scientificName", "shared_key", "best_match_tier", "gbif_specieskeys",
+          "matched_any") %in% names(match_summary_full))) {
+  shared_taxa <- local({
+    ms <- as_tibble(match_summary_full)
+    cand <- ms[ms$shared_key %in% TRUE & ms$best_match_tier %in% "tier5_col", ]
+    # Taxa that hold a cube key: the present species, and the taxa set aside below
+    # species rank that have records.
+    hold <- ms[ms$matched_any %in% TRUE, c("taxonID", "scientificName", "gbif_specieskeys")]
+    hold$label <- hold$scientificName
+    if (has_infra && all(c("taxonID", "scientificName", "gbif_specieskeys", "matched_any")
+                         %in% names(infra_taxa))) {
+      ia <- as_tibble(infra_taxa)
+      ia <- ia[ia$matched_any %in% TRUE, c("taxonID", "scientificName", "gbif_specieskeys")]
+      ia$label <- paste(ia$scientificName, "(set aside)")
+      hold <- rbind(hold, ia)
+    }
+    key_list <- strsplit(as.character(hold$gbif_specieskeys), ";", fixed = TRUE)
+    key_rows <- split(rep(seq_len(nrow(hold)), lengths(key_list)), unlist(key_list))
+    own_keys <- strsplit(as.character(cand$gbif_specieskeys), ";", fixed = TRUE)
+    partners <- lapply(seq_len(nrow(cand)), function(i) {
+      rows <- unique(unlist(key_rows[own_keys[[i]]], use.names = FALSE))
+      rows[hold$taxonID[rows] != cand$taxonID[i]]
+    })
+    own_only <- vapply(seq_len(nrow(cand)), function(i) {
+      nm <- hold$scientificName[partners[[i]]]
+      length(nm) > 0 && all(startsWith(nm, paste0(cand$scientificName[i], " ")))
+    }, logical(1))
+    cand$shares_key_with <- vapply(partners, function(rows) {
+      paste(sort(unique(hold$label[rows])), collapse = "; ")
+    }, character(1))
+    cand[!own_only, ]
+  })
+}
+has_shared <- NROW(shared_taxa) > 0
+shared_ids <- if (has_shared) shared_taxa$taxonID else character(0)
+
+# TRUE for the rows of `d` that are such species.
+shared_key_flag <- function(d) {
+  if (is.null(d) || !"taxonID" %in% names(d)) return(rep(FALSE, NROW(d)))
+  d$taxonID %in% shared_ids
+}
+# The lists offered as CSV. `gbif_name` is the name GBIF gives each key (from the
+# species scope lookup); `shares_key_with` names the other species, or taxa set
+# aside, on the same key and is empty when that taxon is not on the list (e.g. a
+# species aggregate).
+shared_csv_cols <- c("taxonID", "scientificName", "vernacularName", "gbif_name",
+                     "shares_key_with", "gbif_specieskeys", "gbif_total_occ", "threatStatus",
+                     "is_invasive", "is_sensitive", "kingdom", "phylum", "class", "order",
+                     "family")
+shared_csv <- function(d) {
+  if (!is.null(species_scope_lookup) &&
+      all(c("specieskey", "species") %in% names(species_scope_lookup))) {
+    key_name <- setNames(species_scope_lookup$species,
+                         as.character(species_scope_lookup$specieskey))
+    d$gbif_name <- vapply(strsplit(as.character(d$gbif_specieskeys), ";", fixed = TRUE),
+                          function(k) paste(unique(stats::na.omit(key_name[k])), collapse = "; "),
+                          character(1))
+  }
+  dplyr::select(d, dplyr::any_of(shared_csv_cols))
+}
+
+# Counts for the note on Species of Concern: red-listed (by category), invasive
+# and sensitive species among them.
+shared_threat_counts <- if (has_shared && "threatStatus" %in% names(shared_taxa)) {
+  table(factor(shared_taxa$threatStatus[shared_taxa$threatStatus %in% THREATENED_CODES],
+               levels = THREATENED_CODES))
+} else integer(0)
+n_shared_threatened <- sum(shared_threat_counts)
+n_shared_invasive <- if (has_shared && "is_invasive" %in% names(shared_taxa)) {
+  sum(shared_taxa$is_invasive %in% TRUE)
+} else 0L
+n_shared_sensitive <- if (has_shared && "is_sensitive" %in% names(shared_taxa)) {
+  sum(shared_taxa$is_sensitive %in% TRUE)
+} else 0L
+shared_concern_taxa <- if (has_shared) local({
+  col_of <- function(name) if (name %in% names(shared_taxa)) shared_taxa[[name]] else NA
+  shared_taxa[col_of("threatStatus") %in% THREATENED_CODES |
+                col_of("is_invasive") %in% TRUE | col_of("is_sensitive") %in% TRUE, ]
+}) else NULL
+
 # Order exclusions (e.g. Primates = Homo sapiens) are applied once at the source,
 # in the pipeline, via parameters.taxonomic.exclude_orders in the country config
 # (script 09b). Every taxonomic table the app loads — match summary, by-order /
@@ -506,6 +596,52 @@ infra_note <- function(lead, dl_id, show = TRUE) {
     " GBIF's occurrence cube counts their records under the species, so they cannot be ",
     "assessed separately. ",
     downloadLink(dl_id, "Download the list (CSV)", style = "color: var(--sage-ink);"))
+}
+
+# Note on the species that count as in GBIF only through a key shared with
+# another taxon, with the list as CSV. `lead` is the tab's own sentence with its
+# counts. NULL when the bundle has none, or when `show` is FALSE.
+shared_note <- function(lead, dl_id, show = TRUE) {
+  if (!has_shared || !show) return(NULL)
+  div(class = "info-note", style = "margin-bottom: 1rem;",
+    icon("key", style = "margin-right: 0.3rem;"),
+    lead,
+    " GBIF's taxonomy (Catalogue of Life) treats each of them and another taxon as one, ",
+    "so the records of that key count for both and may all belong to the other taxon. ",
+    downloadLink(dl_id, "Download the list (CSV)", style = "color: var(--sage-ink);",
+                 .noWS = "after"),
+    ", with the GBIF name of each key.")
+}
+
+# Lead of that note on Species of Concern: "50 red-listed (CR 5, EN 4, ...) and 2
+# invasive species count as ...", naming only the groups that have any.
+shared_concern_lead <- function() {
+  parts <- list()
+  if (n_shared_threatened > 0) {
+    by_cat <- shared_threat_counts[shared_threat_counts > 0]
+    parts <- c(parts, list(tagList(tags$strong(comma(n_shared_threatened)),
+                                   paste0(" red-listed (", paste(names(by_cat), by_cat, collapse = ", "),
+                                          ")"))))
+  }
+  if (n_shared_invasive > 0) {
+    parts <- c(parts, list(tagList(tags$strong(comma(n_shared_invasive)), " invasive")))
+  }
+  if (n_shared_sensitive > 0) {
+    parts <- c(parts, list(tagList(tags$strong(comma(n_shared_sensitive)), " sensitive")))
+  }
+  joined <- list()
+  for (i in seq_along(parts)) {
+    if (i > 1) joined <- c(joined, list(if (i == length(parts)) " and " else ", "))
+    joined <- c(joined, list(parts[[i]]))
+  }
+  tagList(joined, " species count as in GBIF only through a GBIF key they share with ",
+          "another taxon.")
+}
+
+# "In GBIF", "In GBIF (shared key)" or "Missing" for each row of a species table.
+presence_status <- function(d) {
+  ifelse(!(d$matched_any %in% TRUE), "Missing",
+         ifelse(shared_key_flag(d), "In GBIF (shared key)", "In GBIF"))
 }
 
 # Download handler that writes a data frame (geometry dropped) to CSV.
@@ -1649,6 +1785,10 @@ ui <- fluidPage(
                   "completeness percentages use the species-rank taxa in the national checklist (Dyntaxa) ",
                   "as the denominator \u2014 excluding microbial kingdoms (Bacteria, Archaea, Viruses) and ",
                   "Homo sapiens. A species counts as \u201Cin GBIF\u201D when at least one occurrence resolves to it.",
+                  if (has_shared) paste(
+                    "That includes the records of a GBIF key that GBIF's taxonomy (Catalogue of Life)",
+                    "gives to the species together with another taxon; the note under the filters",
+                    "says how many species count as in GBIF only that way."),
                   if (has_infra) paste(
                     "Subspecies, varieties and forms are set aside: GBIF's occurrence cube counts their",
                     "records under the species, so they cannot be assessed separately."),
@@ -1710,6 +1850,12 @@ ui <- fluidPage(
                       " species that GBIF's taxonomy (Catalogue of Life) ranks below species."
                     ) else " subspecies, varieties and forms in the national checklist."),
             "infra_dl_taxonomic"),
+
+          # Counted in these figures, through records that may belong to another taxon.
+          shared_note(
+            tagList(tags$strong(comma(NROW(shared_taxa))), " species count as in GBIF only through ",
+                    "a GBIF key they share with another taxon."),
+            "shared_dl_taxonomic"),
 
           # Active filter breadcrumb
           uiOutput("tax_filter_breadcrumb"),
@@ -1836,6 +1982,13 @@ ui <- fluidPage(
                     "listed subspecies stays a subspecies — whereas the invasive flag is rolled up to"),
                   "species level, as described above. A few non-species entries (hybrids, colour morphs, ",
                   "slash-aggregates) have no species-level occurrence equivalent and are not flagged."),
+                if (has_shared) p(tags$strong("Shared keys: "),
+                  "some species count as in GBIF only through a GBIF key that GBIF's taxonomy ",
+                  "(Catalogue of Life) gives to them together with another taxon. GBIF cannot ",
+                  "tell their records apart, so such a species may have no records of its own. ",
+                  "The note under the filters counts them, the coverage line on the Threatened ",
+                  "sub-tab says how many of the threatened species in GBIF are among them, and ",
+                  "the Invasive and Sensitive tables mark them \u201CIn GBIF (shared key)\u201D."),
                 p("Prioritisation tip: start with the Threatened sub-tab to identify missing CR/EN species, ",
                   "then check the Invasive sub-tab for unmonitored invasive species in the same taxonomic groups. ",
                   "Species that are both threatened and invasive (e.g. a threatened native species in a genus ",
@@ -1879,6 +2032,10 @@ ui <- fluidPage(
                     ) else " sensitive subspecies, varieties and forms."),
             "infra_dl_concern",
             show = n_infra_threatened + n_infra_sensitive > 0),
+
+          # Counted in these figures, through records that may belong to another taxon.
+          shared_note(shared_concern_lead(), "shared_dl_concern",
+                      show = NROW(shared_concern_taxa) > 0),
 
           # Sub-tabs
           tabsetPanel(
@@ -4519,8 +4676,11 @@ server <- function(input, output, session) {
     n_ref <- nrow(thr)
     if (n_ref == 0) return("No threatened (CR/EN/VU/NT) species in the current selection")
     n_gbif <- sum(thr$matched_any, na.rm = TRUE)
+    n_shared <- sum(shared_key_flag(thr) & thr$matched_any %in% TRUE)
     paste0(round(100 * n_gbif / n_ref, 1), "% of threatened species in GBIF \u2014 ",
-           comma(n_gbif), " of ", comma(n_ref), " (CR/EN/VU/NT)")
+           comma(n_gbif), " of ", comma(n_ref), " (CR/EN/VU/NT)",
+           if (n_shared > 0) paste0("; ", comma(n_shared), " of them only through a GBIF key ",
+                                    "shared with another taxon"))
   })
 
   output$concern_threat_coverage <- renderPlotly({
@@ -4759,10 +4919,10 @@ server <- function(input, output, session) {
     ms <- concern_invasive_data()
     if (!is.null(ms) && nrow(ms) > 0) {
       df <- ms |>
+        mutate(status = presence_status(ms)) |>
         select(any_of(c("scientificName", "vernacularName", "matched_any", "gbif_total_occ",
                          "kingdom", "phylum", "class", "order", "family",
-                         "establishmentMeans"))) |>
-        mutate(status = ifelse(matched_any, "In GBIF", "Missing")) |>
+                         "establishmentMeans", "status"))) |>
         arrange(matched_any, order, family)
     } else {
       df <- tibble(Message = "No invasive species data for current filters.")
@@ -4980,9 +5140,9 @@ server <- function(input, output, session) {
     ms <- concern_sensitive_data()
     if (!is.null(ms) && nrow(ms) > 0) {
       df <- ms |>
+        mutate(status = presence_status(ms)) |>
         select(any_of(c("scientificName", "vernacularName", "sensitivity_category", "matched_any", "gbif_total_occ",
-                         "threatStatus", "kingdom", "phylum", "class", "order", "family"))) |>
-        mutate(status = ifelse(matched_any, "In GBIF", "Missing")) |>
+                         "threatStatus", "kingdom", "phylum", "class", "order", "family", "status"))) |>
         rename(any_of(c(generalization = "sensitivity_category"))) |>
         arrange(matched_any, order, family)
     } else {
@@ -5935,6 +6095,11 @@ server <- function(input, output, session) {
   # note on the Taxonomic and the Species of Concern tab.
   output$infra_dl_taxonomic <- dl_csv(function() infra_taxa, "infraspecific_taxa_set_aside")
   output$infra_dl_concern   <- dl_csv(function() infra_taxa, "infraspecific_taxa_set_aside")
+  # The species on shared keys, for the links in their notes.
+  output$shared_dl_taxonomic <- dl_csv(function() shared_csv(shared_taxa),
+                                       "species_on_shared_keys")
+  output$shared_dl_concern <- dl_csv(function() shared_csv(shared_concern_taxa),
+                                     "species_of_concern_on_shared_keys")
 
   # ===================================================================
   # CSV downloads for maps (cell-level underlying data)
