@@ -57,8 +57,9 @@ ok(all(c("summary", "cells", "group", "mechanism", "datasets",
          "species", "species_totals", "pair_index") %in% names(cb$tables)),
    "every table family is present")
 eq(nrow(cb$tables$pair_index), length(cb$pairs), "pair index has one row per pair")
-ok(all(c("regime_boundary", "mechanism_boundary_year", "filters_differ") %in%
-         names(cb$tables$pair_index)), "pair index carries the flags the tab warns off")
+ok(all(c("regime_boundary", "mechanism_boundary_year", "filters_differ",
+         "key_backbone_differs") %in% names(cb$tables$pair_index)),
+   "pair index carries the flags the tab warns off")
 ok(all(cb$tables$pair_index$from_date < cb$tables$pair_index$to_date),
    "every pair runs forwards in time")
 
@@ -71,10 +72,39 @@ if (length(xr)) {
 } else {
   cli_alert_info("No cross-regime pair present; skipping that check")
 }
-wr <- cb$tables$pair_index[regime_boundary == 0, pair_id]
-if (length(wr)) {
-  ok("gbif" %in% ks[pair_id %in% wr, key_space],
-     "a within-regime pair carries the gbif key space too")
+# GBIF keys of two backbones (legacy nub, COL) never match, so only a pair on
+# one backbone, within one regime, has a gbif key space.
+kb <- cb$tables$pair_index[key_backbone_differs == 1, pair_id]
+if (length(kb)) {
+  ok(all(ks[pair_id %in% kb, key_space] == "dyntaxa"),
+     "a pair across key backbones carries dyntaxa only")
+}
+same <- cb$tables$pair_index[regime_boundary == 0 & key_backbone_differs == 0, pair_id]
+if (length(same)) {
+  ok(all(vapply(same, function(p) "gbif" %in% ks[pair_id == p, key_space], logical(1))),
+     "a within-regime pair on one key backbone carries the gbif key space too")
+}
+
+cli_h2("losses by dataset")
+dl <- cb$tables$datasets_lost
+if (is.null(dl)) {
+  cli_alert_warning(
+    "No closure_datasets_lost tables - these tables predate them. Re-run \\
+     {.code Rscript -e 'source(\"scripts/14_gap_closure.R\")'}.")
+} else {
+  sl <- cb$tables$summary[metric == "pairs_lost" & source_group == "total",
+                          .(pair_id, resolution, key_space, pairs_lost = value)]
+  dd <- dl[, .(sole = sum(vanish_if_dropped), max_touched = max(touched)),
+           by = .(pair_id, resolution, key_space)]
+  chk <- merge(sl, dd, by = c("pair_id", "resolution", "key_space"), all.x = TRUE)
+  ok(!anyNA(chk[pairs_lost > 0, sole]),
+     "every pair x resolution x key space with losses has its losses-by-dataset table")
+  ok(all(chk$sole <= chk$pairs_lost, na.rm = TRUE),
+     "pairs resting on one dataset never exceed the pairs lost")
+  ok(all(chk$max_touched <= chk$pairs_lost, na.rm = TRUE),
+     "no dataset touches more pairs than were lost")
+  ok(all(chk[pairs_lost > 0, max_touched] >= 1),
+     "the losses are read from the baseline's records, not from the later grain")
 }
 
 cli_h2("THE INVARIANT: totals are computed before the rows are thinned")
@@ -115,7 +145,10 @@ cli_h2("the lost taxa have names")
 # separable, and worth separating: all-unnamed tables are STALE DATA, not a
 # code regression, and should send the reader to a re-run rather than to a
 # debugger.
-lost <- cb$tables$species[status == "lost"]
+# The names are Dyntaxa's, so this runs in the Dyntaxa key space, the tab's. In
+# the gbif key space a key that never matched Dyntaxa has no Dyntaxa name at
+# either end, lost or not.
+lost <- cb$tables$species[status == "lost" & key_space == "dyntaxa"]
 if (!nrow(lost)) {
   cli_alert_info("No lost species in these tables; nothing to check")
 } else {
@@ -129,10 +162,20 @@ if (!nrow(lost)) {
                   "i" = "Not counted as a failure: it is the data that is stale, not the code."))
   } else {
     ok(!any(unnamed), "no lost species is unnamed")
-    ok(!any(is.na(lost$class) | trimws(lost$class) == ""),
-       "no lost species is missing its class")
-    ok(nrow(cb$tables$group[is.na(class) | trimws(class) == ""]) == 0L,
+    # Dyntaxa ranks some orders under no class (Squamata, the tunicate orders)
+    # and some classes without orders, so one empty rank is the checklist's.
+    # Both empty is what unnamed lost taxa look like.
+    no_rank <- function(x) is.na(x) | trimws(x) == ""
+    ok(!any(no_rank(lost$class) & no_rank(lost$order)),
+       "no lost species is missing both class and order")
+    grp <- cb$tables$group[key_space == "dyntaxa"]
+    ok(nrow(grp[no_rank(class) & no_rank(order)]) == 0L,
        "no (NA, NA) group in the taxonomic roll-up")
+    oc <- sort(unique(grp[no_rank(class) & !no_rank(order), order]))
+    if (length(oc)) {
+      cli_alert_info(
+        "{length(oc)} order{?s} without a class in Dyntaxa, e.g. {.val {utils::head(oc, 4)}}")
+    }
   }
 }
 

@@ -50,6 +50,7 @@
 #   - closure_mechanism_{res}_{from}_{to}.csv
 #   - closure_group_{res}_{from}_{to}.csv
 #   - closure_datasets_{res}_{from}_{to}.csv
+#   - closure_datasets_lost_{res}_{from}_{to}.csv
 #
 # Usage:
 #   Rscript -e 'source("scripts/14_gap_closure.R")'
@@ -300,12 +301,32 @@ for (pr in pairs_to_do) {
       pairs_from <- closure_pairs(gf)
       pairs_to   <- closure_pairs(gt)
       gained     <- data.table::fsetdiff(pairs_to, pairs_from)
+      lost       <- data.table::fsetdiff(pairs_from, pairs_to)
 
-      cells <- closure_cells(closure_cell_view(gf), closure_cell_view(gt), all_cells)
+      # The cell table covers the grid only. The grid follows the live cube's
+      # cells, so a time point can hold a cell the current grid lacks; its
+      # records still count in the pair totals, so it is named here and counted
+      # in the summary.
+      cv_from  <- closure_cell_view(gf)
+      cv_to    <- closure_cell_view(gt)
+      off_from <- cv_from[!eeacellcode %chin% all_cells]
+      off_to   <- cv_to[!eeacellcode %chin% all_cells]
+      if (nrow(off_from) || nrow(off_to)) {
+        cli_alert_warning(
+          "{tag}: cells outside the {res_km} km grid are left out of the cell table \\
+           ({from}: {nrow(off_from)}, {scales::comma(sum(off_from$occ))} records; \\
+           {to}: {nrow(off_to)}, {scales::comma(sum(off_to$occ))} records): \\
+           {.val {utils::head(unique(c(off_from$eeacellcode, off_to$eeacellcode)), 10)}}")
+      }
+
+      cells <- closure_cells(cv_from, cv_to, all_cells)
       cells <- closure_frozen_low(cells, q = FROZEN_Q)
       species <- closure_species(pairs_from, pairs_to)
       mech    <- closure_mechanism(gained, gt, baseline_year)
       dsconc  <- closure_dataset_concentration(gained, gt)
+      # The losses the same way, read from the baseline's records: which
+      # datasets the vanished pairs rested on, and how many rested on one alone.
+      dsloss  <- closure_dataset_concentration(lost, gf)
 
       # Taxonomic roll-up: class/order come from the reconciled match table, not
       # from the cube, so both key spaces are described by the same taxonomy.
@@ -370,15 +391,18 @@ for (pr in pairs_to_do) {
                    # interpretable next to the species that are off the
                    # checklist entirely. In gbif space nothing is dropped
                    # and both are 0 by construction.
-                   "species_off_checklist_from", "species_off_checklist_to"),
+                   "species_off_checklist_from", "species_off_checklist_to",
+                   # Cells with records outside the grid: in the pair totals,
+                   # not in the cell counts.
+                   "cells_off_grid_from", "cells_off_grid_to"),
         source_group = "total", key_space = ks,
-        value = c(round(100 * nrow(data.table::fsetdiff(pairs_from, pairs_to)) /
-                          max(nrow(pairs_from), 1), 3),
+        value = c(round(100 * nrow(lost) / max(nrow(pairs_from), 1), 3),
                   sum(grp$churn_flag, na.rm = TRUE),
                   as.integer(regime_boundary && res_km == 10L),
                   as.integer(regime_boundary),
                   as.integer(kind$key_backbone_differs),
-                  rf$n_dropped, rt$n_dropped)), fill = TRUE)
+                  rf$n_dropped, rt$n_dropped,
+                  nrow(off_from), nrow(off_to))), fill = TRUE)
       summ[, resolution := sprintf("%dkm", res_km)]
       summaries[[tag]] <- summ
 
@@ -388,10 +412,11 @@ for (pr in pairs_to_do) {
       data.table::fwrite(mech,   file.path(closure_dir, paste0("closure_mechanism", stem)))
       data.table::fwrite(grp,    file.path(closure_dir, paste0("closure_group",     stem)))
       data.table::fwrite(dsconc, file.path(closure_dir, paste0("closure_datasets",  stem)))
+      data.table::fwrite(dsloss, file.path(closure_dir, paste0("closure_datasets_lost", stem)))
 
       cli_alert_success(
         "{tag}: {scales::comma(nrow(gained))} pairs gained, \\
-         {scales::comma(nrow(data.table::fsetdiff(pairs_from, pairs_to)))} lost, \\
+         {scales::comma(nrow(lost))} lost, \\
          {nrow(cells[status == 'filled'])} cells filled"
       )
 

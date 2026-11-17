@@ -251,6 +251,36 @@ eq(dsc[datasetkey == "D3", vanish_if_dropped], 1L, "D3 solely supports D-C2")
 ok(sum(dsc$vanish_if_dropped) <= nrow(gained),
    "pairs that vanish never exceed pairs gained")
 
+cli_h2("dataset concentration of the losses (baseline grain)")
+# Script 14 passes the LOST pairs with the BASELINE's grain. In the fixture
+# above the one lost pair, C-C3, rested on D1 alone.
+dsl <- closure_dataset_concentration(lost, gf)
+eq(nrow(dsl), 1L, "one dataset carried the lost pair")
+eq(dsl[datasetkey == "D1", vanish_if_dropped], 1L, "C-C3 rested on D1 alone")
+eq(dsl[datasetkey == "D1", vanish_pct], 100, "all of the loss rested on D1")
+ok(inherits(try(closure_dataset_concentration(lost, gt), silent = TRUE), "try-error"),
+   "lost pairs with the LATER grain are refused: they have no record there")
+
+# A loss shared between datasets: P-C1 rested on D1 and D2, Q-C2 on D2 alone,
+# R-C3 (D3) survives.
+gf2 <- grain(list(
+  list("P", "C1", "D1", 2001, 1, 1),
+  list("P", "C1", "D2", 2002, 1, 1),
+  list("Q", "C2", "D2", 2003, 1, 1),
+  list("R", "C3", "D3", 2004, 1, 1)
+))
+gt2 <- grain(list(list("R", "C3", "D3", 2004, 2, 1)))
+lost2 <- data.table::fsetdiff(closure_pairs(gf2), closure_pairs(gt2))
+dsl2 <- closure_dataset_concentration(lost2, gf2)
+eq(nrow(lost2), 2L, "two pairs lost")
+eq(dsl2[datasetkey == "D2", touched], 2L, "D2 had records in both lost pairs")
+eq(dsl2[datasetkey == "D2", vanish_if_dropped], 1L, "only Q-C2 rested on D2 alone")
+eq(dsl2[datasetkey == "D1", vanish_if_dropped], 0L,
+   "P-C1 had a second dataset, so no lost pair rested on D1 alone")
+eq(dsl2[datasetkey == "D2", touched_pct], 100, "the touched share is of all lost pairs")
+eq(dsl2[datasetkey == "D2", vanish_pct], 50, "the sole share is of all lost pairs")
+ok(!"D3" %in% dsl2$datasetkey, "a dataset that lost nothing is not listed")
+
 cli_h2("frozen thresholds")
 fz <- closure_frozen_low(cells, q = 0.10)
 eq(unique(fz$q_frozen), as.numeric(stats::quantile(c(13, 5, 7), 0.10, names = FALSE)),

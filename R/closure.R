@@ -325,20 +325,44 @@ closure_mechanism <- function(gained, grain_to, baseline_year) {
 # Source concentration
 # ============================================================================
 
-#' Per-dataset concentration of the gain, without a tie-break
+#' Which datasets a set of pairs rests on, without a tie-break
 #'
-#' `touched` counts gained pairs a dataset contributes any record to.
-#' `vanish_if_dropped` counts gained pairs whose records ALL come from that one
+#' Script 14 calls it both ways round: the gained pairs with the later time
+#' point's grain (where the gain came from), and the lost pairs with the
+#' baseline's grain (what the vanished pairs had rested on).
+#'
+#' `touched` counts the pairs a dataset contributes any record to.
+#' `vanish_if_dropped` counts the pairs whose records ALL come from that one
 #' dataset - i.e. what disappears if the dataset is removed. Both are
-#' order-independent, which the single-owner alternative is not.
-closure_dataset_concentration <- function(gained, grain_to) {
-  if (!nrow(gained)) {
+#' order-independent, which the single-owner alternative is not. Both
+#' percentages are of all the pairs passed in.
+#'
+#' Every pair must have a record in the grain. A pair without one means the
+#' wrong time point's grain was passed (the later grain for lost pairs), which
+#' would otherwise leave every count at zero without an error.
+#'
+#' @param pairs data.table(key, eeacellcode), one row per pair: the gained or
+#'   the lost pairs.
+#' @param grain Grain of the time point the pairs exist in (output of
+#'   closure_build_grain(), re-keyed by closure_rekey()).
+#' @return data.table(datasetkey, source_group, touched, vanish_if_dropped,
+#'   touched_pct, vanish_pct), the dataset touching most pairs first.
+closure_dataset_concentration <- function(pairs, grain) {
+  if (!nrow(pairs)) {
     return(data.table::data.table(datasetkey = character(), source_group = character(),
                                   touched = integer(), vanish_if_dropped = integer(),
                                   touched_pct = numeric(), vanish_pct = numeric()))
   }
-  g <- merge(grain_to, gained, by = c("key", "eeacellcode"))
-  n_gained <- nrow(gained)
+  g <- merge(grain, pairs, by = c("key", "eeacellcode"))
+  n_pairs <- nrow(pairs)
+  n_missing <- n_pairs - nrow(unique(g[, .(key, eeacellcode)]))
+  if (n_missing > 0L) {
+    cli_abort(c(
+      "closure_dataset_concentration(): {n_missing} pair{?s} {?has/have} no record \\
+       in the grain (of {n_pairs}).",
+      "i" = "Pass the grain of the time point the pairs exist in: the later one \\
+             for gained pairs, the baseline for lost pairs."))
+  }
 
   touched <- unique(g[, .(key, eeacellcode, datasetkey, source_group)])[
     , .(touched = .N), by = .(datasetkey, source_group)]
@@ -351,8 +375,8 @@ closure_dataset_concentration <- function(gained, grain_to) {
 
   out <- merge(touched, sole, by = "datasetkey", all.x = TRUE)
   out[is.na(vanish_if_dropped), vanish_if_dropped := 0L]
-  out[, touched_pct := round(100 * touched / n_gained, 3)]
-  out[, vanish_pct  := round(100 * vanish_if_dropped / n_gained, 3)]
+  out[, touched_pct := round(100 * touched / n_pairs, 3)]
+  out[, vanish_pct  := round(100 * vanish_if_dropped / n_pairs, 3)]
   data.table::setorder(out, -touched)
   out[]
 }
@@ -630,7 +654,8 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
   }
 
   acc <- list(summary = list(), cells = list(), group = list(), mechanism = list(),
-              datasets = list(), species = list(), species_totals = list())
+              datasets = list(), datasets_lost = list(), species = list(),
+              species_totals = list())
   pairs <- character()
   report <- list()
 
@@ -642,7 +667,7 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
     s[, `:=`(pair_id = pid, from_date = from, to_date = to)]
     acc$summary[[pid]] <- s
 
-    for (nm in c("cells", "group", "mechanism", "datasets")) {
+    for (nm in c("cells", "group", "mechanism", "datasets", "datasets_lost")) {
       acc[[nm]][[pid]] <- read_family(nm, from, to)
     }
 
@@ -682,8 +707,10 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
   # The pair index the tab's selectors are built from. regime_boundary travels
   # with it so the app never infers "is this cross-pipeline?" from the dates -
   # script 14 already decided, and the warnings hang off that decision.
+  # key_backbone_differs says whether the pair has a GBIF key space at all.
   if (!is.null(tables$summary)) {
-    flags <- c("regime_boundary", "mechanism_boundary_year", "filters_differ")
+    flags <- c("regime_boundary", "mechanism_boundary_year", "filters_differ",
+               "key_backbone_differs")
     idx <- tables$summary[metric %in% flags,
                           .(value = max(value)), by = .(pair_id, from_date, to_date, metric)]
     idx <- data.table::dcast(idx, pair_id + from_date + to_date ~ metric,
