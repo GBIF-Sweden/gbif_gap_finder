@@ -8,7 +8,7 @@
 #   so a time point is located, described and read the same way in both.
 #
 # Globals these functions read at call time (set by the calling script after
-# scripts/00_setup.R): tp_root, LIVE_TP, live_ok, PLATFORMS, plus p_cubes,
+# scripts/00_setup.R): tp_root, LIVE_TP, live_ok, SOURCE_TYPES, plus p_cubes,
 # p_gaps, p_data_proc and COUNTRY_CODE from R/globals.R.
 #
 # THE LIVE CUBE IS A TIME POINT ALREADY. With GAP_FINDER_TIMEPOINT unset,
@@ -107,8 +107,16 @@ read_grain <- function(tp, res_km) {
     path, col_select = c("specieskey", "eeacellcode", "datasetkey",
                          "year", "occurrences")))
   # The aggregation lives in R/closure.R so it can be unit-tested.
-  g <- closure_build_grain(dt, PLATFORMS)
+  g <- closure_build_grain(dt, SOURCE_TYPES)
   rm(dt); invisible(gc())
+  untyped <- g[!datasetkey %chin% names(SOURCE_TYPES), .(occ = sum(occ)), by = datasetkey]
+  if (nrow(untyped)) {
+    data.table::setorder(untyped, -occ)
+    cli_alert_warning(
+      "{tp} {res_km} km: {nrow(untyped)} dataset{?s} not on the source-type list \\
+       count as {.val other} ({scales::comma(sum(untyped$occ))} records): \\
+       {.val {utils::head(untyped$datasetkey, 5)}}")
+  }
   cli_alert_info(
     "{tp} {res_km} km: {scales::comma(nrow(g))} (species x cell x dataset) rows, \\
      {scales::comma(sum(g$occ))} occurrences"

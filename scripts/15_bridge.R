@@ -59,8 +59,8 @@ tp_root    <- here(p_data_proc, "timepoints")
 bridge_dir <- here(p_data_proc, "bridge")
 if (!dir.exists(bridge_dir)) dir.create(bridge_dir, recursive = TRUE, showWarnings = FALSE)
 
-PLATFORMS   <- as.character(cfg_get(
-  "parameters.closure.source_groups.observation_platforms", character()))
+SOURCE_TYPES <- closure_read_types(here(cfg_get(
+  "parameters.closure.source_types_file", glue("configs/dataset_types_{COUNTRY_CODE}.csv"))))
 BRIDGE_DAYS <- 31L
 RESOLUTIONS <- c(10L, 50L)
 

@@ -35,7 +35,8 @@ gbif_gap_finder/
 ├── configs/
 │   ├── config_SE.yml           # Sweden configuration
 │   ├── config_NO.yml           # Norway configuration
-│   └── config_template.yml     # Template for new countries
+│   ├── config_template.yml     # Template for new countries
+│   └── dataset_types_SE.csv    # Source type of every dataset (Gaps filled tab)
 ├── R/
 │   ├── globals.R               # Config, paths, constants, shared utilities
 │   ├── packages.R              # Package management (required / optional / app)
@@ -321,7 +322,10 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
 6. Run the pipeline from script 01
 7. After the first verified run, set `parameters.taxonomic.crosswalk_baseline` from
    `col_crosswalk_validation.md` so later runs are checked against it
-8. Keep the attribution: the copyright notice in `LICENSE.md`, a link to this repository and
+8. For the Gaps filled tab (time points, script 14), type your datasets in
+   `configs/dataset_types_{CC}.csv` (columns `datasetkey`, `type`; types `platform`, `monitoring`,
+   `collection`, `other`). A dataset missing from the list counts as `other`
+9. Keep the attribution: the copyright notice in `LICENSE.md`, a link to this repository and
    the full citation (see [How to cite](#how-to-cite))
 
 ## App colours and filters

@@ -15,8 +15,8 @@
 #   summary that still answers all five panels:
 #     - species x cell pairs      -> unique(key, eeacellcode)
 #     - cell occupancy            -> aggregate over key + datasetkey
-#     - mechanism                 -> min_year of a gained pair
-#     - source split              -> datasetkey -> source_group
+#     - periods                   -> min_year of a gained pair
+#     - source split              -> datasetkey -> source type
 #   Reducing the 42 M-row cube to a ~6.5 M-row grain once, and differencing
 #   grains, is what keeps this cheap.
 #
@@ -33,36 +33,68 @@
 #             Dyntaxa taxonID.
 #   Every output carries `key_space`. Never mix them in one number.
 #
-# PAIRS THAT SPAN SOURCE GROUPS are counted in BOTH per-group figures and ONCE
-#   in the total, so per-group columns do not sum to the total. That is
-#   deliberate. The alternative - crediting each pair to a single "owner" group
-#   - needs a tie-break, and the tie-break alone shifts the group shares.
-#   Order-independent measures only.
+# PAIRS THAT SPAN SOURCE TYPES are counted in EVERY type's figures and ONCE in
+#   the total, so per-type columns do not sum to the total. That is deliberate.
+#   The alternative - crediting each pair to a single "owner" type - needs a
+#   tie-break, and the tie-break alone shifts the shares. Order-independent
+#   measures only.
 #
 # Dependencies: data.table, cli
 # ============================================================================
 
-CLOSURE_CELL_STATUS <- c("filled", "deepened", "unchanged", "thinned", "regressed")
-CLOSURE_MECHANISMS  <- c("fieldwork", "digitisation", "unattributable")
+CLOSURE_CELL_STATUS  <- c("filled", "deepened", "unchanged", "thinned", "regressed")
+CLOSURE_SOURCE_TYPES <- c("platform", "monitoring", "collection", "other")
+CLOSURE_PERIODS      <- c("baseline_on", "decade_before", "1950_on", "pre_1950", "no_year")
 
 # ============================================================================
-# Source groups
+# Source types
 # ============================================================================
 
-#' Classify dataset keys into source groups
+#' Read the typed dataset list
 #'
-#' The membership list is configuration, not code: it is a national fact that
-#' changes when a country's observation platforms change, and hard-coding one
-#' dataset key would not survive a second country. Anything not listed is
-#' "collections" - the residual is the museum/institutional stream.
+#' Every dataset is typed by how its records come about: `platform` (open
+#' reporting platforms and apps, where anyone can report), `monitoring`
+#' (monitoring programmes, inventories, surveys and sampling series,
+#' metabarcoding included), `collection` (specimens kept in a collection) and
+#' `other`. Which dataset is which is a national fact, not code, so the list
+#' lives next to the country config (parameters.closure.source_types_file).
+#'
+#' @param path CSV with at least the columns `datasetkey` and `type`.
+#' @return Named character vector: names are dataset keys, values types.
+closure_read_types <- function(path) {
+  if (!file.exists(path)) {
+    cli_abort("Source-type list not found: {.path {path}}")
+  }
+  d <- data.table::fread(path, colClasses = "character", showProgress = FALSE,
+                         encoding = "UTF-8")
+  absent <- setdiff(c("datasetkey", "type"), names(d))
+  if (length(absent)) {
+    cli_abort("{.path {path}} lacks column{?s} {.field {absent}}")
+  }
+  dup <- unique(d$datasetkey[duplicated(d$datasetkey)])
+  if (length(dup)) {
+    cli_abort("{.path {path}} lists {length(dup)} dataset{?s} twice: {.val {utils::head(dup, 5)}}")
+  }
+  bad <- setdiff(unique(d$type), CLOSURE_SOURCE_TYPES)
+  if (length(bad)) {
+    cli_abort(c("{.path {path}} uses unknown type{?s} {.val {bad}}",
+                "i" = "Allowed: {.val {CLOSURE_SOURCE_TYPES}}"))
+  }
+  stats::setNames(d$type, d$datasetkey)
+}
+
+#' Source type of each record's dataset
+#'
+#' A dataset that is not on the list counts as `other`; script 14 names such
+#' datasets, so the list can be extended.
 #'
 #' @param datasetkey Character vector of GBIF dataset UUIDs.
-#' @param platforms  Character vector of dataset keys counted as observation
-#'   platforms (config: parameters.closure.source_groups.observation_platforms).
-#' @return Character vector, "observation_platforms" or "collections".
-closure_source_group <- function(datasetkey, platforms) {
-  ifelse(as.character(datasetkey) %chin% as.character(platforms),
-         "observation_platforms", "collections")
+#' @param types Output of closure_read_types().
+#' @return Character vector of types, one per element of `datasetkey`.
+closure_source_group <- function(datasetkey, types) {
+  out <- unname(types)[match(as.character(datasetkey), names(types))]
+  out[is.na(out)] <- "other"
+  out
 }
 
 # ============================================================================
@@ -86,15 +118,15 @@ closure_source_group <- function(datasetkey, platforms) {
 #' applies to `min(x, na.rm = TRUE)` on a plain column but not to
 #' `min(as.numeric(x), ...)`.
 #'
-#' Inf is then mapped to NA: "no year" is the unattributable bucket, not a year,
-#' and it must not sort as one.
+#' Inf is then mapped to NA: "no year" is a period of its own, not a year, and
+#' it must not sort as one.
 #'
 #' @param dt data.table with specieskey, eeacellcode, datasetkey, year,
 #'   occurrences. Modified by reference - pass a copy if that matters.
-#' @param platforms Dataset keys counted as observation platforms.
+#' @param types Output of closure_read_types().
 #' @return data.table(key, eeacellcode, datasetkey, source_group, min_year,
-#'   occ, n_rec)
-closure_build_grain <- function(dt, platforms) {
+#'   occ, n_rec); `source_group` holds the dataset's source type.
+closure_build_grain <- function(dt, types) {
   need <- c("specieskey", "eeacellcode", "datasetkey", "year", "occurrences")
   missing <- setdiff(need, names(dt))
   if (length(missing)) {
@@ -110,7 +142,7 @@ closure_build_grain <- function(dt, platforms) {
                  eeacellcode = as.character(eeacellcode),
                  datasetkey  = as.character(datasetkey))]
   g[!is.finite(min_year), min_year := NA_real_]
-  g[, source_group := closure_source_group(datasetkey, platforms)]
+  g[, source_group := closure_source_group(datasetkey, types)]
   g[]
 }
 
@@ -257,67 +289,136 @@ closure_species <- function(pairs_from, pairs_to) {
 }
 
 # ============================================================================
-# Mechanism
+# Periods
 # ============================================================================
 
-#' Split gained pairs into fieldwork / digitisation / unattributable
+#' The period a gained pair's earliest record falls in
 #'
-#' The rule, and the thing that has to be said in the tab rather than a methods
-#' note: a record dated >= the baseline year CANNOT have been in the baseline
-#' snapshot, while an earlier record had to both exist AND be unpublished at the
-#' cut. The boundary is therefore definitional, not empirical, and it creates a
-#' step in the year histogram that is not a surge in fieldwork.
+#' Five periods, relative to the baseline year `b`: from `b` on (records that
+#' cannot have been in the baseline), the ten years before `b` (mostly recent
+#' sampling published late, such as monitoring and metabarcoding), from 1950 to
+#' then, before 1950 (mostly specimens), and no year. The boundaries are
+#' definitional; the tab states them as years.
 #'
-#' Mechanism is computed WITHIN each source group, not once per pair, because
-#' "was this fieldwork?" is a question about a stream. The `total` group uses the
-#' pair's overall minimum year.
+#' @param min_year Numeric vector of years, NA where a pair has no dated record.
+#' @param baseline_year Integer; the earlier time point's year.
+#' @return Character vector of CLOSURE_PERIODS.
+closure_period <- function(min_year, baseline_year) {
+  data.table::fcase(
+    is.na(min_year),                "no_year",
+    min_year >= baseline_year,      "baseline_on",
+    min_year >= baseline_year - 10, "decade_before",
+    min_year >= 1950,               "1950_on",
+    default = "pre_1950"
+  )
+}
+
+#' First and last year of each period, for labels
+closure_period_bounds <- function(baseline_year) {
+  data.table::data.table(
+    period    = CLOSURE_PERIODS,
+    year_from = c(baseline_year, baseline_year - 10, 1950, NA, NA),
+    year_to   = c(NA, baseline_year - 1, baseline_year - 11, 1949, NA)
+  )
+}
+
+#' Gained pairs by the period of their earliest record, per source type
+#'
+#' Computed WITHIN each source type, not once per pair: "when were these
+#' records collected?" is a question about a stream. A type's figure uses the
+#' earliest of that type's own records; the `total` uses the pair's overall
+#' earliest record.
+#'
+#' With `taxa` the same counts come per class x order as well, for the tab's
+#' taxonomic filter.
 #'
 #' @param gained data.table(key, eeacellcode) - the gained pairs.
 #' @param grain_to The later time point's grain, carrying source_group.
 #' @param baseline_year Integer; the earlier time point's year.
-#' @return data.table(source_group, mechanism, n_pairs, n_occurrences,
-#'   n_records, n_cells, n_species)
-closure_mechanism <- function(gained, grain_to, baseline_year) {
+#' @param taxa Optional data.table(key, class, order).
+#' @return data.table(source_group, [class, order,] period, year_from, year_to,
+#'   n_pairs, n_occurrences, n_records, n_cells, n_species)
+closure_mechanism <- function(gained, grain_to, baseline_year, taxa = NULL) {
+  by_taxa <- !is.null(taxa)
+  grp_cols <- c("source_group", if (by_taxa) c("class", "order"), "period")
   if (!nrow(gained)) {
-    return(data.table::data.table(
-      source_group = character(), mechanism = character(), n_pairs = integer(),
-      n_occurrences = numeric(), n_records = numeric(),
-      n_cells = integer(), n_species = integer()))
+    out <- data.table::data.table(
+      source_group = character(), period = character(), year_from = numeric(),
+      year_to = numeric(), n_pairs = integer(), n_occurrences = numeric(),
+      n_records = numeric(), n_cells = integer(), n_species = integer())
+    if (by_taxa) out[, `:=`(class = character(), order = character())]
+    data.table::setcolorder(out, c(grp_cols, "year_from", "year_to"))
+    return(out[])
   }
   g <- merge(grain_to, gained, by = c("key", "eeacellcode"))
   # Same integer/Inf trap as in closure_build_grain(): if a caller hands us an
   # integer min_year, the first all-NA group returns Inf and the aggregation
   # dies on a type mismatch. Coerce once, here, rather than trust the caller.
   g[, min_year := as.numeric(min_year)]
+  g[, occ := as.numeric(occ)]
+  g[, n_rec := as.numeric(n_rec)]
 
-  per_group <- function(dt, label) {
-    if (!nrow(dt)) return(NULL)
-    p <- dt[, .(min_year = suppressWarnings(min(min_year, na.rm = TRUE)),
-                occ = sum(as.numeric(occ), na.rm = TRUE),
-                n_rec = sum(as.numeric(n_rec), na.rm = TRUE)),
-            by = .(key, eeacellcode)]
-    # An all-NA group yields Inf from min(na.rm = TRUE); that is the
-    # unattributable bucket, not a number.
-    p[!is.finite(min_year), min_year := NA_real_]
-    p[, mechanism := data.table::fcase(
-      is.na(min_year),             "unattributable",
-      min_year >= baseline_year,   "fieldwork",
-      default = "digitisation"
-    )]
-    p[, .(source_group = label, n_pairs = .N,
-          n_occurrences = sum(occ), n_records = sum(n_rec),
-          n_cells = data.table::uniqueN(eeacellcode),
-          n_species = data.table::uniqueN(key)),
-      by = mechanism]
+  # One row per pair and source type (that type's earliest record), then one
+  # per pair over all types. An all-NA group yields Inf from min(na.rm = TRUE),
+  # which the second min() passes over and the last step turns into NA.
+  p <- g[, .(min_year = suppressWarnings(min(min_year, na.rm = TRUE)),
+             occ = sum(occ, na.rm = TRUE), n_rec = sum(n_rec, na.rm = TRUE)),
+         by = .(source_group, key, eeacellcode)]
+  rm(g)
+  p <- data.table::rbindlist(list(
+    p[, .(source_group = "total", min_year = suppressWarnings(min(min_year)),
+          occ = sum(occ), n_rec = sum(n_rec)), by = .(key, eeacellcode)],
+    p), use.names = TRUE)
+  p[!is.finite(min_year), min_year := NA_real_]
+  p[, period := closure_period(min_year, baseline_year)]
+  if (by_taxa) {
+    tx <- unique(data.table::as.data.table(taxa)[, .(key, class, order)], by = "key")
+    p[, `:=`(class = NA_character_, order = NA_character_)]
+    p[tx, on = "key", `:=`(class = i.class, order = i.order)]
   }
+  out <- p[, .(n_pairs = .N, n_occurrences = sum(occ), n_records = sum(n_rec),
+               n_cells = data.table::uniqueN(eeacellcode),
+               n_species = data.table::uniqueN(key)),
+           by = grp_cols]
+  rm(p)
+  out <- merge(out, closure_period_bounds(baseline_year), by = "period", sort = FALSE)
+  out[, period_rank := match(period, CLOSURE_PERIODS)]
+  out[, type_rank := match(source_group, c("total", CLOSURE_SOURCE_TYPES))]
+  data.table::setorderv(out, c("type_rank", setdiff(grp_cols, c("source_group", "period")),
+                               "period_rank"))
+  out[, c("period_rank", "type_rank") := NULL]
+  data.table::setcolorder(out, c(grp_cols, "year_from", "year_to"))
+  out[]
+}
 
-  out <- list(per_group(g, "total"))
-  for (grp in sort(unique(g$source_group))) {
-    out[[length(out) + 1L]] <- per_group(g[source_group == grp], grp)
+#' Species x cell pairs per cell and class x order, for the tab's filter
+#'
+#' Four counts per (cell, class, order): the species recorded there at each end
+#' and the pairs gained and lost. The map of the tab filters these rows instead
+#' of differencing anything at runtime.
+#'
+#' @param pairs_from,pairs_to,gained,lost data.table(key, eeacellcode).
+#' @param taxa data.table(key, class, order); keys without a row get NA class
+#'   and order.
+#' @return data.table(eeacellcode, class, order, n_species_from, n_species_to,
+#'   pairs_gained, pairs_lost)
+closure_cells_by_group <- function(pairs_from, pairs_to, gained, lost, taxa) {
+  tx <- unique(data.table::as.data.table(taxa)[, .(key, class, order)], by = "key")
+  keys <- c("eeacellcode", "class", "order")
+  count <- function(p, col) {
+    x <- p[, .(key, eeacellcode, class = NA_character_, order = NA_character_)]
+    x[tx, on = "key", `:=`(class = i.class, order = i.order)]
+    x <- x[, .N, by = keys]
+    data.table::setnames(x, "N", col)
+    x
   }
-  out <- data.table::rbindlist(out, fill = TRUE)
-  data.table::setcolorder(out, c("source_group", "mechanism"))
-  data.table::setorder(out, source_group, mechanism)
+  parts <- list(count(pairs_from, "n_species_from"), count(pairs_to, "n_species_to"),
+                count(gained, "pairs_gained"), count(lost, "pairs_lost"))
+  out <- Reduce(function(a, b) merge(a, b, by = keys, all = TRUE), parts)
+  for (v in c("n_species_from", "n_species_to", "pairs_gained", "pairs_lost")) {
+    data.table::set(out, which(is.na(out[[v]])), v, 0L)
+  }
+  data.table::setorderv(out, keys)
   out[]
 }
 
@@ -450,8 +551,8 @@ closure_summary <- function(pairs_from, pairs_to, cells, species, mechanism,
   )
   base[, source_group := "total"]
 
-  mech <- mechanism[, .(metric = paste0("pairs_", mechanism), value = as.numeric(n_pairs),
-                        source_group)]
+  mech <- mechanism[, .(metric = paste0("pairs_period_", period),
+                        value = as.numeric(n_pairs), source_group)]
   out <- data.table::rbindlist(list(base, mech), use.names = TRUE, fill = TRUE)
   out[, key_space := key_space]
   data.table::setcolorder(out, c("metric", "source_group", "key_space", "value"))
@@ -653,9 +754,9 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
     }), use.names = TRUE, fill = TRUE)
   }
 
-  acc <- list(summary = list(), cells = list(), group = list(), mechanism = list(),
-              datasets = list(), datasets_lost = list(), species = list(),
-              species_totals = list())
+  acc <- list(summary = list(), cells = list(), cells_group = list(), group = list(),
+              mechanism = list(), mechanism_group = list(), datasets = list(),
+              datasets_lost = list(), species = list(), species_totals = list())
   pairs <- character()
   report <- list()
 
@@ -667,7 +768,8 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
     s[, `:=`(pair_id = pid, from_date = from, to_date = to)]
     acc$summary[[pid]] <- s
 
-    for (nm in c("cells", "group", "mechanism", "datasets", "datasets_lost")) {
+    for (nm in c("cells", "cells_group", "group", "mechanism", "mechanism_group",
+                 "datasets", "datasets_lost")) {
       acc[[nm]][[pid]] <- read_family(nm, from, to)
     }
 

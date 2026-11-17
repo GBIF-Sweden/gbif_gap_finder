@@ -164,23 +164,18 @@ parameters:
     force_refresh: false
   crs: 3035
   # --- Gap closure between time points (script 14) --------------------------
-  # The source split the "Gaps filled" tab is built on. Mechanism is very nearly
-  # a proxy for source: gains from observation platforms are mostly fieldwork,
-  # gains from everything else mostly are not. One averaged bar would describe
-  # neither stream, so mechanism is computed within each of these groups.
-  # Membership is a national fact and belongs here rather than in code; anything
-  # not listed falls into "collections".
+  # The "Gaps filled" tab splits the gain by source type, and the period of the
+  # records behind it within each type: platforms bring mostly new records,
+  # monitoring mostly records of the last decade, collections mostly old ones.
+  # One averaged bar would describe none of them.
   closure:
     frozen_quantile: 0.10
-    # A class x order group losing at least this share of its baseline
-    # species x cell pairs is flagged as taxonomically volatile. Fungal orders
-    # run 1.8-12%; insects and birds run 0.15-0.2%.
-    churn_warn_pct: 1.0
-    source_groups:
-      observation_platforms:
-        - 38b4c89f-584c-41bb-bd8f-cd1def33e92f   # Artportalen (SLU Artdatabanken)
-        - 50c9509d-22c7-4a22-a47d-8c48425ef4a7   # iNaturalist research-grade
-        - 8a863029-f435-446a-821e-275f4f641165   # Observation.org
+    # The source type of every dataset: platform (open reporting platforms and
+    # apps), monitoring (programmes, inventories, surveys, metabarcoding),
+    # collection (specimens) or other. The large datasets are typed by hand,
+    # the rest by their main record type. A dataset not on the list counts as
+    # "other"; script 14 names it.
+    source_types_file: "configs/dataset_types_SE.csv"
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]
   temporal:

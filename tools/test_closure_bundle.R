@@ -107,6 +107,44 @@ if (is.null(dl)) {
      "the losses are read from the baseline's records, not from the later grain")
 }
 
+cli_h2("periods and source types")
+mech <- cb$tables$mechanism
+ok(all(mech$period %in% CLOSURE_PERIODS), "every period is one of CLOSURE_PERIODS")
+ok(all(mech$source_group %in% c("total", CLOSURE_SOURCE_TYPES)),
+   "every source group is a source type or the total")
+gn <- cb$tables$summary[metric == "pairs_gained" & source_group == "total",
+                        .(pair_id, resolution, key_space, gained = value)]
+pt <- mech[source_group == "total", .(periods = sum(n_pairs)), by = .(pair_id, resolution, key_space)]
+chk <- merge(gn, pt, by = c("pair_id", "resolution", "key_space"), all.x = TRUE)
+ok(isTRUE(all.equal(chk$periods, chk$gained)), "the periods of the total add up to the pairs gained")
+
+cli_h2("per class x order (the tab's taxonomic filter)")
+cg <- cb$tables$cells_group; mg <- cb$tables$mechanism_group
+if (is.null(cg) || is.null(mg)) {
+  cli_alert_warning(
+    "No per-group tables - these tables predate them. Re-run \\
+     {.code Rscript -e 'source(\"scripts/14_gap_closure.R\")'}.")
+} else {
+  sm <- data.table::dcast(
+    cb$tables$summary[key_space == "dyntaxa" & source_group == "total" &
+                        metric %in% c("pairs_from", "pairs_to", "pairs_gained", "pairs_lost")],
+    pair_id + resolution ~ metric, value.var = "value")
+  cs <- cg[, .(pairs_from = sum(n_species_from), pairs_to = sum(n_species_to),
+               pairs_gained = sum(pairs_gained), pairs_lost = sum(pairs_lost)),
+           by = .(pair_id, resolution)]
+  both <- merge(sm, cs, by = c("pair_id", "resolution"), suffixes = c("", "_cells"))
+  eq(nrow(both), nrow(sm), "every pair x resolution has its cells per class x order")
+  ok(all(both$pairs_from == both$pairs_from_cells & both$pairs_to == both$pairs_to_cells &
+         both$pairs_gained == both$pairs_gained_cells & both$pairs_lost == both$pairs_lost_cells),
+     "the cells per class x order add up to the pair totals")
+  ok(all(cg$n_species_to - cg$n_species_from == cg$pairs_gained - cg$pairs_lost),
+     "in every cell x group row the change equals gains minus losses")
+  mt <- mg[source_group == "total", .(grouped = sum(n_pairs)), by = .(pair_id, resolution)]
+  m2 <- merge(sm[, .(pair_id, resolution, gained = pairs_gained)], mt, by = c("pair_id", "resolution"))
+  ok(nrow(m2) == nrow(sm) && all(m2$grouped == m2$gained),
+     "the periods per class x order add up to the pairs gained")
+}
+
 cli_h2("THE INVARIANT: totals are computed before the rows are thinned")
 sp_files <- list.files(CLOSURE_DIR, "^closure_species_(\\d+)km_([a-z]+)_(.*)\\.csv$")
 checked <- 0L
@@ -184,7 +222,7 @@ f <- tempfile(fileext = ".rds")
 saveRDS(cb$tables, f, compress = "xz")
 mb <- file.size(f) / 1024^2
 cli_alert_info("Closure payload, xz-compressed: {round(mb, 2)} MB")
-ok(mb < 6, "payload stays well under the bundle's 78-80 MB working size")
+ok(mb < 6, "payload stays well under the bundle's 80-85 MB working size")
 
 cli_h2("Result")
 if (fail == 0L) { cli_alert_success("All closure-bundle checks passed"); quit(status = 0L) }

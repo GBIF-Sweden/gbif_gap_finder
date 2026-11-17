@@ -32,7 +32,7 @@ eq <- function(got, want, msg) ok(isTRUE(all.equal(got, want)),
                                          paste(want, collapse = ",")))
 
 ALL_CELLS <- c("C1", "C2", "C3", "C4", "C5")
-PLATFORMS <- "D1"          # D2, D3 are collections
+TYPES <- c(D1 = "platform", D2 = "collection", D3 = "collection")
 BASELINE_YEAR <- 2021L
 
 # NOTE: `key` is a reserved ARGUMENT of data.table(), so data.table(key = "A")
@@ -44,7 +44,7 @@ grain <- function(rows) {
   g <- data.table::rbindlist(lapply(rows, function(r) data.table::as.data.table(list(
     key = r[[1]], eeacellcode = r[[2]], datasetkey = r[[3]],
     min_year = r[[4]], occ = r[[5]], n_rec = r[[6]]))))
-  g[, source_group := closure_source_group(datasetkey, PLATFORMS)]
+  g[, source_group := closure_source_group(datasetkey, TYPES)]
   g[]
 }
 
@@ -79,6 +79,35 @@ pf <- closure_pairs(gf); pt <- closure_pairs(gt)
 gained <- data.table::fsetdiff(pt, pf)
 lost   <- data.table::fsetdiff(pf, pt)
 
+cli_h2("source types")
+tf <- tempfile(fileext = ".csv")
+writeLines(c("datasetkey,type,title", "D1,platform,A platform", "D2,collection,A herbarium",
+             "D3,monitoring,A survey"), tf)
+ty <- closure_read_types(tf)
+eq(unname(ty[c("D1", "D3")]), c("platform", "monitoring"), "the list is read by dataset key")
+eq(closure_source_group(c("D1", "D2", "D9"), ty), c("platform", "collection", "other"),
+   "a dataset not on the list counts as other")
+writeLines(c("datasetkey,type", "D1,platform", "D1,collection"), tf)
+ok(inherits(try(closure_read_types(tf), silent = TRUE), "try-error"),
+   "a dataset listed twice is refused")
+writeLines(c("datasetkey,type", "D1,citizen science"), tf)
+ok(inherits(try(closure_read_types(tf), silent = TRUE), "try-error"),
+   "an unknown type is refused")
+writeLines(c("datasetkey,kind", "D1,platform"), tf)
+ok(inherits(try(closure_read_types(tf), silent = TRUE), "try-error"),
+   "a list without a type column is refused")
+ok(inherits(try(closure_read_types(file.path(tempdir(), "nope.csv")), silent = TRUE), "try-error"),
+   "a missing list is refused, not read as empty")
+
+cli_h2("periods")
+eq(closure_period(c(NA, 2021, 2020, 2011, 2010, 1950, 1949), 2021L),
+   c("no_year", "baseline_on", "decade_before", "decade_before", "1950_on", "1950_on", "pre_1950"),
+   "period boundaries: the baseline year, ten years before, 1950")
+pb <- closure_period_bounds(2021L)
+eq(pb[period == "decade_before", c(year_from, year_to)], c(2011, 2020), "decade before: 2011-2020")
+eq(pb[period == "1950_on", c(year_from, year_to)], c(1950, 2010), "from 1950: 1950-2010")
+eq(pb$period, CLOSURE_PERIODS, "bounds come in period order")
+
 cli_h2("grain construction (the integer/Inf trap)")
 # The case that would otherwise stop script 14: a (species, cell, dataset)
 # group where EVERY record lacks a year. min() returns
@@ -92,7 +121,7 @@ cube <- data.table::as.data.table(list(
   year        = c(2010L, 2014L, NA_integer_, NA_integer_, 2019L),   # integer!
   occurrences = c(1L, 2L, 3L, 4L, 5L)
 ))
-bg <- try(closure_build_grain(cube, PLATFORMS), silent = TRUE)
+bg <- try(closure_build_grain(cube, TYPES), silent = TRUE)
 ok(!inherits(bg, "try-error"),
    "a group whose records ALL lack a year does not blow up the aggregation")
 if (!inherits(bg, "try-error")) {
@@ -102,11 +131,11 @@ if (!inherits(bg, "try-error")) {
   eq(bg[key == "A", min_year], 2010, "the earliest year wins where there is one")
   eq(bg[key == "A", occ], 3, "occurrences are summed within the group")
   eq(bg[key == "A", n_rec], 2L, "records are counted")
-  eq(bg[key == "A", source_group], "observation_platforms", "D1 is a platform")
-  eq(bg[key == "B", source_group], "collections", "D2 is not")
+  eq(bg[key == "A", source_group], "platform", "D1 is a platform")
+  eq(bg[key == "B", source_group], "collection", "D2 is a collection")
   ok(!any(is.infinite(bg$min_year)), "no Inf survives into the grain")
 }
-ok(inherits(try(closure_build_grain(cube[, .(specieskey)], PLATFORMS), silent = TRUE),
+ok(inherits(try(closure_build_grain(cube[, .(specieskey)], TYPES), silent = TRUE),
             "try-error"),
    "a cube missing columns is refused by name, not by a downstream crash")
 
@@ -134,8 +163,8 @@ lookup <- data.table::as.data.table(list(
   specieskey       = c("S1", "S2", "S3"),
   backbone_taxonID = c("T1", "T1", "T2")))
 
-gf2 <- closure_build_grain(cube_from, "D1")
-gt2 <- closure_build_grain(cube_to,   "D1")
+gf2 <- closure_build_grain(cube_from, TYPES)
+gt2 <- closure_build_grain(cube_to,   TYPES)
 
 rk_g_from <- closure_rekey(gf2, lookup, "gbif")
 eq(rk_g_from$n_dropped, 0L, "gbif space drops nothing")
@@ -222,23 +251,57 @@ sp_shift <- closure_species(
   data.table::as.data.table(list(key = "Z", eeacellcode = "C2")))
 eq(sp_shift[key == "Z", status], "shifted", "a cell-for-cell swap reads as shifted, not unchanged")
 
-cli_h2("mechanism")
+cli_h2("periods of the gained pairs")
+# Baseline 2021: the ten years before are 2011-2020, from 1950 is 1950-2010.
 mech <- closure_mechanism(gained, gt, BASELINE_YEAR)
 tot <- mech[source_group == "total"]
-eq(tot[mechanism == "fieldwork", n_pairs], 1L, "total: 1 fieldwork pair (A-C4)")
-eq(tot[mechanism == "digitisation", n_pairs], 2L, "total: 2 digitisation pairs (D-C2, F-C4)")
-eq(tot[mechanism == "unattributable", n_pairs], 1L, "total: 1 unattributable pair (E-C5)")
-eq(sum(tot$n_pairs), 4L, "total mechanism counts sum to the gained pairs")
+eq(tot[period == "baseline_on", n_pairs], 1L, "total: A-C4 (2022) is from the baseline year on")
+eq(tot[period == "1950_on", n_pairs], 2L, "total: D-C2 (1995) and F-C4 (earliest 2005) are 1950-2010")
+eq(tot[period == "no_year", n_pairs], 1L, "total: E-C5 has no dated record")
+eq(sum(tot$n_pairs), 4L, "total period counts sum to the gained pairs")
+eq(tot$period, c("baseline_on", "1950_on", "no_year"), "periods come in their natural order")
+eq(tot[period == "1950_on", c(year_from, year_to)], c(1950, 2010), "each row carries its years")
 
-plat <- mech[source_group == "observation_platforms"]
-coll <- mech[source_group == "collections"]
-eq(plat[mechanism == "fieldwork", n_pairs], 2L,
-   "platforms: 2 fieldwork - F-C4 counts here at ITS OWN min year, not the pair's")
-eq(nrow(plat[mechanism == "digitisation"]), 0L, "platforms contributed no digitisation")
-eq(coll[mechanism == "digitisation", n_pairs], 2L, "collections: 2 digitisation")
-eq(coll[mechanism == "unattributable", n_pairs], 1L, "collections: 1 unattributable")
+plat <- mech[source_group == "platform"]
+coll <- mech[source_group == "collection"]
+eq(plat[period == "baseline_on", n_pairs], 2L,
+   "platforms: F-C4 counts at the platform's OWN earliest record (2022), not the pair's")
+eq(nrow(plat[period != "baseline_on"]), 0L, "platforms brought no older records")
+eq(coll[period == "1950_on", n_pairs], 2L, "collections: D-C2 and F-C4 (2005)")
+eq(coll[period == "no_year", n_pairs], 1L, "collections: E-C5 without a year")
 ok(sum(plat$n_pairs) + sum(coll$n_pairs) > sum(tot$n_pairs),
-   "per-group counts exceed the total, because F-C4 spans both groups")
+   "per-type counts exceed the total, because F-C4 spans two types")
+
+cli_h2("per class x order: periods and cells")
+# E stands for a taxon whose order Dyntaxa places under no class.
+taxa <- data.table::as.data.table(list(
+  key   = c("A", "B", "C", "D", "E", "F"),
+  class = c("X", "X", "Y", "Y", NA, "X"),
+  order = c("x1", "x2", "y1", "y1", "e1", "x1")))
+mg <- closure_mechanism(gained, gt, BASELINE_YEAR, taxa = taxa)
+eq(names(mg)[1:4], c("source_group", "class", "order", "period"), "grouped periods: column order")
+eq(mg[source_group == "total" & class == "X" & order == "x1" & period == "baseline_on", n_pairs], 1L,
+   "X/x1: A-C4 from the baseline year on")
+eq(mg[source_group == "total" & class == "X" & order == "x1" & period == "1950_on", n_pairs], 1L,
+   "X/x1: F-C4 from 1950")
+eq(mg[source_group == "platform" & class == "X" & order == "x1", sum(n_pairs)], 2L,
+   "X/x1 platforms: A-C4 and F-C4")
+eq(mg[source_group == "total" & is.na(class) & order == "e1", period], "no_year",
+   "an order without a class keeps its own rows")
+eq(mg[source_group == "total", sum(n_pairs)], sum(tot$n_pairs),
+   "grouped totals add up to the national total")
+
+cg <- closure_cells_by_group(pf, pt, gained, lost, taxa)
+eq(nrow(cg), 7L, "one row per cell x class x order with a pair at either end")
+eq(cg[eeacellcode == "C4" & class == "X" & order == "x1", c(n_species_to, pairs_gained)], c(2L, 2L),
+   "C4, X/x1: A and F arrived")
+eq(cg[eeacellcode == "C3" & class == "Y" & order == "y1", c(n_species_from, n_species_to, pairs_lost)],
+   c(1L, 0L, 1L), "C3, Y/y1: C left")
+eq(cg[eeacellcode == "C5" & is.na(class), pairs_gained], 1L, "C5: E counted under no class")
+eq(c(sum(cg$n_species_from), sum(cg$n_species_to), sum(cg$pairs_gained), sum(cg$pairs_lost)),
+   c(nrow(pf), nrow(pt), nrow(gained), nrow(lost)), "the rows add up to the pair totals")
+ok(all(cg$n_species_to - cg$n_species_from == cg$pairs_gained - cg$pairs_lost),
+   "in every row the change equals gains minus losses")
 
 cli_h2("dataset concentration (no tie-break)")
 dsc <- closure_dataset_concentration(gained, gt)
@@ -304,12 +367,16 @@ eq(val("cells_empty_now"), 1, "summary: one cell is empty now - C3, which regres
 eq(val("species_newly_recorded"), 3, "summary: species newly recorded")
 eq(val("species_no_longer_recorded"), 1, "summary: species no longer recorded")
 eq(val("mechanism_boundary_year"), 2021, "summary: the boundary year is recorded, not implied")
+eq(val("pairs_period_1950_on"), 2, "summary: the period counts are tile metrics")
 ok(all(sm$key_space == "gbif"), "every summary row is tagged with its key space")
 
 cli_h2("empty-input guards")
 empty_pairs <- data.table::as.data.table(list(key = character(), eeacellcode = character()))
 ok(nrow(closure_mechanism(empty_pairs, gt, BASELINE_YEAR)) == 0L,
-   "no gained pairs -> an empty mechanism table, not an error")
+   "no gained pairs -> an empty period table, not an error")
+eq(names(closure_mechanism(empty_pairs, gt, BASELINE_YEAR, taxa = taxa))[1:4],
+   c("source_group", "class", "order", "period"),
+   "no gained pairs -> an empty grouped table with the same columns")
 ok(nrow(closure_dataset_concentration(empty_pairs, gt)) == 0L,
    "no gained pairs -> an empty concentration table, not an error")
 ok(inherits(try(closure_cells(closure_cell_view(gf), closure_cell_view(gt),

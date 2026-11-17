@@ -47,7 +47,9 @@
 #   - closure_summary_{from}_{to}.csv
 #   - closure_cells_{res}_{from}_{to}.csv
 #   - closure_species_{res}_{from}_{to}.csv
-#   - closure_mechanism_{res}_{from}_{to}.csv
+#   - closure_mechanism_{res}_{from}_{to}.csv        (periods per source type)
+#   - closure_mechanism_group_{res}_{from}_{to}.csv  (the same per class x order)
+#   - closure_cells_group_{res}_{from}_{to}.csv      (pairs per cell x class x order)
 #   - closure_group_{res}_{from}_{to}.csv
 #   - closure_datasets_{res}_{from}_{to}.csv
 #   - closure_datasets_lost_{res}_{from}_{to}.csv
@@ -94,13 +96,12 @@ tp_root     <- here(p_data_proc, "timepoints")
 closure_dir <- here(p_data_proc, "closure")
 if (!dir.exists(closure_dir)) dir.create(closure_dir, recursive = TRUE, showWarnings = FALSE)
 
-PLATFORMS <- as.character(cfg_get(
-  "parameters.closure.source_groups.observation_platforms", character()))
+# The source type of every dataset (platform / monitoring / collection /
+# other). A dataset missing from the list counts as "other" and is named when
+# its time point is read.
+SOURCE_TYPES <- closure_read_types(here(cfg_get(
+  "parameters.closure.source_types_file", glue("configs/dataset_types_{COUNTRY_CODE}.csv"))))
 FROZEN_Q  <- as.numeric(cfg_get("parameters.closure.frozen_quantile", 0.10))
-# Groups losing at least this share of their baseline pairs are flagged as
-# taxonomically volatile. 1% sits an order of magnitude above the stable clades
-# (insects and birds run 0.15-0.2%) and well below the fungal orders (1.8-12%).
-CHURN_WARN_PCT <- as.numeric(cfg_get("parameters.closure.churn_warn_pct", 1.0))
 RESOLUTIONS <- c(10L, 50L)
 KEY_SPACES  <- c("dyntaxa", "gbif")
 
@@ -119,13 +120,9 @@ CLOSURE_EXPECTED <- list(
 
 cli_h1("Gap closure - {COUNTRY_CODE}")
 
-if (!length(PLATFORMS)) {
-  cli_alert_warning(
-    "No {.field parameters.closure.source_groups.observation_platforms} in the \\
-     config - every dataset will fall into {.val collections} and the source \\
-     split will be meaningless."
-  )
-}
+n_types <- table(factor(SOURCE_TYPES, levels = CLOSURE_SOURCE_TYPES))
+cli_alert_info(
+  "Source types: {paste(sprintf('%s %s', names(n_types), scales::comma(as.integer(n_types))), collapse = ', ')} datasets")
 
 # ============================================================================
 # Which time points, and are they comparable?
@@ -290,6 +287,12 @@ for (pr in pairs_to_do) {
       tag <- sprintf("%dkm_%s", res_km, ks)
       rf <- closure_rekey(raw_from, mt_from, ks)
       rt <- closure_rekey(raw_to,   mt_to,   ks)
+      # The GBIF-key grains are read again only by a later key space; freeing
+      # them here keeps the peak memory of a Dyntaxa-only pair down.
+      if (identical(ks, utils::tail(ks_for_pair, 1L))) {
+        rm(raw_from, raw_to)
+        invisible(gc())
+      }
       gf <- rf$grain; gt <- rt$grain
       if (ks == "dyntaxa") {
         cli_alert_info(
@@ -357,14 +360,19 @@ for (pr in pairs_to_do) {
         by = .(class, order)]
       grp[, fill_rate := round(
         data.table::fifelse(pairs_from > 0, 100 * pairs_gained / pairs_from, NA_real_), 3)]
-      # Loss rate is the taxonomic-churn indicator, and it belongs beside fill
-      # rate rather than in a caveat. Backbone reassignment inside a clade shows
-      # up as pairs vanishing from the baseline. A reader ranking groups by
-      # fill rate alone cannot tell a volatile clade from a stable one.
+      # Loss rate belongs beside fill rate rather than in a caveat: records
+      # re-identified between species, and names that moved, show up as pairs
+      # vanishing from a group's baseline.
       grp[, loss_rate := round(
         data.table::fifelse(pairs_from > 0, 100 * pairs_lost / pairs_from, NA_real_), 3)]
-      grp[, churn_flag := !is.na(loss_rate) & loss_rate >= CHURN_WARN_PCT]
       data.table::setorder(grp, -pairs_gained)
+
+      # The tab's taxonomic filter reads these: periods and cells per
+      # class x order. Dyntaxa key space only, the tab's.
+      if (ks == "dyntaxa") {
+        mech_grp  <- closure_mechanism(gained, gt, baseline_year, taxa = lk)
+        cells_grp <- closure_cells_by_group(pairs_from, pairs_to, gained, lost, lk)
+      }
 
       summ <- closure_summary(pairs_from, pairs_to, cells, species, mech,
                               key_space = ks, baseline_year = baseline_year,
@@ -373,7 +381,7 @@ for (pr in pairs_to_do) {
       # that VANISHES because a name moved is visible, but a pair that APPEARS
       # for the same reason looks exactly like new data.
       summ <- rbind(summ, data.table::data.table(
-        metric = c("taxonomic_churn_floor_pct", "groups_flagged_volatile",
+        metric = c("taxonomic_churn_floor_pct",
                    # 1 when this resolution's cells are not comparable across the
                    # pair: 2 dp snapshot coordinates against full-precision cube
                    # coordinates move ~4% of records one cell at 10 km.
@@ -397,7 +405,6 @@ for (pr in pairs_to_do) {
                    "cells_off_grid_from", "cells_off_grid_to"),
         source_group = "total", key_space = ks,
         value = c(round(100 * nrow(lost) / max(nrow(pairs_from), 1), 3),
-                  sum(grp$churn_flag, na.rm = TRUE),
                   as.integer(regime_boundary && res_km == 10L),
                   as.integer(regime_boundary),
                   as.integer(kind$key_backbone_differs),
@@ -413,6 +420,12 @@ for (pr in pairs_to_do) {
       data.table::fwrite(grp,    file.path(closure_dir, paste0("closure_group",     stem)))
       data.table::fwrite(dsconc, file.path(closure_dir, paste0("closure_datasets",  stem)))
       data.table::fwrite(dsloss, file.path(closure_dir, paste0("closure_datasets_lost", stem)))
+      if (ks == "dyntaxa") {
+        data.table::fwrite(mech_grp,  file.path(closure_dir, paste0("closure_mechanism_group", stem)))
+        data.table::fwrite(cells_grp, file.path(closure_dir, paste0("closure_cells_group", stem)))
+        rm(mech_grp, cells_grp)
+        invisible(gc())
+      }
 
       cli_alert_success(
         "{tag}: {scales::comma(nrow(gained))} pairs gained, \\
@@ -447,7 +460,7 @@ for (pr in pairs_to_do) {
         )
       }
     }
-    rm(raw_from, raw_to); invisible(gc())
+    invisible(gc())
   }
 
   all_summ <- data.table::rbindlist(summaries, fill = TRUE)
