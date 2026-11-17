@@ -48,27 +48,35 @@
 #   parquet schema matches the live cube instead of becoming logical.
 #
 # COMPARABILITY WARNING:
-#   Do NOT compare these cubes against the full-filtered live cube. The live
-#   cube applies hasgeospatialissues = FALSE and the occurrencestatus filter,
-#   which cannot be replicated here, and it is COL-interpreted while these are
-#   legacy-Backbone. Within the snapshot regime differencing is clean; across
-#   the regime boundary, compare in the Dyntaxa key space only (R/closure.R).
+#   Do NOT compare these cubes against the full-filtered live cube as if they
+#   were the same measurement. The live cube applies hasgeospatialissues = FALSE
+#   and the occurrencestatus filter, which cannot be replicated here. Within
+#   the snapshot regime the SQL is identical; across the regime boundary,
+#   compare in the Dyntaxa key space only (R/closure.R), and read the size of
+#   the method gap from script 15 (the bridge).
+#
+# KEY VOCABULARY:
+#   GBIF's snapshot table stores each record's species key under the backbone
+#   in use on the snapshot date: the legacy nub key up to 2024-01-01, the COL
+#   taxonID from 2026-10-01. historic_key_backbone() detects which, and the
+#   manifest records it as `key_backbone`. Keys of different vocabularies
+#   never match, so GBIF-space closure is only valid between time points with
+#   the same `key_backbone`; Dyntaxa space works across both.
 #
 # PRECISION CAVEAT (permanent — 3 dp would make the export too large):
 #   Delivered coordinates are 2 dp. At 57 deg N that is 1.11 km N-S / 0.61 km
 #   E-W, so roughly 4% of records land in a neighbouring 10 km cell (about 0.9%
 #   at 50 km). Carry this on every 10 km temporal figure.
 #
-# ABSENCE RECORDS — dormant, not unnecessary:
-#   GBIF's export SQL carries no `occurrence_status` filter, while the live cube
-#   filters on `occurrencestatus` (presence only). The two SLU National Forest
-#   Inventory presence-absence datasets are excluded by the delivery query and
-#   contribute ZERO rows to both current snapshots anyway (both were registered
-#   2024-10-25, after both cut dates). They hold ~14.1 M absence records today
-#   and WILL land in any snapshot dated after that, spread over a systematic
-#   national forest grid, i.e. over exactly the remote cells this analysis is
-#   about. Any later snapshot must keep the same exclusion, and must only be
-#   compared against snapshots filtered the same way.
+# ABSENCE RECORDS:
+#   GBIF's export SQL carries no `occurrence_status` filter and no status
+#   column, while the live cube filters on `occurrencestatus` (presence only).
+#   The two SLU National Forest Inventory presence-absence datasets (~14 M
+#   absence records, registered 2024-10-25) are excluded by the delivery query,
+#   so they contribute zero rows to every snapshot and the series stays
+#   comparable. Absences from other datasets (e.g. the EBCC bird atlas) are in
+#   every snapshot; they are consistent within the snapshot regime and are part
+#   of the method gap to the cube.
 #
 # Inputs:
 #   - data/{CC}/raw/historic/*_occurrences_aggregated_YYYYMMDD.tsv.gz
@@ -82,6 +90,10 @@
 # Config (all optional, defaults shown):
 #   parameters.historic.coord_decimals      6   integer lattice precision
 #   parameters.historic.min_occ_retained    99  abort below this % retained
+#
+# Environment (optional):
+#   GAP_FINDER_SNAPSHOTS  comma-separated snapshot dates to build, e.g.
+#                         "2026-10-01"; unset builds every delivered snapshot.
 #
 # Dependencies: scripts/00_setup.R, data.table, arrow, sf,
 #               R/eea_grid.R, R/historic_io.R
@@ -136,7 +148,9 @@ HISTORIC_EXPECTED <- list(
   `2021-01-01` = list(rows_in = 51065888, occ_in = 94768320,
                       n_species = 53141L, n_cells10 = 5518L, n_cells50 = 287L),
   `2024-01-01` = list(rows_in = 65665237, occ_in = 121941413,
-                      n_species = 62497L, n_cells10 = 5838L, n_cells50 = 292L)
+                      n_species = 62497L, n_cells10 = 5838L, n_cells50 = 292L),
+  `2026-10-01` = list(rows_in = 79312480, occ_in = 146454829,
+                      n_species = 76883L, n_cells10 = 6143L, n_cells50 = 295L)
 )
 
 cli_h1("Historical snapshot cubes — {COUNTRY_CODE}")
@@ -170,7 +184,23 @@ codes10 <- grid_cellcodes(10L)
 cli_alert_info("SE 10 km grid: {scales::comma(length(codes10))} cells")
 
 snaps <- historic_snapshot_files()
-if (nrow(snaps) < 2L) {
+
+only <- trimws(strsplit(Sys.getenv("GAP_FINDER_SNAPSHOTS", ""), ",", fixed = TRUE)[[1]])
+only <- only[nzchar(only)]
+if (length(only)) {
+  unknown <- setdiff(only, snaps$snapshot)
+  if (length(unknown)) {
+    cli_abort(c(
+      "GAP_FINDER_SNAPSHOTS names snapshot{?s} with no delivery: \\
+       {paste(unknown, collapse = ', ')}",
+      "i" = "Delivered: {paste(snaps$snapshot, collapse = ', ')}"
+    ))
+  }
+  snaps <- snaps[snapshot %chin% only]
+  cli_alert_info("Building only: {paste(snaps$snapshot, collapse = ', ')}")
+}
+
+if (nrow(snaps) < 2L && !length(only)) {
   cli_alert_warning(
     "Only {nrow(snaps)} snapshot available. The cubes will build, but gap \\
      CLOSURE needs at least two time points."
@@ -289,6 +319,8 @@ for (i in seq_len(nrow(snaps))) {
   # --- 4. taxonomy lookup (read now, joined after the aggregate) ----------
   tax <- read_historic_taxonomy(tax_path, expect = snap)
   n_species_occ <- data.table::uniqueN(dt$species_id)
+  key_backbone  <- historic_key_backbone(dt$species_id)
+  cli_alert_info("Species keys: {key_backbone} vocabulary")
   orphans <- setdiff(unique(dt$species_id), tax$species_id)
   if (length(orphans)) {
     cli_abort(c(
@@ -338,9 +370,8 @@ for (i in seq_len(nrow(snaps))) {
       )
     }
 
-    # specieskey is a character key on the live cube (COL ids are alphanumeric),
-    # so the historical integer key is cast rather than left numeric — otherwise
-    # every cross-table join downstream silently fails to match.
+    # specieskey is a character key on the live cube (COL ids are alphanumeric);
+    # species_id is already read as character, so this is a rename.
     cube[, specieskey := as.character(species_id)]
     cube[, species_id := NULL]
 
@@ -377,6 +408,7 @@ for (i in seq_len(nrow(snaps))) {
       snapshot     = snap,
       timepoint    = snap,
       grid         = grid_name,
+      key_backbone = key_backbone,
       rows         = nrow(cube),
       n_species    = n_species,
       n_cells      = n_cells,
@@ -448,6 +480,18 @@ manifest_df  <- data.table::rbindlist(manifest, fill = TRUE)
 tp_root      <- here(p_data_proc, "timepoints")
 if (!dir.exists(tp_root)) dir.create(tp_root, recursive = TRUE, showWarnings = FALSE)
 manifest_path <- file.path(tp_root, "historic_cube_manifest.csv")
+# A partial build (GAP_FINDER_SNAPSHOTS) replaces only its own rows, so the
+# manifest keeps describing every time point on disk.
+if (length(only) && file.exists(manifest_path)) {
+  # Both date columns are read as text: typed as dates, they would turn the
+  # text dates of the rows bound below into NA.
+  date_cols <- intersect(c("snapshot", "timepoint"),
+                         names(data.table::fread(manifest_path, nrows = 0L)))
+  prev <- data.table::fread(manifest_path, colClasses = list(character = date_cols))
+  manifest_df <- data.table::rbindlist(
+    list(prev[!snapshot %chin% manifest_df$snapshot], manifest_df), fill = TRUE)
+  data.table::setorder(manifest_df, snapshot, grid)
+}
 data.table::fwrite(manifest_df, manifest_path)
 print(manifest_df[, .(snapshot, grid, rows, n_species, n_cells, total_occ, pct_occ_kept)])
 cli_alert_success("{.path {manifest_path}}")

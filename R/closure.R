@@ -25,8 +25,9 @@
 #             not move when GBIF changes its own backbone, so this is the only
 #             space in which a snapshot and a COL-interpreted cube can be
 #             differenced at all.
-#   gbif    - key = specieskey. Not comparable across the snapshot -> cube
-#             boundary, but script 14's regression fixtures use it, so it is the
+#   gbif    - key = specieskey. Only comparable between time points whose keys
+#             share a vocabulary (closure_pair_kind()), but script 14's
+#             regression fixtures use it, so it is the
 #             reconciliation that proves this code correct. It is also the
 #             honest "all of GBIF" figure, since ~18% of species carry no
 #             Dyntaxa taxonID.
@@ -431,6 +432,75 @@ closure_summary <- function(pairs_from, pairs_to, cells, species, mechanism,
   out[, key_space := key_space]
   data.table::setcolorder(out, c("metric", "source_group", "key_space", "value"))
   out[]
+}
+
+# ============================================================================
+# Time-point metadata and pair selection
+# ============================================================================
+# A time point carries two facts that decide what can be differenced against it:
+#   regime        "snapshot" (GBIF Sweden's analytics.snapshots export, 2 dp,
+#                 no status/geospatial filters) or "cube" (GBIF SQL cube, full
+#                 precision, presence only + no geospatial issues).
+#   key_backbone  "legacy" (GBIF nub integer keys) or "col" (COL taxonIDs).
+# They are independent: the 2026-10-01 snapshot is regime "snapshot" with
+# key_backbone "col". Regime decides the method gap; key_backbone decides
+# whether GBIF key space can be compared at all.
+
+CLOSURE_REGIMES       <- c("snapshot", "cube")
+CLOSURE_KEY_BACKBONES <- c("legacy", "col")
+
+#' Classify a pair of time points
+#'
+#' A pair across regimes whose dates are closer than `bridge_days` is the same
+#' moment measured two ways. Its difference is method, not change, so it is the
+#' bridge (script 15) and never a closure pair.
+#'
+#' @param meta_from,meta_to list(tp, regime, key_backbone).
+#' @param bridge_days Cross-regime pairs closer than this are the bridge.
+#' @return list(regime_boundary, key_backbone_differs, is_bridge, key_spaces)
+closure_pair_kind <- function(meta_from, meta_to, bridge_days = 31L) {
+  for (m in list(meta_from, meta_to)) {
+    if (!isTRUE(m$regime %in% CLOSURE_REGIMES)) {
+      cli_abort("closure_pair_kind(): regime of {m$tp} must be one of \\
+                 {paste(CLOSURE_REGIMES, collapse = ', ')} (got {.val {m$regime}})")
+    }
+    if (!isTRUE(m$key_backbone %in% CLOSURE_KEY_BACKBONES)) {
+      cli_abort("closure_pair_kind(): key_backbone of {m$tp} must be one of \\
+                 {paste(CLOSURE_KEY_BACKBONES, collapse = ', ')} (got {.val {m$key_backbone}})")
+    }
+  }
+  regime_boundary <- !identical(meta_from$regime, meta_to$regime)
+  kb_differs      <- !identical(meta_from$key_backbone, meta_to$key_backbone)
+  days <- abs(as.numeric(as.Date(meta_to$tp) - as.Date(meta_from$tp)))
+  list(
+    regime_boundary      = regime_boundary,
+    key_backbone_differs = kb_differs,
+    is_bridge            = regime_boundary && days < bridge_days,
+    # Keys of different vocabularies share nothing: a set difference would
+    # report every pair as lost and every pair as gained, without erroring.
+    key_spaces           = if (kb_differs) "dyntaxa" else c("dyntaxa", "gbif")
+  )
+}
+
+#' The default set of closure pairs
+#'
+#' Within each regime: every consecutive pair, plus first -> last when the
+#' regime has more than two points. Cross-regime pairs are left out of the
+#' default because their loss side is mostly method (see script 15); they can
+#' still be run one at a time with GAP_CLOSURE_PAIR.
+#'
+#' @param meta data.table(tp, regime), one row per time point.
+#' @return list of character(2) pairs, ordered by regime then date.
+closure_default_pairs <- function(meta) {
+  meta <- data.table::as.data.table(meta)
+  out <- list()
+  for (rg in intersect(CLOSURE_REGIMES, unique(meta$regime))) {
+    tps <- sort(meta[regime == rg, tp])
+    if (length(tps) < 2L) next
+    for (i in seq_len(length(tps) - 1L)) out[[length(out) + 1L]] <- tps[c(i, i + 1L)]
+    if (length(tps) > 2L) out[[length(out) + 1L]] <- tps[c(1L, length(tps))]
+  }
+  out
 }
 
 # ============================================================================

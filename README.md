@@ -42,7 +42,9 @@ gbif_gap_finder/
 │   ├── report_helpers.R        # Bundle path + header stamp for the summary report
 │   ├── eea_grid.R              # EEA grid cell codes from coordinates (time points)
 │   ├── historic_io.R           # Reading historical snapshot deliveries (time points)
-│   └── closure.R               # Gap-closure arithmetic (Gaps filled tab)
+│   ├── closure.R               # Gap-closure arithmetic (Gaps filled tab)
+│   ├── timepoint_io.R          # Locating and reading time points (scripts 14 and 15)
+│   └── bridge.R                # Snapshot-against-cube comparison (script 15)
 ├── scripts/
 │   ├── 00_preflight.R                     # Check every external dependency (gates tar_make)
 │   ├── 00_setup.R                         # Environment setup
@@ -65,7 +67,8 @@ gbif_gap_finder/
 │   ├── 11_prepare_gap_finder_data.R       # Bundle data for the Gap Finder app
 │   ├── 12_reconcile.R                     # Cross-layer reconciliation guardrail
 │   ├── 13_metrics_snapshot.R              # Refresh the figures in docs/metrics.md
-│   └── 14_gap_closure.R                   # Gap closure between time points
+│   ├── 14_gap_closure.R                   # Gap closure between time points
+│   └── 15_bridge.R                        # Method gap between a snapshot and a cube of one date
 ├── analysis/
 │   └── gap_finder_report.Rmd              # Summary report, one section per app tab
 ├── data/

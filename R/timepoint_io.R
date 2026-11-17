@@ -1,0 +1,150 @@
+# R/timepoint_io.R
+# ============================================================================
+# Reading time points: where they live, what they are, and their data
+# ============================================================================
+# Purpose:
+#   The file side of scripts 14 (closure) and 15 (bridge). R/closure.R holds the
+#   arithmetic and touches no files; this holds the readers both scripts share,
+#   so a time point is located, described and read the same way in both.
+#
+# Globals these functions read at call time (set by the calling script after
+# scripts/00_setup.R): tp_root, LIVE_TP, live_ok, PLATFORMS, plus p_cubes,
+# p_gaps, p_data_proc and COUNTRY_CODE from R/globals.R.
+#
+# THE LIVE CUBE IS A TIME POINT ALREADY. With GAP_FINDER_TIMEPOINT unset,
+#   p_timepoint == p_data_proc, so the live pipeline's own outputs -
+#   proc/cubes/ and proc/gaps/taxonomic_match_table.csv - ARE that time point's
+#   cube and match table. They sit at the root rather than under timepoints/,
+#   and are labelled with the cube's download date.
+#
+# Dependencies: data.table, arrow, yaml, cli, glue, here, R/closure.R
+# ============================================================================
+
+#' The live cube's download date, or NA - never today's date
+#'
+#' get_snapshot_date() falls back to Sys.Date() when the metadata carries no
+#' cube date. That is right for staleness scoring and wrong here: it would
+#' label the live time point with whatever day the script happened to run, and
+#' the label is the time point's identity. This reads the same metadata and
+#' returns NA rather than guessing.
+live_timepoint_date <- function() {
+  meta_path <- here(p_data_proc, "data_sources_meta.rds")
+  if (!file.exists(meta_path)) return(NA_character_)
+  meta  <- tryCatch(readRDS(meta_path), error = function(e) NULL)
+  cubes <- meta$cubes
+  if (is.null(cubes) || !length(cubes)) return(NA_character_)
+  d <- tryCatch(
+    do.call(c, lapply(cubes, function(x) {
+      v <- x$created
+      if (is.null(v) || all(is.na(v))) as.Date(NA) else as.Date(v)
+    })),
+    error = function(e) as.Date(NA))
+  d <- d[!is.na(d)]
+  if (!length(d)) NA_character_ else as.character(max(d))
+}
+
+#' Where does this time point's data live: under timepoints/, or at the root?
+tp_is_live <- function(tp) live_ok && identical(tp, LIVE_TP)
+tp_cubes_dir <- function(tp) if (tp_is_live(tp)) here(p_cubes) else file.path(tp_root, tp, "cubes")
+tp_gaps_dir  <- function(tp) if (tp_is_live(tp)) here(p_gaps)  else file.path(tp_root, tp, "gaps")
+
+#' Regime and key vocabulary of one time point
+#'
+#' The live cube is regime "cube" with COL keys by construction (the cube SQL
+#' pins COL). Every other point reads reference_version.yml. A point computed
+#' before those fields existed is inferred from its cube manifest: 04b's
+#' manifest has a `snapshot` column (and `key_backbone` once 04b records it;
+#' older 04b runs were all legacy-keyed), a frozen live cube's manifest does not.
+tp_meta <- function(tp) {
+  if (tp_is_live(tp)) return(list(tp = tp, regime = "cube", key_backbone = "col"))
+  ref <- file.path(tp_root, tp, "reference_version.yml")
+  r <- if (file.exists(ref)) tryCatch(yaml::read_yaml(ref), error = function(e) NULL)
+  regime <- r$regime; kb <- r$key_backbone
+  if (is.null(regime) || is.null(kb)) {
+    man <- file.path(tp_root, tp, "cubes", "cube_manifest.csv")
+    m <- if (file.exists(man)) data.table::fread(man, nrows = 1L) else NULL
+    is_snap <- !is.null(m) && "snapshot" %in% names(m)
+    if (is.null(regime)) regime <- if (is_snap) "snapshot" else "cube"
+    if (is.null(kb)) {
+      kb <- if (!is.null(m) && "key_backbone" %in% names(m)) m$key_backbone[1]
+            else if (is_snap) "legacy" else "col"
+    }
+    cli_alert_warning(
+      "{tp}: no regime/key_backbone in reference_version.yml - inferred \\
+       {regime}/{kb} from the cube manifest. Re-run {.code Rscript run_timepoint.R {tp}} \\
+       to record them.")
+  }
+  list(tp = tp, regime = as.character(regime), key_backbone = as.character(kb))
+}
+
+#' The pinned checklist must be the same at both ends, or the difference is
+#' partly taxonomy churn rather than data. run_timepoint.R records it; this
+#' turns that record into a check.
+reference_release <- function(tp) {
+  # The live point has no reference_version.yml - run_timepoint.R writes those,
+  # and the live pipeline is driven by targets. Its equivalent is the tracked
+  # provenance file that 01b rewrites on every run, which is where
+  # run_timepoint.R copies from in the first place.
+  f <- if (tp_is_live(tp)) here("provenance", glue("upstream_versions_{COUNTRY_CODE}.yml"))
+       else file.path(tp_root, tp, "reference_version.yml")
+  if (!file.exists(f)) return(NA_character_)
+  r <- tryCatch(yaml::read_yaml(f), error = function(e) NULL)
+  if (is.null(r$taxonomy$published)) NA_character_ else as.character(r$taxonomy$published)
+}
+
+#' Reduce one cube to the closure grain
+#'
+#' One row per (specieskey, eeacellcode, datasetkey) with min_year, occurrences
+#' and record count. Only five columns are read: the cube is ~42 M rows and the
+#' other twelve are not needed here.
+read_grain <- function(tp, res_km) {
+  path <- file.path(tp_cubes_dir(tp), sprintf("cube_%dkm.parquet", res_km))
+  if (!file.exists(path)) {
+    cli_abort(c("Missing cube: {.path {path}}",
+                "i" = "Run {.code scripts/04b_build_historical_cubes.R} first."))
+  }
+  dt <- data.table::as.data.table(arrow::read_parquet(
+    path, col_select = c("specieskey", "eeacellcode", "datasetkey",
+                         "year", "occurrences")))
+  # The aggregation lives in R/closure.R so it can be unit-tested.
+  g <- closure_build_grain(dt, PLATFORMS)
+  rm(dt); invisible(gc())
+  cli_alert_info(
+    "{tp} {res_km} km: {scales::comma(nrow(g))} (species x cell x dataset) rows, \\
+     {scales::comma(sum(g$occ))} occurrences"
+  )
+  g[]
+}
+
+#' specieskey -> Dyntaxa taxonID and the reconciled taxonomy, for one time point
+read_match_table <- function(tp) {
+  f <- file.path(tp_gaps_dir(tp), "taxonomic_match_table.csv")
+  if (!file.exists(f)) {
+    cli_abort(c("Missing match table for {tp}: {.path {f}}",
+                "i" = "Run {.code Rscript run_timepoint.R {tp}} first (script 09a)."))
+  }
+  m <- data.table::fread(f, showProgress = FALSE)
+  # Fail here, by name, rather than 20 minutes later inside a data.table join.
+  # `class` and `order` drive the taxonomic panel; `backbone_taxonID` is the
+  # entire Dyntaxa key space.
+  need <- c("specieskey", "backbone_taxonID", "class", "order")
+  absent <- setdiff(need, names(m))
+  if (length(absent)) {
+    cli_abort(c(
+      "Match table for {tp} is missing column{?s}: {paste(absent, collapse = ', ')}",
+      "i" = "Header found: {paste(names(m), collapse = ', ')}",
+      "x" = "Script 09a's output shape has changed; closure cannot be computed \\
+             against it without checking what moved."
+    ))
+  }
+  m[, specieskey := as.character(specieskey)]
+  if ("backbone_taxonID" %in% names(m)) m[, backbone_taxonID := as.character(backbone_taxonID)]
+  m
+}
+
+#' Full cell universe for a resolution - from the grid, never from the data
+grid_cellcodes <- function(res_km) {
+  f <- here(p_data_proc, sprintf("cellcodes_%dkm.txt", res_km))
+  if (!file.exists(f)) cli_abort(c("Missing {.path {f}}", "i" = "Run script 02."))
+  unique(readLines(f, warn = FALSE))
+}

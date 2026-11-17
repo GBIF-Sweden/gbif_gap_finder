@@ -18,16 +18,25 @@
 #   dyntaxa - backbone_taxonID. The headline: a national checklist does not move
 #             when GBIF changes its backbone, so it is the only space in which a
 #             legacy-Backbone snapshot and a COL cube can be differenced.
-#   gbif    - specieskey. Not cross-regime safe, but it is what the regression
-#             fixture measured, so it is the acceptance test that proves this
+#   gbif    - specieskey. Only between time points with the same key_backbone
+#             (legacy nub keys and COL ids share no vocabulary), but it is what
+#             the regression fixture measured, so it is the acceptance test that proves this
 #             code correct - and it is the honest "all of GBIF" figure, since
 #             ~18% of species carry no Dyntaxa taxonID.
 #
 # WHAT IS DELIBERATELY NOT COMPUTED:
 #   A single continuous series across the snapshot -> cube boundary. That
-#   boundary is a method change, not a measurement (different filters, different
-#   backbone, different coordinate precision). `regime_boundary` is emitted in
+#   boundary is a method change, not a measurement (different filters,
+#   different coordinate precision). `regime_boundary` is emitted in
 #   closure_summary so the app can mark it; the line should be broken, not drawn.
+#   A snapshot and a cube of (nearly) the same date are the BRIDGE, not a
+#   closure pair: script 15 measures the method gap from them.
+#
+# TIME-POINT METADATA (reference_version.yml, written by run_timepoint.R):
+#   regime        snapshot | cube
+#   key_backbone  legacy | col
+#   The default pairs are within-regime (closure_default_pairs()); a
+#   cross-regime pair runs only when named in GAP_CLOSURE_PAIR.
 #
 # Inputs (per time point tp):
 #   - data/{CC}/proc/timepoints/{tp}/cubes/cube_{10,50}km.parquet   (04b)
@@ -45,6 +54,7 @@
 # Usage:
 #   Rscript -e 'source("scripts/14_gap_closure.R")'
 #   GAP_CLOSURE_PAIR="2021-01-01,2024-01-01" Rscript -e 'source(...)'   # one pair
+#   GAP_CLOSURE_PAIR="2024-01-01,2026-10-01" Rscript -e 'source(...)'   # snapshot series
 #   GAP_CLOSURE_PAIR="2024-01-01,2026-07-29" Rscript -e 'source(...)'   # cross-regime
 #
 # TIME POINTS = the directories under proc/timepoints/ PLUS the live cube at the
@@ -58,6 +68,7 @@
 
 source(here::here("scripts", "00_setup.R"))
 source(here::here("R", "closure.R"))
+source(here::here("R", "timepoint_io.R"))
 
 if (!requireNamespace("arrow", quietly = TRUE)) {
   cli_abort(c("Package {.pkg arrow} is required",
@@ -132,29 +143,6 @@ timepoints <- timepoints[vapply(
 # ARE this time point's cube and match table. They are simply at the root rather
 # than under timepoints/. Labelling them with the cube's download date and
 # resolving paths accordingly is the whole of the integration.
-#' The live cube's download date, or NA - never today's date
-#'
-#' get_snapshot_date() falls back to Sys.Date() when the metadata carries no
-#' cube date. That is right for staleness scoring and wrong here: it would
-#' label the live time point with whatever day the script happened to run, and
-#' the label is the time point's identity. This reads the same metadata and
-#' returns NA rather than guessing.
-live_timepoint_date <- function() {
-  meta_path <- here(p_data_proc, "data_sources_meta.rds")
-  if (!file.exists(meta_path)) return(NA_character_)
-  meta  <- tryCatch(readRDS(meta_path), error = function(e) NULL)
-  cubes <- meta$cubes
-  if (is.null(cubes) || !length(cubes)) return(NA_character_)
-  d <- tryCatch(
-    do.call(c, lapply(cubes, function(x) {
-      v <- x$created
-      if (is.null(v) || all(is.na(v))) as.Date(NA) else as.Date(v)
-    })),
-    error = function(e) as.Date(NA))
-  d <- d[!is.na(d)]
-  if (!length(d)) NA_character_ else as.character(max(d))
-}
-
 LIVE_TP    <- live_timepoint_date()
 live_cube  <- here(p_cubes, "cube_10km.parquet")
 live_match <- here(p_gaps, "taxonomic_match_table.csv")
@@ -183,11 +171,6 @@ if (live_ok) {
   ))
 }
 
-#' Where does this time point's data live: under timepoints/, or at the root?
-tp_is_live <- function(tp) live_ok && identical(tp, LIVE_TP)
-tp_cubes_dir <- function(tp) if (tp_is_live(tp)) here(p_cubes) else file.path(tp_root, tp, "cubes")
-tp_gaps_dir  <- function(tp) if (tp_is_live(tp)) here(p_gaps)  else file.path(tp_root, tp, "gaps")
-
 if (length(timepoints) < 2L) {
   cli_abort(c(
     "Need at least two time points to difference; found \\
@@ -197,7 +180,11 @@ if (length(timepoints) < 2L) {
 }
 cli_alert_success("Time points: {paste(timepoints, collapse = ', ')}")
 
-#' Consecutive pairs, unless one is named explicitly
+TP_META <- stats::setNames(lapply(timepoints, tp_meta), timepoints)
+meta_dt <- data.table::rbindlist(lapply(TP_META, as.data.frame))
+print(meta_dt)
+
+#' Within-regime pairs by default, unless one is named explicitly
 pair_spec <- Sys.getenv("GAP_CLOSURE_PAIR", "")
 if (nzchar(pair_spec)) {
   p <- trimws(strsplit(pair_spec, ",")[[1]])
@@ -210,85 +197,15 @@ if (nzchar(pair_spec)) {
   }
   pairs_to_do <- list(p)
 } else {
-  pairs_to_do <- lapply(seq_len(length(timepoints) - 1L),
-                        function(i) timepoints[c(i, i + 1L)])
-}
-
-#' The pinned checklist must be the same at both ends, or the difference is
-#' partly taxonomy churn rather than data. run_timepoint.R records it; this
-#' turns that record into a check.
-reference_release <- function(tp) {
-  # The live point has no reference_version.yml - run_timepoint.R writes those,
-  # and the live pipeline is driven by targets. Its equivalent is the tracked
-  # provenance file that 01b rewrites on every run, which is where
-  # run_timepoint.R copies from in the first place.
-  f <- if (tp_is_live(tp)) here("provenance", glue("upstream_versions_{COUNTRY_CODE}.yml"))
-       else file.path(tp_root, tp, "reference_version.yml")
-  if (!file.exists(f)) return(NA_character_)
-  r <- tryCatch(yaml::read_yaml(f), error = function(e) NULL)
-  if (is.null(r$taxonomy$published)) NA_character_ else as.character(r$taxonomy$published)
-}
-
-# ============================================================================
-# Readers
-# ============================================================================
-
-#' Reduce one cube to the closure grain
-#'
-#' One row per (specieskey, eeacellcode, datasetkey) with min_year, occurrences
-#' and record count. Only five columns are read: the cube is ~42 M rows and the
-#' other twelve are not needed here.
-read_grain <- function(tp, res_km) {
-  path <- file.path(tp_cubes_dir(tp), sprintf("cube_%dkm.parquet", res_km))
-  if (!file.exists(path)) {
-    cli_abort(c("Missing cube: {.path {path}}",
-                "i" = "Run {.code scripts/04b_build_historical_cubes.R} first."))
-  }
-  dt <- data.table::as.data.table(arrow::read_parquet(
-    path, col_select = c("specieskey", "eeacellcode", "datasetkey",
-                         "year", "occurrences")))
-  # The aggregation lives in R/closure.R so it can be unit-tested.
-  g <- closure_build_grain(dt, PLATFORMS)
-  rm(dt); invisible(gc())
-  cli_alert_info(
-    "{tp} {res_km} km: {scales::comma(nrow(g))} (species x cell x dataset) rows, \\
-     {scales::comma(sum(g$occ))} occurrences"
-  )
-  g[]
-}
-
-#' specieskey -> Dyntaxa taxonID and the reconciled taxonomy, for one time point
-read_match_table <- function(tp) {
-  f <- file.path(tp_gaps_dir(tp), "taxonomic_match_table.csv")
-  if (!file.exists(f)) {
-    cli_abort(c("Missing match table for {tp}: {.path {f}}",
-                "i" = "Run {.code Rscript run_timepoint.R {tp}} first (script 09a)."))
-  }
-  m <- data.table::fread(f, showProgress = FALSE)
-  # Fail here, by name, rather than 20 minutes later inside a data.table join.
-  # `class` and `order` drive the taxonomic panel; `backbone_taxonID` is the
-  # entire Dyntaxa key space.
-  need <- c("specieskey", "backbone_taxonID", "class", "order")
-  absent <- setdiff(need, names(m))
-  if (length(absent)) {
+  pairs_to_do <- closure_default_pairs(meta_dt)
+  if (!length(pairs_to_do)) {
     cli_abort(c(
-      "Match table for {tp} is missing column{?s}: {paste(absent, collapse = ', ')}",
-      "i" = "Header found: {paste(names(m), collapse = ', ')}",
-      "x" = "Script 09a's output shape has changed; closure cannot be computed \\
-             against it without checking what moved."
+      "No regime has two time points, so there is no default pair.",
+      "i" = "Name a cross-regime pair explicitly with {.envvar GAP_CLOSURE_PAIR}."
     ))
   }
-  m[, specieskey := as.character(specieskey)]
-  if ("backbone_taxonID" %in% names(m)) m[, backbone_taxonID := as.character(backbone_taxonID)]
-  m
 }
-
-#' Full cell universe for a resolution - from the grid, never from the data
-grid_cellcodes <- function(res_km) {
-  f <- here(p_data_proc, sprintf("cellcodes_%dkm.txt", res_km))
-  if (!file.exists(f)) cli_abort(c("Missing {.path {f}}", "i" = "Run script 02."))
-  unique(readLines(f, warn = FALSE))
-}
+cli_alert_info("Pairs: {paste(vapply(pairs_to_do, paste, character(1), collapse = ' -> '), collapse = ' | ')}")
 
 # ============================================================================
 # Difference each pair
@@ -316,27 +233,35 @@ for (pr in pairs_to_do) {
     cli_alert_success("Both time points pinned to Dyntaxa {rel_from}")
   }
 
-  # The snapshot regime runs to 2024-01-01; anything later comes from a live
-  # cube and is a different measurement.
-  # A pair straddles the regime boundary when exactly one end is the live cube.
-  # Defined by WHAT the time point is, not by a hard-coded date, so a snapshot
-  # delivered in 2027 stays a snapshot and a second cube stays a cube.
-  regime_boundary <- xor(tp_is_live(from), tp_is_live(to))
-  ks_for_pair <- KEY_SPACES
+  # Defined by WHAT each time point is (reference_version.yml), not by a date,
+  # so a later snapshot stays a snapshot and a second cube stays a cube.
+  kind <- closure_pair_kind(TP_META[[from]], TP_META[[to]])
+  if (kind$is_bridge) {
+    cli_abort(c(
+      "{from} ({TP_META[[from]]$regime}) and {to} ({TP_META[[to]]$regime}) are \\
+       the same moment measured two ways.",
+      "x" = "Their difference is method, not change - it is not a closure pair.",
+      "i" = "Run {.code scripts/15_bridge.R} for this pair instead."
+    ))
+  }
+  regime_boundary <- kind$regime_boundary
+  ks_for_pair <- intersect(KEY_SPACES, kind$key_spaces)
+
+  if (kind$key_backbone_differs) {
+    # Legacy nub ids ("8128385") and COL ids ("4Z659") do not overlap, so a set
+    # difference in GBIF space would report every baseline pair as lost and
+    # every comparison pair as gained, without erroring. Dyntaxa taxonID is the
+    # only key both sides reach.
+    cli_alert_info(
+      "GBIF key space skipped: {from} keys are {TP_META[[from]]$key_backbone}, \\
+       {to} keys are {TP_META[[to]]$key_backbone}. Dyntaxa space still mixes the \\
+       two name paths: taxa whose names differ between them appear lost or new.")
+  }
 
   if (regime_boundary) {
-    # GBIF key space CANNOT cross this boundary and must not be attempted.
-    # The snapshots key on legacy Backbone nub integers ("8128385"); the cube
-    # keys on Catalogue of Life ids ("4Z659"). The two vocabularies do not
-    # overlap, so a set difference would report every baseline pair as lost and
-    # every comparison pair as gained - roughly six million of each, all of it
-    # fiction, and none of it erroring. Dyntaxa taxonID is the only key both
-    # sides reach.
-    ks_for_pair <- "dyntaxa"
     cli_alert_warning(c(
       "This pair straddles the snapshot -> cube boundary."
     ))
-    cli_alert_info("GBIF key space skipped: legacy nub ids and COL ids share no vocabulary")
     cli_alert_info(
       "10 km is unreliable here: snapshot cells come from 2 dp coordinates and \\
        cube cells from full precision, so ~4% of records sit one cell away \\
@@ -435,6 +360,10 @@ for (pr in pairs_to_do) {
                    # 1 when the two ends were built with different occurrence
                    # filters (the cube has hasgeospatialissues/occurrencestatus).
                    "filters_differ",
+                   # 1 when the two ends key species in different backbones
+                   # (legacy nub vs COL): GBIF space is skipped, and Dyntaxa
+                   # space carries the name-path asymmetry.
+                   "key_backbone_differs",
                    # Species excluded by the re-key because they carry no
                    # national-checklist taxonID. The app caveats its species
                    # tile with them: "newly recorded" in Dyntaxa space is only
@@ -448,6 +377,7 @@ for (pr in pairs_to_do) {
                   sum(grp$churn_flag, na.rm = TRUE),
                   as.integer(regime_boundary && res_km == 10L),
                   as.integer(regime_boundary),
+                  as.integer(kind$key_backbone_differs),
                   rf$n_dropped, rt$n_dropped)), fill = TRUE)
       summ[, resolution := sprintf("%dkm", res_km)]
       summaries[[tag]] <- summ

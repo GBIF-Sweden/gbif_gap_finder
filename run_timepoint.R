@@ -35,7 +35,14 @@
 #
 # Outputs land under data/{CC}/proc/timepoints/{tp}/ — derived/, gaps/, output/,
 # plus reference_version.yml recording which upstream releases this point was
-# computed against.
+# computed against, its regime (snapshot | cube) and its key_backbone
+# (legacy | col). Script 14 reads the last two to decide which pairs and key
+# spaces are valid.
+#
+# A time point can also be a FROZEN CUBE: copy proc/cubes/cube_{10,50}km.parquet
+# and cube_manifest.csv into timepoints/{tp}/cubes/ (and the cube's
+# provenance/cube_downloads_{CC}.yml into timepoints/{tp}/), then run this
+# script. Its manifest has no `snapshot` column, which marks it as a cube.
 # ============================================================================
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -118,6 +125,29 @@ if (file.exists(ref_src)) {
   pin <- ref[intersect(c("taxonomy", "redlist", "invasives", "sensitive",
                          "col_backbone"), names(ref))]
   pin$timepoint <- tp
+
+  # Regime and key vocabulary. 04b's manifest has a `snapshot` column and
+  # records `key_backbone`; a frozen cube's manifest (from 04) has neither, and
+  # cubes are COL-keyed by their SQL.
+  man_path <- file.path(p_cubes, "cube_manifest.csv")
+  man <- if (file.exists(man_path)) data.table::fread(man_path) else NULL
+  if (!is.null(man) && "snapshot" %in% names(man)) {
+    pin$regime <- "snapshot"
+    pin$key_backbone <- if ("key_backbone" %in% names(man)) {
+      unique(as.character(man$key_backbone))
+    } else {
+      "legacy"
+    }
+    if (length(pin$key_backbone) != 1L) {
+      cli_abort("cube_manifest.csv for {tp} names more than one key_backbone")
+    }
+  } else {
+    pin$regime <- "cube"
+    pin$key_backbone <- "col"
+    dl <- file.path(p_timepoint, glue("cube_downloads_{COUNTRY_CODE}.yml"))
+    if (file.exists(dl)) pin$cube_downloads <- yaml::read_yaml(dl)
+  }
+  cli_alert_info("Regime: {pin$regime}; species keys: {pin$key_backbone}")
   pin$note <- paste(
     "Upstream releases this time point was computed against. Frozen:",
     "a later time point differenced against this one must have been computed",

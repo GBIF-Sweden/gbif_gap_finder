@@ -13,8 +13,14 @@
 #   - TWO files per snapshot, paired by date:
 #       <prefix>_occurrences_aggregated_YYYYMMDD.tsv.gz   10 columns
 #       <prefix>_taxonomy_YYYYMMDD.tsv.gz                  9 columns
-#   - Grouped by `species_id` (the legacy GBIF nub species key), NOT `taxon_id`.
-#     There is no taxon_id column and no sub-specific resolution to roll up.
+#   - Grouped by `species_id`, NOT `taxon_id`. There is no taxon_id column and
+#     no sub-specific resolution to roll up.
+#   - `species_id` is the record's species key under the backbone GBIF used on
+#     the snapshot date: the legacy GBIF nub key (integer) in snapshots up to
+#     2024-01-01, the Catalogue of Life taxonID (alphanumeric, same vocabulary
+#     as the live cube's specieskey) from 2026-10-01. Both are read as
+#     character, and historic_key_backbone() names the vocabulary so the
+#     time-point metadata can record it.
 #   - The taxonomy file is a clean 1:1 lookup on species_id and a deliberate
 #     SUPERSET of the species in its occurrence file (no coordinate filter, no
 #     dataset exclusion). Superset is the safe direction for a lookup; the join
@@ -397,23 +403,24 @@ read_historic_occurrences <- function(path, expect = NULL, select = NULL) {
 
   if (is.null(select)) select <- setdiff(HISTORIC_OCC_COLS, "snapshot")
   classes <- list(
-    integer   = intersect(c("species_id", "year", "month", "occurrences"), select),
+    integer   = intersect(c("year", "month", "occurrences"), select),
     numeric   = intersect(c("latitude", "longitude"), select),
-    character = intersect(c("basis_of_record", "dataset_id", "publisher_id",
-                            "snapshot"), select)
+    character = intersect(c("species_id", "basis_of_record", "dataset_id",
+                            "publisher_id", "snapshot"), select)
   )
   classes <- classes[lengths(classes) > 0L]
 
   dt <- historic_fread(path, sep = "\t", select = select,
                        colClasses = classes, showProgress = TRUE)
 
-  # species_id is the join key for the whole taxonomy step. An NA here means
-  # either a blank field or an integer overflow, and both would silently drop
-  # rows at the join instead of failing.
-  if ("species_id" %in% names(dt) && anyNA(dt$species_id)) {
+  # species_id is the join key for the whole taxonomy step. A blank or NA key
+  # would silently drop rows at the join instead of failing.
+  if ("species_id" %in% names(dt) &&
+      (anyNA(dt$species_id) || !all(nzchar(dt$species_id)))) {
+    n_bad <- sum(is.na(dt$species_id) | !nzchar(dt$species_id))
     cli_abort(c(
-      "{scales::comma(sum(is.na(dt$species_id)))} row{?s} have a missing or \\
-       unparseable {.field species_id} in {.path {basename(path)}}",
+      "{scales::comma(n_bad)} row{?s} have a missing {.field species_id} in \\
+       {.path {basename(path)}}",
       "i" = "These would vanish at the taxonomy join rather than error."
     ))
   }
@@ -441,13 +448,12 @@ read_historic_taxonomy <- function(path, expect = NULL) {
 
   tax <- historic_fread(
     path, sep = "\t", select = HISTORIC_TAX_COLS,
-    colClasses = list(integer = "species_id",
-                      character = setdiff(HISTORIC_TAX_COLS, "species_id")),
+    colClasses = list(character = HISTORIC_TAX_COLS),
     showProgress = FALSE
   )
 
-  if (anyNA(tax$species_id)) {
-    cli_abort("Taxonomy lookup has {sum(is.na(tax$species_id))} row{?s} with no \\
+  if (anyNA(tax$species_id) || !all(nzchar(tax$species_id))) {
+    cli_abort("Taxonomy lookup has {sum(is.na(tax$species_id) | !nzchar(tax$species_id))} row{?s} with no \\
                {.field species_id}: {.path {basename(path)}}")
   }
   n_dup <- nrow(tax) - data.table::uniqueN(tax$species_id)
@@ -478,4 +484,25 @@ read_historic_taxonomy <- function(path, expect = NULL) {
     "Taxonomy: {scales::comma(nrow(tax))} species (1:1 on species_id)"
   )
   tax[]
+}
+
+# ============================================================================
+# Key vocabulary
+# ============================================================================
+
+#' Which backbone a snapshot's species keys come from
+#'
+#' Legacy GBIF nub keys are integers. COL taxonIDs are alphanumeric, although a
+#' few hundred valid COL ids are purely numeric (e.g. 67343), so a single
+#' numeric key proves nothing; the vocabulary is "legacy" only when EVERY key is
+#' numeric. A snapshot has tens of thousands of species, so a COL-keyed one
+#' always contains alphanumeric keys.
+#'
+#' @param keys Character vector of species keys (one snapshot's species_id).
+#' @return "legacy" or "col".
+historic_key_backbone <- function(keys) {
+  keys <- unique(as.character(keys))
+  keys <- keys[!is.na(keys) & nzchar(keys)]
+  if (!length(keys)) cli_abort("historic_key_backbone(): no keys given")
+  if (all(grepl("^[0-9]+$", keys))) "legacy" else "col"
 }

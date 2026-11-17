@@ -232,6 +232,14 @@ list(
     format = "file"
   ),
 
+  # 15 measures the method gap between a snapshot and a cube of the same date.
+  # Tracked, not wired in, for the same reasons as 14.
+  tar_target(
+    script_15,
+    here("scripts", "15_bridge.R"),
+    format = "file"
+  ),
+
   # R/ is not "a script" but it IS pipeline logic: globals.R carries the schemas,
   # path constants, THREATENED_CODES and every shared helper; packages.R the
   # library set. Untracked, an edit to either would not invalidate a single
@@ -257,7 +265,8 @@ list(
   # the same "edit it and something notices" guarantee at the right blast radius.
   tar_target(
     r_historic,
-    c(here("R", "eea_grid.R"), here("R", "historic_io.R"), here("R", "closure.R")),
+    c(here("R", "eea_grid.R"), here("R", "historic_io.R"), here("R", "closure.R"),
+      here("R", "timepoint_io.R"), here("R", "bridge.R")),
     format = "file"
   ),
 
