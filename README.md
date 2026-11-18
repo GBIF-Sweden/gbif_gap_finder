@@ -92,7 +92,7 @@ gbif_gap_finder/
 │                                #   www/ incl. the rendered summary report)
 ├── sql/
 │   └── gbif_occurrence_cube.sql # Canonical GBIF SQL cube spec (b3verse; the query IS the cube)
-├── tools/                       # Version stamping + tests
+├── tools/                       # Version stamping, tests, Gaps filled preview
 ├── _targets.R                   # Pipeline definition
 ├── run.R                        # Convenience functions
 ├── run_timepoint.R              # Run scripts 05–10 for one historical time point
@@ -436,7 +436,7 @@ by hand on that branch (Actions → *Build deps image* → Run workflow → Use 
 | `GBIF_GAP_COUNTRY` | baked at build | Selects the bundle at `data/{CC}/shiny_data.rds` |
 | `GAP_FINDER_VERSION` | baked at build | Shown in the About panel; `dev` when unset |
 | `GAP_FINDER_BASEMAP` | `Esri.WorldGrayCanvas` | Any `leaflet.providers` name. An unknown name warns and falls back rather than rendering a blank map. Do not use a `CartoDB.*` provider: CARTO raster basemaps now require an API key and render an "API KEY REQUIRED" watermark |
-| `GAP_FINDER_SHOW_GAPS_FILLED` | `false` | `true` shows the **Gaps filled** tab. Off by default while the tab is under review; the closure data stays in the bundle either way |
+| `GAP_FINDER_SHOW_GAPS_FILLED` | `false` | `true` shows the **Gaps filled** tab. Off by default while the tab is under review; the closure data stays in the bundle either way. `Rscript tools/preview_gaps_filled.R` shows the tab locally, on the shipped bundle plus the tables of script 14 |
 
 Run it locally:
 

@@ -191,6 +191,49 @@ Every dataset behind the dashboard, resolved to the exact GBIF‑published editi
 to confirm exactly which edition of each list (Red List, GRIIS, sensitive species, taxonomy)
 a given run used.
 
+### Gaps filled
+
+*Shown when the deployment switches it on (`GAP_FINDER_SHOW_GAPS_FILLED=true`); hidden while
+it is under review.*
+
+What changed between two **time points**: complete rebuilds of the gap analysis against GBIF
+Sweden's snapshot exports of 1 January 2021, 1 January 2024 and 1 October 2026. The headline
+measure is the **species × cell pair**, one species recorded in one grid cell. A gained pair
+means a species is now recorded in a cell where it was not before: better knowledge of where
+species are, not usually a new species.
+
+- **Compare:** the two time points (the latest step opens first), the resolution, and a
+  **class → order** filter. The filter changes the first row of tiles, the map's change in
+  species, the periods and the species tables; the low‑data bar and the dataset tables
+  always cover all taxa.
+- **Tiles:** pairs gained and lost, each with its share of the pairs before; species newly
+  recorded (new to the data compared, not to Sweden); cells filled. The second row judges
+  cells against the **low‑data bar**: the number of records per cell below which the
+  poorest tenth of the occupied cells sat at the earlier time point, held fixed for the
+  later one. Cells *rose above* it, *fell below* it or *stayed under* it; a cell with no
+  records is under the bar.
+- **Map:** the change in species per cell (blue gained, red lost), or the low‑data bar
+  (saturated colours crossed the bar this period, pale ones did not).
+- **How old are the records behind the gain?** Gained pairs by the year of their earliest
+  record, per **source type**: platforms (open reporting platforms and apps), monitoring
+  (programmes, inventories, surveys, metabarcoding), collections (specimens) and other.
+  Records from the earlier time point's year on cannot have been in it; older ones were
+  collected before and published since. A pair counts in every type that brought a record
+  to it, so the types add up to more than all types together.
+- **Gains and losses by class and order:** every group in one sortable table, with gain %
+  and loss % of its pairs at the earlier time point.
+- **Threatened species in new cells** (CR, EN, VU, NT), **species that lost ground**, and
+  **which datasets the gain and the losses rest on**: "on it alone" counts the pairs that no
+  other dataset supports.
+
+Two reading rules. Read a group's gain next to its loss: records re‑identified between
+species and datasets republished or withdrawn make pairs vanish, and a dataset missing from
+one delivery shows up as losses (the tab names such datasets, such as four NRM collection
+datasets absent from the snapshot of 1 October 2026). And species are compared as Dyntaxa
+taxa, matched by name at each time point: where two GBIF taxonomies name a species
+differently, its pairs can vanish or appear without any change in the records. The banner
+says when the two time points use different GBIF taxonomies.
+
 ---
 
 ## Controls you'll use everywhere

@@ -45,6 +45,7 @@
 CLOSURE_CELL_STATUS  <- c("filled", "deepened", "unchanged", "thinned", "regressed")
 CLOSURE_SOURCE_TYPES <- c("platform", "monitoring", "collection", "other")
 CLOSURE_PERIODS      <- c("baseline_on", "decade_before", "1950_on", "pre_1950", "no_year")
+CLOSURE_BAR_STATUS   <- c("rose_above", "fell_below", "stayed_under", "above", "still_empty")
 
 # ============================================================================
 # Source types
@@ -483,34 +484,55 @@ closure_dataset_concentration <- function(pairs, grain) {
 }
 
 # ============================================================================
-# Frozen thresholds
+# The low-data bar, frozen at the baseline
 # ============================================================================
 
-#' Under-sampled cells, judged against the BASELINE's thresholds
+#' Where a cell stands against the low-data bar, at both ends
+#'
+#' A cell is under the bar when it holds at most `thr` records, none included:
+#' a cell that empties falls below the bar, and one that fills past it rises
+#' above it. Cells with no record at either end are counted apart, as still
+#' empty, so they do not swell "stayed under".
+#'
+#' @param occ_from,occ_to Records per cell at the baseline and at the later
+#'   time point.
+#' @param thr The bar (records per cell). NA gives NA.
+#' @return Character vector: "rose_above", "fell_below", "stayed_under",
+#'   "still_empty" or "above" (above the bar at both ends).
+closure_bar_status <- function(occ_from, occ_to, thr) {
+  thr <- rep_len(as.numeric(thr), length(occ_from))
+  under_from <- occ_from <= thr
+  under_to   <- occ_to   <= thr
+  data.table::fcase(
+    is.na(thr),                      NA_character_,
+    occ_from == 0 & occ_to == 0,     "still_empty",
+    under_from & !under_to,          "rose_above",
+    !under_from & under_to,          "fell_below",
+    under_from & under_to,           "stayed_under",
+    default = "above"
+  )
+}
+
+#' Cells against the BASELINE's low-data bar
 #'
 #' `gap_zero` is absolute and means the same thing at two dates. `gap_low_q10`
 #' does not: script 07 recomputes quantiles from whatever data it is given, so
 #' comparing its flag across dates confounds real change with distribution
 #' shift - a cell can be flagged newly under-sampled while its record count
-#' rose. Freezing the baseline's thresholds and applying them forward is the
-#' only version of this metric that means anything in a difference.
+#' rose. Freezing the baseline's bar (the `q` quantile of records per occupied
+#' cell) and applying it to both ends is the only version of this metric that
+#' means anything in a difference.
 #'
 #' @param cells Output of closure_cells().
 #' @param q Quantile (default 0.10).
-#' @return The input with `q_frozen`, `low_from`, `low_to` and `low_status`.
+#' @return The input with `q_frozen` (the bar) and `bar_status`
+#'   (closure_bar_status()).
 closure_frozen_low <- function(cells, q = 0.10) {
   nz <- cells[occ_from > 0, occ_from]
   thr <- if (length(nz)) as.numeric(stats::quantile(nz, probs = q, names = FALSE)) else NA_real_
   out <- data.table::copy(cells)
   out[, q_frozen := thr]
-  out[, low_from := occ_from > 0 & occ_from <= thr]
-  out[, low_to   := occ_to   > 0 & occ_to   <= thr]
-  out[, low_status := data.table::fcase(
-    low_from & !low_to,  "improved",
-    !low_from & low_to,  "worsened",
-    low_from & low_to,   "still_low",
-    default = "not_low"
-  )]
+  out[, bar_status := closure_bar_status(occ_from, occ_to, q_frozen)]
   out[]
 }
 
@@ -721,14 +743,27 @@ closure_taxon_lookup <- function(mt_to, mt_from, tax_cols, lk_key) {
 #' displayed NAME comes from species. A tile that counted the kept rows would
 #' under-report and still look plausible, which is the worst kind of wrong.
 #'
+#' `species_totals` comes per class x order, so the tab's taxonomic filter
+#' counts species without the thinned table either.
+#'
+#' The cells keep the counts, the bar and `bar_status`, which is computed here
+#' from occ_from, occ_to and q_frozen (closure_bar_status()): the tab reads no
+#' other classification of the low-data bar.
+#'
+#' Blank class and order are "" in every table, never NA, so one test finds
+#' them in the tab.
+#'
 #' @param closure_dir Directory script 14 wrote to (data/{CC}/proc/closure).
 #' @param keep_top Rows kept per resolution x key space beyond the red-listed
 #'   and lost/contracted species.
 #' @param threat_cats Red-list categories treated as "threatened" for the cut.
+#' @param datasets_meta Optional data.table(datasetkey, title, publisher)
+#'   (closure_read_dataset_meta()); joined onto the dataset tables.
 #' @return list(tables = named list of data.tables, pairs = character vector,
 #'   report = data.table(pair_id, n_species_full, n_species_kept))
 closure_bundle <- function(closure_dir, keep_top = 1000L,
-                           threat_cats = c("CR", "EN", "VU", "NT", "RE", "DD")) {
+                           threat_cats = c("CR", "EN", "VU", "NT", "RE", "DD"),
+                           datasets_meta = NULL) {
   date_re <- "\\d{4}-\\d{2}-\\d{2}"
   empty <- list(tables = list(), pairs = character(),
                 report = data.table::data.table(
@@ -747,6 +782,9 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
     data.table::rbindlist(lapply(fs, function(f) {
       m <- regmatches(f, regexec(pat, f))[[1]]
       d <- data.table::fread(file.path(closure_dir, f), showProgress = FALSE)
+      for (cc in intersect(c("class", "order"), names(d))) {
+        data.table::set(d, which(is.na(d[[cc]])), cc, "")
+      }
       d[, `:=`(pair_id    = paste(from, to, sep = "__"),
                resolution = paste0(m[2], "km"),
                key_space  = m[3])]
@@ -772,15 +810,34 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
                  "datasets", "datasets_lost")) {
       acc[[nm]][[pid]] <- read_family(nm, from, to)
     }
+    cl <- acc$cells[[pid]]
+    if (!is.null(cl)) {
+      cl[, bar_status := closure_bar_status(occ_from, occ_to, q_frozen)]
+      keep <- intersect(c("eeacellcode", "occ_from", "n_species_from", "occ_to",
+                          "n_species_to", "delta_occ", "delta_species", "status",
+                          "q_frozen", "bar_status", "pair_id", "resolution",
+                          "key_space"), names(cl))
+      acc$cells[[pid]] <- cl[, keep, with = FALSE]
+    }
+    for (nm in c("datasets", "datasets_lost")) {
+      d <- acc[[nm]][[pid]]
+      if (is.null(d) || is.null(datasets_meta)) next
+      meta <- unique(data.table::as.data.table(datasets_meta)[
+        , .(datasetkey, title, publisher)], by = "datasetkey")
+      d[, `:=`(title = NA_character_, publisher = NA_character_)]
+      d[meta, on = "datasetkey", `:=`(title = i.title, publisher = i.publisher)]
+      acc[[nm]][[pid]] <- d
+    }
 
     sp <- read_family("species", from, to)
     if (!is.null(sp)) {
+      for (cc in setdiff(c("class", "order"), names(sp))) data.table::set(sp, j = cc, value = "")
       # Totals FIRST, off the full table. See the note above.
       acc$species_totals[[pid]] <- sp[, .(
         n_species    = .N,
         cells_gained = sum(cells_gained, na.rm = TRUE),
         cells_lost   = sum(cells_lost,   na.rm = TRUE)
-      ), by = .(pair_id, resolution, key_space, status,
+      ), by = .(pair_id, resolution, key_space, class, order, status,
                 threat = data.table::fifelse(
                   threatStatus_redlist %in% threat_cats, threatStatus_redlist, "none"))]
 
@@ -806,6 +863,15 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
     if (nrow(b)) tables[[nm]] <- b
   }
 
+  # The per-group cell table is by far the largest (some two million rows for
+  # three pairs). With its codes and names as factors it takes a third less
+  # memory in the app.
+  if (!is.null(tables$cells_group)) {
+    for (cc in c("eeacellcode", "class", "order", "pair_id", "resolution", "key_space")) {
+      data.table::set(tables$cells_group, j = cc, value = factor(tables$cells_group[[cc]]))
+    }
+  }
+
   # The pair index the tab's selectors are built from. regime_boundary travels
   # with it so the app never infers "is this cross-pipeline?" from the dates -
   # script 14 already decided, and the warnings hang off that decision.
@@ -824,4 +890,41 @@ closure_bundle <- function(closure_dir, keep_top = 1000L,
 
   list(tables = tables, pairs = pairs,
        report = data.table::rbindlist(report, use.names = TRUE))
+}
+
+#' Titles and publishers of the datasets, for the tab's dataset tables
+#'
+#' Read from the typed dataset list (parameters.closure.source_types_file),
+#' which names every dataset of every time point.
+#'
+#' @param path The typed dataset list.
+#' @return data.table(datasetkey, title, publisher), or NULL when the file is
+#'   missing.
+closure_read_dataset_meta <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  d <- data.table::fread(path, colClasses = "character", showProgress = FALSE,
+                         encoding = "UTF-8")
+  if (!"datasetkey" %in% names(d)) return(NULL)
+  for (cc in setdiff(c("title", "publisher"), names(d))) {
+    data.table::set(d, j = cc, value = NA_character_)
+  }
+  unique(d[, .(datasetkey, title, publisher)], by = "datasetkey")[]
+}
+
+#' The bundle's metadata entries for the Gaps filled tab
+#'
+#' @param cb Output of closure_bundle().
+#' @param keep_top The `keep_top` closure_bundle() ran with: the tab says how
+#'   many species beyond the complete groups it lists.
+#' @param notes Time point notes (parameters.closure.timepoint_notes), or NULL.
+#' @return list(has_closure, closure_pairs, closure_species_top_n,
+#'   closure_timepoint_notes)
+closure_bundle_meta <- function(cb, keep_top, notes = NULL) {
+  list(
+    has_closure = !is.null(cb$tables$summary) && !is.null(cb$tables$pair_index) &&
+      nrow(cb$tables$pair_index) > 0,
+    closure_pairs = cb$pairs,
+    closure_species_top_n = keep_top,
+    closure_timepoint_notes = notes
+  )
 }

@@ -818,12 +818,17 @@ source(here("R", "closure.R"))
 
 CLOSURE_KEEP_TOP <- 1000L
 closure_dir      <- here(p_data_proc, "closure")
-closure_pairs    <- character()
 
-cb <- closure_bundle(closure_dir, keep_top = CLOSURE_KEEP_TOP)
+# Dataset titles and publishers come from the typed dataset list, which names
+# every dataset of every time point.
+closure_types_file <- here(cfg_get("parameters.closure.source_types_file",
+                                   glue("configs/dataset_types_{COUNTRY_CODE}.csv")))
+cb <- closure_bundle(closure_dir, keep_top = CLOSURE_KEEP_TOP,
+                     datasets_meta = closure_read_dataset_meta(closure_types_file))
+closure_meta <- closure_bundle_meta(cb, keep_top = CLOSURE_KEEP_TOP,
+                                    notes = cfg_get("parameters.closure.timepoint_notes"))
 
 if (length(cb$pairs)) {
-  closure_pairs <- cb$pairs
   for (nm in names(cb$tables)) {
     shiny_data[[paste0("closure_", nm)]] <- as_tibble(cb$tables[[nm]])
   }
@@ -835,8 +840,8 @@ if (length(cb$pairs)) {
        ({round(100 * r$n_species_kept / r$n_species_full, 1)}%)")
   }
   cli_alert_success(
-    "Gap closure: {length(closure_pairs)} pair{?s} \\
-     ({paste(closure_pairs, collapse = ', ')})")
+    "Gap closure: {length(cb$pairs)} pair{?s} \\
+     ({paste(cb$pairs, collapse = ', ')})")
 } else {
   cli_alert_info(
     "No closure tables in {.path {closure_dir}} - run \\
@@ -852,7 +857,7 @@ cli_h2("Adding Metadata")
 
 dataset_names <- names(shiny_data)
 
-shiny_data$metadata <- list(
+shiny_data$metadata <- c(list(
   # When this bundle was packaged. NOT the age of the data — see snapshot_date.
   created_at = Sys.time(),
 
@@ -897,18 +902,6 @@ shiny_data$metadata <- list(
   has_kingdom_cell_recency = !is.null(shiny_data$kingdom_cell_recency),
   has_order_cell_recency = !is.null(shiny_data$order_cell_recency),
 
-  # Gaps filled tab. Hidden outright when there is no closure data rather than
-  # shown empty: a country with only one time point has nothing to say here, and
-  # an empty tab reads as a broken one.
-  has_closure = !is.null(shiny_data$closure_summary) &&
-    !is.null(shiny_data$closure_pair_index) &&
-    nrow(shiny_data$closure_pair_index) > 0,
-  closure_pairs = closure_pairs,
-  # Surfaced so the tab can say "top 1,000 shown" rather than implying the
-  # species list is exhaustive. Red-listed and lost/contracted species are
-  # complete regardless; see closure_bundle().
-  closure_species_top_n = CLOSURE_KEEP_TOP,
-
   # Marine (EEZ) coverage toggle
   has_marine = !is.null(shiny_data$cell_marine_lookup) &&
     any(shiny_data$cell_marine_lookup$marine, na.rm = TRUE),
@@ -924,7 +917,12 @@ shiny_data$metadata <- list(
   # Resolved provenance for the Data & sources tab: cube DOIs, checklist DOIs,
   # contributing datasets + publisher count (from 01b)
   data_sources = data_sources_meta
-)
+),
+  # Gaps filled tab: has_closure (hidden outright without closure data: a
+  # country with one time point has nothing to say there, and an empty tab reads
+  # as a broken one), the pairs, the species kept beyond the complete groups, and
+  # the time point notes. See closure_bundle_meta().
+  closure_meta)
 
 
 # ==============================================================================

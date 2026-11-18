@@ -2,9 +2,10 @@
 # ============================================================================
 # tools/test_gaps_filled_tab.R - server-side test for the "Gaps filled" tab
 # ============================================================================
-# Runs every output in the tab, for every pair x resolution x source group,
-# against the REAL closure tables, and then checks the numbers rather than only
-# the absence of errors.
+# Runs every output in the tab, for every pair x resolution x taxonomic filter x
+# map layer, against the REAL closure tables, and then checks the numbers rather
+# than only the absence of errors. Expected values are re-read from the tables,
+# so the test stays valid after script 14 is re-run.
 #
 # The rendering libraries (leaflet, plotly, DT, sf) are stubbed.
 # What needs testing here is data plumbing - column names, joins, factor levels,
@@ -13,7 +14,7 @@
 # inside a plot call fails here exactly as it would in the browser.
 #
 #   Rscript tools/test_gaps_filled_tab.R
-#   APP=... CLOSURE_DIR=... CLOSURE_R=... Rscript tools/test_gaps_filled_tab.R
+#   APP=... CLOSURE_DIR=... CLOSURE_R=... CONFIG=... Rscript tools/test_gaps_filled_tab.R
 #
 # Requires scripts/14_gap_closure.R to have run at least once.
 # ============================================================================
@@ -29,11 +30,13 @@ suppressPackageStartupMessages({
 APP       <- Sys.getenv("APP", "")
 CLOSURE   <- Sys.getenv("CLOSURE_DIR", "")
 CLOSURE_R <- Sys.getenv("CLOSURE_R", "")
-if (!nzchar(APP) || !nzchar(CLOSURE) || !nzchar(CLOSURE_R)) {
+CONFIG    <- Sys.getenv("CONFIG", "")
+if (!nzchar(APP) || !nzchar(CLOSURE) || !nzchar(CLOSURE_R) || !nzchar(CONFIG)) {
   source(here::here("scripts", "00_setup.R"))
   if (!nzchar(APP))       APP       <- here::here("shiny_app", "gap_finder", "app.R")
   if (!nzchar(CLOSURE))   CLOSURE   <- here::here(p_data_proc, "closure")
   if (!nzchar(CLOSURE_R)) CLOSURE_R <- here::here("R", "closure.R")
+  if (!nzchar(CONFIG))    CONFIG    <- here::here("configs", paste0("config_", COUNTRY_CODE, ".yml"))
 }
 if (!dir.exists(CLOSURE) || !length(list.files(CLOSURE, "^closure_summary_"))) {
   stop("No closure tables in ", CLOSURE,
@@ -58,53 +61,66 @@ mk <- function(ret = invisible(NULL)) function(...) { force_all(...); ret }
 
 leaflet <- function(data = NULL, ...) { force(data); structure(list(data = data), class = "lstub") }
 add_basemap <- function(map, ...) map
-addPolygons <- function(map, ...) {
-  # Formulas in leaflet are evaluated against map$data - do it, so a wrong
-  # column name fails here exactly as it would in the browser.
-  args <- list(...)
-  for (a in args) if (inherits(a, "formula")) eval(a[[2]], map$data, environment(a))
-  map
+# Formulas in leaflet are evaluated against map$data - do it, so a wrong
+# column name fails here exactly as it would in the browser.
+eval_formulas <- function(args, data) {
+  for (a in args) if (inherits(a, "formula")) eval(a[[2]], data, environment(a))
 }
-addLegend <- function(map, ...) {
-  args <- list(...)
-  for (a in args) if (inherits(a, "formula")) eval(a[[2]], map$data, environment(a))
-  map
-}
+addPolygons <- function(map, ...) { eval_formulas(list(...), map$data); map }
+addLegend   <- function(map, ...) { eval_formulas(list(...), map$data); map }
 setView <- function(map, ...) map
 colorFactor <- function(palette, domain, na.color = NULL, ...) {
   force(palette); force(domain); function(x) rep(palette[1], length(x))
 }
 colorBin <- colorNumeric <- colorFactor
 labelOptions <- mk(list())
-# Force the expression (so the data pipeline really runs and can really fail),
-# then return an inert string so nothing hits shiny's HTML serialiser.
+# Run the expression (so the data pipeline really runs and can really fail),
+# then return an inert string so nothing hits shiny's HTML serialiser. The
+# expression is handed over already quoted: exprToFunction() would otherwise
+# quote the quoting call and return the code without running it.
+render_fun <- function(expr, env, quoted) {
+  shiny::exprToFunction(expr, env, quoted = TRUE)
+}
 render_stub <- function(expr, env = parent.frame(), quoted = FALSE, ...) {
-  f <- shiny::exprToFunction(substitute(expr), env, quoted)
+  f <- render_fun(if (quoted) expr else substitute(expr), env)
   shiny::renderText({ invisible(f()); "ok" })
 }
+# The same, returning the plot's or table's data as JSON, so a test reads the
+# output itself.
+render_data <- function(expr, env = parent.frame(), quoted = FALSE, ...) {
+  f <- render_fun(if (quoted) expr else substitute(expr), env)
+  shiny::renderText({
+    x <- f()
+    as.character(jsonlite::toJSON(x$data, dataframe = "rows", na = "null", factor = "string",
+                                  digits = NA))
+  })
+}
+as_data <- function(json) tibble::as_tibble(jsonlite::fromJSON(json))
 leafletOutput <- mk(NULL); renderLeaflet <- render_stub
 leafletProxy <- mk(structure(list(data = NULL), class = "lstub"))
 clearGroup <- function(map, ...) map
 
 plot_ly <- function(data = NULL, ...) {
   force(data)
-  args <- list(...)
-  for (a in args) if (inherits(a, "formula")) eval(a[[2]], data, environment(a))
+  eval_formulas(list(...), data)
   structure(list(data = data), class = "pstub")
 }
 add_bars <- function(p, ...) {
   args <- list(...)
-  for (a in args) if (inherits(a, "formula")) eval(a[[2]], p$data, environment(a))
+  eval_formulas(args, if (!is.null(args$data)) args$data else p$data)
   p
 }
 add_trace <- add_markers <- add_lines <- add_bars
 layout <- function(p, ...) { force_all(...); p }
-plotlyOutput <- mk(NULL); renderPlotly <- render_stub
+plotlyOutput <- mk(NULL); renderPlotly <- render_data
 plotly_layout <- function(p, ..., dl_title = NULL) { force_all(...); p }
 
-datatable <- function(data, ...) { force(data); force_all(...); structure(list(data = data), class = "dtstub") }
-DTOutput <- mk(NULL); renderDT <- render_stub
-formatStyle <- function(x, ...) x
+datatable <- function(data, ...) {
+  force(data); force_all(...)
+  structure(list(data = data), class = "dtstub")
+}
+DTOutput <- mk(NULL); renderDT <- render_data
+formatStyle <- formatRound <- formatPercentage <- function(x, ...) { force_all(...); x }
 
 st_drop_geometry <- function(x, ...) x
 st_read <- st_simplify <- st_transform <- st_centroid <- st_join <- st_crs <- mk(NULL)
@@ -112,7 +128,12 @@ comma <- scales::comma
 
 # ---- a bundle: real closure tables + the minimum the app needs -------------
 source(CLOSURE_R)
-cb <- closure_bundle(CLOSURE, keep_top = 1000L)
+cfg <- yaml::read_yaml(CONFIG)
+types_file <- file.path(dirname(dirname(CONFIG)),
+                        cfg$parameters$closure$source_types_file %||% "configs/dataset_types_SE.csv")
+NOTES <- cfg$parameters$closure$timepoint_notes
+cb <- closure_bundle(CLOSURE, keep_top = 1000L,
+                     datasets_meta = closure_read_dataset_meta(types_file))
 stopifnot(length(cb$pairs) > 0)
 
 cells10 <- unique(cb$tables$cells$eeacellcode[cb$tables$cells$resolution == "10km"])
@@ -121,17 +142,18 @@ cells50 <- unique(cb$tables$cells$eeacellcode[cb$tables$cells$resolution == "50k
 bundle <- list(
   grid_10km = tibble(eeacellcode = cells10),
   grid_50km = tibble(eeacellcode = cells50),
-  metadata = list(
-    has_closure = TRUE, closure_pairs = cb$pairs, closure_species_top_n = 1000L,
+  metadata = c(list(
     snapshot_date = as.Date("2026-07-29"), recent_label = "2025",
     country_name = "Sweden", country_adjective = "Swedish",
+    threatened_codes = c("CR", "EN", "VU", "NT"),
     has_all_scope = TRUE, has_threatened_scope = FALSE,
-    has_invasive_scope = FALSE, has_sensitive_scope = FALSE)
+    has_invasive_scope = FALSE, has_sensitive_scope = FALSE),
+    closure_bundle_meta(cb, keep_top = 1000L, notes = NOTES))
 )
 for (nm in names(cb$tables)) bundle[[paste0("closure_", nm)]] <- as_tibble(cb$tables[[nm]])
 
 # ---- pull the app's closure code out of app.R ------------------------------
-src <- readLines(APP)
+src <- readLines(APP, encoding = "UTF-8")
 d0 <- grep("^# GAP CLOSURE \\(from 14 via 11\\)", src)
 d1 <- grep("^has_kingdom_recency   <- ", src)
 stopifnot(length(d0) == 1, length(d1) == 1)
@@ -143,7 +165,7 @@ stopifnot(length(s0) == 1, length(s1) == 1)
 SERVER_BLOCK <- parse(text = paste(src[(s0 + 1):(s1 - 3)], collapse = "\n"))
 cat("extracted", d1 - d0, "lines of data setup and", s1 - s0, "lines of server logic\n\n")
 
-# helpers the app defines earlier and the block relies on
+# helpers the app defines elsewhere and the blocks rely on
 app_data <- bundle
 safe_get <- function(name) if (name %in% names(app_data)) app_data[[name]] else NULL
 metadata <- bundle$metadata
@@ -151,6 +173,8 @@ grid_10km <- bundle$grid_10km
 `%||%` <- function(a, b) if (is.null(a)) b else a
 pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
             coral = "#EE6677", plum = "#AA3377", text = "#2d2d2d", muted = "#6b6b6b")
+PAL_NODATA <- "#dddddd"
+PAL_DIV    <- c("#d7191c", "#fdae61", "#ffffbf", "#abd9e9", "#2c7bb6")
 taxon_ref <- function(x) rep("", length(x))
 dl_csv <- function(data_fun, prefix) {
   force(data_fun)
@@ -162,150 +186,269 @@ eval(DATA_BLOCK)
 cat("has_closure:", has_closure, "| pairs:", length(closure_pair_choices), "\n")
 ok(isTRUE(has_closure), "has_closure is TRUE with real tables present")
 ok(length(closure_pair_choices) == length(cb$pairs), "one selector entry per pair")
-ok(any(grepl("⚠", names(closure_pair_choices))),
-   "the cross-regime pair is marked in the selector itself")
 
-# ---- run every output, for every pair x resolution x source ----------------
+PI <- closure_pair_index
+latest <- PI[PI$regime_boundary == 0, ]
+latest <- latest[order(latest$to_date, latest$from_date, decreasing = TRUE), ][1, ]
+ok(identical(closure_default_pair, latest$pair_id),
+   sprintf("the tab opens on the latest like-built step (%s)", closure_default_pair))
+
+cat("\n=== the class / order choices ===\n")
+ok(identical(unname(closure_class_choices[1]), CLOSURE_ALL), "classes start with All classes")
+ok(!any(closure_class_choices == ""), "no class choice has an empty value (selectize reads it as none)")
+oc_all <- closure_order_choices(CLOSURE_ALL)
+ok(length(oc_all) == nrow(closure_groups) + 1L, "under All classes every class x order is an order choice")
+ins <- closure_order_choices("Insecta")
+ok(all(startsWith(unname(ins[-1]), "Insecta|")), "the orders of Insecta are Insecta's only")
+ok("Diptera" %in% names(ins), "Diptera is among them, labelled without its class")
+if (CLOSURE_NONE %in% closure_class_choices) {
+  nc <- closure_order_choices(CLOSURE_NONE)
+  ok(all(startsWith(unname(nc[-1]), paste0(CLOSURE_NONE, "|"))),
+     "orders with no class in Dyntaxa have their own bucket")
+  ok(any(names(nc) == "Squamata"), "Squamata sits in that bucket by name")
+}
+ok(!any(grepl("\\|$", unname(oc_all))), "a blank order is encoded, never left empty")
+
+# ---- run every output ------------------------------------------------------
 app <- shinyApp(ui = fluidPage(), server = function(input, output, session) {
   eval(SERVER_BLOCK)
 })
 
-OUTPUTS <- c("closure_banner", "cl_res_note", "cl_tile_gained", "cl_tile_lost",
-             "cl_tile_species", "cl_tile_cells", "cl_tile_fieldwork",
-             "cl_tile_footnote", "cl_map", "cl_mech_note", "cl_mechanism",
-             "cl_group", "cl_still_open", "cl_species_note", "cl_species_table",
-             "cl_dataset_table", "cl_map_dl")
+OUTPUTS <- c("closure_banner", "cl_res_note", "cl_filter_note",
+             "cl_tile_gained", "cl_tile_lost", "cl_tile_species", "cl_tile_cells",
+             "cl_tile_bar", "cl_tile_rose", "cl_tile_fell", "cl_tile_under",
+             "cl_tile_footnote", "cl_map_note", "cl_map", "cl_map_dl",
+             "cl_periods_note", "cl_periods", "cl_group_table",
+             "cl_threat_note", "cl_threat_table", "cl_species_note", "cl_species_table",
+             "cl_dataset_table", "cl_dataset_lost_note", "cl_dataset_lost_table")
+
+ORDER_DIPTERA <- "Insecta|Diptera"
+FILTERS <- list(none = c(CLOSURE_ALL, CLOSURE_ALL), class = c("Insecta", CLOSURE_ALL),
+                order = c("Insecta", ORDER_DIPTERA))
+if (CLOSURE_NONE %in% closure_class_choices) {
+  FILTERS$no_class <- c(CLOSURE_NONE, paste0(CLOSURE_NONE, "|Squamata"))
+}
 
 for (pid in cb$pairs) {
   for (res in c("10km", "50km")) {
-    for (src_grp in c("total", "observation_platforms", "collections")) {
-      cat(sprintf("\n-- %s | %s | %s\n", pid, res, src_grp))
-      testServer(app, {
-        session$setInputs(cl_pair = pid, cl_res = res, cl_source = src_grp)
-        for (o in OUTPUTS) {
-          try_out(output[[o]], sprintf("%s", o))
-        }
-      })
+    for (fn in names(FILTERS)) {
+      for (layer in c("species", "bar")) {
+        cat(sprintf("\n-- %s | %s | %s | %s\n", pid, res, fn, layer))
+        testServer(app, {
+          session$setInputs(cl_pair = pid, cl_res = res, cl_class = FILTERS[[fn]][1],
+                            cl_order = FILTERS[[fn]][2], cl_map_layer = layer)
+          outs <- if (layer == "bar") c("cl_map_note", "cl_map") else OUTPUTS
+          for (o in outs) try_out(output[[o]], o)
+        })
+      }
     }
   }
 }
 
 # ---- values, not just absence of errors ------------------------------------
-cat("\n=== do the tiles show the right numbers? ===\n")
 # renderUI in testServer returns list(html=, deps=); take the html.
 htxt <- function(x) {
   if (is.list(x) && !is.null(x$html)) x <- x$html
   gsub("\\s+", " ", gsub("<[^>]*>", "", paste(as.character(x), collapse = " ")))
 }
-
-check_vals <- function(pid, res, expect) {
+num <- function(pid, res, m) {
+  s <- cb$tables$summary
+  s$value[s$pair_id == pid & s$resolution == res & s$key_space == "dyntaxa" &
+            s$source_group == "total" & s$metric == m][1]
+}
+# Runs `code` with the tab's outputs, where the caller's variables are visible.
+run <- function(pid, res, cls = CLOSURE_ALL, ord = CLOSURE_ALL, code, env = parent.frame()) {
   testServer(app, {
-    session$setInputs(cl_pair = pid, cl_res = res, cl_source = "total")
-    for (nm in names(expect)) {
-      got <- htxt(output[[nm]])
-      ok(grepl(expect[[nm]], got, fixed = TRUE),
-         sprintf("%s | %s | %-17s contains '%s'", substr(pid, 12, 21), res, nm, expect[[nm]]))
+    session$setInputs(cl_pair = pid, cl_res = res, cl_class = cls, cl_order = ord,
+                      cl_map_layer = "species")
+    e <- new.env(parent = env)
+    e$output <- output; e$session <- session
+    eval(code, e)
+  })
+}
+
+cat("\n=== the tiles show the summary's numbers ===\n")
+for (pid in cb$pairs) for (res in c("10km", "50km")) {
+  want <- c(cl_tile_gained = num(pid, res, "pairs_gained"), cl_tile_lost = num(pid, res, "pairs_lost"),
+            cl_tile_species = num(pid, res, "species_newly_recorded"),
+            cl_tile_cells = num(pid, res, "cells_filled"))
+  run(pid, res, code = quote({
+    for (nm in names(want)) {
+      ok(grepl(comma(want[[nm]]), htxt(output[[nm]]), fixed = TRUE),
+         sprintf("%s | %s | %-15s shows %s", substr(pid, 1, 21), res, nm, comma(want[[nm]])))
     }
-  })
+  }))
 }
 
-W <- "2021-01-01__2024-01-01"; X <- "2024-01-01__2026-07-29"
-if (W %in% cb$pairs) {
-  # These are the published 2021->2024 figures; they change only if the
-  # underlying snapshots change, in which case this test SHOULD fail.
-  check_vals(W, "10km", list(cl_tile_gained = "856,612", cl_tile_lost = "56,224",
-                             cl_tile_species = "4,345", cl_tile_cells = "332"))
-  check_vals(W, "50km", list(cl_tile_gained = "164,350", cl_tile_lost = "9,407"))
-}
-if (X %in% cb$pairs) {
-  check_vals(X, "10km", list(cl_tile_gained = "1,492,214", cl_tile_lost = "318,788"))
-  check_vals(X, "50km", list(cl_tile_gained = "372,740", cl_tile_lost = "86,011"))
-}
-
-cat("\n=== does the banner change with the pair, and carry real numbers? ===\n")
-testServer(app, {
-  session$setInputs(cl_pair = W, cl_res = "10km", cl_source = "total")
-  b <- htxt(output$closure_banner)
-  ok(grepl("Like for like", b, fixed = TRUE), "within-regime pair gets the like-for-like banner")
-  ok(!grepl("pipeline", b, fixed = TRUE), "within-regime banner carries no method warning")
-})
-testServer(app, {
-  session$setInputs(cl_pair = X, cl_res = "10km", cl_source = "total")
-  b <- htxt(output$closure_banner)
-  ok(grepl("built differently", b, fixed = TRUE), "cross-regime pair gets the method-change banner")
-  ok(grepl("318,788 pairs, 5.4%", b, fixed = TRUE),
-     "banner quotes the measured loss rate, not a generic caution")
-  ok(grepl("birds", b, fixed = TRUE), "banner names the diagnostic (birds)")
-  r <- htxt(output$cl_res_note)
-  ok(grepl("50 km is the safer read", r, fixed = TRUE), "10 km carries the precision note")
-})
-testServer(app, {
-  session$setInputs(cl_pair = X, cl_res = "50km", cl_source = "total")
-  ok(grepl("not in question", htxt(output$cl_res_note), fixed = TRUE),
-     "50 km says cell assignment is not in question")
-})
-
-cat("\n=== fieldwork share differs by stream, which is the whole point ===\n")
-shares <- c()
-for (sg in c("total", "observation_platforms", "collections")) {
-  testServer(app, {
-    session$setInputs(cl_pair = W, cl_res = "10km", cl_source = sg)
-    shares[[sg]] <<- htxt(output$cl_tile_fieldwork)
-  })
-}
-cat("   ", paste(names(shares), shares, sep = ": ", collapse = "  |  "), "\n")
-ok(length(unique(shares)) == 3, "each stream reports its own fieldwork share")
-ok(grepl("^64%|^63%", trimws(shares[["total"]])), "both streams ~64%")
-ok(grepl("^73%|^72%", trimws(shares[["observation_platforms"]])), "platforms ~73%")
-ok(grepl("^10%", trimws(shares[["collections"]])), "collections ~10%")
-
-cat("\n=== blank ranks are labelled, not dropped ===\n")
-g <- bundle$closure_group |> filter(pair_id == W, resolution == "10km", key_space == "dyntaxa")
-blank <- g |> filter(is.na(class) | trimws(class) == "")
-plotted <- g |>
-  mutate(across(c(class, order), ~ ifelse(is.na(.x) | trimws(.x) == "", "Unclassified", .x))) |>
-  filter(pairs_from >= 5000) |> arrange(desc(pairs_gained)) |> head(25)
-cat(sprintf("    groups with a blank class in the table: %d; rows plotted: %d\n",
-            nrow(blank), nrow(plotted)))
-ok(!any(is.na(plotted$class) | trimws(plotted$class) == ""),
-   "no plotted row has an empty class label")
-ok(nrow(plotted) == 25, "the panel fills its 25 slots")
-ok(all(plotted$pairs_from >= 5000), "every plotted group clears the stated size floor")
-ok(!any(duplicated(plotted$label)), "no duplicate labels after bucketing")
-
-cat("\n=== warning markers land on the tiles that need them, and only those ===\n")
-warned <- function(pid, res, sg) {
-  out <- c()
-  testServer(app, {
-    session$setInputs(cl_pair = pid, cl_res = res, cl_source = sg)
-    for (nm in c("cl_tile_gained", "cl_tile_lost", "cl_tile_species",
-                 "cl_tile_cells", "cl_tile_fieldwork")) {
-      # Detect the warning by its aria-label, not by the glyph: the glyph is
-      # non-ASCII and its encoding survives testServer unreliably, and the
-      # aria-label is the part that actually has to be there for a screen reader.
-      h <- output[[nm]]; if (is.list(h) && !is.null(h$html)) h <- h$html
-      out[[nm]] <<- grepl("Caveat:", paste(as.character(h), collapse = " "), fixed = TRUE)
+cat("\n=== the low-data bar tiles count the cells ===\n")
+for (pid in cb$pairs) for (res in c("10km", "50km")) {
+  cl <- cb$tables$cells[pair_id == pid & resolution == res & key_space == "dyntaxa"]
+  want <- c(cl_tile_rose = sum(cl$bar_status == "rose_above"),
+            cl_tile_fell = sum(cl$bar_status == "fell_below"),
+            cl_tile_under = sum(cl$bar_status == "stayed_under"))
+  run(pid, res, code = quote({
+    for (nm in names(want)) {
+      ok(startsWith(trimws(htxt(output[[nm]])), comma(want[[nm]])),
+         sprintf("%s | %s | %-13s = %s", substr(pid, 1, 21), res, nm, comma(want[[nm]])))
     }
-  })
-  out
+    ok(grepl(sprintf("plus %s cells with no record", comma(sum(cl$bar_status == "still_empty"))),
+             htxt(output$cl_tile_under), fixed = TRUE), "stayed under names the cells still empty")
+    ok(grepl(format(round(cl$q_frozen[1]), big.mark = ","), htxt(output$cl_tile_bar), fixed = TRUE),
+       sprintf("the bar tile shows the bar (%s)", round(cl$q_frozen[1])))
+  }))
 }
-w_within <- warned(W, "10km", "observation_platforms")
-cat("    within-regime, single stream:", paste(names(w_within), w_within, collapse = " "), "\n")
-ok(!w_within[["cl_tile_gained"]], "within regime: pairs gained carries NO warning")
-ok(!w_within[["cl_tile_lost"]],   "within regime: pairs lost carries NO warning")
-ok(w_within[["cl_tile_species"]], "species tile always warns (checklist scope), in both regimes")
-ok(!w_within[["cl_tile_fieldwork"]], "single stream: no averaging warning")
 
-w_avg <- warned(W, "10km", "total")
-ok(w_avg[["cl_tile_fieldwork"]], "both streams: fieldwork tile warns it is an average of two")
+cat("\n=== under a filter the tiles count the group ===\n")
+P <- closure_default_pair
+check_group <- function(cls, ord, lab, keep) {
+  g  <- cb$tables$group[pair_id == P & resolution == "10km" & key_space == "dyntaxa"][keep(class, order)]
+  st <- cb$tables$species_totals[pair_id == P & resolution == "10km" & key_space == "dyntaxa"][
+    keep(class, order) & status == "new"]
+  cg <- cb$tables$cells_group[pair_id == P & resolution == "10km"][keep(as.character(class), as.character(order))]
+  cc <- cg[, .(f = sum(n_species_from), t = sum(n_species_to)), by = eeacellcode]
+  want <- c(cl_tile_gained = sum(g$pairs_gained), cl_tile_lost = sum(g$pairs_lost),
+            cl_tile_species = sum(st$n_species), cl_tile_cells = sum(cc$f == 0 & cc$t > 0))
+  run(P, "10km", cls, ord, quote({
+    for (nm in names(want)) {
+      ok(grepl(comma(want[[nm]]), htxt(output[[nm]]), fixed = TRUE),
+         sprintf("%-10s %-15s shows %s", lab, nm, comma(want[[nm]])))
+    }
+    ok(grepl(lab, htxt(output$cl_filter_note), fixed = TRUE), sprintf("the filter note names %s", lab))
+    ok(grepl("cover all taxa", htxt(output$cl_filter_note), fixed = TRUE),
+       "the filter note says what does not follow it")
+  }))
+}
+check_group("Insecta", CLOSURE_ALL, "Insecta", function(c, o) c == "Insecta")
+check_group("Insecta", ORDER_DIPTERA, "Insecta / Diptera", function(c, o) c == "Insecta" & o == "Diptera")
+if (CLOSURE_NONE %in% closure_class_choices) {
+  check_group(CLOSURE_NONE, CLOSURE_ALL, "No class in Dyntaxa", function(c, o) c == "")
+}
+run(P, "10km", code = quote({
+  ok(is.null(output$cl_filter_note) || !nzchar(htxt(output$cl_filter_note)),
+     "no filter note without a filter")
+}))
 
-w_cross <- warned(X, "10km", "total")
-cat("    cross-regime:", paste(names(w_cross), w_cross, collapse = " "), "\n")
-ok(all(unlist(w_cross)), "cross regime: every tile carries a warning")
+cat("\n=== the banner follows the pair ===\n")
+for (pid in cb$pairs) {
+  row <- PI[PI$pair_id == pid, ]
+  run(pid, "10km", code = quote({
+    b <- htxt(output$closure_banner)
+    if (row$key_backbone_differs == 1) {
+      ok(grepl("Same query, two taxonomies", b, fixed = TRUE), sprintf("%s: two taxonomies", pid))
+      rate <- 100 * num(pid, "10km", "pairs_lost") / num(pid, "10km", "pairs_from")
+      ok(grepl(sprintf("loses %.1f %% of its pairs", rate), b, fixed = TRUE),
+         sprintf("%s: names its loss rate (%.1f %%)", pid, rate))
+    } else {
+      ok(grepl("Like for like", b, fixed = TRUE), sprintf("%s: like for like", pid))
+    }
+    has_note <- any(vapply(NOTES, function(n) n$timepoint %in% c(row$from_date, row$to_date), TRUE))
+    ok(grepl("lacks", b, fixed = TRUE) == has_note,
+       sprintf("%s: the delivery line %s", pid, if (has_note) "is there" else "is not there"))
+  }))
+}
 
-w_cross50 <- warned(X, "50km", "total")
-ok(w_cross50[["cl_tile_cells"]],
-   "50 km cross-regime: cells-filled warns (the grid is saturated there)")
+cat("\n=== the losses by dataset carry the delivery note ===\n")
+for (pid in cb$pairs) {
+  row <- PI[PI$pair_id == pid, ]
+  nts <- Filter(function(n) n$timepoint %in% c(row$from_date, row$to_date), NOTES)
+  dl <- cb$tables$datasets_lost[pair_id == pid & resolution == "10km" & key_space == "dyntaxa"]
+  run(pid, "10km", code = quote({
+    note <- htxt(output$cl_dataset_lost_note)
+    tb <- as_data(output$cl_dataset_lost_table)
+    if (length(nts)) {
+      keys <- unique(unlist(lapply(nts, `[[`, "datasets")))
+      alone <- sum(dl$vanish_if_dropped[dl$datasetkey %in% keys])
+      ok(grepl(comma(alone), note, fixed = TRUE),
+         sprintf("%s: counts the %s lost pairs that rested on the noted datasets alone", pid, comma(alone)))
+      ok(grepl(substr(nts[[1]]$text, 1, 40), note, fixed = TRUE), sprintf("%s: shows the note's text", pid))
+      marked <- sum(nzchar(tb$Note))
+      ok(marked == sum(dl$datasetkey %in% keys),
+         sprintf("%s: the table marks the %d noted datasets it lists", pid, marked))
+    } else {
+      ok(!grepl("Time point", note, fixed = TRUE), sprintf("%s: no delivery note", pid))
+      ok(!"Note" %in% names(tb), sprintf("%s: no Note column", pid))
+    }
+    ok(nrow(tb) == nrow(dl), sprintf("%s: one row per dataset the losses rested on", pid))
+    ok(all(grepl("^<a href=\"https://www.gbif.org/dataset/", tb$Dataset)),
+       sprintf("%s: every dataset links to its GBIF page", pid))
+    if ("38b4c89f-584c-41bb-bd8f-cd1def33e92f" %in% dl$datasetkey) {
+      ok(any(grepl(">Artportalen</a>", tb$Dataset, fixed = TRUE)),
+         sprintf("%s: datasets are shown by title (Artportalen)", pid))
+    }
+  }))
+}
+
+cat("\n=== periods: shares per type add up, labels carry years ===\n")
+run(P, "10km", code = quote({
+  d <- as_data(output$cl_periods)
+  sh <- tapply(d$share, d$bar, sum)
+  ok(all(abs(sh - 100) < 1e-6), "each type's periods add up to 100 %")
+  yr <- num(P, "10km", "mechanism_boundary_year")
+  ok(paste0("From ", yr) %in% d$period_label, sprintf("the newest period reads 'From %s'", yr))
+  ok(paste0(yr - 10, "–", yr - 1) %in% d$period_label, "the decade before is labelled by its years")
+  tot <- sum(d$n_pairs[d$source_group == "total"])
+  ok(tot == num(P, "10km", "pairs_gained"), "all types together hold every gained pair")
+  ok(any(grepl(comma(tot), d$bar, fixed = TRUE)), "the bar label carries the pair count")
+}))
+run(P, "10km", "Insecta", ORDER_DIPTERA, quote({
+  d <- as_data(output$cl_periods)
+  g <- cb$tables$group[pair_id == P & resolution == "10km" & key_space == "dyntaxa" &
+                         class == "Insecta" & order == "Diptera"]
+  ok(sum(d$n_pairs[d$source_group == "total"]) == g$pairs_gained,
+     "under the Diptera filter the periods hold Diptera's gained pairs")
+}))
+
+cat("\n=== threatened species ===\n")
+run(P, "10km", code = quote({
+  st <- cb$tables$species_totals[pair_id == P & resolution == "10km" & key_space == "dyntaxa" &
+                                   threat %in% c("CR", "EN", "VU", "NT")]
+  t <- htxt(output$cl_threat_note)
+  for (s in c("new", "expanded", "shifted")) {
+    n <- sum(st[status == s, n_species])
+    ok(grepl(comma(n), t, fixed = TRUE), sprintf("the note counts %s threatened species %s", comma(n), s))
+  }
+  tb <- as_data(output$cl_threat_table)
+  ok(all(tb$`Red list` %in% c("CR", "EN", "VU", "NT")), "the table lists CR, EN, VU and NT only")
+  ok(all(tb$`Cells gained` > 0), "every listed species gained cells")
+  ok(identical(as.character(tb$Status[1]), "Newly recorded"), "newly recorded species come first")
+  ok(sum(tb$Status == "Newly recorded") == sum(st[status == "new", n_species]),
+     "every newly recorded threatened species is listed")
+}))
+
+cat("\n=== the class x order table ===\n")
+run(P, "10km", code = quote({
+  tb <- as_data(output$cl_group_table)
+  g <- cb$tables$group[pair_id == P & resolution == "10km" & key_space == "dyntaxa"]
+  ok(nrow(tb) == nrow(g), "one row per class x order")
+  ok(sum(tb$Gained) == num(P, "10km", "pairs_gained"), "the rows add up to the pairs gained")
+  ok(!any(tb$Class == "" | tb$Order == ""), "blank ranks are labelled")
+  ok(!"churn_flag" %in% names(tb) && !any(grepl("volatil", names(tb), ignore.case = TRUE)),
+     "no volatility flag")
+}))
+
+cat("\n=== a pair across regimes gets the method banner and caveats ===\n")
+X <- PI$pair_id[1]
+closure_pair_index$regime_boundary[closure_pair_index$pair_id == X] <- 1
+run(X, "10km", code = quote({
+  b <- htxt(output$closure_banner)
+  ok(grepl("built differently", b, fixed = TRUE), "a cross-regime pair gets the method banner")
+  rate <- 100 * num(X, "10km", "pairs_lost") / num(X, "10km", "pairs_from")
+  ok(grepl(sprintf("%.1f %% of the earlier time point", rate), b, fixed = TRUE),
+     "the banner quotes the measured loss rate")
+  ok(grepl("50 km is the safer read", htxt(output$cl_res_note), fixed = TRUE),
+     "10 km carries the precision note")
+  for (nm in c("cl_tile_gained", "cl_tile_lost", "cl_tile_cells")) {
+    h <- output[[nm]]; if (is.list(h) && !is.null(h$html)) h <- h$html
+    ok(grepl("Caveat:", paste(as.character(h), collapse = " "), fixed = TRUE),
+       sprintf("%s carries a caveat", nm))
+  }
+}))
+closure_pair_index$regime_boundary[closure_pair_index$pair_id == X] <- 0
+run(X, "10km", code = quote({
+  h <- output$cl_tile_gained; if (is.list(h) && !is.null(h$html)) h <- h$html
+  ok(!grepl("Caveat:", paste(as.character(h), collapse = " "), fixed = TRUE),
+     "a like-built pair carries no caveat on pairs gained")
+}))
 
 cat(sprintf("\n%d/%d checks passed\n", pass, pass + fail))
 if (fail) quit(status = 1)

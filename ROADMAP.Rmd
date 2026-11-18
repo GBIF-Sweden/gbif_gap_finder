@@ -94,8 +94,8 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
   every tab (*Build deps image*); every Tuesday *Weekly status* checks the live app, the
   GBIF API and the checklists the pipeline reads.
 - **Data:** the GBIF cubes of 29 July 2026; the refresh is next (Part 2, A).
-- **Gaps filled:** built and under review; hidden in the app until
-  `GAP_FINDER_SHOW_GAPS_FILLED=true`.
+- **Gaps filled:** built and reviewed; hidden in the app until its release
+  (`GAP_FINDER_SHOW_GAPS_FILLED=true`).
 - **Norway:** scaffolded (`config_NO.yml`, feature flags); not yet re-run against the
   current pipeline.
 - **Disclaimer:** Built with AI assistance (Anthropic's Claude).
@@ -143,11 +143,13 @@ Ordered from next up down to exploratory ideas.
   release. It waits until the NRM bird and mammal collections are back on GBIF with
   coordinates, and brings the newer checklists with it (Dyntaxa of 11 November 2026).
 
-- [ ] 🚧 **Gaps filled — review and release.** Built (time points 2021-01-01, 2024-01-01
-  and the live cube; closure tables from script 14) and hidden in the app meanwhile. Next:
-  a current snapshot produced with the same query as the 2021 and 2024 snapshots, so
-  long-term comparisons stay within one data source; then the review, and the tab switched
-  on.
+- [ ] 🚧 **Gaps filled — review and release.** Time points: GBIF Sweden's snapshots of
+  2021-01-01, 2024-01-01 and 2026-10-01, compared snapshot with snapshot; the snapshot and
+  the cube of the same moment are compared once, as the bridge (script 15). Reviewed on
+  17 November 2026 and rebuilt on that basis: source types, periods of the records, losses
+  by dataset, a class → order filter and the low-data bar held fixed. Hidden in the app
+  until the release. Open before it: species that match Dyntaxa by name at one end of a
+  pair only, where the two ends use different GBIF taxonomies.
 
 ## B. Larger features (planned — scope & timing TBD)
 

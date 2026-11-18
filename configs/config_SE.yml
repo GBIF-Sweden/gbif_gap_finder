@@ -176,6 +176,25 @@ parameters:
     # the rest by their main record type. A dataset not on the list counts as
     # "other"; script 14 names it.
     source_types_file: "configs/dataset_types_SE.csv"
+    # Datasets a time point lacks although the time points around it hold them.
+    # Their pairs count as lost (or gained) in every pair with that time point;
+    # the Gaps filled tab shows the text, marks the datasets in its table of
+    # losses and counts the pairs that rested on them alone.
+    timepoint_notes:
+      - timepoint: "2026-10-01"
+        datasets:
+          - fe35d6a0-0c6e-11dd-84d2-b8a03c50a862   # Fungi (S)
+          - 9070a460-0c6e-11dd-84d2-b8a03c50a862   # Mosses (S)
+          - 40d2de00-0c6e-11dd-84d2-b8a03c50a862   # Algae (S)
+          - f2ec825d-145a-42fd-9bfe-a411a557bc47   # Invertebrates (Type Specimens), NRM
+        text: >-
+          Four collection datasets of the Swedish Museum of Natural History
+          (NRM), Fungi (S), Mosses (S), Algae (S) and the invertebrate type
+          specimens, are in the snapshots of 2021 and 2024 but not in the
+          snapshot of 1 October 2026. NRM republished the three herbarium
+          datasets after 2024; GBIF's occurrence cube of July 2026 holds all
+          four. NRM's bird and mammal collections are in none of the
+          snapshots, so they count in no pair.
   spatial:
     quantile_thresholds: [0.05, 0.10, 0.25]
   temporal:

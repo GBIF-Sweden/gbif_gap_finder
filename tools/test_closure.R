@@ -344,13 +344,24 @@ eq(dsl2[datasetkey == "D2", touched_pct], 100, "the touched share is of all lost
 eq(dsl2[datasetkey == "D2", vanish_pct], 50, "the sole share is of all lost pairs")
 ok(!"D3" %in% dsl2$datasetkey, "a dataset that lost nothing is not listed")
 
-cli_h2("frozen thresholds")
+cli_h2("the low-data bar, frozen at the baseline")
 fz <- closure_frozen_low(cells, q = 0.10)
 eq(unique(fz$q_frozen), as.numeric(stats::quantile(c(13, 5, 7), 0.10, names = FALSE)),
-   "threshold comes from the BASELINE's non-zero cells only")
-eq(fz[eeacellcode == "C2", low_status], "improved", "C2 was below the frozen threshold and rose above it")
-eq(fz[eeacellcode == "C5", low_status], "worsened", "C5 is newly occupied but below the frozen threshold")
-eq(fz[eeacellcode == "C1", low_status], "not_low", "C1 was never low")
+   "the bar comes from the BASELINE's non-zero cells only (5.4)")
+eq(fz[eeacellcode == "C1", bar_status], "above", "C1 13 -> 23 is above the bar at both ends")
+eq(fz[eeacellcode == "C2", bar_status], "rose_above", "C2 5 -> 7 was under the bar and rose above it")
+eq(fz[eeacellcode == "C3", bar_status], "fell_below", "C3 7 -> 0 emptied: an empty cell is under the bar")
+eq(fz[eeacellcode == "C4", bar_status], "rose_above", "C4 0 -> 9 filled straight past the bar")
+eq(fz[eeacellcode == "C5", bar_status], "stayed_under",
+   "C5 0 -> 1 filled but stays under the bar: not a fall")
+ok(all(fz$bar_status %in% CLOSURE_BAR_STATUS), "every status is one of CLOSURE_BAR_STATUS")
+eq(closure_bar_status(0, 0, 5.4), "still_empty", "no record at either end is counted apart")
+eq(closure_bar_status(c(5.4, 5.5), c(5.5, 5.4), 5.4), c("rose_above", "fell_below"),
+   "a cell AT the bar is under it")
+eq(closure_bar_status(c(1, 9), c(2, 0), NA_real_), c(NA_character_, NA_character_),
+   "no bar (a baseline with no data) gives no status")
+eq(closure_frozen_low(cells[0], q = 0.10)$bar_status, character(),
+   "an empty cell table stays empty")
 
 cli_h2("summary")
 sm <- closure_summary(pf, pt, cells, sp, mech, key_space = "gbif",

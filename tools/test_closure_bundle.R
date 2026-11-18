@@ -18,14 +18,20 @@
 # ============================================================================
 
 CLOSURE_DIR <- Sys.getenv("CLOSURE_DIR", "")
+TYPES_FILE  <- Sys.getenv("TYPES_FILE", "")
 if (nzchar(CLOSURE_DIR)) {
   # Sandbox mode: no project setup, no arrow, no GBIF. Run from the repo root.
   suppressPackageStartupMessages({ library(data.table); library(cli) })
   source(file.path("R", "closure.R"))
+  if (!nzchar(TYPES_FILE)) TYPES_FILE <- file.path("configs", "dataset_types_SE.csv")
 } else {
   source(here::here("scripts", "00_setup.R"))
   source(here::here("R", "closure.R"))
   CLOSURE_DIR <- here::here(p_data_proc, "closure")
+  if (!nzchar(TYPES_FILE)) {
+    TYPES_FILE <- here::here(cfg_get("parameters.closure.source_types_file",
+                                     glue::glue("configs/dataset_types_{COUNTRY_CODE}.csv")))
+  }
 }
 
 fail <- 0L
@@ -49,7 +55,9 @@ if (!dir.exists(CLOSURE_DIR) ||
 
 THREAT   <- c("CR", "EN", "VU", "NT", "RE", "DD")
 KEEP_TOP <- 1000L
-cb <- closure_bundle(CLOSURE_DIR, keep_top = KEEP_TOP, threat_cats = THREAT)
+META     <- closure_read_dataset_meta(TYPES_FILE)
+cb <- closure_bundle(CLOSURE_DIR, keep_top = KEEP_TOP, threat_cats = THREAT,
+                     datasets_meta = META)
 
 cli_h2("shape")
 ok(length(cb$pairs) > 0, "at least one pair discovered")
@@ -107,6 +115,26 @@ if (is.null(dl)) {
      "the losses are read from the baseline's records, not from the later grain")
 }
 
+cli_h2("cells against the low-data bar")
+cl <- cb$tables$cells
+smy <- cb$tables$summary
+ok(all(cl$bar_status %in% CLOSURE_BAR_STATUS), "every cell has a bar status")
+ok(identical(cl$bar_status, closure_bar_status(cl$occ_from, cl$occ_to, cl$q_frozen)),
+   "the bar status follows the counts and the bar")
+ok(all(cl[, data.table::uniqueN(q_frozen), by = .(pair_id, resolution, key_space)]$V1 == 1L),
+   "one bar per pair x resolution x key space")
+se <- merge(
+  cl[, .(empty = sum(bar_status == "still_empty")), by = .(pair_id, resolution, key_space)],
+  smy[metric == "cells_never_filled" & source_group == "total",
+      .(pair_id, resolution, key_space, never = value)],
+  by = c("pair_id", "resolution", "key_space"))
+ok(nrow(se) > 0 && all(se$empty == se$never),
+   "cells with no record at either end are the summary's never-filled cells")
+ok(all(cl[status == "filled", bar_status] %in% c("rose_above", "stayed_under")),
+   "a filled cell rose above the bar or stayed under it")
+ok(all(cl[status == "regressed", bar_status] %in% c("fell_below", "stayed_under")),
+   "a regressed cell fell below the bar or stayed under it")
+
 cli_h2("periods and source types")
 mech <- cb$tables$mechanism
 ok(all(mech$period %in% CLOSURE_PERIODS), "every period is one of CLOSURE_PERIODS")
@@ -143,6 +171,40 @@ if (is.null(cg) || is.null(mg)) {
   m2 <- merge(sm[, .(pair_id, resolution, gained = pairs_gained)], mt, by = c("pair_id", "resolution"))
   ok(nrow(m2) == nrow(sm) && all(m2$grouped == m2$gained),
      "the periods per class x order add up to the pairs gained")
+}
+
+cli_h2("blank ranks and species totals per class x order")
+for (nm in c("group", "cells_group", "mechanism_group", "species", "species_totals")) {
+  tb <- cb$tables[[nm]]
+  if (is.null(tb)) next
+  ok(!anyNA(tb$class) && !anyNA(tb$order),
+     sprintf("%s: a blank class or order is \"\", never NA", nm))
+}
+st <- cb$tables$species_totals
+gs <- st[, .(n = sum(n_species)), by = .(pair_id, resolution, key_space, class, order)]
+gg <- cb$tables$group[, .(pair_id, resolution, key_space, class, order, n_species)]
+both <- merge(gg, gs, by = c("pair_id", "resolution", "key_space", "class", "order"), all = TRUE)
+ok(!anyNA(both$n) && !anyNA(both$n_species) && all(both$n == both$n_species),
+   "the species totals per class x order match the group table, group by group")
+nn <- merge(
+  st[status == "new", .(new = sum(n_species)), by = .(pair_id, resolution, key_space)],
+  smy[metric == "species_newly_recorded" & source_group == "total",
+      .(pair_id, resolution, key_space, value)],
+  by = c("pair_id", "resolution", "key_space"))
+ok(nrow(nn) > 0 && all(nn$new == nn$value),
+   "the new species per class x order add up to the summary's species newly recorded")
+
+cli_h2("dataset titles")
+if (is.null(META)) {
+  cli_alert_warning("No typed dataset list at {.path {TYPES_FILE}}; titles not checked")
+} else {
+  for (nm in c("datasets", "datasets_lost")) {
+    tb <- cb$tables[[nm]]
+    if (is.null(tb)) next
+    miss <- unique(tb[is.na(title), datasetkey])
+    ok(!length(miss), sprintf("%s: every dataset is on the typed list (%d missing%s)", nm,
+                              length(miss), if (length(miss)) paste0(": ", paste(utils::head(miss, 3), collapse = ", ")) else ""))
+  }
 }
 
 cli_h2("THE INVARIANT: totals are computed before the rows are thinned")

@@ -1,5 +1,43 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Gaps filled, after the review
+
+The tab stays behind `GAP_FINDER_SHOW_GAPS_FILLED` until the release.
+
+### Added
+
+- **The snapshot of 1 October 2026 as a time point** (`snapshot`, keyed in the Catalogue of
+  Life). Pairs are compared within one regime only: 2021 → 2024, 2021 → 2026-10-01 and
+  2024 → 2026-10-01. The snapshot and the cube of the same moment are compared once, as the
+  bridge (`scripts/15_bridge.R`).
+- **Source types:** `configs/dataset_types_SE.csv` types every dataset of every time point
+  as platform, monitoring, collection or other (1,362 datasets; the large ones by hand, the
+  rest by their main record type).
+- **Script 14:** losses by dataset (which datasets the lost pairs rested on), and per class
+  × order tables of cells and periods for the tab's filter.
+- **The tab, rebuilt on the review:** tiles for pairs gained and lost, species newly
+  recorded and cells filled, plus a row for cells against the low-data bar (rose above,
+  fell below, stayed under); a map of the change in species or of the bar; the age of the
+  records behind the gain, by period and source type; gains and losses of every class ×
+  order in one sortable table; threatened species in new cells; the datasets the gain and
+  the losses rest on, with titles. A class → order filter works on the tiles, the map, the
+  periods and the species tables. The banner names a pair whose ends use different GBIF
+  taxonomies, and `parameters.closure.timepoint_notes` names the datasets a time point
+  lacks (four NRM collection datasets in the snapshot of 1 October 2026).
+- `tools/preview_gaps_filled.R` shows the tab on the shipped bundle plus the tables of
+  script 14, without a data release.
+
+### Changed
+
+- **Periods replace "fieldwork / digitisation":** gained pairs by the year of their
+  earliest record (from the earlier time point's year on, the ten years before, 1950 to
+  then, before 1950, no year), within each source type.
+- **The low-data bar** counts a cell with no records as under the bar: a cell that fills
+  with few records stays under it, one that empties falls below it.
+- The volatility flag is gone; every group shows its loss % instead.
+- `tools/test_gaps_filled_tab.R` runs the code inside every plot and table (its stubs
+  returned the code unrun before) and checks the numbers against the tables.
+
 ## Unreleased — Image: renv pinned, APT snapshot, shinyWidgets dropped
 
 ### Changed
