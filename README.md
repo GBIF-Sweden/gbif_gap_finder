@@ -384,8 +384,9 @@ rmarkdown::render("analysis/gap_finder_report.Rmd",
 
 ## Deployment
 
-The Shiny app ships as a container image. A `v*` tag push builds and publishes it;
-nothing is deployed automatically from this repository.
+The Shiny app ships as a container image. A `v*` tag push builds and publishes it; a push
+to the branch `test-server` builds a test image (below). Nothing is deployed automatically
+from this repository.
 
 **What a tag push does** (`.github/workflows/publish-shiny-images.yml`):
 
@@ -397,6 +398,14 @@ nothing is deployed automatically from this repository.
 3. `.github/workflows/citation-version.yml` writes the version and date into
    `CITATION.cff` on the default branch as a follow-up commit — so `git pull` after a
    release, or the next push is rejected as non-fast-forward.
+
+**Test image** (`.github/workflows/publish-test-image.yml`): a push to the branch
+`test-server` builds the app image from that commit, the same way a release does, and pushes
+it as `ghcr.io/gbif-sweden/gap-finder:test` and `:test-<commit>`, for the test server. The
+app reports `test-<commit>` as its version. It never moves `latest` and does not touch
+`CITATION.cff`, so production is unaffected. `git push origin HEAD:test-server` sends the
+branch you are on (add `--force` when `test-server` holds another branch's history); the
+server then pulls `:test` again.
 
 **Dependency image** (`.github/workflows/build-deps-image.yml`, job `deps`): the system
 libraries and the R packages of `renv.lock` are built separately and pushed as
@@ -439,7 +448,7 @@ by hand on that branch (Actions → *Build deps image* → Run workflow → Use 
 | `GBIF_GAP_COUNTRY` | baked at build | Selects the bundle at `data/{CC}/shiny_data.rds` |
 | `GAP_FINDER_VERSION` | baked at build | Shown in the About panel; `dev` when unset |
 | `GAP_FINDER_BASEMAP` | `Esri.WorldGrayCanvas` | Any `leaflet.providers` name. An unknown name warns and falls back rather than rendering a blank map. Do not use a `CartoDB.*` provider: CARTO raster basemaps now require an API key and render an "API KEY REQUIRED" watermark |
-| `GAP_FINDER_SHOW_GAPS_FILLED` | `false` | `true` shows the **Gaps filled** tab. Off by default while the tab is under review; the closure data stays in the bundle either way. `Rscript tools/preview_gaps_filled.R` shows the tab locally, on the shipped bundle plus the tables of script 14 |
+| `GAP_FINDER_SHOW_GAPS_FILLED` | `true` | `false` hides the **Gaps filled** tab; the closure data stays in the bundle either way. `Rscript tools/preview_gaps_filled.R` shows the tab locally, on the shipped bundle plus the tables of script 14 |
 
 Run it locally:
 

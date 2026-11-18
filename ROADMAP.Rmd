@@ -70,8 +70,8 @@ The full pipeline runs end-to-end for Sweden, and the dashboard is live with nin
 
 **Live dashboard tabs:** Overview · Priorities · Spatial · Temporal · Taxonomic ·
 **Species of Concern** (Threatened / Invasive / Sensitive sub-tabs) · Publishers ·
-Record Types · Data & Sources. A tenth tab, **Gaps filled**, is built and stays hidden
-until the deployment sets `GAP_FINDER_SHOW_GAPS_FILLED=true`.
+Record Types · Data & Sources. A tenth tab, **Gaps filled**, is built and comes with the
+next release; until then it is on the test server (image `:test`) for review.
 
 Also live: a **persona "start here"** entry that jumps users to the tabs relevant to their
 role; **DOI + citation** for every dataset on the Data & Sources tab; selectable
@@ -94,8 +94,8 @@ Species Registry + Sensitive Species List, unified via `in_dyntaxa`, `is_invasiv
   every tab (*Build deps image*); every Tuesday *Weekly status* checks the live app, the
   GBIF API and the checklists the pipeline reads.
 - **Data:** the GBIF cubes of 29 July 2026; the refresh is next (Part 2, A).
-- **Gaps filled:** built and reviewed; hidden in the app until its release
-  (`GAP_FINDER_SHOW_GAPS_FILLED=true`).
+- **Gaps filled:** built and reviewed; on the test server for a second review, then in the
+  next release (v1.2.0) with the July data and the taxon-matching fixes.
 - **Norway:** scaffolded (`config_NO.yml`, feature flags); not yet re-run against the
   current pipeline.
 - **Disclaimer:** Built with AI assistance (Anthropic's Claude).
@@ -147,11 +147,11 @@ Ordered from next up down to exploratory ideas.
   2021-01-01, 2024-01-01 and 2026-10-01, compared snapshot with snapshot; the snapshot and
   the cube of the same moment are compared once, as the bridge (script 15). Reviewed on
   17 November 2026 and rebuilt on that basis: source types, periods of the records, losses
-  by dataset, a class → order filter and the low-data bar held fixed. Hidden in the app
-  until the release. Pairs across GBIF's switch of taxonomy are counted through GBIF's
-  mapping to the Catalogue of Life, hybrids left out. Open before it: a second review of the
-  plain-language texts; species that GBIF files under two Catalogue of Life names (e.g.
-  *Lycaena hippothoe*, *Botrychium multifidum*) still show up as new.
+  by dataset, a class → order filter and the low-data bar held fixed. On the test server
+  (image `:test`) until the release. Pairs across GBIF's switch of taxonomy are counted
+  through GBIF's mapping to the Catalogue of Life, hybrids left out. Open before it: a second
+  review of the plain-language texts; species that GBIF files under two Catalogue of Life
+  names (e.g. *Lycaena hippothoe*, *Botrychium multifidum*) still show up as new.
 
 ## B. Larger features (planned — scope & timing TBD)
 

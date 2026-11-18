@@ -193,8 +193,7 @@ a given run used.
 
 ### Gaps filled
 
-*Shown when the deployment switches it on (`GAP_FINDER_SHOW_GAPS_FILLED=true`); hidden while
-it is under review.*
+*A deployment can hide the tab (`GAP_FINDER_SHOW_GAPS_FILLED=false`).*
 
 What changed in GBIF's data for Sweden between two dates. Each date is a complete copy of
 GBIF's data for Sweden as it stood that day: 1 January 2021, 1 January 2024 and 1 October

@@ -1,0 +1,120 @@
+name: Publish test image
+
+# A test build for the test server, from a branch before its release. Every
+# push to the branch `test-server` builds the app image from that commit and
+# pushes it as ghcr.io/gbif-sweden/gap-finder:test and :test-<commit>. It never
+# moves `latest` and never writes CITATION.cff, both of which a v* tag does
+# (publish-shiny-images.yml, citation-version.yml), so production is untouched.
+#
+#   git push origin HEAD:test-server            # build the branch you are on
+#   git push --force origin HEAD:test-server    # when test-server holds another branch's history
+#
+# The server pulls :test again to update; :test-<commit> names one build.
+# Action versions: the same Node 24 majors as publish-shiny-images.yml.
+
+on:
+  push:
+    branches:
+      - test-server
+
+permissions:
+  contents: read
+  packages: write
+
+# Country whose bundle and config the image is built for (see R/globals.R).
+env:
+  GBIF_GAP_COUNTRY: SE
+
+# A newer push replaces :test anyway, so a build still running for an older
+# commit is cancelled.
+concurrency:
+  group: publish-test-image
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish gap-finder:test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Verify the app and its data bundle
+        run: |
+          test -f shiny_app/gap_finder/app.R
+          test -f shiny_app/gap_finder/Dockerfile.gap_finder
+          # An un-fetched LFS pointer is ~130 bytes; the real bundle is ~90 MB.
+          test "$(stat -c%s "shiny_app/gap_finder/data/${GBIF_GAP_COUNTRY}/shiny_data.rds")" -gt 1000000
+
+      - name: Name the owner and the version
+        id: vars
+        run: |
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "version=test-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The dependency image a release starts from (build-deps-image.yml), named
+      # after this commit's Dockerfile and renv.lock.
+      - name: Find the deps image
+        id: deps
+        run: |
+          image=$(bash .github/scripts/deps_image.sh)
+          if ! docker buildx imagetools inspect "$image" > /dev/null 2>&1; then
+            echo "::error::$image is not on GHCR. Run Actions > Build deps image > Run workflow on this branch, then re-run this job."
+            exit 1
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ steps.vars.outputs.owner }}/gap-finder
+          tags: |
+            type=raw,value=test
+            type=raw,value=${{ steps.vars.outputs.version }}
+          flavor: |
+            latest=false
+          labels: |
+            org.opencontainers.image.title=gap-finder
+            org.opencontainers.image.description=GBIF Gap Finder - Dashboard (test build)
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.vars.outputs.version }}
+            org.opencontainers.image.base.name=${{ steps.deps.outputs.image }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: shiny_app/gap_finder/Dockerfile.gap_finder
+          build-args: |
+            RUNTIME=${{ steps.deps.outputs.image }}
+            GBIF_GAP_COUNTRY=${{ env.GBIF_GAP_COUNTRY }}
+            GAP_FINDER_VERSION=${{ steps.vars.outputs.version }}
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### Test image published"
+            echo ""
+            echo "- \`ghcr.io/${{ steps.vars.outputs.owner }}/gap-finder:test\`"
+            echo "- \`ghcr.io/${{ steps.vars.outputs.owner }}/gap-finder:${{ steps.vars.outputs.version }}\`"
+            echo ""
+            echo "Commit \`${GITHUB_SHA::7}\` on \`${GITHUB_REF_NAME}\`. \`latest\` is unchanged."
+          } >> "$GITHUB_STEP_SUMMARY"

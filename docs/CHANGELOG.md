@@ -8,7 +8,7 @@
 
 ## Unreleased — Gaps filled, after the review
 
-The tab stays behind `GAP_FINDER_SHOW_GAPS_FILLED` until the release.
+The tab shows by default; `GAP_FINDER_SHOW_GAPS_FILLED=false` hides it.
 
 ### Added
 
@@ -32,6 +32,9 @@ The tab stays behind `GAP_FINDER_SHOW_GAPS_FILLED` until the release.
   lacks (four NRM collection datasets in the snapshot of 1 October 2026).
 - `tools/preview_gaps_filled.R` shows the tab on the shipped bundle plus the tables of
   script 14, without a data release.
+- **Test image for the test server** (`.github/workflows/publish-test-image.yml`): a push to
+  the branch `test-server` builds `ghcr.io/gbif-sweden/gap-finder:test` and
+  `:test-<commit>`. It never moves `latest` and does not touch `CITATION.cff`.
 - **Pairs across GBIF's switch of taxonomy** (2021 → 2026-10-01, 2024 → 2026-10-01): script 14
   counts the earlier end through GBIF's mapping of its former backbone to the Catalogue of
   Life (`parameters.closure.col_mapping_file`, COL 26.5 XR, downloaded once into

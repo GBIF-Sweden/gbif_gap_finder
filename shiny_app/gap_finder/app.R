@@ -393,11 +393,11 @@ closure_date <- function(x) {
                                month.name[as.integer(format(d, "%m"))], format(d, "%Y")))
 }
 
-# Release switch: the tab is under review, so it stays hidden unless
-# the deployment sets GAP_FINDER_SHOW_GAPS_FILLED=true. Everything else in the
-# app ships without it; the closure data in the bundle is simply not shown.
-SHOW_GAPS_FILLED <- tolower(Sys.getenv("GAP_FINDER_SHOW_GAPS_FILLED", "false")) %in%
-  c("true", "1", "yes")
+# The tab shows unless the deployment sets GAP_FINDER_SHOW_GAPS_FILLED=false.
+# Everything else in the app works without it; hidden, the closure data in the
+# bundle is simply not shown.
+SHOW_GAPS_FILLED <- !tolower(Sys.getenv("GAP_FINDER_SHOW_GAPS_FILLED", "true")) %in%
+  c("false", "0", "no")
 
 # The tab draws only from a bundle that carries the columns it reads; any other
 # bundle leaves it hidden rather than half-drawn.
