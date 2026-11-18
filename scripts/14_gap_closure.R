@@ -43,6 +43,8 @@
 #   - data/{CC}/proc/timepoints/{tp}/gaps/taxonomic_match_table.csv (09a)
 #   - data/{CC}/proc/timepoints/{tp}/reference_version.yml          (run_timepoint)
 #   - data/{CC}/proc/cellcodes_{10,50}km.txt                        (02, shared)
+#   - GBIF's mapping from its former backbone to the Catalogue of Life
+#     (parameters.closure.col_mapping_file), for pairs across the switch
 # Outputs (data/{CC}/proc/closure/):
 #   - closure_summary_{from}_{to}.csv
 #   - closure_cells_{res}_{from}_{to}.csv
@@ -59,6 +61,11 @@
 #   GAP_CLOSURE_PAIR="2021-01-01,2024-01-01" Rscript -e 'source(...)'   # one pair
 #   GAP_CLOSURE_PAIR="2024-01-01,2026-10-01" Rscript -e 'source(...)'   # snapshot series
 #   GAP_CLOSURE_PAIR="2024-01-01,2026-07-29" Rscript -e 'source(...)'   # cross-regime
+#
+# PAIRS ACROSS GBIF'S SWITCH OF TAXONOMY (key_backbone legacy at one end, col at
+#   the other): the legacy end is counted through COL with GBIF's mapping
+#   (closure_col_route()), so a species gets the same Dyntaxa taxon at both
+#   ends, and hybrids are left out at both ends. The summary counts both.
 #
 # TIME POINTS = the directories under proc/timepoints/ PLUS the live cube at the
 #   root. The live cube is not copied into timepoints/; it is labelled with its
@@ -102,6 +109,10 @@ if (!dir.exists(closure_dir)) dir.create(closure_dir, recursive = TRUE, showWarn
 SOURCE_TYPES <- closure_read_types(here(cfg_get(
   "parameters.closure.source_types_file", glue("configs/dataset_types_{COUNTRY_CODE}.csv"))))
 FROZEN_Q  <- as.numeric(cfg_get("parameters.closure.frozen_quantile", 0.10))
+# GBIF's mapping from its former backbone to the Catalogue of Life; read only
+# when a pair crosses GBIF's switch of taxonomy.
+COL_MAPPING_FILE <- here(cfg_get("parameters.closure.col_mapping_file",
+                                 "data/shared/gbif_col_mapping/gbif-col265.tsv"))
 RESOLUTIONS <- c(10L, 50L)
 KEY_SPACES  <- c("dyntaxa", "gbif")
 
@@ -205,6 +216,25 @@ if (nzchar(pair_spec)) {
 }
 cli_alert_info("Pairs: {paste(vapply(pairs_to_do, paste, character(1), collapse = ' -> '), collapse = ' | ')}")
 
+# The legacy-keyed ends of pairs across GBIF's switch of taxonomy, and their
+# keys in GBIF's mapping to COL: read once for all pairs, since the file is
+# scanned whole.
+legacy_ends <- unique(unlist(lapply(pairs_to_do, function(p) {
+  if (!closure_pair_kind(TP_META[[p[1]]], TP_META[[p[2]]])$key_backbone_differs) return(NULL)
+  p[vapply(p, function(tp) identical(TP_META[[tp]]$key_backbone, "legacy"), logical(1))]
+})))
+col_mapping <- NULL
+if (length(legacy_ends)) {
+  legacy_keys <- unique(unlist(lapply(legacy_ends, function(tp) read_match_table(tp)$specieskey)))
+  cli_progress_step("Reading GBIF's mapping to the Catalogue of Life for \\
+                     {scales::comma(length(legacy_keys))} keys of {.val {legacy_ends}}")
+  col_mapping <- read_col_mapping(COL_MAPPING_FILE, legacy_keys)
+  cli_progress_done()
+  cli_alert_success(
+    "GBIF's mapping: {scales::comma(sum(!is.na(col_mapping$col_key)))} of \\
+     {scales::comma(length(legacy_keys))} keys have a COL taxon")
+}
+
 # ============================================================================
 # Difference each pair
 # ============================================================================
@@ -252,8 +282,8 @@ for (pr in pairs_to_do) {
     # only key both sides reach.
     cli_alert_info(
       "GBIF key space skipped: {from} keys are {TP_META[[from]]$key_backbone}, \\
-       {to} keys are {TP_META[[to]]$key_backbone}. Dyntaxa space still mixes the \\
-       two name paths: taxa whose names differ between them appear lost or new.")
+       {to} keys are {TP_META[[to]]$key_backbone}. In Dyntaxa space the legacy end \\
+       is counted through COL.")
   }
 
   if (regime_boundary) {
@@ -275,6 +305,33 @@ for (pr in pairs_to_do) {
 
   mt_from <- read_match_table(from)
   mt_to   <- read_match_table(to)
+
+  # Across GBIF's switch of taxonomy: the legacy end gets the Dyntaxa taxon the
+  # COL end gives to the same species, and hybrids are left out at both ends.
+  hybrid_keys <- character()
+  n_routed <- 0L; n_moved <- 0L
+  if (kind$key_backbone_differs) {
+    legacy_is_from <- identical(TP_META[[from]]$key_backbone, "legacy")
+    mt_legacy <- if (legacy_is_from) mt_from else mt_to
+    mt_col    <- if (legacy_is_from) mt_to else mt_from
+    routed <- closure_col_route(mt_legacy, mt_col, col_mapping)
+    own <- mt_legacy[, .(specieskey = as.character(specieskey),
+                         own = as.character(backbone_taxonID))]
+    moved <- merge(routed[, .(specieskey, backbone_taxonID)], own, by = "specieskey")[
+      !is.na(own) & nzchar(own) & !is.na(backbone_taxonID) & nzchar(backbone_taxonID) &
+        own != backbone_taxonID]
+    n_routed <- sum(routed$col_route != "legacy")
+    n_moved  <- nrow(moved)
+    lt <- if (legacy_is_from) from else to
+    cli_alert_info(
+      "{lt} counted through COL: {scales::comma(sum(routed$col_route == 'key'))} keys \\
+       by their COL taxon, {scales::comma(sum(routed$col_route == 'name'))} by its \\
+       species name, {scales::comma(sum(routed$col_route == 'legacy'))} keep their own \\
+       match; {scales::comma(n_moved)} move to another Dyntaxa taxon")
+    if (legacy_is_from) mt_from <- routed else mt_to <- routed
+    hybrid_keys <- closure_hybrid_keys(mt_from, mt_to)
+    rm(mt_legacy, mt_col, routed, own, moved)
+  }
 
   summaries <- list()
 
@@ -299,6 +356,14 @@ for (pr in pairs_to_do) {
           "{tag}: {scales::comma(rf$n_dropped)} / {scales::comma(rt$n_dropped)} \\
            species (from/to) carry no Dyntaxa taxonID and are excluded"
         )
+      }
+      n_hybrids <- 0L
+      if (ks == "dyntaxa" && length(hybrid_keys)) {
+        n_hybrids <- data.table::uniqueN(c(gf$key[gf$key %chin% hybrid_keys],
+                                           gt$key[gt$key %chin% hybrid_keys]))
+        gf <- gf[!key %chin% hybrid_keys]
+        gt <- gt[!key %chin% hybrid_keys]
+        cli_alert_info("{tag}: {n_hybrids} hybrid taxa left out at both ends")
       }
 
       pairs_from <- closure_pairs(gf)
@@ -402,14 +467,20 @@ for (pr in pairs_to_do) {
                    "species_off_checklist_from", "species_off_checklist_to",
                    # Cells with records outside the grid: in the pair totals,
                    # not in the cell counts.
-                   "cells_off_grid_from", "cells_off_grid_to"),
+                   "cells_off_grid_from", "cells_off_grid_to",
+                   # Across GBIF's switch of taxonomy: keys of the legacy end
+                   # counted through COL, the ones among them that moved to
+                   # another Dyntaxa taxon, and the hybrid taxa left out.
+                   "col_route_keys", "col_route_moved", "hybrids_left_out"),
         source_group = "total", key_space = ks,
         value = c(round(100 * nrow(lost) / max(nrow(pairs_from), 1), 3),
                   as.integer(regime_boundary && res_km == 10L),
                   as.integer(regime_boundary),
                   as.integer(kind$key_backbone_differs),
                   rf$n_dropped, rt$n_dropped,
-                  nrow(off_from), nrow(off_to))), fill = TRUE)
+                  nrow(off_from), nrow(off_to),
+                  if (ks == "dyntaxa") c(n_routed, n_moved, n_hybrids) else c(0L, 0L, 0L))),
+        fill = TRUE)
       summ[, resolution := sprintf("%dkm", res_km)]
       summaries[[tag]] <- summ
 

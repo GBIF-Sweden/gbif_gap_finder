@@ -148,8 +148,10 @@ Ordered from next up down to exploratory ideas.
   the cube of the same moment are compared once, as the bridge (script 15). Reviewed on
   17 November 2026 and rebuilt on that basis: source types, periods of the records, losses
   by dataset, a class → order filter and the low-data bar held fixed. Hidden in the app
-  until the release. Open before it: species that match Dyntaxa by name at one end of a
-  pair only, where the two ends use different GBIF taxonomies.
+  until the release. Pairs across GBIF's switch of taxonomy are counted through GBIF's
+  mapping to the Catalogue of Life, hybrids left out. Open before it: a second review of the
+  plain-language texts; species that GBIF files under two Catalogue of Life names (e.g.
+  *Lycaena hippothoe*, *Botrychium multifidum*) still show up as new.
 
 ## B. Larger features (planned — scope & timing TBD)
 

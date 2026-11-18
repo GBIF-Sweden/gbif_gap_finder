@@ -386,6 +386,13 @@ closure_pair_index      <- safe_get("closure_pair_index")
 
 CLOSURE_KS <- "dyntaxa"
 
+# "1 January 2024", in English whatever the server's locale.
+closure_date <- function(x) {
+  d <- as.Date(x)
+  ifelse(is.na(d), "", sprintf("%d %s %s", as.integer(format(d, "%d")),
+                               month.name[as.integer(format(d, "%m"))], format(d, "%Y")))
+}
+
 # Release switch: the tab is under review, so it stays hidden unless
 # the deployment sets GAP_FINDER_SHOW_GAPS_FILLED=true. Everything else in the
 # app ships without it; the closure data in the bundle is simply not shown.
@@ -406,10 +413,11 @@ has_closure <- SHOW_GAPS_FILLED && isTRUE(metadata$has_closure) &&
   closure_has_cols(closure_mechanism_group, c("class", "order", "period", "n_pairs")) &&
   closure_has_cols(closure_species_totals, c("class", "order", "status", "threat", "n_species"))
 
-# Pair label: "2021-01-01 → 2024-01-01", with a marker when the two ends were
+# Pair label: "1 January 2021 → 1 January 2024", with a marker when the two ends were
 # built by different pipelines, so the selector itself carries the warning.
 closure_pair_choices <- if (has_closure) {
-  lbl <- paste0(closure_pair_index$from_date, " → ", closure_pair_index$to_date,
+  lbl <- paste0(closure_date(closure_pair_index$from_date), " → ",
+                closure_date(closure_pair_index$to_date),
                 ifelse(closure_pair_index$regime_boundary == 1, "  ⚠", ""))
   setNames(closure_pair_index$pair_id, lbl)
 } else character(0)
@@ -422,6 +430,7 @@ closure_default_pair <- if (has_closure) {
 } else NULL
 
 closure_species_top_n <- metadata$closure_species_top_n %||% NA_integer_
+closure_taxonomy_name <- metadata$taxonomy_name %||% "Dyntaxa"
 closure_threat_codes  <- metadata$threatened_codes %||% c("CR", "EN", "VU", "NT")
 closure_notes         <- metadata$closure_timepoint_notes %||% list()
 
@@ -468,9 +477,10 @@ closure_order_choices <- function(cls) {
 }
 
 # --- labels and colours ----------------------------------------------------------
-CLOSURE_TYPE_LABELS <- c(total = "All types", platform = "Platforms",
-                         monitoring = "Monitoring", collection = "Collections",
-                         other = "Other")
+# Kinds of source, as the tab names them.
+CLOSURE_TYPE_LABELS <- c(total = "All sources", platform = "Reporting platforms",
+                         monitoring = "Monitoring and surveys", collection = "Collections",
+                         other = "Other sources")
 
 # Periods are ordered in time, so one hue: darkest for the newest records. "No
 # year" is grey. (Ramp checked: lightness monotone, one hue, light end 2.4:1.)
@@ -480,23 +490,25 @@ CLOSURE_PERIOD_COLOURS <- c(baseline_on = "#1d3754", decade_before = "#2f5986",
 
 closure_period_label <- function(period, year_from, year_to) {
   dplyr::case_when(
-    period == "baseline_on" ~ paste0("From ", year_from),
-    period %in% c("decade_before", "1950_on") ~ paste0(year_from, "–", year_to),
-    period == "pre_1950" ~ "Before 1950",
-    period == "no_year" ~ "No year",
+    period == "baseline_on" ~ paste0("Collected ", year_from, " or later"),
+    period %in% c("decade_before", "1950_on") ~ paste0("Collected ", year_from, "–", year_to),
+    period == "pre_1950" ~ "Collected before 1950",
+    period == "no_year" ~ "No collection year",
     TRUE ~ period)
 }
 
 # The low-data bar on the map, in the order of its legend. Its colours are the
 # app's diverging ones (PAL_DIV, set further down with the palette).
-CLOSURE_BAR_LABELS <- c(rose_above = "Rose above the bar", above = "Above the bar at both ends",
-                        stayed_under = "Stayed under the bar", fell_below = "Fell below the bar",
-                        still_empty = "No records at either end")
+CLOSURE_BAR_LABELS <- c(rose_above = "Now above the bar (was below)",
+                        above = "Above the bar at both dates",
+                        stayed_under = "Below the bar at both dates",
+                        fell_below = "Now below the bar (was above)",
+                        still_empty = "No records at either date")
 
 # Change in species per cell, from most lost to most gained.
-CLOSURE_SPECIES_LEVELS <- c("Lost 20 or more", "Lost 1–19", "No change", "Gained 1–5",
-                            "Gained 6–20", "Gained 21–100", "Gained more than 100",
-                            "No records at either end")
+CLOSURE_SPECIES_LEVELS <- c("20 or more species fewer", "1–19 species fewer", "No change",
+                            "1–5 species more", "6–20 species more", "21–100 species more",
+                            "More than 100 species more", "No records at either date")
 closure_species_cat <- function(from, to) {
   d <- to - from
   factor(dplyr::case_when(
@@ -552,8 +564,15 @@ closure_html <- function(...) HTML(paste0(...))
 closure_b <- function(x) paste0("<strong>", htmltools::htmlEscape(x), "</strong>")
 
 closure_fmt <- function(x) if (length(x) != 1 || is.na(x)) "—" else comma(x)
+
 closure_pct <- function(x, d = 1) if (length(x) != 1 || is.na(x)) "—" else
   paste0(formatC(x, format = "f", digits = d), " %")
+
+# The dates of the pairs, for the tab's explanation.
+closure_dates_text <- if (has_closure) {
+  paste(closure_date(sort(unique(c(closure_pair_index$from_date, closure_pair_index$to_date)))),
+        collapse = ", ")
+} else ""
 
 has_kingdom_recency   <- !is.null(kingdom_cell_recency)
 has_tax_cell_recency  <- !is.null(tax_cell_recency) &&
@@ -1698,37 +1717,49 @@ ui <- fluidPage(
         div(style = "padding: 1.25rem 0;",
 
           read_guide(
-            "What changed between two points in time: species × cell pairs gained and lost, cells that filled or crossed the low-data bar, and how old the records behind the gain are, by source type.",
-            "A gained pair means a species is now recorded in a cell where it was not before. It is better knowledge of where species are, not usually a new species.",
-            "Filter by class or order to follow one group; read its losses next to its gains, and check which datasets the losses rest on, before comparing groups."),
+            paste0("What changed in GBIF's data for ", country_name, " between two dates: which species have records in which grid cells, which cells got their first records or more records, and how old the newly published records are."),
+            paste0("A new species–cell combination means a species now has a record in a grid cell where it had none at the earlier date. That is better knowledge of where the species lives, not a new species for ", country_name, "."),
+            "Choose a class or order to follow one group. Read what was gained next to what was lost, and check which datasets the losses come from, before comparing groups."),
 
           uiOutput("closure_banner"),
 
           div(class = "card", style = "margin-bottom: 1rem; border-left: 4px solid var(--sage);",
             actionLink("closure_about_toggle", tagList(
-              icon("info-circle"), " About this tab",
+              icon("info-circle"), " How the numbers are counted",
               icon("chevron-down", style = "float:right; margin-top:3px;")
             ), style = "font-weight: 500; color: var(--text-primary); text-decoration: none;"),
             conditionalPanel(
               condition = "input.closure_about_toggle % 2 == 1",
               div(style = "margin-top: 0.75rem; font-size: 1rem; line-height: 1.65; color: var(--text-secondary);",
-                p("Each time point is a complete rebuild of the gap analysis against the data as it stood on that date. ",
-                  "The headline measure is the ", tags$strong("species × cell pair"), ": one species recorded in one grid cell. ",
-                  "Counting pairs rather than cells is what gives the measure headroom — almost every cell already holds some data."),
-                p(tags$strong("Source types."), " Every dataset is typed by how its records come about: ",
-                  tags$em("platforms"), " (open reporting platforms and apps), ", tags$em("monitoring"),
-                  " (monitoring programmes, inventories, surveys and sampling series, metabarcoding included), ",
-                  tags$em("collections"), " (specimens) and ", tags$em("other"), ". The large datasets are typed by hand, the rest by their main record type."),
-                p(tags$strong("Periods"), " split the gained pairs by the year of their earliest record, within each source type: from the earlier time point's year on ",
-                  "(records the earlier time point cannot have held), the ten years before it, 1950 to then, before 1950, and no year. ",
-                  "A pair counts in every source type that brought a record to it, so the types add up to more than all types together."),
-                p(tags$strong("The low-data bar"), " is the number of records per cell below which the poorest tenth of the occupied cells sat at the earlier time point. ",
-                  "It is held fixed, so the later time point is measured against the same bar rather than one that moves with the data. ",
-                  "A cell with no records is under the bar."),
-                p(tags$strong("Losses"), " sit beside gains everywhere. Records are re-identified between species — often in fungi, lichens and bryophytes, rarely in birds — ",
-                  "and datasets are republished or withdrawn; both make pairs vanish. A group's gain means more next to its loss."),
-                p(tags$strong("Taxa are matched on Dyntaxa identifiers"), ", never on GBIF keys, which is what lets time points built at different times be compared at all. ",
-                  "Species with no Dyntaxa identifier are left out and counted separately, below the tiles.")
+                # One string per paragraph: htmltools puts whitespace between the
+                # children of a tag, which shows as a space before punctuation.
+                p(closure_html("<strong>Two dates.</strong> Each date is a complete copy of GBIF's data for ", country_name,
+                  " as it stood on that day (", closure_dates_text, "). The tab compares two of them.")),
+                p(closure_html("<strong>Species–cell combination.</strong> One species with at least one record in one grid cell ",
+                  "(10 km × 10 km, or 50 km × 50 km). A species recorded in 100 cells gives 100 combinations. ",
+                  "A combination is <em>new</em> when the species has a record in that cell now and had none there at the earlier date, and ",
+                  "<em>gone</em> the other way round. Counting combinations shows progress even where every cell already has some records.")),
+                p(closure_html("<strong>Species.</strong> Species are counted as they are named in ", closure_taxonomy_name, ", the ",
+                  country_adjective, " species list. ",
+                  "Records whose name has no entry there are not counted; the note under the numbers says how many names that is. ",
+                  "GBIF names records by a reference list of species, and changed that list between two of the dates, from its own former list ",
+                  "to the Catalogue of Life. When two dates fall on either side of the change, the names of the earlier date are translated with ",
+                  "GBIF's official conversion table, and hybrids are left out at both dates. The note at the top of the tab gives the numbers.")),
+                p(closure_html("<strong>Recording depth.</strong> A cell with few records is poorly known. The bar is a number of records per cell, ",
+                  "set at the earlier date: a tenth of the cells that had records then had this many or fewer. The same bar is used at both dates, ",
+                  "so a cell crosses it only when its own number of records changes. A cell with no records counts as below the bar. ",
+                  "Records of all species count here, whatever class or order is chosen.")),
+                p(closure_html("<strong>Kinds of source.</strong> Every dataset is assigned to one kind: ",
+                  "<em>reporting platforms</em> (open websites and apps where anyone can report, such as iNaturalist), ",
+                  "<em>monitoring and surveys</em> (monitoring programmes, inventories, surveys and sampling series, DNA-based ones included), ",
+                  "<em>collections</em> (museum and herbarium specimens) and <em>other</em>. ",
+                  "The large datasets were assigned by hand, the others by the kind of records they hold.")),
+                p(closure_html("<strong>Age of the records.</strong> For each new combination, the year of the oldest record behind it. ",
+                  "Records collected after the earlier date are new observations; older records were collected long ago but published only since, ",
+                  "for example digitised museum specimens.")),
+                p(closure_html("<strong>Losses.</strong> A combination can be gone because a record was re-identified as another species, or because a dataset ",
+                  "was withdrawn, republished or is missing from one of the two dates, not only because a species disappeared. ",
+                  "That is why losses are shown next to gains everywhere in this tab."))
               )
             )
           ),
@@ -1738,8 +1769,7 @@ ui <- fluidPage(
               div(class = "stat-grid",
                 uiOutput("cl_tile_gained"), uiOutput("cl_tile_lost"),
                 uiOutput("cl_tile_species"), uiOutput("cl_tile_cells")),
-              div(class = "filter-label", style = "margin: 0 0 0.5rem;",
-                "Cells against the earlier time point's low-data bar (all taxa)"),
+              uiOutput("cl_bar_caption"),
               div(class = "stat-grid",
                 uiOutput("cl_tile_bar"), uiOutput("cl_tile_rose"),
                 uiOutput("cl_tile_fell"), uiOutput("cl_tile_under")),
@@ -1749,10 +1779,10 @@ ui <- fluidPage(
             column(3,
               div(class = "card",
                 tags$h2(class = "card-title", icon("sliders-h"), "Compare"),
-                selectInput("cl_pair", "Time points",
+                selectInput("cl_pair", "Dates",
                   choices = closure_pair_choices, selected = closure_default_pair),
-                div(class = "filter-label", `aria-hidden` = "true", "Resolution"),
-                sr_label(seg_radio("cl_res", label = "Resolution",
+                div(class = "filter-label", `aria-hidden` = "true", "Grid cells"),
+                sr_label(seg_radio("cl_res", label = "Grid cells",
                   choices = c("10 km" = "10km", "50 km" = "50km"),
                   selected = "10km")),
                 selectInput("cl_class", "Class", choices = closure_class_choices,
@@ -1768,15 +1798,15 @@ ui <- fluidPage(
           fluidRow(
             column(7, div(class = "card",
               tags$h2(class = "card-title", icon("map"), "Where it changed"),
-              div(class = "filter-label", `aria-hidden` = "true", "Map layer"),
-              sr_label(seg_radio("cl_map_layer", label = "Map layer",
-                choices = c("Change in species" = "species", "Low-data bar" = "bar"),
+              div(class = "filter-label", `aria-hidden` = "true", "Map shows"),
+              sr_label(seg_radio("cl_map_layer", label = "Map shows",
+                choices = c("Species gained or lost" = "species", "Recording depth" = "bar"),
                 selected = "species")),
               div(class = "info-note", uiOutput("cl_map_note")),
               leafletOutput("cl_map", height = "480px"),
-              map_dl_btn("cl_map_dl", "Download cell change (CSV)"))),
+              map_dl_btn("cl_map_dl", "Download the cell numbers (CSV)"))),
             column(5, div(class = "card",
-              tags$h2(class = "card-title", icon("clock-rotate-left"), "How old are the records behind the gain?"),
+              tags$h2(class = "card-title", icon("clock-rotate-left"), "How old are the records behind the new combinations?"),
               div(class = "info-note", style = "margin-top:0;",
                 uiOutput("cl_periods_note")),
               plotlyOutput("cl_periods", height = "420px")))
@@ -1786,8 +1816,7 @@ ui <- fluidPage(
             column(12, div(class = "card",
               tags$h2(class = "card-title", icon("leaf"), "Gains and losses by class and order"),
               div(class = "info-note", style = "margin-top:0;",
-                "Gain % and loss % are the pairs gained and lost as a share of the group's pairs at the earlier time point; ",
-                "gain % is empty for a group with none then. Sort by any column."),
+                uiOutput("cl_group_note")),
               DTOutput("cl_group_table")))
           ),
 
@@ -1801,7 +1830,7 @@ ui <- fluidPage(
 
           fluidRow(
             column(12, div(class = "card",
-              tags$h2(class = "card-title", icon("list"), "Species that lost ground"),
+              tags$h2(class = "card-title", icon("list"), "Species that lost cells"),
               div(class = "info-note", style = "margin-top:0;",
                 uiOutput("cl_species_note")),
               DTOutput("cl_species_table")))
@@ -1809,16 +1838,15 @@ ui <- fluidPage(
 
           fluidRow(
             column(12, div(class = "card",
-              tags$h2(class = "card-title", icon("database"), "Which datasets the gain rests on"),
+              tags$h2(class = "card-title", icon("database"), "Which datasets the new combinations come from"),
               div(class = "info-note", style = "margin-top:0;",
-                "“Pairs it touches” counts the gained pairs a dataset brings any record to; “on it alone” counts those with no record from any other dataset. ",
-                "No tie-break is applied, so the columns do not add up to 100 %. All taxa."),
+                uiOutput("cl_dataset_note")),
               DTOutput("cl_dataset_table")))
           ),
 
           fluidRow(
             column(12, div(class = "card",
-              tags$h2(class = "card-title", icon("database"), "Which datasets the losses rest on"),
+              tags$h2(class = "card-title", icon("database"), "Which datasets the gone combinations relied on"),
               div(class = "info-note", style = "margin-top:0;",
                 uiOutput("cl_dataset_lost_note")),
               DTOutput("cl_dataset_lost_table")))
@@ -6229,7 +6257,8 @@ server <- function(input, output, session) {
   # ===================================================================
   # GAPS FILLED
   # ===================================================================
-  # Reads precomputed closure tables; nothing is differenced here.
+  # Reads precomputed closure tables; nothing is differenced here. The text
+  # says what every number counts, in words, with the dates of the pair.
 
   cl_pair  <- reactive({ req(has_closure, input$cl_pair); input$cl_pair })
   cl_res   <- reactive({ req(input$cl_res); input$cl_res })
@@ -6237,9 +6266,11 @@ server <- function(input, output, session) {
   cl_order <- reactive(input$cl_order %||% CLOSURE_ALL)
   cl_cross <- reactive(closure_is_cross(cl_pair()))
   cl_pair_row <- reactive(closure_pair_index[closure_pair_index$pair_id == cl_pair(), ])
+  cl_from <- reactive(closure_date(cl_pair_row()$from_date))
+  cl_to   <- reactive(closure_date(cl_pair_row()$to_date))
 
-  # Colours of the map layers: the app's diverging scale (blue gained or above
-  # the bar, red lost or under it) and its grey for no data.
+  # Colours of the map layers: the app's diverging scale (blue more species or
+  # above the bar, red fewer or below it) and its grey for no data.
   cl_bar_colours <- c(rose_above = PAL_DIV[5], above = PAL_DIV[4],
                       stayed_under = PAL_DIV[2], fell_below = PAL_DIV[1],
                       still_empty = PAL_NODATA)
@@ -6285,8 +6316,12 @@ server <- function(input, output, session) {
       closure_rank_label(cl_class(), "class")
     } else NULL
   })
+  # " (Insecta / Diptera)" after a noun, or nothing.
+  cl_group_suffix <- function() {
+    if (cl_filtered()) paste0(" (", closure_b(cl_group_label()), ")") else ""
+  }
 
-  # Per cell for the chosen group: species then and now, pairs gained and lost.
+  # Per cell for the chosen group: species then and now, combinations new and gone.
   cl_group_cells <- reactive({
     cg <- cl_slice(closure_cells_group)
     cg <- cg[cl_in_group(cg$class, cg$order), , drop = FALSE]
@@ -6297,7 +6332,7 @@ server <- function(input, output, session) {
       summarise(across(everything(), sum), .groups = "drop")
   })
 
-  # The tile counts, for the chosen group or for all taxa.
+  # The numbers of the first row, for the chosen group or for all species.
   cl_counts <- reactive({
     if (!cl_filtered()) {
       return(list(gained = cl_num("pairs_gained"), lost = cl_num("pairs_lost"),
@@ -6332,12 +6367,12 @@ server <- function(input, output, session) {
     from <- closure_val(pair, "pairs_from", cl_res())
     if (is.na(lost) || is.na(from) || from <= 0) NA_real_ else 100 * lost / from
   }
-  # Loss rate of the first pair built one way, in one taxonomy, at both ends.
+  # The share gone between the first two dates measured the same way at both.
   cl_reference <- reactive({
     ref <- closure_pair_index[closure_pair_index$regime_boundary == 0 &
                                 closure_pair_index$key_backbone_differs == 0, ]
     if (!nrow(ref)) return(NULL)
-    list(label = paste(ref$from_date[1], "to", ref$to_date[1]),
+    list(label = paste(closure_date(ref$from_date[1]), "and", closure_date(ref$to_date[1])),
          rate = cl_loss_rate(ref$pair_id[1]))
   })
 
@@ -6345,51 +6380,70 @@ server <- function(input, output, session) {
     req(has_closure)
     rate <- cl_loss_rate(cl_pair())
     ref  <- cl_reference()
-    ref_txt <- if (!is.null(ref) && !is.na(ref$rate))
-      sprintf(", against %.1f %% from %s", ref$rate, ref$label) else ""
     notes <- cl_notes()
     note_line <- if (length(notes)) p(style = "margin:0.5rem 0 0;",
       icon("circle-info", style = "margin-right:0.3rem;"),
-      sprintf("The time point %s lacks %d dataset%s that the other time points hold. ",
-              paste(vapply(notes, function(n) as.character(n$timepoint), ""), collapse = " and "),
-              length(cl_note_keys()), if (length(cl_note_keys()) == 1) "" else "s"),
-      "“Which datasets the losses rest on”, at the foot of the tab, names them.")
+      closure_html(
+        "The data of ", paste(closure_date(vapply(notes, function(n) as.character(n$timepoint), "")),
+                               collapse = " and "),
+        " lacks ", length(cl_note_keys()), " dataset", if (length(cl_note_keys()) == 1) "" else "s",
+        " that the other dates have. The last table of this tab, “Which datasets the gone combinations relied on”, names them."))
 
     if (cl_cross()) {
       lost <- cl_num("pairs_lost")
+      ref_txt <- if (!is.null(ref) && !is.na(ref$rate))
+        sprintf(", against %.1f %% between %s, measured the same way at both", ref$rate, ref$label) else ""
       return(div(class = "card",
         style = "margin-bottom:1rem; border-left:4px solid #EE6677; background:#fff7f8;",
         tags$h2(class = "card-title", style = "color: var(--coral-ink);",
-          icon("triangle-exclamation"), "These two time points were built differently"),
-        p(style = "margin-bottom:0.5rem;",
-          "The earlier point comes from a GBIF snapshot export, the later one from the occurrence cube. ",
-          "The cube leaves out records with geospatial issues and absence records, which the snapshot cannot, and builds its cells from ",
-          "full-precision coordinates where the snapshot has two decimal places. ",
-          tags$strong("Part of what this pair reports is the method changing, not Sweden's data.")),
+          icon("triangle-exclamation"), "Two different kinds of GBIF data"),
+        p(style = "margin-bottom:0.5rem;", closure_html(
+          "The data of ", cl_from(), " is a snapshot export, the data of ", cl_to(), " an occurrence cube. ",
+          "The cube leaves out records with coordinate problems and records saying a species was not found, ",
+          "and it places records in cells more precisely. ",
+          "<strong>Part of what this comparison shows is the change of method, not new data.</strong>")),
         tags$ul(style = "margin-bottom:0.5rem;",
-          tags$li(tags$strong("Gains are the sound half"), " — more so at 50 km, where cell assignment is not in question."),
-          tags$li(tags$strong("Losses are not a measurement. "),
-            if (!is.na(rate)) sprintf("%s pairs, %.1f %% of the earlier time point%s.", comma(lost), rate, ref_txt) else ""),
-          tags$li(tags$strong("Periods do not separate new data from old. "),
-            "A pair that appears because a coordinate resolved differently or a name now matches carries the old dates of its records.")),
+          tags$li(closure_html("<strong>New combinations</strong> show the direction of change, more reliably at 50 km, ",
+                               "where the more precise placing hardly matters.")),
+          tags$li(closure_html("<strong>The number gone is not a measurement.</strong> ",
+            if (!is.na(rate)) sprintf("%s combinations, %.1f %% of those on %s%s.", comma(lost), rate, cl_from(), ref_txt)
+            else "")),
+          tags$li(closure_html("<strong>The age chart cannot tell new data from old here:</strong> a combination that appears ",
+                               "because a record now lands in another cell, or its name now matches, keeps the old dates of its records."))),
         note_line))
     }
     if (closure_pair_flag(cl_pair(), "key_backbone_differs")) {
+      routed  <- cl_num("col_route_keys")
+      moved   <- cl_num("col_route_moved")
+      hybrids <- cl_num("hybrids_left_out")
+      ref_txt <- if (!is.null(ref) && !is.na(ref$rate))
+        sprintf(" (between %s, with the same list at both dates: %.1f %%)", ref$label, ref$rate) else ""
+      body <- if (!is.na(routed) && routed > 0) closure_html(
+        "<strong>Two naming systems, translated.</strong> GBIF changed the list it names species by between these dates: ",
+        "the data of ", cl_from(), " uses GBIF's own former list, the data of ", cl_to(), " the Catalogue of Life. ",
+        "So that every species is counted the same way at both dates, the names of ", cl_from(),
+        " were translated into the Catalogue of Life with GBIF's official conversion table: ",
+        closure_b(comma(routed)), " names, of which ", closure_b(comma(moved)), " now count as another ",
+        closure_taxonomy_name, " species, mostly where the Catalogue of Life joins two species into one. ",
+        "Names the table cannot translate keep their own match. ",
+        "Hybrids (", closure_b(comma(hybrids)), ") are left out at both dates: the former list had no entries for them, ",
+        "so all of them would look new. ",
+        "A few species that GBIF lists under two names can still show up as new although they had records before. ",
+        if (!is.na(rate)) sprintf("Of the combinations on %s, %.1f %% are gone%s.", cl_from(), rate, ref_txt) else "")
+      else closure_html(
+        "<strong>Two naming systems.</strong> GBIF changed the list it names species by between these dates: ",
+        "the data of ", cl_from(), " uses GBIF's own former list, the data of ", cl_to(), " the Catalogue of Life. ",
+        "Where the two lists name a species differently, its combinations can count as gone under one name and new under the other, ",
+        "without any change in the records. ",
+        if (!is.na(rate)) sprintf("Of the combinations on %s, %.1f %% are gone%s.", cl_from(), rate, ref_txt) else "")
       return(div(class = "info-note",
         style = "border-left:4px solid var(--sand); background: var(--sand-light); margin-bottom:1rem;",
-        tags$strong("Same query, two taxonomies. "),
-        "Both time points are GBIF Sweden snapshots built by the same query, but the later one names species after GBIF's current taxonomy ",
-        "(Catalogue of Life) and the earlier one after GBIF's former backbone. Species are compared as Dyntaxa taxa, which both reach by name; ",
-        "where the two taxonomies name a species differently, it can count as no longer recorded under one name and newly recorded under the other ",
-        "without any change in the records. ",
-        if (!is.na(rate)) sprintf("This pair loses %.1f %% of its pairs%s; part of the difference can be that, and part of the species newly recorded too.",
-                                  rate, ref_txt),
-        note_line))
+        body, note_line))
     }
     div(class = "info-note",
       style = "border-left:4px solid var(--sage); margin-bottom:1rem;",
-      tags$strong("Like for like. "),
-      "Both time points were built by the same query against the same source, in the same taxonomy, so every panel below is comparable.",
+      closure_html("<strong>Same method at both dates.</strong> Both dates are GBIF snapshots made the same way, ",
+                   "and both name species by the same list, so the numbers below compare like with like."),
       note_line)
   })
 
@@ -6398,10 +6452,10 @@ server <- function(input, output, session) {
     if (!cl_cross()) return(NULL)
     div(class = "info-note", style = "margin-top:0.6rem; font-size:0.85rem;",
       if (identical(cl_res(), "10km"))
-        tagList(tags$strong("50 km is the safer read here. "),
-                "About 4 % of records sit one cell away at 10 km because the two ends round coordinates differently.")
+        closure_html("<strong>50 km is the safer choice here.</strong> About 4 % of the records land in a neighbouring 10 km cell ",
+                     "at the later date, because the two kinds of data round coordinates differently.")
       else
-        tagList(tags$strong("50 km. "), "Cell assignment is not in question at this resolution (about 0.9 % of records affected)."))
+        closure_html("<strong>50 km.</strong> At this size the different rounding of coordinates moves about 0.9 % of the records."))
   })
 
   output$cl_filter_note <- renderUI({
@@ -6409,50 +6463,53 @@ server <- function(input, output, session) {
     if (!cl_filtered()) return(NULL)
     div(class = "info-note", style = "margin-top:0.6rem; font-size:0.9rem;",
       closure_html(closure_b(cl_group_label()),
-        ": the first row of tiles, the map's change in species, the periods and the species tables. ",
-        "The low-data bar and the dataset tables cover all taxa."))
+        ": the first row of numbers, the map of species gained or lost, the age chart and the three species tables ",
+        "count this group only. The recording-depth row and the two dataset tables count all species."))
   })
 
-  # --- tiles --------------------------------------------------------
+  # --- the numbers --------------------------------------------------
   # Counts come from closure_summary, closure_group and closure_species_totals,
   # never from the species table, which is thinned to the rows the tab lists by
   # name. See closure_bundle().
   output$cl_tile_gained <- renderUI({
     req(has_closure)
     k <- cl_counts()
-    closure_tile(closure_fmt(k$gained), "Species × cell pairs gained", "sage",
-      sub = if (!is.na(k$from) && k$from > 0)
-        sprintf("+%s on the %s pairs before", closure_pct(100 * k$gained / k$from), comma(k$from)),
+    closure_tile(closure_fmt(k$gained), "New species–cell combinations", "sage",
+      sub = paste0("a species with a record in a cell where it had none on ", cl_from(),
+                   if (!is.na(k$from) && k$from > 0)
+                     sprintf("; equal to %s of the %s combinations then", closure_pct(100 * k$gained / k$from), comma(k$from))),
       warn = if (cl_cross()) closure_warn(
-        "Comparable in direction but not exactly: the later point leaves out records the earlier one cannot."))
+        "Shows the direction of change, but not exactly: the later data leaves out records the earlier one cannot."))
   })
 
   output$cl_tile_lost <- renderUI({
     req(has_closure)
     k <- cl_counts()
-    closure_tile(closure_fmt(k$lost), "Pairs lost", "coral",
-      sub = if (!is.na(k$from) && k$from > 0)
-        sprintf("%s of the pairs before", closure_pct(100 * k$lost / k$from)),
+    closure_tile(closure_fmt(k$lost), "Species–cell combinations gone", "coral",
+      sub = paste0("a species with records in a cell on ", cl_from(), " and none there now",
+                   if (!is.na(k$from) && k$from > 0)
+                     sprintf("; %s of the combinations then", closure_pct(100 * k$lost / k$from))),
       warn = if (cl_cross()) closure_warn(
-        "Not a measurement across this pair. Most of it is the occurrence filter and the taxonomy path differing between the two ends, not data going away."))
+        "Not a measurement between these two kinds of data: most of it is the different filtering and naming at the two dates, not data going away."))
   })
 
   output$cl_tile_species <- renderUI({
     req(has_closure)
-    closure_tile(closure_fmt(cl_counts()$new_species), "Species newly recorded", "slate",
-      sub = "new to the data compared, not to Sweden")
+    closure_tile(closure_fmt(cl_counts()$new_species), "Species new to the data", "slate",
+      sub = paste0("records now, none anywhere on ", cl_from(), "; new to this data, not to ", country_name))
   })
 
   output$cl_tile_cells <- renderUI({
     req(has_closure)
     filled <- cl_counts()$filled
     universe <- cl_num("cells_universe"); occupied <- cl_num("cells_occupied_to")
-    closure_tile(closure_fmt(filled), "Cells filled", "sand",
-      sub = if (cl_filtered()) "cells where the group is newly recorded" else "no record before, one now",
+    closure_tile(closure_fmt(filled), "Cells with their first records", "sand",
+      sub = if (cl_filtered()) paste0("no record of the group on ", cl_from(), ", at least one now")
+            else paste0("no record at all on ", cl_from(), ", at least one now"),
       warn = if (!cl_filtered() && !is.na(occupied) && !is.na(universe) && occupied >= universe)
-        closure_warn("Every cell at this resolution now holds data, so cells filled has nothing left to report. Use pairs gained.")
+        closure_warn("Every cell of this size now has records, so this number cannot grow further. Use the new species–cell combinations.")
       else if (cl_cross())
-        closure_warn("Inflated across this pair: a cell can fill because the later point places the same record in a different cell."))
+        closure_warn("Too high between these two kinds of data: a cell can get its first record because the later data places the same record in another cell."))
   })
 
   cl_cells <- reactive({
@@ -6460,32 +6517,43 @@ server <- function(input, output, session) {
     req(!is.null(d), nrow(d) > 0)
     d
   })
+  cl_bar <- reactive({
+    thr <- cl_cells()$q_frozen[1]
+    if (is.na(thr)) "—" else format(floor(thr), big.mark = ",")
+  })
+
+  output$cl_bar_caption <- renderUI({
+    req(has_closure)
+    div(class = "filter-label", style = "margin: 0 0 0.5rem;",
+      paste0("Recording depth: cells against a fixed bar of ", cl_bar(), " records (all species)"))
+  })
 
   output$cl_tile_bar <- renderUI({
     req(has_closure)
-    thr <- cl_cells()$q_frozen[1]
-    closure_tile(if (is.na(thr)) "—" else format(round(thr), big.mark = ","),
-      "Low-data bar", "", sub = "records per cell, held fixed")
+    closure_tile(cl_bar(), "The bar: records per cell", "",
+      sub = paste0("a cell with this many records or fewer counts as poorly recorded; a tenth of the cells with records on ",
+                   cl_from(), " were at or below it"))
   })
 
   cl_bar_n <- function(status) sum(cl_cells()$bar_status == status, na.rm = TRUE)
 
   output$cl_tile_rose <- renderUI({
     req(has_closure)
-    closure_tile(closure_fmt(cl_bar_n("rose_above")), "Rose above the bar", "slate",
-      sub = "under it before, above it now")
+    closure_tile(closure_fmt(cl_bar_n("rose_above")), "Cells now above the bar", "slate",
+      sub = paste0(cl_bar(), " records or fewer on ", cl_from(), ", more now"))
   })
 
   output$cl_tile_fell <- renderUI({
     req(has_closure)
-    closure_tile(closure_fmt(cl_bar_n("fell_below")), "Fell below the bar", "coral",
-      sub = "above it before, under it now")
+    closure_tile(closure_fmt(cl_bar_n("fell_below")), "Cells now below the bar", "coral",
+      sub = paste0("more than ", cl_bar(), " records on ", cl_from(), ", ", cl_bar(), " or fewer now"))
   })
 
   output$cl_tile_under <- renderUI({
     req(has_closure)
-    closure_tile(closure_fmt(cl_bar_n("stayed_under")), "Stayed under the bar", "sand",
-      sub = sprintf("plus %s cells with no record at either end", comma(cl_bar_n("still_empty"))))
+    closure_tile(closure_fmt(cl_bar_n("stayed_under")), "Cells below the bar at both dates", "sand",
+      sub = paste0(cl_bar(), " records or fewer at both dates; another ", comma(cl_bar_n("still_empty")),
+                   " cells have no records at either date"))
   })
 
   output$cl_tile_footnote <- renderUI({
@@ -6495,18 +6563,18 @@ server <- function(input, output, session) {
     off_from <- cl_num("species_off_checklist_from")
     closure_html(
       if (!is.na(k$from) && !is.na(k$to)) paste0(
-        "Species × cell pairs: ", closure_b(comma(k$from)), " then, ", closure_b(comma(k$to)), " now",
-        if (cl_filtered()) paste0(" (", htmltools::htmlEscape(cl_group_label()), ")"), ". "),
+        "Species–cell combinations", cl_group_suffix(), ": ", closure_b(comma(k$from)), " on ", cl_from(),
+        ", ", closure_b(comma(k$to)), " on ", cl_to(), ". "),
       if (!is.na(off_to)) paste0(
-        comma(off_to), " species in the later time point have no Dyntaxa identifier and are left out of every number here",
-        if (!is.na(off_from)) paste0(" (", comma(off_from), " in the earlier one)"), ". "),
-      "The low-data bar is the number of records below which the poorest tenth of the occupied cells sat at the earlier time point.")
+        "Not counted: records whose name has no entry in ", closure_taxonomy_name, " (", comma(off_to),
+        " names in the data of ", cl_to(),
+        if (!is.na(off_from)) paste0(", ", comma(off_from), " in the data of ", cl_from()), ")."))
   })
 
   # --- map ----------------------------------------------------------
   # The cells of the grid with both layers' values. Under the class / order
-  # filter, species then and now are the group's; records and the low-data bar
-  # stay those of all taxa.
+  # filter, species then and now are the group's; records and the bar stay
+  # those of all species.
   cl_map_data <- reactive({
     d <- cl_cells()
     out <- tibble::tibble(eeacellcode = d$eeacellcode, occ_from = d$occ_from, occ_to = d$occ_to,
@@ -6526,17 +6594,17 @@ server <- function(input, output, session) {
   output$cl_map_note <- renderUI({
     req(has_closure)
     if (identical(input$cl_map_layer, "bar")) {
-      thr <- cl_cells()$q_frozen[1]
       return(closure_html(
-        "Cells against the earlier time point's low-data bar of ", closure_b(format(round(thr), big.mark = ",")),
-        " records per cell (all taxa). Saturated colours crossed the bar this period; pale ones stayed on the same side of it."))
+        "Each cell's records (all species) against the bar of ", closure_b(cl_bar()), " records. ",
+        "Strong colours: the cell crossed the bar between the two dates. Pale colours: it stayed on the same side."))
     }
     closure_html(
-      if (cl_filtered()) paste0("Species of ", closure_b(cl_group_label()), " per cell. ") else "Species per cell. ",
-      "Blue cells gained species, red cells lost them.",
+      "In each cell: the number of species", cl_group_suffix(), " with records on ", cl_to(),
+      " minus the number on ", cl_from(), ". Blue: more species now; red: fewer.",
       if (!cl_filtered()) paste0(
-        " ", closure_b(comma(cl_num("cells_empty_now"))), " cells hold no record now: ",
-        comma(cl_num("cells_never_filled")), " never did, ", comma(cl_num("cells_regressed")), " lost theirs."))
+        " ", closure_b(comma(cl_num("cells_empty_now"))), " cells have no records at all on ", cl_to(), ": ",
+        comma(cl_num("cells_never_filled")), " had none on ", cl_from(), " either, ",
+        comma(cl_num("cells_regressed")), " had records then."))
   })
 
   output$cl_map <- renderLeaflet({
@@ -6545,7 +6613,7 @@ server <- function(input, output, session) {
     req(grid)
     d <- cl_map_data()
     bar_layer <- identical(input$cl_map_layer, "bar")
-    thr <- d$q_frozen[1]
+    bar <- cl_bar(); from_lbl <- cl_from(); to_lbl <- cl_to()
 
     map_sf <- grid |>
       left_join(d, by = "eeacellcode") |>
@@ -6568,23 +6636,25 @@ server <- function(input, output, session) {
         popup = ~paste0(
           "<strong>Cell:</strong> ", eeacellcode,
           "<br><strong>Species", if (!is.null(grp)) paste0(" (", htmltools::htmlEscape(grp), ")") else "",
-          ":</strong> ", comma(coalesce(n_species_from, 0)), " → ", comma(coalesce(n_species_to, 0)),
-          "<br><strong>Records (all taxa):</strong> ", comma(coalesce(occ_from, 0)), " → ", comma(coalesce(occ_to, 0)),
-          "<br><strong>Low-data bar (", format(round(thr), big.mark = ","), "):</strong> ",
+          ":</strong> ", comma(coalesce(n_species_from, 0)), " on ", from_lbl, ", ",
+          comma(coalesce(n_species_to, 0)), " on ", to_lbl,
+          "<br><strong>Records (all species):</strong> ", comma(coalesce(occ_from, 0)), " on ", from_lbl, ", ",
+          comma(coalesce(occ_to, 0)), " on ", to_lbl,
+          "<br><strong>Recording depth (bar ", bar, "):</strong> ",
           ifelse(is.na(bar_cat), "—", tolower(as.character(bar_cat))))) |>
       addLegend("bottomright", pal = layer_pal, values = ~layer_cat, opacity = 0.9,
-        title = if (bar_layer) "Low-data bar" else "Change in species")
+        title = if (bar_layer) "Recording depth" else "Species gained or lost")
   })
 
   output$cl_map_dl <- dl_csv(function() {
     if (!has_closure) return(NULL)
     d <- cl_map_data()
     d$pair <- cl_pair(); d$resolution <- cl_res()
-    d$taxa <- cl_group_label() %||% "all taxa"
+    d$taxa <- cl_group_label() %||% "all species"
     d
   }, "gaps_filled_cells")
 
-  # --- periods ------------------------------------------------------
+  # --- age of the records -------------------------------------------
   cl_period_data <- reactive({
     m <- if (cl_filtered()) {
       mg <- cl_slice(closure_mechanism_group)
@@ -6606,17 +6676,17 @@ server <- function(input, output, session) {
     req(has_closure)
     yr <- cl_num("mechanism_boundary_year")
     closure_html(
-      "Gained pairs by the year of their earliest record, within each source type",
-      if (cl_filtered()) paste0(" (", closure_b(cl_group_label()), ")"), ". ",
-      if (!is.na(yr)) paste0("Records from ", closure_b(format(yr)),
-        " on cannot have been in the earlier time point; records of the ten years before are often recent sampling published late. "),
-      "A pair counts in every type that brought a record, so the types add up to more than all types together.")
+      "For each new species–cell combination", cl_group_suffix(), ": the year of the oldest record behind it. ",
+      if (!is.na(yr)) paste0("When even the oldest record was collected in ", closure_b(format(yr)), " or later, the combination ",
+                             "comes from new observations, made since ", cl_from(), ". Older records were collected long ago and ",
+                             "published only since, for example digitised museum specimens. "),
+      "A combination with records from two kinds of source counts once in each, so the kinds add up to more than “All sources”.")
   })
 
   output$cl_periods <- renderPlotly({
     req(has_closure)
     d <- cl_period_data()
-    validate(need(nrow(d) > 0 && sum(d$n_pairs) > 0, "No gained pairs for this selection."))
+    validate(need(nrow(d) > 0 && sum(d$n_pairs) > 0, "No new combinations for this selection."))
 
     types <- intersect(names(CLOSURE_TYPE_LABELS), unique(d$source_group))
     type_lbl <- vapply(types, function(t)
@@ -6634,15 +6704,23 @@ server <- function(input, output, session) {
                  marker = list(line = list(color = "#ffffff", width = 2)),
                  customdata = ~comma(n_pairs),
                  hovertemplate = paste0("%{y}<br>%{fullData.name}: %{x:.1f} %<br>",
-                                        "%{customdata} pairs<extra></extra>")) |>
+                                        "%{customdata} new combinations<extra></extra>")) |>
       layout(barmode = "stack",
-             xaxis = list(title = "Share of the type's gained pairs (%)", range = c(0, 100)),
+             xaxis = list(title = "Share of the new combinations (%)", range = c(0, 100)),
              yaxis = list(title = "", automargin = TRUE),
-             legend = list(orientation = "h", y = -0.2, traceorder = "normal"))
-    plotly_layout(p, dl_title = "Gained pairs by period of the earliest record")
+             legend = list(orientation = "h", y = -0.28, traceorder = "normal"))
+    plotly_layout(p, dl_title = "New species–cell combinations by the age of their oldest record")
   })
 
   # --- class x order ----------------------------------------------------
+  output$cl_group_note <- renderUI({
+    req(has_closure)
+    closure_html(
+      "One row per class and order. “Combinations” are species–cell combinations. ",
+      "New (%) and gone (%) are the new and the gone combinations as a share of the group's combinations on ", cl_from(),
+      "; empty when the group had none then. Click a column heading to sort.")
+  })
+
   output$cl_group_table <- renderDT({
     req(has_closure)
     g <- cl_slice(closure_group)
@@ -6660,20 +6738,20 @@ server <- function(input, output, session) {
       left_join(sp, by = c("class", "order")) |>
       transmute(Class = closure_rank_label(class, "class"),
                 Order = closure_rank_label(order, "order"),
-                `Species now` = coalesce(sp_now, 0L), `New species` = coalesce(sp_new, 0L),
-                `Pairs then` = pairs_from, `Pairs now` = pairs_to,
-                Gained = pairs_gained, Lost = pairs_lost,
-                `Gain %` = fill_rate, `Loss %` = loss_rate) |>
-      arrange(desc(Gained))
+                `Species now` = coalesce(sp_now, 0L), `Species new to the data` = coalesce(sp_new, 0L),
+                `Combinations then` = pairs_from, `Combinations now` = pairs_to,
+                New = pairs_gained, Gone = pairs_lost,
+                `New (%)` = fill_rate, `Gone (%)` = loss_rate) |>
+      arrange(desc(New))
     datatable(df, extensions = "Buttons", rownames = FALSE,
       options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip",
         order = list(list(6, "desc")),
         buttons = list(list(extend = "csv", text = "Download CSV",
                             filename = "gaps_filled_class_order"))),
       style = "bootstrap4") |>
-      formatRound(c("Species now", "New species", "Pairs then", "Pairs now", "Gained", "Lost"),
-                  digits = 0, mark = ",") |>
-      formatRound(c("Gain %", "Loss %"), digits = 1)
+      formatRound(c("Species now", "Species new to the data", "Combinations then", "Combinations now",
+                    "New", "Gone"), digits = 0, mark = ",") |>
+      formatRound(c("New (%)", "Gone (%)"), digits = 1)
   })
 
   # --- threatened species -------------------------------------------------
@@ -6683,11 +6761,12 @@ server <- function(input, output, session) {
     st <- st[cl_in_group(st$class, st$order) & st$threat %in% closure_threat_codes, , drop = FALSE]
     n <- function(s) sum(st$n_species[st$status == s])
     closure_html(
-      "Threatened species (", paste(closure_threat_codes, collapse = ", "), ")",
-      if (cl_filtered()) paste0(" of ", closure_b(cl_group_label())), ": ",
-      closure_b(comma(n("new"))), " newly recorded, ",
-      closure_b(comma(n("expanded"))), " in more cells than before, and ",
-      closure_b(comma(n("shifted"))), " in new cells while leaving others. Newly recorded ones first.")
+      "Red-listed species (", paste(closure_threat_codes, collapse = ", "), ")", cl_group_suffix(),
+      " with a record in at least one cell where they had none on ", cl_from(), ": ",
+      closure_b(comma(n("new"))), " are new to the data, ",
+      closure_b(comma(n("expanded"))), " have records in new cells and still in all their old ones, and ",
+      closure_b(comma(n("shifted"))), " have records in new cells but no longer in some old ones. ",
+      "Species new to the data come first.")
   })
 
   output$cl_threat_table <- renderDT({
@@ -6698,11 +6777,11 @@ server <- function(input, output, session) {
                d$cells_gained > 0, , drop = FALSE]
     }
     if (is.null(d) || !nrow(d)) {
-      return(datatable(tibble(Message = "No threatened species gained cells in this selection."),
+      return(datatable(tibble(Message = "No red-listed species gained cells in this selection."),
                        rownames = FALSE, options = list(dom = "t")))
     }
-    status_lbl <- c(new = "Newly recorded", expanded = "In more cells",
-                    shifted = "In new cells, left others")
+    status_lbl <- c(new = "New to the data", expanded = "New cells, none gone",
+                    shifted = "New cells, some gone")
     df <- d |>
       mutate(st_rank = match(status, names(status_lbl))) |>
       arrange(st_rank, desc(cells_gained)) |>
@@ -6710,8 +6789,8 @@ server <- function(input, output, session) {
                 Class = closure_rank_label(class, "class"),
                 Order = closure_rank_label(order, "order"),
                 `Red list` = factor(threatStatus_redlist, levels = closure_threat_codes),
-                Status = factor(unname(status_lbl[status]), levels = unname(status_lbl)),
-                `Cells then` = cells_from, `Cells now` = cells_to, `Cells gained` = cells_gained)
+                `What changed` = factor(unname(status_lbl[status]), levels = unname(status_lbl)),
+                `Cells then` = cells_from, `Cells now` = cells_to, `New cells` = cells_gained)
     df$Ref <- taxon_ref(df$Species)
     datatable(df, extensions = "Buttons", rownames = FALSE, escape = FALSE,
       options = list(pageLength = 10, scrollX = TRUE, dom = "Bfrtip", ordering = TRUE,
@@ -6721,22 +6800,21 @@ server <- function(input, output, session) {
       style = "bootstrap4")
   })
 
-  # --- species that lost ground ---------------------------------------
+  # --- species that lost cells ------------------------------------------
   output$cl_species_note <- renderUI({
     req(has_closure)
     closure_html(
-      "Species that lost cells",
-      if (cl_filtered()) paste0(" (", closure_b(cl_group_label()), ")"), ". ",
-      "<strong>Every red-listed species and every species that lost ground is listed in full</strong>",
+      "Species", cl_group_suffix(), " with no record now in at least one cell where they had records on ", cl_from(), ". ",
+      "The table is complete for species that only lost cells and for red-listed species",
       if (!is.na(closure_species_top_n))
-        paste0("; beyond those, the top ", comma(closure_species_top_n), " movers each way are kept. ")
+        paste0(". Species that also gained cells are listed when they are among the ", comma(closure_species_top_n),
+               " species with the most cells gone or the most new cells. ")
       else ". ",
       if (cl_cross())
-        paste0('<span style="color: var(--coral-ink);">Across this pair, most of this list is names resolving ',
-               "differently between the two pipelines — aggregates, varieties and subspecies especially — ",
-               "not range contraction.</span>")
+        paste0('<span style="color: var(--coral-ink);">Between these two kinds of data, most of this list is names that the two ',
+               "dates resolve differently (aggregates, varieties and subspecies especially), not species losing ground.</span>")
       else
-        "A species can appear here because its records were re-identified as something else, or because a dataset left, rather than because it disappeared.")
+        "A species can lose cells because records were re-identified as another species, or because a dataset is missing, not only because it disappeared.")
   })
 
   output$cl_species_table <- renderDT({
@@ -6750,8 +6828,8 @@ server <- function(input, output, session) {
       return(datatable(tibble(Message = "No species lost cells in this selection."),
                        rownames = FALSE, options = list(dom = "t")))
     }
-    status_lbl <- c(lost = "No longer recorded", contracted = "In fewer cells",
-                    shifted = "In new cells, left others")
+    status_lbl <- c(lost = "No records now", contracted = "Cells gone, none new",
+                    shifted = "New cells, some gone")
     df <- d |>
       arrange(desc(cells_lost)) |>
       transmute(Species = backbone_scientificName,
@@ -6759,20 +6837,20 @@ server <- function(input, output, session) {
                 Order = closure_rank_label(order, "order"),
                 `Red list` = ifelse(is.na(threatStatus_redlist) | threatStatus_redlist == "", "",
                                     threatStatus_redlist),
-                Status = unname(status_lbl[status]),
-                `Cells then` = cells_from, `Cells now` = cells_to, `Cells lost` = cells_lost)
+                `What changed` = unname(status_lbl[status]),
+                `Cells then` = cells_from, `Cells now` = cells_to, `Cells gone` = cells_lost)
     df$Ref <- taxon_ref(df$Species)
     datatable(df, extensions = "Buttons", rownames = FALSE, escape = FALSE,
       options = list(pageLength = 10, scrollX = TRUE, dom = "Bfrtip",
         order = list(list(7, "desc")),
         buttons = list(list(extend = "csv", text = "Download CSV",
-                            filename = "gaps_filled_lost_ground"))),
+                            filename = "gaps_filled_lost_cells"))),
       style = "bootstrap4")
   })
 
   # --- datasets -----------------------------------------------------
-  # One table per side: the gained pairs with the later time point's records,
-  # the lost pairs with the earlier one's.
+  # One table per side: the new combinations with the later date's records,
+  # the gone combinations with the earlier date's.
   cl_dataset_dt <- function(d, side, file, notes = NULL) {
     if (is.null(d) || !nrow(d)) {
       return(datatable(tibble(Message = "No dataset data for this selection."),
@@ -6780,48 +6858,61 @@ server <- function(input, output, session) {
     }
     title <- if ("title" %in% names(d)) d$title else rep(NA_character_, nrow(d))
     title <- ifelse(is.na(title) | title == "", d$datasetkey, title)
+    lbl <- if (side == "new") c("Combinations it adds to", "Share of all new (%)",
+                                "Only from this dataset", "Share of all new, only from it (%)")
+           else c("Combinations it had records for", "Share of all gone (%)",
+                  "Only from this dataset", "Share of all gone, only from it (%)")
     df <- tibble::tibble(
       Dataset = sprintf('<a href="https://www.gbif.org/dataset/%s" target="_blank" rel="noopener">%s</a>',
                         d$datasetkey, htmltools::htmlEscape(title)),
       Publisher = htmltools::htmlEscape(if ("publisher" %in% names(d)) coalesce(d$publisher, "") else ""),
-      Type = unname(CLOSURE_TYPE_LABELS[d$source_group]),
-      `Pairs it touches` = d$touched, `% touched` = d$touched_pct,
-      `Pairs on it alone` = d$vanish_if_dropped, `% on it alone` = d$vanish_pct)
-    pct_cols <- paste("% of", side, c("touched", "on it alone"))
-    names(df)[c(5, 7)] <- pct_cols
+      `Kind of source` = unname(CLOSURE_TYPE_LABELS[d$source_group]),
+      a = d$touched, b = d$touched_pct, c = d$vanish_if_dropped, e = d$vanish_pct)
+    names(df)[4:7] <- lbl
     if (!is.null(notes)) df$Note <- notes
-    df <- df[order(-df$`Pairs on it alone`, -df$`Pairs it touches`), , drop = FALSE]
+    df <- df[order(-df[[lbl[3]]], -df[[lbl[1]]]), , drop = FALSE]
     datatable(df, extensions = "Buttons", rownames = FALSE, escape = FALSE,
       options = list(pageLength = 10, scrollX = TRUE, dom = "Bfrtip", order = list(),
         buttons = list(list(extend = "csv", text = "Download CSV", filename = file))),
       style = "bootstrap4") |>
-      formatRound(c("Pairs it touches", "Pairs on it alone"), digits = 0, mark = ",") |>
-      formatRound(pct_cols, digits = 2)
+      formatRound(lbl[c(1, 3)], digits = 0, mark = ",") |>
+      formatRound(lbl[c(2, 4)], digits = 2)
   }
+
+  output$cl_dataset_note <- renderUI({
+    req(has_closure)
+    closure_html(
+      "“Combinations it adds to”: new species–cell combinations that this dataset has at least one record for. ",
+      "“Only from this dataset”: new combinations that no other dataset has a record for; without the dataset they would not be new. ",
+      "The shares are of all ", comma(cl_num("pairs_gained")), " new combinations and do not add up to 100 %, ",
+      "because a combination can have records from several datasets. All species.")
+  })
 
   output$cl_dataset_table <- renderDT({
     req(has_closure)
-    cl_dataset_dt(cl_slice(closure_datasets), "gain", "gaps_filled_datasets_gain")
+    cl_dataset_dt(cl_slice(closure_datasets), "new", "gaps_filled_datasets_new")
   })
 
   output$cl_dataset_lost_note <- renderUI({
     req(has_closure)
-    base <- tagList(
-      "The datasets the lost pairs rested on, read from the earlier time point. ",
-      "“On it alone” counts the lost pairs that had no record from any other dataset. All taxa. ")
+    lost <- cl_num("pairs_lost")
+    base <- closure_html(
+      "Counted from the data of ", cl_from(), ". ",
+      "“Combinations it had records for”: gone combinations that this dataset had at least one record for. ",
+      "“Only from this dataset”: gone combinations that no other dataset had a record for. ",
+      "The shares are of all ", comma(lost), " gone combinations. All species.")
     notes <- cl_notes()
     if (!length(notes)) return(base)
     d <- cl_slice(closure_datasets_lost)
     k <- cl_note_keys()
     alone <- if (is.null(d)) 0 else sum(d$vanish_if_dropped[d$datasetkey %in% k])
-    lost <- cl_num("pairs_lost")
     tagList(base,
-      lapply(notes, function(n) p(style = "margin:0.5rem 0 0;",
-        tags$strong(paste0("Time point ", n$timepoint, ". ")), n$text)),
+      lapply(notes, function(n) p(style = "margin:0.5rem 0 0;", closure_html(
+        "<strong>Data of ", closure_date(n$timepoint), ".</strong> ", htmltools::htmlEscape(n$text)))),
       p(style = "margin:0.5rem 0 0;", closure_html(
-        "Their pairs count as lost here: ", closure_b(comma(alone)), " of the ", comma(lost),
-        " lost pairs (", closure_pct(if (!is.na(lost) && lost > 0) 100 * alone / lost else NA_real_),
-        ") rested on them alone. The table marks them.")))
+        "Their combinations count as gone in this comparison: ", closure_b(comma(alone)), " of the ", comma(lost),
+        " gone combinations (", closure_pct(if (!is.na(lost) && lost > 0) 100 * alone / lost else NA_real_),
+        ") relied on them alone. The table marks them.")))
   })
 
   output$cl_dataset_lost_table <- renderDT({
@@ -6831,9 +6922,9 @@ server <- function(input, output, session) {
     nt <- NULL
     if (!is.null(d) && length(notes)) {
       nt <- rep("", nrow(d))
-      for (n in notes) nt[d$datasetkey %in% n$datasets] <- paste("Not in the time point", n$timepoint)
+      for (n in notes) nt[d$datasetkey %in% n$datasets] <- paste("Missing from the data of", closure_date(n$timepoint))
     }
-    cl_dataset_dt(d, "losses", "gaps_filled_datasets_losses", notes = nt)
+    cl_dataset_dt(d, "gone", "gaps_filled_datasets_gone", notes = nt)
   })
 }
 

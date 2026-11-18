@@ -26,6 +26,14 @@ The tab stays behind `GAP_FINDER_SHOW_GAPS_FILLED` until the release.
   lacks (four NRM collection datasets in the snapshot of 1 October 2026).
 - `tools/preview_gaps_filled.R` shows the tab on the shipped bundle plus the tables of
   script 14, without a data release.
+- **Pairs across GBIF's switch of taxonomy** (2021 → 2026-10-01, 2024 → 2026-10-01): script 14
+  counts the earlier end through GBIF's mapping of its former backbone to the Catalogue of
+  Life (`parameters.closure.col_mapping_file`, COL 26.5 XR, downloaded once into
+  `data/shared/gbif_col_mapping/`). Each former key reaches Dyntaxa through its COL taxon,
+  else through its species name, else through its own match. Hybrids are left out at both
+  ends of such a pair. For 2024 → 2026-10-01 at 10 km this brings the species new to the data
+  from 9,771 to 7,583 and the threatened ones from 274 to 176. The summary records the names
+  translated, those that move to another taxon and the hybrids left out; the tab states them.
 
 ### Changed
 
@@ -37,6 +45,10 @@ The tab stays behind `GAP_FINDER_SHOW_GAPS_FILLED` until the release.
 - The volatility flag is gone; every group shows its loss % instead.
 - `tools/test_gaps_filled_tab.R` runs the code inside every plot and table (its stubs
   returned the code unrun before) and checks the numbers against the tables.
+- **The tab in plain words:** every number says what it counts, with the dates of the pair
+  ("new species–cell combinations", "species new to the data", "cells with their first
+  records", recording depth against a bar of N records). Dates read "1 January 2024". The
+  manual's section follows the same wording.
 
 ## Unreleased — Image: renv pinned, APT snapshot, shinyWidgets dropped
 

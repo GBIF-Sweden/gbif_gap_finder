@@ -33,6 +33,14 @@
 #             Dyntaxa taxonID.
 #   Every output carries `key_space`. Never mix them in one number.
 #
+# TWO GBIF TAXONOMIES. The 2021 and 2024 snapshots name species after GBIF's
+#   former backbone, later time points after the Catalogue of Life (COL). Each
+#   reaches Dyntaxa through its own match table, and the two matchers differ:
+#   one name can match at one end only. In a pair across the switch the earlier
+#   end is therefore translated into COL first, with GBIF's own mapping from the
+#   old keys to COL (closure_col_route()), and hybrids are left out at both ends
+#   (COL lists them as taxa; the former backbone had no keys for them).
+#
 # PAIRS THAT SPAN SOURCE TYPES are counted in EVERY type's figures and ONCE in
 #   the total, so per-type columns do not sum to the total. That is deliberate.
 #   The alternative - crediting each pair to a single "owner" type - needs a
@@ -648,6 +656,119 @@ closure_default_pairs <- function(meta) {
     if (length(tps) > 2L) out[[length(out) + 1L]] <- tps[c(1L, length(tps))]
   }
   out
+}
+
+# ============================================================================
+# Between GBIF's former backbone and the Catalogue of Life
+# ============================================================================
+
+# The match-table columns script 14 reads besides the key: the Dyntaxa taxon a
+# GBIF key is counted as, and how the taxon is named and ranked.
+CLOSURE_TAXON_COLS <- c("backbone_taxonID", "backbone_scientificName", "taxonRank",
+                        "class", "order", "threatStatus_redlist", "threatStatus_backbone")
+
+#' TRUE for a hybrid name: a "×" anywhere, or an "x" standing alone between words
+#'
+#' Dyntaxa writes plant hybrids with "×" (Galium mollugo × verum) and some
+#' animal hybrids with a plain "x" (Anser anser x Branta canadensis).
+closure_is_hybrid <- function(name) {
+  name <- as.character(name)
+  !is.na(name) & (grepl("\u00d7", name) | grepl("(^|\\s)x(\\s|$)", name))
+}
+
+#' The species name in a COL name: subgenus dropped, genus and epithet kept
+#'
+#' "Stictoleptura (Maculileptura) maculicornis" gives "Stictoleptura
+#' maculicornis"; "Hypochaeris maculata subsp. maculata" gives "Hypochaeris
+#' maculata". A hybrid has no species name of its own and gives NA.
+closure_species_name <- function(name) {
+  name <- trimws(gsub("\\s*\\([^)]*\\)", "", as.character(name)))
+  words <- strsplit(name, "\\s+")
+  out <- vapply(words, function(w) if (length(w) >= 2L) paste(w[1:2], collapse = " ") else NA_character_,
+                character(1))
+  out[is.na(name) | closure_is_hybrid(name)] <- NA_character_
+  out
+}
+
+#' Count a time point keyed in GBIF's former backbone the way a COL-keyed one is
+#'
+#' A pair whose ends use different GBIF taxonomies compares two match tables
+#' built by different matchers. A spelling only the COL matcher resolves
+#' (Phylloscopus sibillatrix), a species renamed between the two lists
+#' (Trommsdorffia → Hypochaeris maculata) and a species COL merges into another
+#' (Rosa mollis → R. villosa) then turn up as lost or new without any change in
+#' the records. This gives every old key the Dyntaxa taxon the COL-keyed end
+#' gives to the same species:
+#'
+#'   key     the old key's COL taxon (GBIF's mapping; a synonym is replaced by
+#'           its accepted taxon) is a key of `mt_col`: take that row's taxon;
+#'   name    otherwise, the species name of that COL taxon is the GBIF name of a
+#'           matched row of `mt_col`: take that row's taxon (the most recorded
+#'           one when the name occurs twice);
+#'   legacy  otherwise, keep the old key's own match.
+#'
+#' @param mt_legacy Match table of the time point keyed in the former backbone.
+#' @param mt_col Match table of the COL-keyed time point of the pair.
+#' @param mapping data.table(legacy_key, col_key, col_name): the COL taxon of
+#'   each old key, accepted taxon already resolved (read_col_mapping()).
+#' @return `mt_legacy`'s specieskey, species and total_occ, the taxon columns
+#'   (CLOSURE_TAXON_COLS, as text) and `col_route` ("key", "name", "legacy").
+closure_col_route <- function(mt_legacy, mt_col, mapping) {
+  need <- c("specieskey", "species")
+  for (nm in c("mt_legacy", "mt_col")) {
+    absent <- setdiff(c(need, "backbone_taxonID"), names(get(nm)))
+    if (length(absent)) cli_abort("closure_col_route(): {nm} lacks {.field {absent}}")
+  }
+  cols <- intersect(CLOSURE_TAXON_COLS, names(mt_col))
+  keep <- intersect(c("specieskey", "species", "total_occ"), names(mt_legacy))
+  out <- data.table::as.data.table(mt_legacy)[, keep, with = FALSE]
+  out[, specieskey := as.character(specieskey)]
+  own <- data.table::as.data.table(mt_legacy)
+  for (cc in cols) {
+    v <- if (cc %in% names(own)) as.character(own[[cc]]) else rep(NA_character_, nrow(own))
+    data.table::set(out, j = cc, value = v)
+  }
+
+  mp <- unique(data.table::as.data.table(mapping), by = "legacy_key")
+  i_mp <- match(out$specieskey, as.character(mp$legacy_key))
+  col_key <- as.character(mp$col_key)[i_mp]
+  canon <- closure_species_name(mp$col_name[i_mp])
+
+  mc <- data.table::as.data.table(mt_col)
+  mc[, specieskey := as.character(specieskey)]
+  by_key <- unique(mc, by = "specieskey")
+  matched <- mc[!is.na(backbone_taxonID) & nzchar(as.character(backbone_taxonID))]
+  if ("total_occ" %in% names(matched)) {
+    data.table::setorderv(matched, "total_occ", order = -1L, na.last = TRUE)
+  }
+  by_name <- unique(matched, by = "species")
+
+  i_key  <- match(col_key, by_key$specieskey)
+  i_name <- match(canon, as.character(by_name$species))
+  route <- data.table::fifelse(!is.na(i_key), "key",
+                               data.table::fifelse(!is.na(i_name), "name", "legacy"))
+  for (cc in cols) {
+    v <- out[[cc]]
+    k <- route == "key"; n <- route == "name"
+    v[k] <- as.character(by_key[[cc]])[i_key[k]]
+    v[n] <- as.character(by_name[[cc]])[i_name[n]]
+    data.table::set(out, j = cc, value = v)
+  }
+  out[, col_route := route]
+  out[]
+}
+
+#' Dyntaxa taxa that are hybrids, from the match tables of a pair
+#'
+#' @param ... Match tables (backbone_taxonID, backbone_scientificName).
+#' @return Character vector of Dyntaxa taxon IDs.
+closure_hybrid_keys <- function(...) {
+  ids <- unlist(lapply(list(...), function(m) {
+    m <- data.table::as.data.table(m)
+    if (!all(c("backbone_taxonID", "backbone_scientificName") %in% names(m))) return(character())
+    as.character(m$backbone_taxonID[closure_is_hybrid(m$backbone_scientificName)])
+  }))
+  sort(unique(ids[!is.na(ids) & nzchar(ids)]))
 }
 
 # ============================================================================

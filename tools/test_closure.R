@@ -451,6 +451,83 @@ ok(inherits(try(closure_taxon_lookup(mt_to, mt_from, TAX_COLS, "nope"), silent =
             "try-error"),
    "lookup: an unknown key column is refused by name")
 
+cli_h2("across GBIF's switch of taxonomy: names, hybrids, the COL route")
+eq(closure_is_hybrid(c("Galium mollugo \u00d7 verum", "Anser anser x Branta canadensis",
+                       "\u00d7Festulolium loliaceum", "Lynx lynx", "Xanthoria parietina",
+                       "Carex x-ray", NA)),
+   c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE),
+   "hybrids: the sign, or an x standing alone; a word starting with x is not one")
+eq(closure_species_name(c("Stictoleptura (Maculileptura) maculicornis",
+                          "Hypochaeris maculata subsp. maculata", "Phylloscopus sibillatrix",
+                          "Galium mollugo \u00d7 verum", "Rosa", NA)),
+   c("Stictoleptura maculicornis", "Hypochaeris maculata", "Phylloscopus sibillatrix",
+     NA, NA, NA),
+   "species name: subgenus dropped, genus and epithet kept, none for a hybrid")
+
+# The earlier end, keyed in GBIF's former backbone. 1-2 and 5 are unmatched
+# there (a spelling, a rename, a duplicate concept); 3 matches a species COL
+# merges into another; 4 and 6 match; 7 is a rename COL keys directly.
+mt_old <- data.table::data.table(
+  specieskey = as.character(1:7),
+  species = c("Phylloscopus sibillatrix", "Trommsdorffia maculata", "Rosa mollis", "Lynx lynx",
+              "Palaeochrysophanus hippothoe", "Ovis unmapped", "Paracorymbia maculicornis"),
+  total_occ = c(100, 50, 30, 20, 10, 5, 8),
+  backbone_taxonID = c("", "", "D:mollis", "D:lynx", "", "D:ovis", ""),
+  backbone_scientificName = c("", "", "Rosa mollis", "Lynx lynx", "", "Ovis unmapped", ""),
+  class = c("", "", "Eudicots", "Mammalia", "", "Mammalia", ""),
+  order = c("", "", "Rosales", "Carnivora", "", "Artiodactyla", ""),
+  taxonRank = c("", "", "species", "species", "", "species", ""),
+  threatStatus_redlist = c("", "", "", "VU", "", "", ""))
+# The later end, keyed in COL. HYPDUP shares a GBIF name with HYPOM but has no
+# Dyntaxa taxon: the name route must take the matched row.
+mt_new <- data.table::data.table(
+  specieskey = c("6VFN8", "HYPOM", "HYPDUP", "6WXZZ", "LYNX", "CP2WR", "52K8M", "HYB1"),
+  species = c("Phylloscopus sibillatrix", "Hypochaeris maculata", "Hypochaeris maculata",
+              "Rosa villosa", "Lynx lynx", "Lycaena hippothoe", "Stictoleptura maculicornis",
+              "Galium mollugo \u00d7 verum"),
+  total_occ = c(120, 60, 900, 90, 25, 40, 9, 5),
+  backbone_taxonID = c("D:sib", "D:hyp", "", "D:villosa", "D:lynx", "D:lyc", "D:stic", "D:hyb"),
+  backbone_scientificName = c("Phylloscopus sibilatrix", "Hypochaeris maculata", "",
+                              "Rosa villosa", "Lynx lynx", "Lycaena hippothoe",
+                              "Stictoleptura maculicornis", "Galium mollugo \u00d7 verum"),
+  class = c("Aves", "Eudicots", "", "Eudicots", "Mammalia", "Insecta", "Insecta", "Eudicots"),
+  order = c("Passeriformes", "Asterales", "", "Rosales", "Carnivora", "Lepidoptera",
+            "Coleoptera", "Gentianales"),
+  taxonRank = c(rep("species", 2), "", rep("species", 5)),
+  threatStatus_redlist = c("NT", "NT", "", "", "VU", "VU", "", ""))
+# GBIF's mapping, accepted taxon resolved; key 6 has no row.
+mapping <- data.table::data.table(
+  legacy_key = c("1", "2", "3", "4", "5", "7"),
+  col_key = c("6VFN8", "CQJX5", "DNZ8N", "LYNX", "4C2B4", "52K8M"),
+  col_name = c("Phylloscopus sibillatrix", "Hypochaeris maculata subsp. maculata",
+               "Rosa villosa subsp. villosa", "Lynx lynx", "Palaeochrysophanus hippothoe",
+               "Stictoleptura (Maculileptura) maculicornis"))
+rt_old <- closure_col_route(mt_old, mt_new, mapping)
+eq(rt_old$col_route, c("key", "name", "name", "key", "legacy", "legacy", "key"),
+   "routes: COL taxon a key of the later end, else its species name, else the old match")
+eq(rt_old$backbone_taxonID, c("D:sib", "D:hyp", "D:villosa", "D:lynx", "", "D:ovis", "D:stic"),
+   "every routed key takes the later end's Dyntaxa taxon")
+eq(rt_old[specieskey == "1", .(backbone_scientificName, class, threatStatus_redlist)],
+   data.table::data.table(backbone_scientificName = "Phylloscopus sibilatrix", class = "Aves",
+                          threatStatus_redlist = "NT"),
+   "a spelling only the COL matcher resolves now matches at both ends")
+eq(rt_old[specieskey == "3", backbone_taxonID], "D:villosa",
+   "a species COL merges into another is counted as that one at both ends")
+eq(rt_old[specieskey == "2", backbone_taxonID], "D:hyp",
+   "the name route takes the matched row, not a commoner unmatched key of the same name")
+eq(rt_old[specieskey == "6", backbone_taxonID], "D:ovis",
+   "a key GBIF's mapping lacks keeps its own match")
+eq(names(rt_old), c("specieskey", "species", "total_occ",
+                    intersect(CLOSURE_TAXON_COLS, names(mt_new)), "col_route"),
+   "the routed table carries the key, the taxon columns and the route")
+eq(closure_rekey(grain(list(list("1", "C1", "D1", 2020, 1, 1))), rt_old, "dyntaxa")$grain$key,
+   "D:sib", "the routed table re-keys a grain like any match table")
+eq(closure_hybrid_keys(mt_old, mt_new), "D:hyb", "hybrid taxa are found by their Dyntaxa name")
+eq(closure_hybrid_keys(mt_old[0]), character(), "no hybrids, none returned")
+ok(inherits(try(closure_col_route(mt_old[, .(specieskey)], mt_new, mapping), silent = TRUE),
+            "try-error"),
+   "a match table without species or taxon is refused by name")
+
 cli_h2("Result")
 if (fail == 0L) { cli_alert_success("All closure checks passed"); quit(status = 0L) }
 cli_abort("{fail} closure check{?s} failed")

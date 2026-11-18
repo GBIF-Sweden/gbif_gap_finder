@@ -324,7 +324,10 @@ The Gap Finder app reads these per-scope files directly, so scope switching in t
    `col_crosswalk_validation.md` so later runs are checked against it
 8. For the Gaps filled tab (time points, script 14), type your datasets in
    `configs/dataset_types_{CC}.csv` (columns `datasetkey`, `type`; types `platform`, `monitoring`,
-   `collection`, `other`). A dataset missing from the list counts as `other`
+   `collection`, `other`). A dataset missing from the list counts as `other`. When the time
+   points span GBIF's switch from its former backbone to the Catalogue of Life, download
+   GBIF's mapping between the two (README: <https://download.checklistbank.org/col/gbif/README.html>)
+   to the path in `parameters.closure.col_mapping_file`
 9. Keep the attribution: the copyright notice in `LICENSE.md`, a link to this repository and
    the full citation (see [How to cite](#how-to-cite))
 

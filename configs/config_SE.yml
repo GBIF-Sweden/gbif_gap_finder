@@ -176,6 +176,13 @@ parameters:
     # the rest by their main record type. A dataset not on the list counts as
     # "other"; script 14 names it.
     source_types_file: "configs/dataset_types_SE.csv"
+    # GBIF's mapping from its former backbone to the Catalogue of Life (one row
+    # per old key; COL 26.5 XR; 3.9 GB, not in the repository). The 2021 and
+    # 2024 snapshots use the old backbone, later time points COL; in a pair
+    # across the switch the older end is translated with this file, so both
+    # ends count a species the same way. Download it via
+    # https://download.checklistbank.org/col/gbif/README.html
+    col_mapping_file: "data/shared/gbif_col_mapping/gbif-col265.tsv"
     # Datasets a time point lacks although the time points around it hold them.
     # Their pairs count as lost (or gained) in every pair with that time point;
     # the Gaps filled tab shows the text, marks the datasets in its table of

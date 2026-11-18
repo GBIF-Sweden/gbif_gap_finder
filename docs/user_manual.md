@@ -196,43 +196,91 @@ a given run used.
 *Shown when the deployment switches it on (`GAP_FINDER_SHOW_GAPS_FILLED=true`); hidden while
 it is under review.*
 
-What changed between two **time points**: complete rebuilds of the gap analysis against GBIF
-Sweden's snapshot exports of 1 January 2021, 1 January 2024 and 1 October 2026. The headline
-measure is the **species × cell pair**, one species recorded in one grid cell. A gained pair
-means a species is now recorded in a cell where it was not before: better knowledge of where
-species are, not usually a new species.
+What changed in GBIF's data for Sweden between two dates. Each date is a complete copy of
+GBIF's data for Sweden as it stood that day: 1 January 2021, 1 January 2024 and 1 October
+2026. The tab compares two of them.
 
-- **Compare:** the two time points (the latest step opens first), the resolution, and a
-  **class → order** filter. The filter changes the first row of tiles, the map's change in
-  species, the periods and the species tables; the low‑data bar and the dataset tables
-  always cover all taxa.
-- **Tiles:** pairs gained and lost, each with its share of the pairs before; species newly
-  recorded (new to the data compared, not to Sweden); cells filled. The second row judges
-  cells against the **low‑data bar**: the number of records per cell below which the
-  poorest tenth of the occupied cells sat at the earlier time point, held fixed for the
-  later one. Cells *rose above* it, *fell below* it or *stayed under* it; a cell with no
-  records is under the bar.
-- **Map:** the change in species per cell (blue gained, red lost), or the low‑data bar
-  (saturated colours crossed the bar this period, pale ones did not).
-- **How old are the records behind the gain?** Gained pairs by the year of their earliest
-  record, per **source type**: platforms (open reporting platforms and apps), monitoring
-  (programmes, inventories, surveys, metabarcoding), collections (specimens) and other.
-  Records from the earlier time point's year on cannot have been in it; older ones were
-  collected before and published since. A pair counts in every type that brought a record
-  to it, so the types add up to more than all types together.
-- **Gains and losses by class and order:** every group in one sortable table, with gain %
-  and loss % of its pairs at the earlier time point.
-- **Threatened species in new cells** (CR, EN, VU, NT), **species that lost ground**, and
-  **which datasets the gain and the losses rest on**: "on it alone" counts the pairs that no
-  other dataset supports.
+**The unit: a species–cell combination.** One species with at least one record in one grid
+cell (10 km × 10 km, or 50 km × 50 km). A species recorded in 100 cells gives 100
+combinations.
 
-Two reading rules. Read a group's gain next to its loss: records re‑identified between
-species and datasets republished or withdrawn make pairs vanish, and a dataset missing from
-one delivery shows up as losses (the tab names such datasets, such as four NRM collection
-datasets absent from the snapshot of 1 October 2026). And species are compared as Dyntaxa
-taxa, matched by name at each time point: where two GBIF taxonomies name a species
-differently, its pairs can vanish or appear without any change in the records. The banner
-says when the two time points use different GBIF taxonomies.
+- **New combination:** the species has a record in the cell at the later date and had none
+  there at the earlier date. That is better knowledge of where the species lives, not a new
+  species for Sweden.
+- **Gone combination:** the species had records in the cell at the earlier date and has none
+  there at the later date.
+
+**First row of numbers** (follows the class and order filter):
+
+- **New species–cell combinations:** how many new combinations, and what share that is of
+  all combinations at the earlier date.
+- **Species–cell combinations gone:** how many gone combinations, and their share of all
+  combinations at the earlier date.
+- **Species new to the data:** species with records at the later date and none anywhere at
+  the earlier date. New to this data, not to Sweden.
+- **Cells with their first records:** cells with no record at the earlier date and at least
+  one at the later date (of the chosen group, when one is chosen).
+
+**Second row: recording depth** (always all species):
+
+- **The bar: records per cell.** A fixed number of records, set at the earlier date: a tenth
+  of the cells that had records then had this many or fewer. A cell with this many records or
+  fewer counts as poorly recorded. The same bar is used at both dates, so a cell crosses it
+  only when its own number of records changes. A cell with no records counts as below it.
+- **Cells now above the bar:** at or below the bar at the earlier date, above it now.
+- **Cells now below the bar:** above the bar at the earlier date, at or below it now.
+- **Cells below the bar at both dates.** Cells with no records at either date are counted
+  apart.
+
+Under the numbers: the number of combinations at each date, and how many names in the data
+have no entry in Dyntaxa. Records under those names are not counted.
+
+**Map.** *Species gained or lost:* in each cell, the number of species at the later date
+minus the number at the earlier date (blue: more species now, red: fewer). *Recording
+depth:* each cell against the bar; strong colours crossed the bar between the two dates,
+pale colours stayed on the same side.
+
+**How old are the records behind the new combinations?** For each new combination, the year
+of its oldest record, shown for each kind of source: reporting platforms (open websites and
+apps where anyone can report), monitoring and surveys (monitoring programmes, inventories,
+surveys and sampling series, DNA-based ones included), collections (museum and herbarium
+specimens) and other sources. When even the oldest record was collected in the year of the
+earlier date or later, the combination comes from new observations. Older records were
+collected long ago and published only since, for example digitised museum specimens. A
+combination with records from two kinds of source counts once in each, so the kinds add up
+to more than "All sources".
+
+**Tables.**
+
+- **Gains and losses by class and order:** for each group, the species now, the species new
+  to the data, the combinations at each date, the new and the gone combinations, and both as
+  a share of the group's combinations at the earlier date.
+- **Threatened species in new cells:** red-listed species (CR, EN, VU, NT) with at least one
+  new cell: new to the data, new cells with none gone, or new cells with some gone.
+- **Species that lost cells:** complete for species that only lost cells and for red-listed
+  species. Species that also gained cells are listed when they are among the 1,000 with the
+  most cells gone or the most new cells.
+- **Which datasets the new combinations come from:** "Combinations it adds to" counts the new
+  combinations the dataset has at least one record for; "Only from this dataset" counts the
+  new combinations no other dataset has a record for, which would not be new without it.
+- **Which datasets the gone combinations relied on:** the same, counted from the data of the
+  earlier date.
+
+**Two naming systems.** GBIF names records by a reference list of species. The data of
+1 January 2021 and 1 January 2024 use GBIF's own former list, the data of 1 October 2026 the
+Catalogue of Life. The tab counts species as Dyntaxa species at both dates. For two dates on
+either side of the change, the names of the earlier date are translated into the Catalogue
+of Life with GBIF's official conversion table, so the same species is counted the same way
+at both dates. Names the table cannot translate keep their own match. Hybrids are left out
+at both dates: the former list had no entries for them, so all of them would look new. A few
+species that GBIF lists under two names can still show up as new although they had records
+before. The note at the top of the tab gives the numbers for the pair shown.
+
+**Reading rule.** Read a group's gains next to its losses. A combination can be gone because
+records were re-identified as another species, or because a dataset was withdrawn,
+republished or is missing from one of the two dates, not only because a species disappeared.
+The tab names datasets missing from a date (four NRM collection datasets are missing from the
+data of 1 October 2026).
 
 ---
 

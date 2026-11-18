@@ -17,7 +17,7 @@
 #   cube and match table. They sit at the root rather than under timepoints/,
 #   and are labelled with the cube's download date.
 #
-# Dependencies: data.table, arrow, yaml, cli, glue, here, R/closure.R
+# Dependencies: data.table, arrow, dplyr, yaml, cli, glue, here, R/closure.R
 # ============================================================================
 
 #' The live cube's download date, or NA - never today's date
@@ -148,6 +148,50 @@ read_match_table <- function(tp) {
   m[, specieskey := as.character(specieskey)]
   if ("backbone_taxonID" %in% names(m)) m[, backbone_taxonID := as.character(backbone_taxonID)]
   m
+}
+
+#' GBIF's mapping from its former backbone to the Catalogue of Life, for some keys
+#'
+#' The mapping (one row per key of the former backbone, about 7.7 million rows,
+#' 3.9 GB) is GBIF's own: https://download.checklistbank.org/col/gbif/README.html.
+#' It is read as a stream and filtered to `keys`, so the whole file never sits
+#' in memory. A synonym is replaced by its accepted COL taxon.
+#'
+#' @param path The mapping file (tab-separated, no quoting, header row).
+#' @param keys Keys of the former backbone to look up.
+#' @return data.table(legacy_key, col_key, col_name, match_type); a key GBIF
+#'   could not map has NA col_key.
+read_col_mapping <- function(path, keys) {
+  if (!file.exists(path)) {
+    cli_abort(c(
+      "GBIF's mapping from its former backbone to the Catalogue of Life is missing: {.path {path}}",
+      "i" = "Download it from {.url https://download.checklistbank.org/col/gbif/README.html} \\
+             and set {.field parameters.closure.col_mapping_file} to where it is."))
+  }
+  hdr <- strsplit(readLines(path, n = 1L, encoding = "UTF-8"), "\t", fixed = TRUE)[[1]]
+  need <- c("gbif:ID", "matchType", "col:ID", "col:scientificName", "col:acceptedID",
+            "col:acceptedScientificName")
+  absent <- setdiff(need, hdr)
+  if (length(absent)) {
+    cli_abort("{.path {path}} lacks column{?s} {.field {absent}}")
+  }
+  # Every column as text, the tab as the only delimiter: names hold quotes and
+  # apostrophes that a quoting parser would read as field boundaries.
+  sch <- arrow::schema(lapply(stats::setNames(hdr, hdr), function(x) arrow::utf8()))
+  ds <- arrow::open_dataset(
+    path, format = "csv", schema = sch,
+    parse_options = arrow::CsvParseOptions$create(delimiter = "\t", quoting = FALSE),
+    read_options = arrow::CsvReadOptions$create(skip_rows = 1L, column_names = hdr),
+    convert_options = arrow::CsvConvertOptions$create(strings_can_be_null = TRUE))
+  keys <- unique(as.character(keys))
+  m <- data.table::as.data.table(
+    dplyr::collect(dplyr::select(dplyr::filter(ds, .data[["gbif:ID"]] %in% keys),
+                                 dplyr::all_of(need))))
+  data.table::data.table(
+    legacy_key = m[["gbif:ID"]],
+    col_key    = data.table::fcoalesce(m[["col:acceptedID"]], m[["col:ID"]]),
+    col_name   = data.table::fcoalesce(m[["col:acceptedScientificName"]], m[["col:scientificName"]]),
+    match_type = m[["matchType"]])
 }
 
 #' Full cell universe for a resolution - from the grid, never from the data

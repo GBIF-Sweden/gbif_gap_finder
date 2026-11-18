@@ -93,6 +93,31 @@ if (length(same)) {
      "a within-regime pair on one key backbone carries the gbif key space too")
 }
 
+cli_h2("pairs across GBIF's switch of taxonomy")
+# The earlier end of such a pair is counted through GBIF's mapping to the
+# Catalogue of Life, and hybrids are left out at both ends. A pair on one
+# taxonomy needs neither, so its three counts are zero.
+cm <- cb$tables$summary[metric %in% c("col_route_keys", "col_route_moved", "hybrids_left_out") &
+                          source_group == "total"]
+if (!nrow(cm)) {
+  cli_alert_warning(
+    "No COL route counts - these tables predate them. Re-run \\
+     {.code Rscript -e 'source(\"scripts/14_gap_closure.R\")'}.")
+} else {
+  one <- cb$tables$pair_index[key_backbone_differs == 0, pair_id]
+  ok(all(cm[pair_id %in% one, value] == 0),
+     "a pair on one taxonomy routes nothing through COL and leaves no hybrid out")
+  if (length(kb)) {
+    w <- data.table::dcast(cm[pair_id %in% kb & key_space == "dyntaxa"],
+                           pair_id + resolution ~ metric, value.var = "value")
+    ok(nrow(w) > 0 && all(w$col_route_keys > 0),
+       "a pair across the switch counts its earlier end through COL")
+    ok(all(w$col_route_moved <= w$col_route_keys),
+       "the names that move to another taxon are among the names routed")
+    ok(all(w$hybrids_left_out > 0), "a pair across the switch names the hybrids it leaves out")
+  }
+}
+
 cli_h2("losses by dataset")
 dl <- cb$tables$datasets_lost
 if (is.null(dl)) {
@@ -234,6 +259,10 @@ for (f in sp_files) {
   eq(max(kept$cells_gained), max(raw$cells_gained), sprintf("%s: biggest gainer survived", f))
   eq(max(kept$cells_lost),   max(raw$cells_lost),   sprintf("%s: biggest loser survived", f))
   ok(nrow(kept) <= nrow(raw), sprintf("%s: thinning never invents rows", f))
+  if (pid %in% kb) {
+    ok(!any(closure_is_hybrid(raw$backbone_scientificName)),
+       sprintf("%s: no hybrid in a pair across GBIF's switch of taxonomy", f))
+  }
   checked <- checked + 1L
 }
 cli_alert_info("Checked {checked} species table{?s}")

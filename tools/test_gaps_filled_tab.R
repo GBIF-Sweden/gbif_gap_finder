@@ -174,6 +174,7 @@ grid_10km <- bundle$grid_10km
 pal <- list(sage = "#2A7F62", slate = "#4477AA", sand = "#CCBB44",
             coral = "#EE6677", plum = "#AA3377", text = "#2d2d2d", muted = "#6b6b6b")
 PAL_NODATA <- "#dddddd"
+country_name <- "Sweden"; country_adjective <- "Swedish"
 PAL_DIV    <- c("#d7191c", "#fdae61", "#ffffbf", "#abd9e9", "#2c7bb6")
 taxon_ref <- function(x) rep("", length(x))
 dl_csv <- function(data_fun, prefix) {
@@ -216,11 +217,11 @@ app <- shinyApp(ui = fluidPage(), server = function(input, output, session) {
 
 OUTPUTS <- c("closure_banner", "cl_res_note", "cl_filter_note",
              "cl_tile_gained", "cl_tile_lost", "cl_tile_species", "cl_tile_cells",
-             "cl_tile_bar", "cl_tile_rose", "cl_tile_fell", "cl_tile_under",
+             "cl_bar_caption", "cl_tile_bar", "cl_tile_rose", "cl_tile_fell", "cl_tile_under",
              "cl_tile_footnote", "cl_map_note", "cl_map", "cl_map_dl",
-             "cl_periods_note", "cl_periods", "cl_group_table",
+             "cl_periods_note", "cl_periods", "cl_group_note", "cl_group_table",
              "cl_threat_note", "cl_threat_table", "cl_species_note", "cl_species_table",
-             "cl_dataset_table", "cl_dataset_lost_note", "cl_dataset_lost_table")
+             "cl_dataset_note", "cl_dataset_table", "cl_dataset_lost_note", "cl_dataset_lost_table")
 
 ORDER_DIPTERA <- "Insecta|Diptera"
 FILTERS <- list(none = c(CLOSURE_ALL, CLOSURE_ALL), class = c("Insecta", CLOSURE_ALL),
@@ -291,10 +292,14 @@ for (pid in cb$pairs) for (res in c("10km", "50km")) {
       ok(startsWith(trimws(htxt(output[[nm]])), comma(want[[nm]])),
          sprintf("%s | %s | %-13s = %s", substr(pid, 1, 21), res, nm, comma(want[[nm]])))
     }
-    ok(grepl(sprintf("plus %s cells with no record", comma(sum(cl$bar_status == "still_empty"))),
-             htxt(output$cl_tile_under), fixed = TRUE), "stayed under names the cells still empty")
-    ok(grepl(format(round(cl$q_frozen[1]), big.mark = ","), htxt(output$cl_tile_bar), fixed = TRUE),
-       sprintf("the bar tile shows the bar (%s)", round(cl$q_frozen[1])))
+    ok(grepl(sprintf("another %s cells have no records at either date",
+                     comma(sum(cl$bar_status == "still_empty"))),
+             htxt(output$cl_tile_under), fixed = TRUE), "below the bar names the cells with no records")
+    bar <- format(floor(cl$q_frozen[1]), big.mark = ",")
+    ok(startsWith(trimws(htxt(output$cl_tile_bar)), bar),
+       sprintf("the bar tile shows the bar, rounded down (%s records)", bar))
+    ok(grepl(sprintf("fixed bar of %s records", bar), htxt(output$cl_bar_caption), fixed = TRUE),
+       "the caption of the second row names the bar")
   }))
 }
 
@@ -314,7 +319,7 @@ check_group <- function(cls, ord, lab, keep) {
          sprintf("%-10s %-15s shows %s", lab, nm, comma(want[[nm]])))
     }
     ok(grepl(lab, htxt(output$cl_filter_note), fixed = TRUE), sprintf("the filter note names %s", lab))
-    ok(grepl("cover all taxa", htxt(output$cl_filter_note), fixed = TRUE),
+    ok(grepl("count all species", htxt(output$cl_filter_note), fixed = TRUE),
        "the filter note says what does not follow it")
   }))
 }
@@ -334,12 +339,19 @@ for (pid in cb$pairs) {
   run(pid, "10km", code = quote({
     b <- htxt(output$closure_banner)
     if (row$key_backbone_differs == 1) {
-      ok(grepl("Same query, two taxonomies", b, fixed = TRUE), sprintf("%s: two taxonomies", pid))
+      ok(grepl("Two naming systems", b, fixed = TRUE), sprintf("%s: two naming systems", pid))
       rate <- 100 * num(pid, "10km", "pairs_lost") / num(pid, "10km", "pairs_from")
-      ok(grepl(sprintf("loses %.1f %% of its pairs", rate), b, fixed = TRUE),
-         sprintf("%s: names its loss rate (%.1f %%)", pid, rate))
+      ok(grepl(sprintf("%.1f %% are gone", rate), b, fixed = TRUE),
+         sprintf("%s: names the share gone (%.1f %%)", pid, rate))
+      routed <- num(pid, "10km", "col_route_keys")
+      if (!is.na(routed) && routed > 0) {
+        ok(grepl(sprintf("%s names", comma(routed)), b, fixed = TRUE),
+           sprintf("%s: names how many names were translated (%s)", pid, comma(routed)))
+        ok(grepl(sprintf("(%s)", comma(num(pid, "10km", "hybrids_left_out"))), b, fixed = TRUE),
+           sprintf("%s: names how many hybrids were left out", pid))
+      }
     } else {
-      ok(grepl("Like for like", b, fixed = TRUE), sprintf("%s: like for like", pid))
+      ok(grepl("Same method at both dates", b, fixed = TRUE), sprintf("%s: same method", pid))
     }
     has_note <- any(vapply(NOTES, function(n) n$timepoint %in% c(row$from_date, row$to_date), TRUE))
     ok(grepl("lacks", b, fixed = TRUE) == has_note,
@@ -365,7 +377,7 @@ for (pid in cb$pairs) {
       ok(marked == sum(dl$datasetkey %in% keys),
          sprintf("%s: the table marks the %d noted datasets it lists", pid, marked))
     } else {
-      ok(!grepl("Time point", note, fixed = TRUE), sprintf("%s: no delivery note", pid))
+      ok(!grepl("Data of ", note, fixed = TRUE), sprintf("%s: no delivery note", pid))
       ok(!"Note" %in% names(tb), sprintf("%s: no Note column", pid))
     }
     ok(nrow(tb) == nrow(dl), sprintf("%s: one row per dataset the losses rested on", pid))
@@ -384,8 +396,10 @@ run(P, "10km", code = quote({
   sh <- tapply(d$share, d$bar, sum)
   ok(all(abs(sh - 100) < 1e-6), "each type's periods add up to 100 %")
   yr <- num(P, "10km", "mechanism_boundary_year")
-  ok(paste0("From ", yr) %in% d$period_label, sprintf("the newest period reads 'From %s'", yr))
-  ok(paste0(yr - 10, "–", yr - 1) %in% d$period_label, "the decade before is labelled by its years")
+  ok(paste0("Collected ", yr, " or later") %in% d$period_label,
+     sprintf("the newest period reads 'Collected %s or later'", yr))
+  ok(paste0("Collected ", yr - 10, "–", yr - 1) %in% d$period_label,
+     "the decade before is labelled by its years")
   tot <- sum(d$n_pairs[d$source_group == "total"])
   ok(tot == num(P, "10km", "pairs_gained"), "all types together hold every gained pair")
   ok(any(grepl(comma(tot), d$bar, fixed = TRUE)), "the bar label carries the pair count")
@@ -409,10 +423,10 @@ run(P, "10km", code = quote({
   }
   tb <- as_data(output$cl_threat_table)
   ok(all(tb$`Red list` %in% c("CR", "EN", "VU", "NT")), "the table lists CR, EN, VU and NT only")
-  ok(all(tb$`Cells gained` > 0), "every listed species gained cells")
-  ok(identical(as.character(tb$Status[1]), "Newly recorded"), "newly recorded species come first")
-  ok(sum(tb$Status == "Newly recorded") == sum(st[status == "new", n_species]),
-     "every newly recorded threatened species is listed")
+  ok(all(tb$`New cells` > 0), "every listed species has new cells")
+  ok(identical(as.character(tb$`What changed`[1]), "New to the data"), "species new to the data come first")
+  ok(sum(tb$`What changed` == "New to the data") == sum(st[status == "new", n_species]),
+     "every red-listed species new to the data is listed")
 }))
 
 cat("\n=== the class x order table ===\n")
@@ -420,7 +434,7 @@ run(P, "10km", code = quote({
   tb <- as_data(output$cl_group_table)
   g <- cb$tables$group[pair_id == P & resolution == "10km" & key_space == "dyntaxa"]
   ok(nrow(tb) == nrow(g), "one row per class x order")
-  ok(sum(tb$Gained) == num(P, "10km", "pairs_gained"), "the rows add up to the pairs gained")
+  ok(sum(tb$New) == num(P, "10km", "pairs_gained"), "the rows add up to the new combinations")
   ok(!any(tb$Class == "" | tb$Order == ""), "blank ranks are labelled")
   ok(!"churn_flag" %in% names(tb) && !any(grepl("volatil", names(tb), ignore.case = TRUE)),
      "no volatility flag")
@@ -431,11 +445,11 @@ X <- PI$pair_id[1]
 closure_pair_index$regime_boundary[closure_pair_index$pair_id == X] <- 1
 run(X, "10km", code = quote({
   b <- htxt(output$closure_banner)
-  ok(grepl("built differently", b, fixed = TRUE), "a cross-regime pair gets the method banner")
+  ok(grepl("Two different kinds of GBIF data", b, fixed = TRUE), "a cross-regime pair gets the method banner")
   rate <- 100 * num(X, "10km", "pairs_lost") / num(X, "10km", "pairs_from")
-  ok(grepl(sprintf("%.1f %% of the earlier time point", rate), b, fixed = TRUE),
-     "the banner quotes the measured loss rate")
-  ok(grepl("50 km is the safer read", htxt(output$cl_res_note), fixed = TRUE),
+  ok(grepl(sprintf("%.1f %% of those on %s", rate, closure_date(PI$from_date[1])), b, fixed = TRUE),
+     "the banner quotes the share gone, with the date")
+  ok(grepl("50 km is the safer choice", htxt(output$cl_res_note), fixed = TRUE),
      "10 km carries the precision note")
   for (nm in c("cl_tile_gained", "cl_tile_lost", "cl_tile_cells")) {
     h <- output[[nm]]; if (is.list(h) && !is.null(h$html)) h <- h$html
