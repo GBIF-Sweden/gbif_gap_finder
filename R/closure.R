@@ -47,7 +47,7 @@
 #   tie-break, and the tie-break alone shifts the shares. Order-independent
 #   measures only.
 #
-# Dependencies: data.table, cli
+# Dependencies: data.table, cli, yaml
 # ============================================================================
 
 CLOSURE_CELL_STATUS  <- c("filled", "deepened", "unchanged", "thinned", "regressed")
@@ -1032,20 +1032,53 @@ closure_read_dataset_meta <- function(path) {
   unique(d[, .(datasetkey, title, publisher)], by = "datasetkey")[]
 }
 
+#' The national checklist release each compared date was matched with
+#'
+#' run_timepoint.R records the release in each time point's
+#' reference_version.yml. The live time point has no such file: it was matched
+#' with the live pipeline's checklist, `live_release`. Script 14 refuses a pair
+#' whose dates differ in it, so the tab can name one release per pair, and say
+#' when the other tabs use another one.
+#'
+#' @param tps Time point dates ("YYYY-MM-DD").
+#' @param timepoints_dir Directory with one folder per time point.
+#' @param live_release Release of the live pipeline's checklist, for a time
+#'   point without reference_version.yml; NA when unknown.
+#' @return Named character vector, time point -> release ("YYYY-MM-DD"), NA
+#'   where unknown.
+closure_reference_releases <- function(tps, timepoints_dir, live_release = NA_character_) {
+  day <- function(x) {
+    if (is.null(x) || !length(x) || is.na(x[1]) || !nzchar(as.character(x[1]))) return(NA_character_)
+    d <- suppressWarnings(as.Date(substr(as.character(x[1]), 1, 10)))
+    if (is.na(d)) NA_character_ else format(d, "%Y-%m-%d")
+  }
+  tps <- unique(as.character(tps))
+  rel <- vapply(tps, function(tp) {
+    f <- file.path(timepoints_dir, tp, "reference_version.yml")
+    if (!file.exists(f)) return(day(live_release))
+    r <- tryCatch(yaml::read_yaml(f), error = function(e) NULL)
+    day(r$taxonomy$published)
+  }, character(1))
+  stats::setNames(unname(rel), tps)
+}
+
 #' The bundle's metadata entries for the Gaps filled tab
 #'
 #' @param cb Output of closure_bundle().
 #' @param keep_top The `keep_top` closure_bundle() ran with: the tab says how
 #'   many species beyond the complete groups it lists.
 #' @param notes Time point notes (parameters.closure.timepoint_notes), or NULL.
+#' @param reference_releases closure_reference_releases() for the dates of the
+#'   pairs, or NULL.
 #' @return list(has_closure, closure_pairs, closure_species_top_n,
-#'   closure_timepoint_notes)
-closure_bundle_meta <- function(cb, keep_top, notes = NULL) {
+#'   closure_timepoint_notes, closure_reference_releases)
+closure_bundle_meta <- function(cb, keep_top, notes = NULL, reference_releases = NULL) {
   list(
     has_closure = !is.null(cb$tables$summary) && !is.null(cb$tables$pair_index) &&
       nrow(cb$tables$pair_index) > 0,
     closure_pairs = cb$pairs,
     closure_species_top_n = keep_top,
-    closure_timepoint_notes = notes
+    closure_timepoint_notes = notes,
+    closure_reference_releases = reference_releases
   )
 }

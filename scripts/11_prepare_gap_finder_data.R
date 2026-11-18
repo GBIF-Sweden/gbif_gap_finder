@@ -825,8 +825,17 @@ closure_types_file <- here(cfg_get("parameters.closure.source_types_file",
                                    glue("configs/dataset_types_{COUNTRY_CODE}.csv")))
 cb <- closure_bundle(closure_dir, keep_top = CLOSURE_KEEP_TOP,
                      datasets_meta = closure_read_dataset_meta(closure_types_file))
+# The checklist release the compared dates were matched with: the tab names it,
+# since it can be older than the release the rest of the bundle uses.
+closure_releases <- if (!is.null(cb$tables$pair_index)) {
+  closure_reference_releases(
+    c(cb$tables$pair_index$from_date, cb$tables$pair_index$to_date),
+    here(p_data_proc, "timepoints"),
+    live_release = data_sources_meta$checklists$taxonomy$published %||% NA_character_)
+}
 closure_meta <- closure_bundle_meta(cb, keep_top = CLOSURE_KEEP_TOP,
-                                    notes = cfg_get("parameters.closure.timepoint_notes"))
+                                    notes = cfg_get("parameters.closure.timepoint_notes"),
+                                    reference_releases = closure_releases)
 
 if (length(cb$pairs)) {
   for (nm in names(cb$tables)) {

@@ -528,6 +528,21 @@ ok(inherits(try(closure_col_route(mt_old[, .(specieskey)], mt_new, mapping), sil
             "try-error"),
    "a match table without species or taxon is refused by name")
 
+cli_h2("the checklist release of the compared dates")
+tpd <- tempfile("timepoints"); dir.create(file.path(tpd, "2024-01-01"), recursive = TRUE)
+yaml::write_yaml(list(taxonomy = list(published = "2026-09-29")),
+                 file.path(tpd, "2024-01-01", "reference_version.yml"))
+rel <- closure_reference_releases(c("2024-01-01", "2026-07-29", "2024-01-01"), tpd,
+                                  live_release = "2026-10-31T00:00:00.000+00:00")
+eq(rel, c("2024-01-01" = "2026-09-29", "2026-07-29" = "2026-10-31"),
+   "a time point's own record first, the live release for a point without one, each date once")
+eq(unname(closure_reference_releases("2026-07-29", tpd)), NA_character_,
+   "no record and no live release: unknown, not guessed")
+eq(closure_bundle_meta(list(tables = list(), pairs = character()), 10L,
+                       reference_releases = rel)$closure_reference_releases, rel,
+   "the releases travel in the bundle's metadata")
+unlink(tpd, recursive = TRUE)
+
 cli_h2("Result")
 if (fail == 0L) { cli_alert_success("All closure checks passed"); quit(status = 0L) }
 cli_abort("{fail} closure check{?s} failed")

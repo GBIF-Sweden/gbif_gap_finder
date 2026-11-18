@@ -232,8 +232,9 @@ combinations.
 - **Cells below the bar at both dates.** Cells with no records at either date are counted
   apart.
 
-Under the numbers: the number of combinations at each date, and how many names in the data
-have no entry in Dyntaxa. Records under those names are not counted.
+Under the numbers: the version of Dyntaxa both dates were compared with (it can be older
+than the version the other tabs use), the number of combinations at each date, and how many
+names in the data have no entry in Dyntaxa. Records under those names are not counted.
 
 **Map.** *Species gained or lost:* in each cell, the number of species at the later date
 minus the number at the earlier date (blue: more species now, red: fewer). *Recording

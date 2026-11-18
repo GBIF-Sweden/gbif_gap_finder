@@ -41,8 +41,13 @@ bundle[grepl("^closure_", names(bundle))] <- NULL
 for (nm in names(cb$tables)) {
   bundle[[paste0("closure_", nm)]] <- tibble::as_tibble(cb$tables[[nm]])
 }
+releases <- closure_reference_releases(
+  c(cb$tables$pair_index$from_date, cb$tables$pair_index$to_date),
+  here::here(p_data_proc, "timepoints"),
+  live_release = bundle$metadata$data_sources$checklists$taxonomy$published %||% NA_character_)
 meta <- closure_bundle_meta(cb, keep_top,
-                            notes = cfg_get("parameters.closure.timepoint_notes"))
+                            notes = cfg_get("parameters.closure.timepoint_notes"),
+                            reference_releases = releases)
 bundle$metadata[names(meta)] <- meta
 
 preview_dir <- file.path(tempdir(), "gap_finder_preview")

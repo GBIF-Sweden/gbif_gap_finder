@@ -31,8 +31,10 @@ APP       <- Sys.getenv("APP", "")
 CLOSURE   <- Sys.getenv("CLOSURE_DIR", "")
 CLOSURE_R <- Sys.getenv("CLOSURE_R", "")
 CONFIG    <- Sys.getenv("CONFIG", "")
-if (!nzchar(APP) || !nzchar(CLOSURE) || !nzchar(CLOSURE_R) || !nzchar(CONFIG)) {
+TP_DIR    <- Sys.getenv("TIMEPOINTS_DIR", "")
+if (!nzchar(APP) || !nzchar(CLOSURE) || !nzchar(CLOSURE_R) || !nzchar(CONFIG) || !nzchar(TP_DIR)) {
   source(here::here("scripts", "00_setup.R"))
+  if (!nzchar(TP_DIR))    TP_DIR    <- here::here(p_data_proc, "timepoints")
   if (!nzchar(APP))       APP       <- here::here("shiny_app", "gap_finder", "app.R")
   if (!nzchar(CLOSURE))   CLOSURE   <- here::here(p_data_proc, "closure")
   if (!nzchar(CLOSURE_R)) CLOSURE_R <- here::here("R", "closure.R")
@@ -136,6 +138,13 @@ cb <- closure_bundle(CLOSURE, keep_top = 1000L,
                      datasets_meta = closure_read_dataset_meta(types_file))
 stopifnot(length(cb$pairs) > 0)
 
+# The checklist releases of the compared dates, and a later one for the rest of
+# the bundle, so the footnote has to say both.
+MAIN_RELEASE <- "2026-10-31T00:00:00.000+00:00"
+RELEASES <- closure_reference_releases(
+  c(cb$tables$pair_index$from_date, cb$tables$pair_index$to_date), TP_DIR,
+  live_release = MAIN_RELEASE)
+
 cells10 <- unique(cb$tables$cells$eeacellcode[cb$tables$cells$resolution == "10km"])
 cells50 <- unique(cb$tables$cells$eeacellcode[cb$tables$cells$resolution == "50km"])
 
@@ -147,8 +156,10 @@ bundle <- list(
     country_name = "Sweden", country_adjective = "Swedish",
     threatened_codes = c("CR", "EN", "VU", "NT"),
     has_all_scope = TRUE, has_threatened_scope = FALSE,
-    has_invasive_scope = FALSE, has_sensitive_scope = FALSE),
-    closure_bundle_meta(cb, keep_top = 1000L, notes = NOTES))
+    has_invasive_scope = FALSE, has_sensitive_scope = FALSE,
+    data_sources = list(checklists = list(taxonomy = list(
+      published = MAIN_RELEASE)))),
+    closure_bundle_meta(cb, keep_top = 1000L, notes = NOTES, reference_releases = RELEASES))
 )
 for (nm in names(cb$tables)) bundle[[paste0("closure_", nm)]] <- as_tibble(cb$tables[[nm]])
 
@@ -356,6 +367,18 @@ for (pid in cb$pairs) {
     has_note <- any(vapply(NOTES, function(n) n$timepoint %in% c(row$from_date, row$to_date), TRUE))
     ok(grepl("lacks", b, fixed = TRUE) == has_note,
        sprintf("%s: the delivery line %s", pid, if (has_note) "is there" else "is not there"))
+    rel <- unique(stats::na.omit(unname(RELEASES[c(row$from_date, row$to_date)])))
+    fn <- htxt(output$cl_tile_footnote)
+    if (length(rel) == 1) {
+      ok(grepl(sprintf("as published on %s, at both dates", closure_date(rel)), fn, fixed = TRUE),
+         sprintf("%s: the footnote names the Dyntaxa release of both dates (%s)", pid, closure_date(rel)))
+      ok(grepl("the other tabs use the version of 31 October 2026", fn, fixed = TRUE) ==
+           (rel != "2026-10-31"),
+         sprintf("%s: the footnote says when the other tabs use another release", pid))
+    } else {
+      ok(!grepl("as published on", fn, fixed = TRUE),
+         sprintf("%s: no release named when the dates' release is unknown", pid))
+    }
   }))
 }
 

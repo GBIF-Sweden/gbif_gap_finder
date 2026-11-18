@@ -434,6 +434,17 @@ closure_taxonomy_name <- metadata$taxonomy_name %||% "Dyntaxa"
 closure_threat_codes  <- metadata$threatened_codes %||% c("CR", "EN", "VU", "NT")
 closure_notes         <- metadata$closure_timepoint_notes %||% list()
 
+# The checklist release a pair's dates were matched with (one per pair: script
+# 14 refuses a pair whose dates differ in it), as "29 September 2026", or "".
+closure_releases <- metadata$closure_reference_releases %||% character()
+closure_pair_release <- function(from, to) {
+  r <- unique(stats::na.omit(unname(closure_releases[as.character(c(from, to))])))
+  if (length(r) == 1) closure_date(r) else ""
+}
+# The release the other tabs use, or "".
+closure_main_release <- closure_date(
+  metadata$data_sources$checklists$taxonomy$published %||% NA_character_)
+
 # --- the class / order filter ---------------------------------------------------
 # Values: "__all__" for no filter; a class, or "__none__" for the orders Dyntaxa
 # places in no class; an order as "class|order" with the same "__none__", so a
@@ -1741,7 +1752,8 @@ ui <- fluidPage(
                   "<em>gone</em> the other way round. Counting combinations shows progress even where every cell already has some records.")),
                 p(closure_html("<strong>Species.</strong> Species are counted as they are named in ", closure_taxonomy_name, ", the ",
                   country_adjective, " species list. ",
-                  "Records whose name has no entry there are not counted; the note under the numbers says how many names that is. ",
+                  "Records whose name has no entry there are not counted; the note under the numbers says how many names that is, ",
+                  "and which version of ", closure_taxonomy_name, " the two dates were compared with. ",
                   "GBIF names records by a reference list of species, and changed that list between two of the dates, from its own former list ",
                   "to the Catalogue of Life. When two dates fall on either side of the change, the names of the earlier date are translated with ",
                   "GBIF's official conversion table, and hybrids are left out at both dates. The note at the top of the tab gives the numbers.")),
@@ -6561,7 +6573,13 @@ server <- function(input, output, session) {
     k <- cl_counts()
     off_to   <- cl_num("species_off_checklist_to")
     off_from <- cl_num("species_off_checklist_from")
+    rel <- closure_pair_release(cl_pair_row()$from_date, cl_pair_row()$to_date)
     closure_html(
+      if (nzchar(rel)) paste0(
+        "Species names follow ", closure_taxonomy_name, " as published on ", closure_b(rel), ", at both dates",
+        if (nzchar(closure_main_release) && closure_main_release != rel)
+          paste0("; the other tabs use the version of ", closure_main_release) else "",
+        ". "),
       if (!is.na(k$from) && !is.na(k$to)) paste0(
         "Species–cell combinations", cl_group_suffix(), ": ", closure_b(comma(k$from)), " on ", cl_from(),
         ", ", closure_b(comma(k$to)), " on ", cl_to(), ". "),

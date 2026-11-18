@@ -1,5 +1,11 @@
 # gbif_gap_finder — Changelog
 
+## Unreleased — Data on the July cube with Dyntaxa 2026-10-31
+
+- `provenance/upstream_versions_SE.yml` records Dyntaxa 2026-10-31, the release the data is
+  built with. Written with 01b's own writer from `data_sources_meta.rds` of the run of
+  10 November: a new run of 01b would record the release GBIF serves on that day instead.
+
 ## Unreleased — Gaps filled, after the review
 
 The tab stays behind `GAP_FINDER_SHOW_GAPS_FILLED` until the release.
@@ -45,6 +51,9 @@ The tab stays behind `GAP_FINDER_SHOW_GAPS_FILLED` until the release.
 - The volatility flag is gone; every group shows its loss % instead.
 - `tools/test_gaps_filled_tab.R` runs the code inside every plot and table (its stubs
   returned the code unrun before) and checks the numbers against the tables.
+- **The Dyntaxa release of the compared dates:** script 11 reads it from each time point's
+  `reference_version.yml` (`closure_reference_releases()`), and the note under the numbers
+  names it, with the release the other tabs use when that one is newer.
 - **The tab in plain words:** every number says what it counts, with the dates of the pair
   ("new species–cell combinations", "species new to the data", "cells with their first
   records", recording depth against a bar of N records). Dates read "1 January 2024". The

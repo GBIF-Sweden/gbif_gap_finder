@@ -15,8 +15,8 @@ col_backbone:
 taxonomy:
   dataset_key: de8934f4-a136-481c-a87a-b0b202b80a31
   title: Dyntaxa. Svensk taxonomisk databas
-  published: '2026-09-29'
-  modified: '2026-09-29'
+  published: '2026-10-31'
+  modified: '2026-10-31'
   doi: https://doi.org/10.15468/j43wfc
 redlist:
   dataset_key: 87e639cc-30a9-4007-bd2c-b0cab60326b9
